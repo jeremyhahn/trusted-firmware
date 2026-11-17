@@ -145,16 +145,12 @@ var boardImages = map[string]boardImage{
 	// none, so no tier's rows, nor the rows that hold facts only for a tier
 	// (cryptoTier); no identity provisioned and no stager or application
 	// known to the rows.
-	"esp32p4-poe": {
-		caps:  avrPeripherals,
-		tier:  noneTier,
-		parts: partTCP,
-	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
 	"esp32p4-poe": {
-		caps: avrPeripherals,
-		tier: anyTier,
+		caps:  avrPeripherals,
+		tier:  anyTier,
+		parts: partTCP,
 	},
 }
 

@@ -31,7 +31,8 @@ type peerBoard struct {
 	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where no PWM pin is spent on it
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
-	ledPin     uint8          // the pin the board's table flags as its LED
+	ledPin     uint8          // the board's LED pin, or the plain pin that stands in where it has none
+	hasLED     bool           // whether the board's table flags ledPin as an LED
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
@@ -47,6 +48,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 5, noPWMPin: 13, // OC0B
 		pwmPin: 9, // OC1A
 		ledPin: 13, txPin: 1, timerPin: 2,
+		hasLED:  true,
 		tonePin: 11, // OC2A, PB3
 	},
 	"atmega2560": {
@@ -58,6 +60,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 4, noPWMPin: 22, // OC0B; PA0
 		pwmPin: 9, // OC2B
 		ledPin: 13, txPin: 1, timerPin: 2,
+		hasLED:  true,
 		tonePin: 10, // OC2A, PB4: not the 328P's 11
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
@@ -73,11 +76,13 @@ var peerBoards = map[string]peerBoard{
 		resetCause: tfw.ResetPowerOn,
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
 		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+		hasLED: true,
 	},
 	"mps2-an500": {
 		resetCause: tfw.ResetPowerOn,
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
 		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+		hasLED: true,
 	},
 	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
 	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
@@ -94,7 +99,8 @@ var peerBoards = map[string]peerBoard{
 		tickPin: -1, noPWMPin: 11, // GPIO32
 		pwmPin: 0,                           // GPIO2, LEDC0
 		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
-		tonePin: 4, // GPIO6, the first pin with no LEDC channel
+		hasLED:  false, // GPIO32 carries no led flag
+		tonePin: 4,     // GPIO6, the first pin with no LEDC channel
 	},
 }
 
@@ -103,6 +109,53 @@ var peerBoards = map[string]peerBoard{
 // none of the pins those rows expect to refuse a duty or to be an ADC input.
 // The AVR boards keep pin 9; the ESP32-P4's pin 9 is an ADC input, so its
 // row drives LEDC0.
+// ledPinFlags checks the flags the Pin row reads on b's LED pin: digital
+// and led where the board has an LED there, digital with no led flag where a
+// plain pin stands in for one.
+func ledPinFlags(b peerBoard, flags tfw.PinFlags) error {
+	if !flags.Has(tfw.PinDigital) {
+		return fmt.Errorf("pin %d flags = %s, want digital", b.ledPin, flags)
+	}
+	if b.hasLED != flags.Has(tfw.PinLED) {
+		want := "digital and led"
+		if !b.hasLED {
+			want = "digital, no led: the board has no LED"
+		}
+		return fmt.Errorf("pin %d flags = %s, want %s", b.ledPin, flags, want)
+	}
+	return nil
+}
+
+func TestPinRowExpectsTheLEDFlagOnlyWhereTheBoardHasAnLED(t *testing.T) {
+	led := peerBoard{ledPin: 13, hasLED: true}
+	plain := peerBoard{ledPin: 11}
+	for _, c := range []struct {
+		name  string
+		b     peerBoard
+		flags tfw.PinFlags
+		ok    bool
+	}{
+		{"an LED flagged led", led, tfw.PinDigital | tfw.PinLED, true},
+		{"an LED not flagged led", led, tfw.PinDigital, false},
+		{"no LED and no led flag", plain, tfw.PinDigital, true},
+		{"no LED flagged led", plain, tfw.PinDigital | tfw.PinLED, false},
+		{"no LED and not digital", plain, 0, false},
+	} {
+		if err := ledPinFlags(c.b, c.flags); (err == nil) != c.ok {
+			t.Errorf("%s: flags %s gave %v, want ok=%v", c.name, c.flags, err, c.ok)
+		}
+	}
+
+	for board, has := range map[string]bool{
+		"atmega328p": true, "atmega2560": true, "mps2-an505": true, "mps2-an500": true,
+		"esp32p4-poe": false, // no LED on the header (boards/esp32p4-poe/board.c)
+	} {
+		if b := peerBoards[board]; b.hasLED != has {
+			t.Errorf("%s: hasLED %v on pin %d, want %v", board, b.hasLED, b.ledPin, has)
+		}
+	}
+}
+
 func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
 	want := map[string]uint8{"atmega328p": 9, "atmega2560": 9, "esp32p4-poe": 0}
 	for board := range boardImages {

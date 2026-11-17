@@ -32,9 +32,12 @@ type peerBoard struct {
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
 	ledPin     uint8          // the pin the board's table flags as its LED
-	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
-	timerPin   uint8          // a digital output the timer scenario drives and reads back
-	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
+	// ledUnflagged: the table flags ledPin digital only, no LED (the
+	// ESP32-P4's GPIO32, boards/esp32p4-poe/board.c).
+	ledUnflagged bool
+	txPin        int   // the UART's transmit pin; -1 where the UART is not in the pin table
+	timerPin     uint8 // a digital output the timer scenario drives and reads back
+	tonePin      uint8 // the board's TFW_TONE_PIN, the one pin TONE drives
 }
 
 var peerBoards = map[string]peerBoard{
@@ -92,8 +95,8 @@ var peerBoards = map[string]peerBoard{
 		// The tick is the system timer, not an LEDC channel: no PWM pin is
 		// spent on it. Pin 9 here is GPIO22, an ADC input with no LEDC.
 		tickPin: -1, noPWMPin: 11, // GPIO32
-		pwmPin: 0,                           // GPIO2, LEDC0
-		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
+		pwmPin: 0,                                               // GPIO2, LEDC0
+		ledPin: 11, ledUnflagged: true, txPin: -1, timerPin: 12, // GPIO33
 		tonePin: 4, // GPIO6, the first pin with no LEDC channel
 	},
 }
@@ -126,6 +129,20 @@ func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
 		if b.pwmPin == b.adcPin || b.pwmPin == b.analog {
 			t.Errorf("%s: PWM pin %d is the board's ADC pin", board, b.pwmPin)
 		}
+	}
+}
+
+// Codex P1 on #568: the Pin row wants the LED flag only where the board's
+// table sets it; the ESP32-P4's GPIO32 is digital only (board.c), the AVR
+// boards' pin 13 is their LED.
+func TestPinRowWantsTheLEDFlagOnlyWhereTheTableSetsIt(t *testing.T) {
+	for board, unflagged := range map[string]bool{"atmega328p": false, "atmega2560": false, "esp32p4-poe": true} {
+		if got := peerBoards[board].ledUnflagged; got != unflagged {
+			t.Errorf("%s: ledUnflagged = %v, want %v", board, got, unflagged)
+		}
+	}
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePin") {
+		t.Error("esp32p4-poe: TestFirmwarePin is not run")
 	}
 }
 

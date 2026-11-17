@@ -8,8 +8,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +23,7 @@ import (
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
 
 // The TestFirmware* scenarios run each verb against whatever the transport
@@ -157,13 +162,125 @@ func TestFirmwarePing(t *testing.T) {
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
-	dev := startFirmware(t, tfw.WithBootWait(0))
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	conn, skip := bootEventLink(t, target, os.Getenv(resetPortEnv))
+	if skip != "" {
+		t.Skip(skip)
+	}
+	assertBootEvent(t, conn)
+}
+
+// assertBootEvent pings over conn with no boot wait and asserts the first
+// event the device delivered is its boot event.
+func assertBootEvent(t *testing.T, conn io.ReadWriteCloser) {
+	t.Helper()
+	dev := tfw.New(conn, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
 	events := dev.Events()
 	require.NotEmpty(t, events, "no boot event was observed")
 	assert.True(t, events[0].IsEvent() && events[0].Payload[0] == tfw.EventBoot,
 		"first event = %+v, want a boot event", events[0])
+}
+
+// resetPortEnv names the serial port that resets a board whose wire is a
+// tcp: link (#550, make hw-test RESET_PORT=): the suite pulses its DTR and
+// nothing else, and talks to the board over TCP.
+const resetPortEnv = "TFW_HW_RESET_PORT"
+
+// pulseReset drops DTR on port for peer.ResetPulse and raises it again,
+// resetting the board; a variable so a host test can see the pulse.
+var pulseReset = func(port string) error {
+	p, err := serialport.Open(port, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = p.Close() }()
+	r, ok := p.(interface{ SetDTR(bool) error })
+	if !ok {
+		return fmt.Errorf("%s cannot drive DTR", port)
+	}
+	if err := r.SetDTR(false); err != nil {
+		return fmt.Errorf("%s: dropping DTR: %w", port, err)
+	}
+	time.Sleep(peer.ResetPulse)
+	if err := r.SetDTR(true); err != nil {
+		return fmt.Errorf("%s: raising DTR: %w", port, err)
+	}
+	return nil
+}
+
+// bootEventLink is the link the boot-event row reads, to a board that has
+// just booted. A serial or QMP link is the seam's, which resets the board as
+// it opens it. A tcp: link has no reset of its own: the board is reset by a
+// pulse on resetPort and its endpoint dialled again until it is back. With no
+// resetPort nothing resets it, so there is no link and skip says why: the row
+// skips by name, never passes on a boot it did not see.
+func bootEventLink(t *testing.T, target peer.Target, resetPort string) (conn io.ReadWriteCloser, skip string) {
+	t.Helper()
+	if !strings.HasPrefix(target.Port, peer.TCPPrefix) {
+		return peer.Start(t, simproc.Software), ""
+	}
+	if resetPort == "" {
+		return nil, fmt.Sprintf("%s=%s is a tcp: link and %s is unset: nothing resets the board, so its boot event cannot be observed",
+			peer.PortEnv, target.Port, resetPortEnv)
+	}
+	require.NoError(t, pulseReset(resetPort), "%s=%s", resetPortEnv, resetPort)
+	deadline := time.Now().Add(peer.StartBound)
+	for {
+		c, err := peer.Open(target.Port, peer.StartBound)
+		if err == nil {
+			t.Cleanup(func() { _ = c.Close() })
+			return c, ""
+		}
+		require.True(t, time.Now().Before(deadline), "%s did not answer within %v of the reset: %v", target.Port, peer.StartBound, err)
+		time.Sleep(peer.ResetPulse)
+	}
+}
+
+// TestBootEventLinkSkipsATCPLinkWithNoResetPort: with no reset port the
+// boot-event row has no link and a reason naming the variable to set.
+func TestBootEventLinkSkipsATCPLinkWithNoResetPort(t *testing.T) {
+	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + "192.0.2.1:7000"}, "")
+	assert.Nil(t, conn)
+	assert.Contains(t, skip, resetPortEnv)
+	assert.Contains(t, skip, peer.TCPPrefix+"192.0.2.1:7000")
+}
+
+// TestBootEventLinkResetsATCPLinkThroughTheResetPort runs the boot-event row
+// on a simulated tcp: peer, a listener bridged to the software simulator: the
+// reset port is pulsed before the endpoint is dialled, and the boot event
+// arrives over TCP.
+func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
+	sim := simproc.Start(t, simproc.Software)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	var pulsed, dialledAfterPulse atomic.Bool
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		dialledAfterPulse.Store(pulsed.Load())
+		go func() { _, _ = io.Copy(c, sim) }()
+		_, _ = io.Copy(sim, c)
+	}()
+	restore := pulseReset
+	t.Cleanup(func() { pulseReset = restore })
+	var pulsedPort string
+	pulseReset = func(port string) error {
+		pulsedPort = port
+		pulsed.Store(true)
+		return nil
+	}
+
+	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + ln.Addr().String()}, "/dev/ttyUSB9")
+	require.Empty(t, skip)
+	assert.Equal(t, "/dev/ttyUSB9", pulsedPort)
+	assertBootEvent(t, conn)
+	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
 }
 
 // Forty pairs of (SOF, SOF). The framer treats the first byte of each pair as a

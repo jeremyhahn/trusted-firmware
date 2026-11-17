@@ -116,12 +116,15 @@ sdk-coverage:
 # HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
 # system_reset, which is how integration-test-cortex-m-wire runs the rows on a
-# QEMU board (mk/arch/cortex-m-targets.mk).
+# QEMU board (mk/arch/cortex-m-targets.mk). A PORT=tcp: board has neither:
+# RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
+# DTR on to reset it, and only that row resets; unset, that row skips, naming
+# RESET_PORT (#550, docs/plans/550.md).
 HW_TEST_RUN ?=
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ -z "$(filter tcp:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_RESET_PORT='$(RESET_PORT)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes

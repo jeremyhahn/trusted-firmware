@@ -397,23 +397,23 @@ const toneHz = 1000
 // captured half periods and wants the frequency within 5%; a simulator's pin
 // carries no waveform, so there the row proves the start and stop round-trip.
 func TestFirmwareTone(t *testing.T) {
-	_, b := firmwareBoard(t)
+	board, b := firmwareBoard(t)
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
+	// Only an image known to hold the tone pin (the Mega's ETH=1,
+	// partTonePinHeld) skips; it runs TestFirmwareToneRefusesTheShieldsPin
+	// instead. Anywhere else a RESERVED_PIN on the tone pin fails the row.
+	if tonePinHeld(target.Hardware(), board) {
+		t.Skipf("%s: the image holds pin %d; TestFirmwareToneRefusesTheShieldsPin covers it", board, b.tonePin)
+	}
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureTone)
 	pin := strconv.Itoa(int(b.tonePin))
 
 	assert.Equal(t, tfw.StatusErrUnsupported, cliStatus(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), strconv.Itoa(toneHz)),
 		"pin %d is not the tone pin", b.pwmPin)
-	err = run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{})
-	var st tfw.Status
-	if errorsAsStatus(err, &st) && st == tfw.StatusErrReservedPin {
-		// An image that holds the tone pin (the Mega's ETH=1, partTonePinHeld)
-		// runs TestFirmwareToneRefusesTheShieldsPin instead.
-		t.Skipf("pin %d is held by this image; the tone row needs one that leaves it free", b.tonePin)
-	}
-	require.NoError(t, err)
+	require.NoError(t, run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{}),
+		"%s: pin %d is the tone pin and this image leaves it free", board, b.tonePin)
 	require.NoError(t, run(context.Background(), dev, "write", []string{pin, "0"}, false, &strings.Builder{}))
 	require.NoError(t, run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{}),
 		"pin %d is the tone pin and should take %d Hz", b.tonePin, toneHz)

@@ -423,3 +423,29 @@ func TestOnlyTheMegaImageHoldsTheTonePin(t *testing.T) {
 		}
 	}
 }
+
+// tonePinHeld reports whether the firmware under test is known to hold the
+// tone pin: hardware running a board image with partTonePinHeld. The
+// simulator and every other image leave it free, so a RESERVED_PIN there is
+// a regression, not a skip.
+func tonePinHeld(hardware bool, board string) bool {
+	return hardware && boardImageHolds(board, partTonePinHeld)
+}
+
+func TestTonePinHeldOnlyOnTheMegaHardware(t *testing.T) {
+	for _, c := range []struct {
+		hardware bool
+		board    string
+		want     bool
+	}{
+		{true, "atmega2560", true},
+		{false, "atmega2560", false},
+		{true, "esp32p4-poe", false},
+		{true, "atmega328p", false},
+		{false, "atmega328p", false},
+	} {
+		if got := tonePinHeld(c.hardware, c.board); got != c.want {
+			t.Errorf("%s hardware=%v: tone pin held = %v, want %v", c.board, c.hardware, got, c.want)
+		}
+	}
+}

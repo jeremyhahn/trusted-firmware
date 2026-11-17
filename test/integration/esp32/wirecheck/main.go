@@ -80,12 +80,13 @@ func main() {
 	timeout := flag.Duration("timeout", 10*time.Second, "how long one command may take")
 	network := flag.String("network", "tcp", "tcp, or unix for a socket path in -addr")
 	silent := flag.Duration("silent", 0, "pass only if nothing answers a PING for this long")
+	refusal := flag.Int("refusal", -1, "with -silent: pass only if the device also announces this status in an EVENT, or -1 for no check")
 	hsm := flag.String("hsm", "", "run this tamper-response case (hsm.go) and nothing else")
 	hsmDir := flag.String("hsm-dir", "", "the directory hsm_sets wrote the -hsm cases' sets to")
 	flag.Parse()
 
 	if *silent > 0 {
-		if err := expectSilent(*network, *addr, *silent); err != nil {
+		if err := expectSilent(*network, *addr, *silent, *refusal); err != nil {
 			fail("silent", err)
 		}
 		fmt.Println("wirecheck: ok")
@@ -326,7 +327,7 @@ func dial(network, addr string, wait, timeout time.Duration) (*tfw.Device, net.C
 // never answers. It connects -- so there is a QEMU listening -- and passes only
 // if no PING is echoed for the whole window, each try bounded by its PING
 // deadline. That QEMU was still running at the end is the caller's to check.
-func expectSilent(network, addr string, window time.Duration) error {
+func expectSilent(network, addr string, window time.Duration, refusal int) error {
 	conn, err := net.DialTimeout(network, addr, 2*time.Second)
 	if err != nil {
 		return fmt.Errorf("dial %s %s: %w", network, addr, err)
@@ -335,6 +336,7 @@ func expectSilent(network, addr string, window time.Duration) error {
 	msg := []byte("tfw-silent")
 	d := tfw.New(conn, tfw.WithBootWait(0), tfw.WithTimeout(2*time.Second))
 	deadline := time.Now().Add(window)
+	var seen []tfw.Status
 	for time.Now().Before(deadline) {
 		echo, err := d.Ping(context.Background(), msg)
 		if err == nil && bytes.Equal(echo, msg) {
@@ -343,9 +345,24 @@ func expectSilent(network, addr string, window time.Duration) error {
 		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 			return fmt.Errorf("%s %s closed: QEMU is gone: %w", network, addr, err)
 		}
+		for _, e := range d.Events() {
+			seen = append(seen, e.Status)
+		}
 	}
 	fmt.Printf("wirecheck: no answer over %s %s for %v\n", network, addr, window)
-	return nil
+	if refusal < 0 {
+		return nil
+	}
+	// A refusing device must say why (#542): the boot loader's EVENT carries the
+	// reason it stopped, and a console that shows nothing is a defect.
+	for _, s := range seen {
+		if s == tfw.Status(refusal) {
+			fmt.Printf("wirecheck: refusal announced: %v\n", s)
+			return nil
+		}
+	}
+	return fmt.Errorf("no EVENT named the refusal %v over %s %s in %v (events seen: %v)",
+		tfw.Status(refusal), network, addr, window, seen)
 }
 
 // otaCheck streams the image in file through OTA_BEGIN/DATA/END and reads the

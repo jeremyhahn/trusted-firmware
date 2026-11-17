@@ -24,6 +24,10 @@
 #              verified it a second time
 #   tampered   one bit of the image flipped after signing: tfw-boot refuses
 #   otherkey   signed by a key tfw-boot does not hold: tfw-boot refuses
+#   unprovisioned
+#              the genuine image and no platform block, neither the factory
+#              copy nor the home (#542): tfw-boot refuses, and says why, an
+#              EVENT carrying TFW_ERR_NOT_PROVISIONED (15)
 #   hsm-*      the tamper-response engine and its loop (m7-design.md slice 3),
 #              on the sets hsm_sets.c wrote:
 #                noset      no set, S5 reported: lockdown, LED 0 lit
@@ -76,17 +80,23 @@ stop() {
 }
 trap 'stop; rm -rf "$sockdir"' EXIT
 
-# start <name> <application>: a QEMU booting tfw-boot with <application> in
-# the slot, its UART at $sockdir/<name>.sock, its pid in $pid.
+# start <name> <application> [noplatform]: a QEMU booting tfw-boot with
+# <application> in the slot, its UART at $sockdir/<name>.sock, its pid in $pid.
+# noplatform loads no platform block: the memory stays blank, as on a board
+# that was never provisioned.
 start() {
     sock=$sockdir/$1.sock
     log=$dir/$1.qemu.log
+    plat=platform.bin
+    if [ "${3-}" = noplatform ]; then
+        plat=
+    fi
     rm -f "$dir/$1.pid" "$log"
     "$qemu" -M "$machine" -display none -monitor none \
         -serial "unix:$sock,server=on,wait=off" \
         -device "loader,file=$dir/boot.bin,addr=$BOOT_AT,force-raw=on" \
         -device "loader,file=$dir/$2,addr=$APP_AT,force-raw=on" \
-        -device "loader,file=$dir/platform.bin,addr=$PLATFORM_AT,force-raw=on" \
+        ${plat:+-device} ${plat:+"loader,file=$dir/$plat,addr=$PLATFORM_AT,force-raw=on"} \
         -d guest_errors,unimp -D "$log" \
         -daemonize -pidfile "$dir/$1.pid"
     read -r pid < "$dir/$1.pid"
@@ -124,6 +134,16 @@ for row in tampered otherkey; do
     stop
     echo "qemu_test: $row: refused, silent for $silent, QEMU still up"
 done
+
+# No platform block means no pinned key: nothing may boot, and the refusal is
+# named (#542). wirecheck's PINGs are what the halt answers with its EVENT, so
+# the reason arrives even though the socket opened after the reset.
+start unprovisioned app.bin noplatform
+"$dir/wirecheck" -network unix -addr "$sock" -silent "$silent" -refusal 15 ||
+    fail unprovisioned "tfw-boot booted with no platform block, or refused without saying why"
+alive unprovisioned
+stop
+echo "qemu_test: unprovisioned: refused, TFW_ERR_NOT_PROVISIONED announced, QEMU still up"
 
 # The tamper-response engine, driven over the channel (wirecheck -hsm, its
 # hsm.go), each case on a fresh image so no latch carries over. On an image

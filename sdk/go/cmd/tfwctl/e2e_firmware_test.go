@@ -196,7 +196,11 @@ func TestFirmwarePin(t *testing.T) {
 
 	led := cliPin(t, dev, b.ledPin)
 	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
-	assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin %d flags = %s, want digital and led", b.ledPin, led.Flags)
+	ledFlags := b.ledFlags
+	if ledFlags == 0 {
+		ledFlags = tfw.PinDigital | tfw.PinLED
+	}
+	assert.True(t, led.Flags.Has(ledFlags), "pin %d flags = %s, want %s", b.ledPin, led.Flags, ledFlags)
 	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
 	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
 	assert.Equal(t, b.ledBit, led.Bit, "pin %d bit", b.ledPin)

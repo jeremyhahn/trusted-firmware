@@ -49,6 +49,8 @@ static void test_config(void)
     TEST_ASSERT_EQUAL_UINT32(1000000u, mock_rmt.cfg.resolution_hz);
     TEST_ASSERT_EQUAL_UINT(SOC_RMT_MEM_WORDS_PER_CHANNEL, mock_rmt.cfg.mem_block_symbols);
     TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.with_dma);
+    /* #573: the capture keeps an output driven on the same pin (LEDC). */
+    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
     TEST_ASSERT_EQUAL_UINT32(1000u, mock_rmt.rcv.signal_range_min_ns);
     TEST_ASSERT_EQUAL_UINT32(1000000u, mock_rmt.rcv.signal_range_max_ns);
     TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.rcv.flags.en_partial_rx);

@@ -115,6 +115,14 @@ tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
         .clk_src           = RMT_CLK_SRC_DEFAULT,
         .resolution_hz     = 1000000u / tick_us,
         .mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL,
+        /* #573: ESP-IDF's rmt_new_rx_channel configures the pad as an input
+         * only, which disables its output and drops a LEDC tone driven on
+         * the same pin, so the capture read a quiet line. The IDF documents
+         * io_loop_back as feeding the GPIO's output signal to the input path
+         * as well: the pad keeps its output enabled and the RMT input is
+         * routed through the GPIO matrix beside it, so a capture on the tone
+         * pin reads the LEDC waveform. Not yet verified on hardware. */
+        .flags.io_loop_back = 1u,
     };
     rmt_receive_config_t     rcv = {
         .signal_range_min_ns = RMT_GLITCH_NS,

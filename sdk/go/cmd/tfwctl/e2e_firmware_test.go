@@ -241,7 +241,9 @@ func TestFirmwareCaps(t *testing.T) {
 	// its P-256 DeviceID (SOFT_ID=p256: tfwsim and the ATmega2560), except the
 	// ATmega328P and ATmega32U4 images, which keep the HMAC-SHA256 signer
 	// (SOFT_ID=hmac); docs/dice-attestation/cli.md, the element performs
-	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519.
+	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519. A CRYPTO=none
+	// image (the ESP32-P4 PoE at HIL-0) has no provider and reports no
+	// algorithm at all (src/crypto/none/provider.c, tfw_crypto_algorithms).
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	soft := tfw.AlgECDSAP256SHA256
@@ -254,6 +256,8 @@ func TestFirmwareCaps(t *testing.T) {
 	case "secure-element":
 		assert.Equal(t, tfw.AlgHMACSHA256|tfw.AlgECDSAP256SHA256, c.Algorithms,
 			"algorithms = %s, want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms)
+	case "none":
+		assert.Zero(t, c.Algorithms, "algorithms = %s, want none on a CRYPTO=none image", c.Algorithms)
 	default:
 		t.Fatalf("crypto tier %s: no facts for it", tier)
 	}
@@ -475,9 +479,10 @@ func TestFirmwareI2CConfig(t *testing.T) {
 	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
-	// peripheral on an element build; the software tier applies the clock.
+	// peripheral on an element build; the software tier applies the clock, and
+	// so does a CRYPTO=none image (src/caps/bus.c refuses on the element only).
 	switch tier := cliTier(t, dev); tier {
-	case "software":
+	case "software", "none":
 	case "secure-element":
 		cliRefused(t, dev, "i2c-config", "400000")
 		return

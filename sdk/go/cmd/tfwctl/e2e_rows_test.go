@@ -117,7 +117,7 @@ var boardImages = map[string]boardImage{
 	// CAPS features 0x7ff on the bench record
 	// (docs/development/bench/esp32-p4.md), the AVR families exactly, tier
 	// none, so no tier's rows, nor the rows that hold facts only for a tier
-	// (cryptoTier); no identity provisioned and no stager or application
+	// (cryptoTier: EEPROM, AttestRefusedUnprovisioned); no identity provisioned and no stager or application
 	// known to the rows.
 	"esp32p4-poe": {
 		caps:    avrPeripherals,
@@ -132,7 +132,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwarePing": {},
 	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {fresh: true},
 	"TestFirmwarePingAfterAMalformedBurst":               {fresh: true},
-	"TestFirmwareCaps":                                   {tier: cryptoTier},
+	"TestFirmwareCaps":                                   {},
 	"TestFirmwareSys":                                    {fresh: true},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
@@ -142,7 +142,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
-	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C, tier: cryptoTier},
+	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
 	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
 
@@ -353,13 +353,15 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 }
 
 // The ESP32-P4's bench image is CRYPTO=none (Codex P1 on #558): the rows that
-// hold facts only for the software and element tiers (Caps, EEPROM,
-// I2CConfig) are not in its run, where they could only fail; the rows with no
-// tier in them are, and the AVR boards, on a tier, still run those three.
+// hold facts only for the software and element tiers (EEPROM) are not in its
+// run, where they could only fail; the rows with no tier in them are, Caps and
+// I2CConfig among them now that they hold none-tier facts (#576), and the AVR
+// boards, on a tier, still run all three.
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
-	tiered := []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"}
+	tiered := []string{"TestFirmwareEEPROM"}
 	p4 := boardRun(t, "esp32p4-poe", false)
-	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C"} {
+	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C",
+		"TestFirmwareCaps", "TestFirmwareI2CConfig"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
 		}
@@ -376,7 +378,7 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	}
 	for _, board := range []string{"atmega328p", "atmega2560"} {
 		run := boardRun(t, board, false)
-		for _, r := range tiered {
+		for _, r := range []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"} {
 			if !run.MatchString(r) {
 				t.Errorf("%s: %s is not run", board, r)
 			}

@@ -133,7 +133,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {fresh: true},
 	"TestFirmwarePingAfterAMalformedBurst":               {fresh: true},
 	"TestFirmwareCaps":                                   {tier: cryptoTier},
-	"TestFirmwareSys":                                    {},
+	"TestFirmwareSys":                                    {fresh: true},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
@@ -359,7 +359,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	tiered := []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"}
 	p4 := boardRun(t, "esp32p4-poe", false)
-	for _, r := range []string{"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePin", "TestFirmwareI2C"} {
+	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
 		}
@@ -392,23 +392,31 @@ func TestBoardRunMatchesWholeNames(t *testing.T) {
 }
 
 // A board whose wire does not reset it on connect (the P4's TCP server) runs
-// no row that needs a fresh boot: the boot event never comes, and the
-// malformed burst leaves the sticky framing counters that Sys reads as zero.
+// no row that needs a fresh boot: the boot event never comes, and Sys's
+// power-on reset cause and zero sticky framing counters (Codex P1 on #546)
+// hold only until the board restarts through firmware or reads a bad frame.
 func TestBoardWithNoResetOnConnectRunsNoFreshBootRow(t *testing.T) {
 	run := boardRun(t, "esp32p4-poe", false)
 	for _, r := range []string{
 		"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		"TestFirmwarePingAfterAMalformedBurst",
+		// a power-on reset cause and zero sticky framing counters: a board
+		// restarted through firmware, or sent a malformed frame on an
+		// earlier connection, keeps neither
+		"TestFirmwareSys",
 	} {
 		if run.MatchString(r) {
 			t.Errorf("esp32p4-poe runs %s, which needs a fresh boot", r)
 		}
 	}
-	if !run.MatchString("TestFirmwareSys") {
-		t.Error("esp32p4-poe dropped TestFirmwareSys")
+	if !run.MatchString("TestFirmwarePing") {
+		t.Error("esp32p4-poe dropped TestFirmwarePing")
 	}
-	if !boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingAfterAMalformedBurst") {
-		t.Error("a board that resets on connect lost the malformed-burst row")
+	reset := boardRun(t, "atmega2560", false)
+	for _, r := range []string{"TestFirmwarePingAfterAMalformedBurst", "TestFirmwareSys"} {
+		if !reset.MatchString(r) {
+			t.Errorf("a board that resets on connect lost %s", r)
+		}
 	}
 }
 

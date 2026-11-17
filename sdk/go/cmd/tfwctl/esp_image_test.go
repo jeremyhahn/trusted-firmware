@@ -28,6 +28,10 @@ const (
 	espSegHeaderLen = 8
 	espChecksumSeed = 0xEF
 	espHashLen      = 32
+
+	espAppDescMagic    = 0xABCD5432
+	espAppDescLen      = 256
+	espAppDescEfuseRev = 176 // min_efuse_blk_rev_full, then max_
 )
 
 // espChipID is the board's ESP-IDF chip id (esp_chip_id_t), and whether the
@@ -47,7 +51,7 @@ func espChipID(board tfw.BoardID) (uint16, bool) {
 // its checksum and appended SHA-256, then the 128-byte TFIM trailer naming
 // board and measuring the image up to that hash, then 0xFF.
 func espAppImage(total, body int, board tfw.BoardID, chip uint16) []byte {
-	body &^= 3 // a segment's length is a multiple of 4
+	body = max(body, espAppDescLen) &^ 3 // a segment's length is a multiple of 4
 	img := bytes.Repeat([]byte{0xFF}, total)
 	h := img[:espImgHeaderLen]
 	clear(h)
@@ -67,6 +71,15 @@ func espAppImage(total, body int, board tfw.BoardID, chip uint16) []byte {
 	sum := byte(espChecksumSeed)
 	for i := 0; i < body; i++ {
 		img[off+i] = byte(i*7 + 3)
+	}
+	// ESP-IDF 5.5 reads esp_app_desc_t at the first segment's start and
+	// checks its eFuse block revision range against the chip (boot_comm): a
+	// descriptor with the magic, a 0..0xFFFF range and the rest zero.
+	desc := img[off : off+espAppDescLen]
+	clear(desc)
+	binary.LittleEndian.PutUint32(desc[0:], espAppDescMagic)
+	binary.LittleEndian.PutUint16(desc[espAppDescEfuseRev+2:], 0xFFFF)
+	for i := 0; i < body; i++ {
 		sum ^= img[off+i]
 	}
 	off += body
@@ -106,6 +119,10 @@ func TestStageImageForESP32IsAnAppImage(t *testing.T) {
 		segLen := int(binary.LittleEndian.Uint32(img[espImgHeaderLen+4:]))
 		require.Zero(t, segLen%4)
 		data := img[espImgHeaderLen+espSegHeaderLen : espImgHeaderLen+espSegHeaderLen+segLen]
+		require.GreaterOrEqual(t, segLen, espAppDescLen)
+		assert.Equal(t, uint32(espAppDescMagic), binary.LittleEndian.Uint32(data), "esp_app_desc_t magic")
+		assert.Zero(t, binary.LittleEndian.Uint16(data[espAppDescEfuseRev:]), "min eFuse block rev")
+		assert.Equal(t, uint16(0xFFFF), binary.LittleEndian.Uint16(data[espAppDescEfuseRev+2:]), "max eFuse block rev")
 		sum := byte(espChecksumSeed)
 		for _, b := range data {
 			sum ^= b

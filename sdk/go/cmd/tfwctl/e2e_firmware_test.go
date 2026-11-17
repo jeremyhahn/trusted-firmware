@@ -231,11 +231,41 @@ func TestFirmwareSys(t *testing.T) {
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
 	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
-	// #5: freshly started and talked to over a clean link, the firmware has
-	// seen no framing errors -- the appended fields decode against the live
-	// device, not only against canned replies.
-	assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
-	assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	// #5: talked to over a clean link, the firmware counts no framing errors
+	// -- the appended fields decode against the live device, not only
+	// against canned replies. #550: a delta, not zero, since over a tcp: link
+	// nothing resets the board and an earlier row's burst still counts.
+	sysCountersHold(t, dev, si)
+}
+
+// sysCountersHold runs a ping over dev and asserts the framer's CRC and
+// format counters still read as they did in before.
+func sysCountersHold(t *testing.T, dev *tfw.Device, before tfw.SysInfo) {
+	t.Helper()
+	var got pingJSON
+	cliJSON(t, dev, &got, "ping", "hi")
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, before.ErrCRC, after.ErrCRC, "framer CRC errors on a clean link")
+	assert.Equal(t, before.ErrFormat, after.ErrFormat, "framer format errors on a clean link")
+}
+
+// TestSysCountersHoldAfterAMalformedBurst is the Sys row on a board an
+// earlier row left with raised counters (#550): the burst counts, and the
+// row still passes.
+func TestSysCountersHoldAfterAMalformedBurst(t *testing.T) {
+	conn := simproc.Start(t, simproc.Software)
+	noise := make([]byte, 0, 80)
+	for i := 0; i < 40; i++ {
+		noise = append(noise, tfw.SOF, tfw.SOF)
+	}
+	_, err := conn.Write(noise)
+	require.NoError(t, err)
+	dev := tfw.New(conn, tfw.WithTimeout(5*time.Second))
+	var si tfw.SysInfo
+	cliJSON(t, dev, &si, "sys")
+	require.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so this proves nothing")
+	sysCountersHold(t, dev, si)
 }
 
 func TestFirmwarePin(t *testing.T) {

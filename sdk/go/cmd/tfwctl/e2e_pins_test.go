@@ -32,6 +32,7 @@ type peerBoard struct {
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
 	ledPin     uint8          // the pin the board's table flags as its LED
+	ledFlags   tfw.PinFlags   // ledPin's flags; zero means digital and LED
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
@@ -95,6 +96,9 @@ var peerBoards = map[string]peerBoard{
 		pwmPin: 0,                           // GPIO2, LEDC0
 		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
 		tonePin: 4, // GPIO6, the first pin with no LEDC channel
+		// The table does not flag GPIO32 as an LED yet; #565 adds the flag
+		// and takes PinLED back here.
+		ledFlags: tfw.PinDigital,
 	},
 }
 

@@ -110,6 +110,8 @@ the two summaries differ in no eFuse line.
 |---|---|---|---|
 | esp32-p4 | boot, layer 0, Ethernet link | verified 2026-11-17 | console: `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up … wire on tcp/21574` |
 | esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
+| esp32-p4 | Ethernet DHCP lease | not shown 2026-11-17 (#539) | the board answers ICMP echo from the bench host at its address (4 of 4) and the wire answers there, but no lease line was read: the console, read without a reset, carried only stale boot fragments, and the HIL-0 build above set its address with a static-address overlay, with no record that the image the board runs was built without it, so the address is not shown to be a lease. A run on an image built without the overlay, with the boot console captured, gives the row. MAC recorded in the bench record |
+| esp32-p4 | tfw-wire over TCP | verified 2026-11-17 (#539) | `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareCaps$'` passes (`--- PASS: TestFirmwareCaps`): CAPS read over TCP from the bench host. `HW_TEST_RUN='CAPS'` matches no test (`no tests to run`), so the row names the test |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
 | esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
 | esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | row `I2C` passes; nothing fitted on the header |
@@ -119,7 +121,7 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
-| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
+| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file. On the image the board runs, row `Caps` passes (2026-11-17, #539, "tfw-wire over TCP" above) |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
 | esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
 | esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |

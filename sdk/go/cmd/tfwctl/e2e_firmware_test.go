@@ -170,7 +170,7 @@ func TestFirmwareSys(t *testing.T) {
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
+	assert.True(t, resetCauseHolds(b, target, si.ResetCause), "reset cause %v, want %v", si.ResetCause, b.resetCause)
 	// #5: talked to over a clean link, the firmware sees no framing errors --
 	// the appended fields decode against the live device, not only against
 	// canned replies. Freshly reset, it has seen none at all; a peer found

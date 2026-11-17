@@ -391,8 +391,9 @@ func TestFirmwareTone(t *testing.T) {
 		var got struct {
 			EdgesUS []uint16 `json:"edges_us"`
 		}
-		cliJSON(t, dev, &got, "pulse-capture", pin, "1", "32", "200ms")
-		require.Len(t, got.EdgesUS, 32, "pin %d: a %d Hz tone gives 32 edges in 200 ms", b.tonePin, toneHz)
+		cliJSON(t, dev, &got, "pulse-capture", pin, "1", "30", "50ms")
+		// 30 edges: TFW_CAPTURE_MAX is 31 at a 64-byte payload, and TFW_PULSE_MAX_US is 50 ms.
+		require.Len(t, got.EdgesUS, 30, "pin %d: a %d Hz tone gives 30 edges in 15 ms", b.tonePin, toneHz)
 		hz, err := toneFrequency(got.EdgesUS)
 		require.NoError(t, err)
 		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)

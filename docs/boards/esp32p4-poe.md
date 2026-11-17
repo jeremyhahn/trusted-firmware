@@ -116,8 +116,8 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
-| esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` hard-code the AVR's pin 9 (an ADC pin here); issue to file: board-driven PWM pin in the rows |
-| esp32-p4 | tone (GPIO6) | fails: not measured, 2026-11-17 | row `Tone` (#548) drives 1 kHz on pin 4 and times it with `pulse-capture` on the same pin, within 5%. Its one run, `make hw-test BOARD=esp32p4-poe PORT=$ESP_PORT HW_TEST_RUN='^TestFirmwareTone$'`, stopped at CAPS: `command 0x00 did not respond after 5.19s`, because the console answers no wire. The `tcp:` run needs the board's address, and the lane was not given it. Issue to file: run `Tone` over `PORT=tcp:<board>:21574` |
+| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |
+| esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
 | esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
@@ -133,6 +133,6 @@ the two summaries differ in no eFuse line.
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO,
 ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-PWM, tone and EEPROM have no passing row on this board; the board-dials
+EEPROM has no passing row on this board and row `Pin` fails on the LED flag; the board-dials
 Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

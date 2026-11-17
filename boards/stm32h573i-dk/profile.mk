@@ -35,7 +35,9 @@ MCU            := stm32h573iik3q
 # write. tfw-boot's writes to the slot and the platform block need the flash
 # controller, which this slice does not drive (docs/boards/stm32h573i-dk.md).
 FLASH_BUDGET   := 131072
-RAM_BUDGET     := 32768
+# ETH_MAC=1 (#581) adds the MAC's rings (12 KiB of 1536-byte buffers) and
+# lwIP's heap and pbuf pool: 64 KiB of the 256 KiB bank.
+RAM_BUDGET     := $(if $(filter 1,$(ETH_MAC)),65536,32768)
 FLASH_TOTAL    := 2097152
 RAM_TOTAL      := 262144
 

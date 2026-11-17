@@ -96,6 +96,11 @@ static void startup(void)
     tfw_ota_trial_after_init();
 }
 
+#if defined(TFW_CM_ETH_MAC)
+/* The SoC MAC's interface under lwIP (ETH_MAC=1, #581): hal_eth_netif.c. */
+void tfw_hal_eth_poll(void);
+#endif
+
 int main(void)
 {
     startup();
@@ -116,5 +121,8 @@ int main(void)
         tfw_app_runner_poll();
         tfw_hsm_loop_poll();
         tfw_ota_trial_poll();
+#if defined(TFW_CM_ETH_MAC)
+        tfw_hal_eth_poll();
+#endif
     }
 }

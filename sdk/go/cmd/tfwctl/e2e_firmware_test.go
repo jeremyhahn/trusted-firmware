@@ -205,18 +205,21 @@ func capsTierRow(t *testing.T, c tfw.Caps, soft tfw.AlgorithmSet) {
 
 func TestFirmwareSys(t *testing.T) {
 	_, b := firmwareBoard(t)
-	sysRow(t, startFirmware(t), b.resetCause, firmwareResets(t))
+	resets := firmwareResets(t)
+	sysRow(t, startFirmware(t), b.causes(resets), resets)
 }
 
 // sysRow: SYS_INFO decodes against the live device. #5: a reset peer has
 // seen no framing errors; a peer found running keeps the counters earlier
-// rows raised (a malformed burst), so a clean exchange must add none.
-func sysRow(t *testing.T, dev *tfw.Device, cause tfw.ResetCause, resets bool) {
+// rows raised (a malformed burst), so a clean exchange must add none. Its
+// reset cause is its last boot's, one of causes, and the same after the
+// exchange: a cause that changes means the board restarted under the row.
+func sysRow(t testing.TB, dev *tfw.Device, causes []tfw.ResetCause, resets bool) {
 	t.Helper()
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	assert.Equal(t, cause, si.ResetCause, "reset cause")
+	assert.Contains(t, causes, si.ResetCause, "reset cause")
 	if resets {
 		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
 		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
@@ -228,6 +231,7 @@ func sysRow(t *testing.T, dev *tfw.Device, cause tfw.ResetCause, resets bool) {
 	cliJSON(t, dev, &after, "sys")
 	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors grew over a clean link")
 	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors grew over a clean link")
+	assert.Equal(t, si.ResetCause, after.ResetCause, "reset cause changed across exchanges: the board restarted")
 }
 
 func TestFirmwarePin(t *testing.T) {

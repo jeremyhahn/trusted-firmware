@@ -406,7 +406,11 @@ func TestFirmwareEEPROM(t *testing.T) {
 }
 
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
-	dev := startFirmware(t)
+	// The board's attest timeout, so a boot that signs instead of refusing
+	// fails on the status, not on a timeout (#570).
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	dev := startFirmware(t, tfw.WithTimeout(attestTimeoutFor(target.Board)))
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
 	assert.Equal(t, tfw.StatusErrNotProvisioned, cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")

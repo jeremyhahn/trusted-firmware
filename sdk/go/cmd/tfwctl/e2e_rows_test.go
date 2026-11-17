@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
@@ -72,6 +73,22 @@ type boardImage struct {
 	// held are rows the image serves that its default list leaves out, each
 	// with the issue that holds it; they run by name.
 	held map[string]string
+	// attestTimeout is how long a row that may sign waits for ATTEST's
+	// reply; zero keeps suiteTimeout. Set from a measured signing time,
+	// with margin, on a board whose software signer is slow.
+	attestTimeout time.Duration
+}
+
+// suiteTimeout is the hw suite's command timeout (startFirmware).
+const suiteTimeout = 5 * time.Second
+
+// attestTimeoutFor is the ATTEST timeout of a row on board: the board's
+// attestTimeout, or suiteTimeout on a board without one (tfwsim among them).
+func attestTimeoutFor(board string) time.Duration {
+	if d := boardImages[board].attestTimeout; d > 0 {
+		return d
+	}
+	return suiteTimeout
 }
 
 // servedBy reports whether img serves a row with this need.
@@ -122,6 +139,9 @@ var boardImages = map[string]boardImage{
 		// boot (#570, docs/boards/stm32h573i-dk.md); held from the bench
 		// boot's list.
 		held: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
+		// Software P-256 at 64 MHz: attest answered with evidence in 27.7 s,
+		// twice, on the bench boot (#570); 45 s leaves the margin.
+		attestTimeout: 45 * time.Second,
 	},
 }
 
@@ -433,5 +453,23 @@ func TestSelectBoardRowsDoesNothingUnasked(t *testing.T) {
 	t.Setenv(peer.BoardEnv, "atmega32u4")
 	if err := selectBoardRows(); err != nil {
 		t.Fatalf("selection ran unasked: %v", err)
+	}
+}
+
+func TestAttestTimeoutIsPerBoard(t *testing.T) {
+	for board, want := range map[string]time.Duration{
+		"stm32h573i-dk": 45 * time.Second, // the measured 27.7 s, with margin (#570)
+		"atmega2560":    suiteTimeout,
+		"no-such-board": suiteTimeout,
+		"":              suiteTimeout, // tfwsim
+	} {
+		if got := attestTimeoutFor(board); got != want {
+			t.Errorf("attestTimeoutFor(%q) = %v, want %v", board, got, want)
+		}
+	}
+	for board, img := range boardImages {
+		if img.attestTimeout != 0 && img.attestTimeout < suiteTimeout {
+			t.Errorf("%s: attestTimeout %v is below the suite's %v", board, img.attestTimeout, suiteTimeout)
+		}
 	}
 }

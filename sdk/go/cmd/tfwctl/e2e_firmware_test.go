@@ -47,7 +47,9 @@ type peerBoard struct {
 	adcOnly    int            // how many pins are ADC inputs with no digital port
 	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
 	noPWMPin   uint8          // a digital pin with no compare unit at all
-	ledPin     uint8          // the pin the board's table flags as its LED
+	ledPin     uint8          // the pin the board's table flags as its LED (a plain digital pin when noLED)
+	noLED      bool           // the board has no LED: ledPin must be digital and not flagged LED
+	noTickPin  bool           // the tick's timer drives no pin: tickPin is unused, no refusal to assert
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 }
@@ -90,18 +92,20 @@ var peerBoards = map[string]peerBoard{
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
 		ledPin: 0, txPin: -1, timerPin: 1, // LED1
 	},
-	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
-	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
-	// digital pin; the console UART is outside the table. Reached over
-	// PORT=tcp:, so no reset: the cause is the last boot's, power-on.
+	// boards/esp32p4-poe/board.c: no LED on the header (noLED), so the plain
+	// GPIO32 (pin 11, port 1 bit 0, digital only) stands in; GPIO20 is ADC1
+	// channel 4 and a digital pin; the console UART is outside the table. The
+	// tick uses no LEDC timer: the table flags all four LEDC pins PWM, so
+	// every one takes a duty and none is refused (noTickPin). Reached over PORT=tcp:, so no reset: the cause is
+	// the last boot's, power-on.
 	"esp32p4-poe": {
 		resetCause: tfw.ResetPowerOn,
 		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
 		analog: 7, // GPIO20
 		adcPin: 7, adcChannel: 4, adcPort: true,
-		adcOnly: 0,
-		tickPin: 0, noPWMPin: 11, // GPIO2 (LEDC0); GPIO32
-		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
+		adcOnly:   0,
+		noTickPin: true, noPWMPin: 11, // GPIO32
+		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
 	},
 }
 
@@ -115,6 +119,20 @@ func firmwareBoard(t *testing.T) (string, peerBoard) {
 	b, ok := peerBoards[target.Board]
 	require.True(t, ok, "%s=%s: no pin facts for that board in peerBoards", peer.BoardEnv, target.Board)
 	return target.Board, b
+}
+
+// The ESP32-P4's header has no LED and its tick runs on a timer no pin
+// shares (boards/esp32p4-poe/board.c): its facts must say both, or the pin
+// and PWM rows demand an LED flag and a refused duty the board cannot give.
+func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
+	p4 := peerBoards["esp32p4-poe"]
+	assert.True(t, p4.noLED, "esp32p4-poe has no LED; ledPin is a plain digital pin")
+	assert.True(t, p4.noTickPin, "esp32p4-poe's tick timer drives no pin")
+	for _, name := range []string{"atmega328p", "atmega2560"} {
+		b := peerBoards[name]
+		assert.False(t, b.noLED, "%s has an LED on pin 13", name)
+		assert.False(t, b.noTickPin, "%s ticks on timer0, whose compare pins are spent", name)
+	}
 }
 
 // startFirmware opens the device the seam names. A missing simulator binary or
@@ -258,7 +276,12 @@ func TestFirmwarePin(t *testing.T) {
 
 	led := cliPin(t, dev, b.ledPin)
 	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
-	assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin %d flags = %s, want digital and led", b.ledPin, led.Flags)
+	if b.noLED {
+		assert.True(t, led.Flags.Has(tfw.PinDigital), "pin %d flags = %s, want digital", b.ledPin, led.Flags)
+		assert.False(t, led.Flags.Has(tfw.PinLED), "pin %d flags = %s: the board has no LED", b.ledPin, led.Flags)
+	} else {
+		assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin %d flags = %s, want digital and led", b.ledPin, led.Flags)
+	}
 	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
 	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
 	assert.Equal(t, b.ledBit, led.Bit, "pin %d bit", b.ledPin)
@@ -425,8 +448,11 @@ func TestFirmwarePWM(t *testing.T) {
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
-	// wondering why nothing moves.
-	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.tickPin)), "128")
+	// wondering why nothing moves. A board whose tick drives no pin
+	// (noTickPin) has no such pin to refuse.
+	if !b.noTickPin {
+		cliRefused(t, dev, "pwm", strconv.Itoa(int(b.tickPin)), "128")
+	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
 }
 

@@ -187,7 +187,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_eth_socket_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c test/unit/test_hsm_record.c test/unit/test_hsm_record_fail.c \
-                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_prov_uds_mutate.c \
+                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_app_ota.c test/unit/test_esp_prov_uds_mutate.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
@@ -1375,23 +1375,35 @@ $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR
 # OTA_ACTIVATE and OTA_CONFIRM. test_esp_ota builds with ESP-IDF's anti-rollback
 # on (the esp32c3 QEMU board's sdkconfig), test_esp_wire with it off (the P4's),
 # so both arms of hal_ota.c's one CONFIG_ conditional compile and run.
+# The library with update_request_arch.c where update_request.c would be, as
+# ARCH_UPDATE_REQUEST := arch links it: hal_ota.c answers tfw_update_slots().
+HOST_ESP_LIB_SRCS := $(filter-out src/core/update_request.c,$(HOST_STAGE_LIB_SRCS)) \
+                     src/core/update_request_arch.c
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
-                     -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1
-$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
+                     -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
+$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_ESP_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
-$(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_STAGE_LIB_SRCS) \
+$(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_ESP_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# An application on the ESP32 link (#461): update_request_arch.c where
+# update_request.c would be, as ARCH_UPDATE_REQUEST := arch links it, and
+# hal_ota.c as the update path an application's ota_slots is checked against.
+$(HOST_DIR)/test_esp_app_ota: test/unit/test_esp_app_ota.c $(HOST_ESP_LIB_SRCS) \
+                          src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
+                          test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The ESP32 wire (#48) under the same session: src/hal/esp32/hal_uart.c over a
 # mock lwIP (test/mock/lwip_mock.c) in place of hal_mock.c's weak byte link, so
 # a request goes socket, transport, dispatch, hal_ota.c, esp_ota as on the part.
-$(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
+$(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_ESP_LIB_SRCS) \
                            src/hal/esp32/hal_uart.c src/hal/esp32/hal_ota.c \
                            src/core/ota_auth.c boot/boot_image.c \
                            test/mock/lwip_mock.c test/mock/esp_ota_mock.c \
@@ -1547,7 +1559,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/boot/test_boot_rp2350_flash \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
                     $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
-                    $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire
+                    $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire $(HOST_DIR)/test_esp_app_ota
 HOST_EXTRA_BINS += $(HOST_DIR)/test_main
 $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
@@ -1857,6 +1869,15 @@ $(HOST_DIR)/test_stubs_none: test/unit/test_stubs_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
+
+# test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
+# verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
+# bootloader-check builds, as a string; host-test runs it as boot-test does.
+$(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
+                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
@@ -3086,8 +3107,11 @@ $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_AUTH's hold alone (#163): src/core/ota_auth.c over the reader and writer,
-# with the dispatcher's record of the last command supplied by the test.
+# with the dispatcher's record of the last command supplied by the test; and
+# OTA_ACTIVATE over it with the session gate and the store as the test's
+# stand-ins (audit row 28).
 $(HOST_DIR)/test_ota_auth_mutate: test/unit/test_ota_auth_mutate.c src/core/ota_auth.c \
+                                  src/core/ota_activate.c \
                                   src/core/reader.c src/core/writer.c \
                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

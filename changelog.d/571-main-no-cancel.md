@@ -1,0 +1,1 @@
+- ci: a push to main never cancels a main run in progress; every other ref still cancels its older run (ruling 796).

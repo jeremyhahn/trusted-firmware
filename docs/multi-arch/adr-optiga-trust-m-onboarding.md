@@ -179,7 +179,7 @@ test has none on main.
 | R12 | The provider maps random, sign, counter and verify_operator onto those commands | done; the counter's byte order to confirm on the bench | `src/crypto/optiga/optiga_crypto.c` | `test/unit/test_optiga_crypto.c`: `test_random_is_get_random`, `test_sign_is_calc_sign_with_the_factory_key`, `test_counter_reads_the_value_of_each_of_the_four`, `test_verify_operator_is_verify_sign_with_the_key_sent`, `test_verify_operator_wrong_key_is_crypto` |
 | R13 | SHA-256 stays in software | done | `src/crypto/sha256.c`, linked by `mk/firmware.mk` (`CRYPTO=optiga`) | `test/unit/test_sha256.c` (the shared SHA-256; none specific to the tier) |
 | R14 | HMAC, pubkey and verify_image return `TFW_ERR_UNSUPPORTED` | done | `src/crypto/optiga/optiga_crypto.c`, `include/tfw/crypto.h` | `test/unit/test_optiga_crypto.c`: `test_the_unsupported_calls_send_nothing` |
-| R15 | `CRYPTO=optiga` links the provider | done; `PROVISION=1` and a build with the bus off are refused | `mk/firmware.mk` | `scripts/test_prov_absent_check.py`: `test_a_tier_make_refuses_to_provision_is_planned_production_only`; the bus-off refusal has none on main (slice 2) |
+| R15 | `CRYPTO=optiga` links the provider | done; `PROVISION=1` and a build with the bus off are refused | `mk/firmware.mk` | `scripts/test_prov_absent_check.py`: `test_a_tier_make_refuses_to_provision_is_planned_production_only`; `scripts/test_optiga_bus_refused.py`: `test_optiga_with_the_bus_off_is_refused`, `test_optiga_with_i2c_on_links_the_transport` (slice 2) |
 | R16 | No board's tiers name it | holds | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` | none on main |
 | R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are filled from those rows (#509) | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
 | R18 | Which boards it fits stays the owner's question | open: question 5, with the coordinator's proposal in the sixth part above | this ADR, "Follow-ups" | none |
@@ -194,12 +194,12 @@ ruling first; "other project" means the work is not this repository's.
    their soft rows pass the budget gate, and the measured text+data and
    data+bss are in the fit table above. The coordinator then answers
    question 5 under ruling 109.
-2. **Test the bus-off refusal** (no hardware, no owner): a
+2. **Test the bus-off refusal** (done, #510, #533; no hardware, no owner): a
    `scripts/test_optiga_bus_refused.py` in the pattern of
    `scripts/test_manifest_refused.py`, asking `make` for `CRYPTO=optiga` on a
    board with its I2C off (`mps2-an505` without `I2C=1`) and checking the
    `$(error)` in `mk/firmware.mk`. Run by `make scripts-test`. Touches no
-   firmware code.
+   firmware code. With the `$(error)` commented out, the refusal test fails.
 3. **Bring the SPEC row and ROADMAP up to date** (coordinator, no hardware):
    `docs/SPEC.md` line 46 names only the ATmega2560's rows, not
    mps2-an505's `optiga:I2C=1` or the MPS2 I2C master; `ROADMAP.md`'s

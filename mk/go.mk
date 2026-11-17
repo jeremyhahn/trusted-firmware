@@ -127,12 +127,19 @@ sdk-coverage:
 # its I2C=1 image runs HW_TEST_RUN='TestFirmwareI2C'. Its ST-LINK VCOM carries
 # DTR to no reset line, so the DTR pulse would not reset it: its rows reset it
 # through the ST-LINK with STM32CubeProgrammer (HW_RESET_stm32h573i-dk), so each
-# row starts from the BOOT event and clean framer counters.
+# row starts from the BOOT event and clean framer counters. PORT names only the
+# VCOM, not the ST-LINK the programmer resets, so that reset names the probe,
+# CM_PROBE_SERIAL (mk/arch/cortex-m.mk), and hw-test refuses it with none: with
+# two ST-LINKs attached, an unnamed reset could reset the other board.
 HW_TEST_RUN ?=
-HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -rst
+HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
+hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET),,$(HW_RESET_$(BOARD)))
 hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_$(BOARD)))
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
+	@if [ -n "$(HW_RESET_DEFAULT)" ]; then case "$(CM_PROBE_SERIAL)" in \
+	    '') echo "hw-test: REFUSED. $(BOARD) resets through its probe: name it, make hw-test BOARD=$(BOARD) PORT=$(PORT) CM_PROBE_SERIAL=<serial>" >&2; exit 1;; \
+	    *[!A-Za-z0-9_-]*) echo "hw-test: REFUSED. CM_PROBE_SERIAL '$(CM_PROBE_SERIAL)' is not letters, digits, - and _" >&2; exit 1;; esac; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 

@@ -113,6 +113,10 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32], const uint8_t 
         if (st != TFW_ERR_TIMEOUT) {
             return st;
         }
+        /* A run that timed out may still be going, and its late PROCENDF would
+         * answer the next request with this one's result: the PKA is left
+         * alone for the rest of the boot (docs/plans/544.md). */
+        pka_up = 0;
     }
     return tfw_crypto_soft_verify_p256(digest, sig, pubkey);
 }

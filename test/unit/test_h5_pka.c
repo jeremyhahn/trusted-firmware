@@ -487,6 +487,27 @@ static void test_h5_provider_verifies_in_software_when_the_pka_times_out(void)
     TEST_ASSERT_EQUAL(1, m.runs);
 }
 
+/* A timed-out run may still be going: its late PROCENDF must not answer a
+ * later request, so the PKA is not started again this boot and the next
+ * verify, of another digest, is micro-ecc's. */
+static void test_h5_provider_leaves_a_timed_out_pka_alone(void)
+{
+    uint8_t sig[64];
+    uint8_t other[32];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    m.hang = 0;
+    m.sr |= TFW_H5_PKA_SR_PROCENDF; /* the late completion */
+    memcpy(other, digest, sizeof other);
+    other[0] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(other, sig, pub));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -506,5 +527,6 @@ int main(void)
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
+    RUN_TEST(test_h5_provider_leaves_a_timed_out_pka_alone);
     return UNITY_END();
 }

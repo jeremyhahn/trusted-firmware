@@ -44,7 +44,8 @@ state is **not confirmed** and is named below where the port leans on it.
 | Console | the ST-LINK Virtual COM port: **USART1, TX PA9 and RX PA10, alternate function 7** | BSP: `COM1_UART`, `COM1_TX_PIN`, `COM1_RX_PIN`, `COM1_TX_AF`, `COM1_RX_AF` |
 | User LEDs | LD1 green PI9, LD2 orange PI8, LD3 red PF1, LD4 blue PF4; each lights at a **low** pin | BSP: `LED1_PIN` to `LED4_PIN`, `LED1_GPIO_PORT` to `LED4_GPIO_PORT`; the BSP's `BSP_LED_On` drives the pin low |
 | Ethernet | **on the board**: 10/100 Mbit/s, IEEE 802.3-2002, from the MCU's Ethernet MAC | UM3143, introduction (features) |
-| Ethernet PHY part and connector | **not confirmed**; the candidates, and the RMII pins to confirm on the board, are in the Ethernet ADR ([`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md)) | |
+| Ethernet PHY | **verified on the board 2026-11-17**: a Microchip LAN8742A at MDIO address 0, PHYID1 `0x0007`, PHYID2 `0xC131` (OUI bits `0x1F0`, model `0x13`, revision 1), read by the `ETH_PROBE=1` image's boot line `eth: phy addr=0 id=0007:C131 link=up`; commit 889bddc7, the ETH_PROBE application's sha256 `62c2b4efe540ad0fc412c4eed4e69371af91d78ec849366f3fcfb5f1063582fa` (`trusted-firmware.hex`), written signed in the bench image (see "Bench run"), whose packed sha256 is `38aadc621a5250e13e26b37392da77325b0280d068c9582122e2d9a1b5bc1dac`. RMII (SBS PMCR ETH_SEL_PHY = RMII), the MAC's clocks on, MDC at HCLK/42, 1.52 MHz; the pins PA1 REF_CLK, PA2 MDIO, PA7 CRS_DV, PC1 MDC, PC4 RXD0, PC5 RXD1, PG11 TX_EN, PG12 TXD1, PG13 TXD0, alternate function 11. `src/hal/cortex-m/stm32h5/hal_eth_mdio.c`; the decode host-tested by `test/unit/test_h5_eth_mdio.c`. The connector is an RJ45 on the board, cabled to the dev network | Pin data, the kit's board file (`PA1.Signal=ETH_REF_CLK` and the eight others, `ETH.MediaInterface=HAL_ETH_RMII_MODE`); CMSIS header: `ETH_BASE_NS`, `ETH_TypeDef` (`MACMDIOAR`, `MACMDIODR`), `ETH_MACMDIOAR_*`, `RCC_AHB1ENR_ETHEN`/`ETHTXEN`/`ETHRXEN`, `SBS_PMCR_ETH_SEL_PHY`; offsets **not confirmed** against RM0481 |
+| Ethernet link | **up, verified on the board 2026-11-17**: BMSR bit 2 set on the second read (the bit latches low), the same boot line | as above |
 | Ethernet driver and IP stack | **none yet**: the stack is the owner's choice in the Ethernet ADR (PROPOSED, #540), which recommends lwIP over our own MAC and DMA driver | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
 | Other radios | a Wi-Fi module | UM3143, introduction |
 
@@ -172,6 +173,17 @@ bench node, not in the repository.
   at `0x08000000`, are written by `make boot-flash BOOT_FLASH_HEX=<image>`,
   which keeps the record check and the read-back. tfw-boot's P-256 check takes
   about 10 s at 64 MHz, then the application sends its boot frame.
+- **The Ethernet probe (#579), 2026-11-17.** The bench image again, its
+  application built with `ETH_PROBE=1`. The signer needs the board's load
+  addresses and stage length on its compiler line, which `cortex-m-qemu-image`
+  takes through `BOARD_DEFS`: `-DTFW_CM_LOAD_APP_AT=TFW_APP_REGION_BASE
+  -DTFW_CM_LOAD_PLATFORM_AT=TFW_CM_PLATFORM_BASE
+  -DTFW_OTA_STORE_STAGE_LEN=0x020000ul`. The target then stops on the missing
+  `CM_QEMU_BOARD_ID.stm32h573i-dk`, so its objcopy, nm and `cm_image` steps
+  were run by hand, and `boot.bin`, `app.bin` and `platform.bin` were packed at
+  `BOOT_AT`, `APP_AT` and `PLATFORM_AT` into one hex for `make boot-flash
+  BOOT_FLASH_HEX=`. After a debugger reset the console printed the `eth:` line,
+  then the boot frame.
 - **The rows were driven with `tfwctl`.** `make hw-test BOARD=stm32h573i-dk`
   cannot run here: the board has no row list (`boardImages`) and no pin facts
   (`peerBoards`), and its DTR reset does not reset the board through the
@@ -212,8 +224,11 @@ CA 583 forbids: option bytes or provisioning).
   PKA/HASH not ported).
 - ST Secure Manager: owner (provisioning writes; CA 583).
 - Factory device certificate: owner (provisioning writes; CA 583).
-- Enrolling over Ethernet: fails, no Ethernet driver in the port (issue to
-  file).
+- Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the
+  `ETH_PROBE=1` image's boot line `eth: phy addr=0 id=0007:C131 link=up`
+  (a LAN8742A at MDIO address 0, link up; #579).
+- Enrolling over Ethernet: fails, no MAC data path or IP stack in the port yet
+  (Ethernet ADR slices 2 and 3, #540).
 
 **`cortex-m`**
 

@@ -166,34 +166,53 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     return TFW_OK;
 }
 
+/* One recv into an empty buffer: bytes are heard, EOF or a broken socket
+ * drops the host, EAGAIN keeps it quietly. */
+static void fill_rx(void)
+{
+    ssize_t n;
+
+    if (peer < 0 || rx_len != 0u) {
+        return;
+    }
+    n = recv(peer, rx_buf, sizeof rx_buf, MSG_DONTWAIT);
+    if (n == 0) {
+        ESP_LOGW(TAG, "the host closed the connection");
+        drop_peer();
+        return;
+    }
+    if (n < 0) {
+        int err = errno;
+
+        if (err != EAGAIN && err != EWOULDBLOCK) {
+            ESP_LOGW(TAG, "dropped the host: recv failed, errno %d", err);
+            drop_peer();
+        }
+        return;
+    }
+    rx_head = 0u;
+    rx_len  = (uint16_t)n;
+    heard();
+}
+
 uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
+    int before;
+
     /* The reply first: a command that ran past TFW_ESP_WIRE_IDLE_MS has its
      * host waiting on these bytes, and sending them is what makes it heard. */
     flush_tx();
+    /* The current host's hangup before a pending connection is weighed: a
+     * host that closed and redialled at once is handed the wire, not refused
+     * as a second host by its own closed socket. */
+    fill_rx();
+    before = peer;
     accept_peer();
-    if (peer < 0) {
-        return 0u;
+    if (peer != before) {
+        fill_rx();
     }
-    if (rx_len == 0u) {
-        ssize_t n = recv(peer, rx_buf, sizeof rx_buf, MSG_DONTWAIT);
-        if (n == 0) {
-            ESP_LOGW(TAG, "the host closed the connection");
-            drop_peer();
-            return 0u;
-        }
-        if (n < 0) {
-            int err = errno;
-
-            if (err != EAGAIN && err != EWOULDBLOCK) {
-                ESP_LOGW(TAG, "dropped the host: recv failed, errno %d", err);
-                drop_peer();
-            }
-            return 0u;
-        }
-        rx_head = 0u;
-        rx_len  = (uint16_t)n;
-        heard();
+    if (peer < 0 || rx_len == 0u) {
+        return 0u;
     }
     *out = rx_buf[rx_head++];
     rx_len--;

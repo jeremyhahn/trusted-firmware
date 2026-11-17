@@ -160,8 +160,8 @@ anything:
 
 1. **while an activation is pending**: from a successful `OTA_ACTIVATE` mode 0
    until reset. This is the OTA ADR's own "begin while an image is pending",
-   which the code does not yet enforce. Mode 1 resets at once, so it needs
-   nothing.
+   which `src/core/ota_stage.c` enforces and `test/unit/test_ota_stage.c`
+   (`test_begin_while_an_activation_is_pending_is_refused`) tests. Mode 1 resets at once, so it needs nothing.
 2. **once `TFW_OTA_BEGIN_BUDGET` stages have been opened since reset with no
    `OTA_ACTIVATE` between them.** The budget is a board-profile constant, 4 by default.
    A successful `OTA_ACTIVATE` refills it.

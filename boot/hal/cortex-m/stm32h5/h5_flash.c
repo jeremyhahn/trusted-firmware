@@ -9,8 +9,10 @@
  * FLASH_WaitForLastOperation (BSY, WBNE and DBNE clear, then the error flags
  * read and cleared through NSCCR, then EOP).
  *
- * No interrupt is enabled in tfw-boot (boot/boot_hal.h), so the four stores of
- * a quad-word need no critical section here.
+ * The application reaches this driver too (src/hal/cortex-m/stm32h5/
+ * hal_eeprom.c) with interrupts enabled, so the four stores of a quad-word run
+ * with interrupts masked, the mask saved and put back as ST's
+ * FLASH_Program_QuadWord does: tfw-boot, which enables none, stays masked.
  */
 
 #include <stdint.h>
@@ -106,13 +108,16 @@ static tfw_status_t program_qword(const struct tfw_h5_flash *f, uint32_t qoff,
     volatile uint32_t *dst = (volatile uint32_t *)(void *)(f->mem + qoff);
     uint32_t w[TFW_H5_FLASH_QWORD / 4u];
     tfw_status_t st;
+    uint32_t mask;
     uint8_t i;
 
     memcpy(w, q, sizeof w);
     H5_REG(f, TFW_H5_FLASH_NSCR_OFF) |= TFW_H5_FLASH_CR_PG;
+    mask = tfw_h5_flash_irq_save();
     for (i = 0u; i < TFW_H5_FLASH_QWORD / 4u; i++) {
         dst[i] = w[i];
     }
+    tfw_h5_flash_irq_restore(mask);
     st = finish(f);
     H5_REG(f, TFW_H5_FLASH_NSCR_OFF) &= ~TFW_H5_FLASH_CR_PG;
     return st;
@@ -171,7 +176,8 @@ static tfw_status_t program_span(const struct tfw_h5_flash *f, uint32_t off,
 }
 
 /* Each sector the update touches: copied, overlaid, erased, programmed back,
- * its erased quad-words left erased. */
+ * its erased quad-words left erased, then read back whole against the copy:
+ * a quad-word restored for another field that did not take is lost data too. */
 static tfw_status_t rewrite_span(const struct tfw_h5_flash *f, uint32_t off,
                                  const uint8_t *data, uint32_t len)
 {
@@ -188,6 +194,9 @@ static tfw_status_t rewrite_span(const struct tfw_h5_flash *f, uint32_t off,
             if (!qword_blank(sector_buf + i)) {
                 st = program_qword(f, soff + i, sector_buf + i);
             }
+        }
+        if (st == TFW_OK && memcmp(f->mem + soff, sector_buf, TFW_H5_FLASH_SECTOR) != 0) {
+            st = TFW_ERR_INTERNAL;
         }
     }
     return st;

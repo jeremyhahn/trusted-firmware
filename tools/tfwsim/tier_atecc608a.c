@@ -18,7 +18,10 @@
  *                           --eeprom-bin FILE  --bake-eeprom` writes; or a raw
  *                                              image
  *   provisioned element     --provision-element  the TEST DeviceID key in slot 0 and
- *                                              a TEST UDS, as tfwprov leaves a part
+ *                                              a TEST UDS, as tfwprov leaves a part;
+ *                                              tfwsim-manifest also puts the
+ *                                              TEST image key in the image
+ *                                              slot (kImageKeySeed)
  *   tfw-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
  *                                              builder tfw-boot uses
  *                                              (boot/boot_handoff.c)
@@ -48,12 +51,14 @@
 #include <string.h>
 
 #include "tier.h"
+#include "atecc.h"
 #include "atecc608a_model.h"
 #include "boot_measure.h"
 #include "deviceid_p256.h"
 #include "hal_mock.h"
 #include "sha256.h"
 #include "tfw/types.h"
+#include "image_key.h"
 
 static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
 static size_t   eeprom_len;
@@ -291,6 +296,9 @@ void tfwsim_tier_seed(void)
     tfw_model_set_absent(no_element);
     if (provision_element) {
         tfw_model_provision();
+        /* The image slot's TEST key on tfwsim-manifest, nothing elsewhere:
+         * link-time selection, see image_key.h. */
+        tfwsim_image_key_provision();
     }
     if (eeprom_image) {
         memcpy(tfw_mock_eeprom(), eeprom_image, eeprom_len);

@@ -818,8 +818,10 @@ the command itself is on the wire at `0x6D`, serial only.
 
 Not yet: the 32U4 `PREV` restore on a board or under simavr (above; the 328P
 has none, by the ruling);
-the manifest gate at `OTA_ACTIVATE` under simavr or over `tfwsim` (it is
-host-tested, `test_ota_manifest` and `test_suit`, and `tfwsim` links
+the manifest gate at `OTA_ACTIVATE` under simavr (over `tfwsim` it is
+`tfwsim-manifest`, the element tier with `src/core/ota_manifest.c` linked and
+`--provision-element`'s TEST image key, derived from a published string, in
+slot 2, driven by `tfwctl` in `e2e_ota_manifest_test.go`; every other simulator links
 `src/core/ota_manifest_none.c`);
 and `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP (serial only for now: none of
 the control commands is on the Ethernet allow-list, and

@@ -169,6 +169,53 @@ static void test_the_walk_covers_each_byte_once_with_aligned_words(void)
     }
 }
 
+/* nrfx soc/nrfx_soc_defines.h, SAADC_EXTERNAL_AIN_PSELS for the nRF54L15:
+ * AIN2-AIN5 are P1.6, P1.7, P1.11 and P1.12. */
+static void test_the_saadc_channels_are_ain2_to_ain5_on_p1(void)
+{
+    static const uint8_t want[4] = { 6u, 7u, 11u, 12u };
+    uint8_t ch;
+
+    TEST_ASSERT_EQUAL_UINT32(4u, TFW_NRF54L_SAADC_CHANNELS);
+    for (ch = 0u; ch < 4u; ch++) {
+        uint8_t port = 0xEEu, bit = 0xEEu;
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_nrf54l_saadc_pin(ch, &port, &bit));
+        TEST_ASSERT_EQUAL_UINT8(1u, port);
+        TEST_ASSERT_EQUAL_UINT8(want[ch], bit);
+        TEST_ASSERT_TRUE(tfw_nrf54l_pin_exists(port, bit));
+    }
+}
+
+static void test_a_channel_past_the_table_is_refused_and_writes_nothing(void)
+{
+    uint8_t port = 0xEEu, bit = 0xEEu;
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_nrf54l_saadc_pin(4u, &port, &bit));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_nrf54l_saadc_pin(0xFFu, &port, &bit));
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, port);
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, bit);
+}
+
+/* nrf54l15_types.h: SAADC_CH_PSELP_PIN_Pos 0, PORT_Pos 8, CONNECT_Pos 30,
+ * CONNECT_AnalogInput 1. */
+static void test_saadc_pselp_puts_the_port_in_bits_8_to_11_and_connects_analog(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x40000106u, tfw_nrf54l_saadc_pselp(1u, 6u));
+    TEST_ASSERT_EQUAL_HEX32(0x40000107u, tfw_nrf54l_saadc_pselp(1u, 7u));
+    TEST_ASSERT_EQUAL_HEX32(0x4000010Bu, tfw_nrf54l_saadc_pselp(1u, 11u));
+    TEST_ASSERT_EQUAL_HEX32(0x4000010Cu, tfw_nrf54l_saadc_pselp(1u, 12u));
+    TEST_ASSERT_EQUAL_HEX32(0x40000000u, tfw_nrf54l_saadc_pselp(0u, 0u));
+}
+
+static void test_a_sample_is_clamped_to_twelve_bits(void)
+{
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_nrf54l_saadc_raw(-3));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_nrf54l_saadc_raw(0));
+    TEST_ASSERT_EQUAL_UINT16(2048u, tfw_nrf54l_saadc_raw(2048));
+    TEST_ASSERT_EQUAL_UINT16(4095u, tfw_nrf54l_saadc_raw(4095));
+    TEST_ASSERT_EQUAL_UINT16(4095u, tfw_nrf54l_saadc_raw(4100));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -183,5 +230,9 @@ int main(void)
     RUN_TEST(test_a_span_past_the_rram_or_wrapping_is_refused);
     RUN_TEST(test_aligned_whole_words_go_as_words_the_rest_as_bytes);
     RUN_TEST(test_the_walk_covers_each_byte_once_with_aligned_words);
+    RUN_TEST(test_the_saadc_channels_are_ain2_to_ain5_on_p1);
+    RUN_TEST(test_a_channel_past_the_table_is_refused_and_writes_nothing);
+    RUN_TEST(test_saadc_pselp_puts_the_port_in_bits_8_to_11_and_connects_analog);
+    RUN_TEST(test_a_sample_is_clamped_to_twelve_bits);
     return UNITY_END();
 }

@@ -1,0 +1,1 @@
+- test(ota): `test_the_element_session_and_ota_auth_are_each_needed_to_activate` in `test/unit/test_ota_auth_mutate.c` names OTA audit row 28: on the element tier neither the operator session nor `OTA_AUTH` alone activates (#491).

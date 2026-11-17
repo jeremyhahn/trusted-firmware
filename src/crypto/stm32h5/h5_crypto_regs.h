@@ -12,29 +12,27 @@
  * The bases are the board's, not this file's: a driver takes its base as an
  * argument, so the host tests drive the same code against a model.
  *
- * Register access goes through tfw_h5_rd and tfw_h5_wr. A host test defines
- * TFW_H5_REG_MODEL and supplies both, so its model sees every access in
- * order, as the peripheral would.
+ * Register access goes through tfw_h5_rd and tfw_h5_wr. By default
+ * include/tfw/config.h names them the volatile accessors below; a host test
+ * defines TFW_H5_REG_MODEL and supplies both, so its model sees every access
+ * in order, as the peripheral would.
  */
 #ifndef TFW_CRYPTO_H5_CRYPTO_REGS_H
 #define TFW_CRYPTO_H5_CRYPTO_REGS_H
 
 #include <stdint.h>
 
-#ifdef TFW_H5_REG_MODEL
-uint32_t tfw_h5_rd(uintptr_t addr);
-void     tfw_h5_wr(uintptr_t addr, uint32_t value);
-#else
-static inline uint32_t tfw_h5_rd(uintptr_t addr)
+#include "tfw/config.h"
+
+static inline uint32_t tfw_h5_mmio_rd(uintptr_t addr)
 {
     return *(volatile const uint32_t *)addr;
 }
 
-static inline void tfw_h5_wr(uintptr_t addr, uint32_t value)
+static inline void tfw_h5_mmio_wr(uintptr_t addr, uint32_t value)
 {
     *(volatile uint32_t *)addr = value;
 }
-#endif
 
 /* HASH: CMSIS HASH_TypeDef; the digest registers are HASH_DIGEST_TypeDef's
  * HR[], at HASH_DIGEST_BASE_NS, 0x310 past HASH_BASE_NS. */

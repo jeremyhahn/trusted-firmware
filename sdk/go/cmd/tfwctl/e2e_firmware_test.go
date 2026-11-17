@@ -439,7 +439,14 @@ func TestFirmwareTone(t *testing.T) {
 // the tone pin (partTonePinHeld): the Mega's ETH=1 image, where pin 10 is the
 // Ethernet shield's chip select, refuses it as RESERVED_PIN and never drives it.
 func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
-	_, b := firmwareBoard(t)
+	board, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	// The simulator (a 328P) and the P4 leave the tone pin free, and a run
+	// named by HW_TEST_RUN skips the row selector, so the row asks the image.
+	if !target.Hardware() || !boardImageHolds(board, partTonePinHeld) {
+		t.Skipf("%s: the image leaves pin %d free; TestFirmwareTone covers it", board, b.tonePin)
+	}
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureTone)
 	pin := strconv.Itoa(int(b.tonePin))

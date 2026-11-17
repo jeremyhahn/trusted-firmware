@@ -80,6 +80,13 @@ func (n rowNeed) servedBy(img boardImage) bool {
 		img.parts&n.has == n.has && img.parts&n.not == 0
 }
 
+// boardImageHolds reports whether the board's bench image has every part in
+// p. A board with no row list has none: the rows that need a part skip there.
+func boardImageHolds(board string, p imageParts) bool {
+	img, ok := boardImages[board]
+	return ok && img.parts&p == p
+}
+
 // avrPeripherals are the families config.h turns on and neither AVR board's
 // profile turns off.
 const avrPeripherals = tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
@@ -398,5 +405,21 @@ func TestSelectBoardRowsDoesNothingUnasked(t *testing.T) {
 	t.Setenv(peer.BoardEnv, "atmega32u4")
 	if err := selectBoardRows(); err != nil {
 		t.Fatalf("selection ran unasked: %v", err)
+	}
+}
+
+// TestOnlyTheMegaImageHoldsTheTonePin: TestFirmwareToneRefusesTheShieldsPin
+// runs on an image whose tone pin is the shield's chip select and on no other,
+// so the 328P simulator, the P4 and a board with no list leave it free.
+func TestOnlyTheMegaImageHoldsTheTonePin(t *testing.T) {
+	for board, want := range map[string]bool{
+		"atmega2560":  true,
+		"atmega328p":  false,
+		"esp32p4-poe": false,
+		"no-such":     false,
+	} {
+		if got := boardImageHolds(board, partTonePinHeld); got != want {
+			t.Errorf("%s: holds the tone pin = %v, want %v", board, got, want)
+		}
 	}
 }

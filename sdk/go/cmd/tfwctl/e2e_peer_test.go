@@ -83,7 +83,12 @@ func openPeer(t testing.TB, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.
 	if wrap != nil {
 		conn = wrap(conn)
 	}
-	return serialPeer{serial: tfw.New(conn, tfw.WithTimeout(10*time.Second)), board: target.Hardware()}
+	opts := []tfw.Option{tfw.WithTimeout(10 * time.Second)}
+	if !target.Resets() {
+		// No reset, so no BOOT to wait for (peer.Target.Resets).
+		opts = append(opts, tfw.WithBootWait(0))
+	}
+	return serialPeer{serial: tfw.New(conn, opts...), board: target.Hardware()}
 }
 
 // requireTier fails the row unless the peer reports sim's tier.

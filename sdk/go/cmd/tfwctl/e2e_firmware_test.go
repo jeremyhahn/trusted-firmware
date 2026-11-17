@@ -422,7 +422,13 @@ func TestFirmwareTone(t *testing.T) {
 		_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
 	})
 
-	if target.Hardware() {
+	// Read the tone back on its own pin only where the capture leaves the
+	// output driven; the P4's RMT capture claims the pin as an input.
+	measure := target.Hardware() && captureKeepsOutput(board)
+	if target.Hardware() && !measure {
+		t.Logf("%s: the RMT capture would drop the tone on pin %d; read-back not run", board, b.tonePin)
+	}
+	if measure {
 		var got struct {
 			EdgesUS []uint16 `json:"edges_us"`
 		}
@@ -442,7 +448,7 @@ func TestFirmwareTone(t *testing.T) {
 	}
 
 	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
-	if target.Hardware() {
+	if measure {
 		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
 			"pin %d: still toggling after NOTONE", b.tonePin)
 	}
@@ -466,6 +472,28 @@ func TestCaptureTimestampedOnlyOnTheESP32P4(t *testing.T) {
 	} {
 		if got := captureTimestamped(board); got != want {
 			t.Errorf("%s: capture timestamped = %v, want %v", board, got, want)
+		}
+	}
+}
+
+// captureKeepsOutput reports whether the board's pulse capture leaves an
+// output driven on the pin it reads, so the tone row can measure the tone
+// on the tone pin itself. The AVRs' polling capture only reads PINx. The
+// P4 image builds ESP_PULSE=rmt: hal_pulse_rmt.c opens its RX channel
+// without io_loop_back, which claims the GPIO as an input and drops the
+// LEDC output driving the tone.
+func captureKeepsOutput(board string) bool {
+	return board != "esp32p4-poe"
+}
+
+func TestCaptureKeepsOutputNotOnTheRMTImage(t *testing.T) {
+	for board, want := range map[string]bool{
+		"esp32p4-poe": false,
+		"atmega328p":  true,
+		"atmega2560":  true,
+	} {
+		if got := captureKeepsOutput(board); got != want {
+			t.Errorf("%s: capture keeps the output = %v, want %v", board, got, want)
 		}
 	}
 }

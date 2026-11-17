@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -249,7 +250,9 @@ func TestBootEventLinkSkipsATCPLinkWithNoResetPort(t *testing.T) {
 }
 
 // TestBootEventLinkResetsATCPLinkThroughTheResetPort runs the boot-event row
-// on a simulated tcp: peer, a listener bridged to the software simulator: the
+// on a simulated tcp: peer, a listener bridged to the software simulator with
+// the ESP32 wire's accept/drop ordering (serveESPWire), so the boot event is
+// sent before any host is accepted, as on the board: the
 // reset port is pulsed before the endpoint is dialled, and the boot event
 // arrives over TCP.
 func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
@@ -258,15 +261,7 @@ func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
 	var pulsed, dialledAfterPulse atomic.Bool
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		dialledAfterPulse.Store(pulsed.Load())
-		go func() { _, _ = io.Copy(c, sim) }()
-		_, _ = io.Copy(sim, c)
-	}()
+	serveESPWire(ln, sim, func() { dialledAfterPulse.Store(pulsed.Load()) })
 	restore := pulseReset
 	t.Cleanup(func() { pulseReset = restore })
 	var pulsedPort string
@@ -281,6 +276,70 @@ func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
 	assert.Equal(t, "reset-port-under-test", pulsedPort)
 	assertBootEvent(t, conn)
 	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
+}
+
+// espWireHold is TX_BUF in src/hal/esp32/hal_uart.c.
+const espWireHold = 512
+
+// serveESPWire bridges ln to board with the ESP32 wire's ordering
+// (src/hal/esp32/hal_uart.c): the board runs from boot whether a host is
+// connected or not; what it sends before the first host is accepted is held,
+// up to espWireHold bytes (all of it or, on overflow, none), and goes to that
+// host on accept; what it sends with no host after that is dropped.
+func serveESPWire(ln net.Listener, board io.ReadWriter, onAccept func()) {
+	var (
+		mu       sync.Mutex
+		client   net.Conn
+		accepted bool
+		holding  = true
+		held     []byte
+	)
+	go func() {
+		buf := make([]byte, 256)
+		for {
+			n, err := board.Read(buf)
+			mu.Lock()
+			switch {
+			case client != nil:
+				_, _ = client.Write(buf[:n])
+			case !accepted && holding && len(held)+n <= espWireHold:
+				held = append(held, buf[:n]...)
+			case !accepted:
+				holding, held = false, nil
+			}
+			mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			onAccept()
+			mu.Lock()
+			if client != nil {
+				mu.Unlock()
+				_ = c.Close()
+				continue
+			}
+			client, accepted = c, true
+			_, _ = c.Write(held)
+			held = nil
+			mu.Unlock()
+			go func() {
+				_, _ = io.Copy(board, c)
+				mu.Lock()
+				if client == c {
+					client = nil
+				}
+				mu.Unlock()
+			}()
+		}
+	}()
 }
 
 // Forty pairs of (SOF, SOF). The framer treats the first byte of each pair as a

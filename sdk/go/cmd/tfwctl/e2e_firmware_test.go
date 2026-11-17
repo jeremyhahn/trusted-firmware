@@ -44,6 +44,10 @@ type peerBoard struct {
 	// bootloader cleared MCUSR before the application could latch it, so the
 	// honest answer is unknown (src/hal/avr/hal_sys.c).
 	resetCause tfw.ResetCause
+	// resetAny is a board whose rows do not assert resetCause: over a tcp:
+	// link nothing resets it before the row, so it reports whatever its
+	// last reset was (#550).
+	resetAny   bool
 	ledPort    uint8          // the LED pin 13's port index
 	ledBit     uint8          // and bit
 	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
@@ -96,6 +100,22 @@ var peerBoards = map[string]peerBoard{
 		resetCause: tfw.ResetPowerOn,
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
 		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+	},
+	// The ESP32-P4 PoE board (boards/esp32p4-poe/board.c): seventeen header
+	// pins on two banks, ADC1 channels 4..7 on pins 7..10, each also a
+	// digital pin; LEDC0..3 on pins 0..3. The wire is a TCP server
+	// (hal_uart.c), so the UART is not in the pin table. The table flags no
+	// pin as an LED and no LEDC channel is the millisecond tick (esp_timer
+	// is): the LED and tick fields are pin 0's, and the Pin and PWM rows
+	// that read them are not yet confirmed on this board.
+	"esp32p4-poe": {
+		resetAny: true,
+		ledPort:  0, ledBit: 2, ledPWM: tfw.PWMNone, // pin 0, GPIO2
+		analog: 7, // GPIO20, ADC1_CH4
+		adcPin: 7, adcChannel: 4, adcPort: true,
+		adcOnly: 0,
+		tickPin: 0, noPWMPin: 4, // GPIO2; GPIO6
+		ledPin: 0, txPin: -1, timerPin: 11, // GPIO32
 	},
 }
 
@@ -477,7 +497,9 @@ func TestFirmwareSys(t *testing.T) {
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
+	if !b.resetAny {
+		assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
+	}
 	// #5: talked to over a clean link, the firmware counts no framing errors
 	// -- the appended fields decode against the live device, not only
 	// against canned replies. #550: a delta, not zero, since over a tcp: link
@@ -513,6 +535,44 @@ func TestSysCountersHoldAfterAMalformedBurst(t *testing.T) {
 	cliJSON(t, dev, &si, "sys")
 	require.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so this proves nothing")
 	sysCountersHold(t, dev, si)
+}
+
+// The Sys row itself, as hw-test runs it on the ESP32-P4 (#550): BOARD
+// esp32p4-poe, PORT tcp: on a simulated tcp peer whose firmware took a
+// malformed burst first and was never reset. The row passes, and the
+// counters the burst raised are still raised after it.
+func TestSysRowOnTheESP32OverTCPAfterAMalformedBurst(t *testing.T) {
+	sim := simproc.Start(t, simproc.Software)
+	noise := make([]byte, 0, 80)
+	for i := 0; i < 40; i++ {
+		noise = append(noise, tfw.SOF, tfw.SOF)
+	}
+	_, err := sim.Write(noise)
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	serveESPWire(ln, sim, func() {})
+	t.Setenv(peer.PortEnv, peer.TCPPrefix+ln.Addr().String())
+	t.Setenv(peer.BoardEnv, "esp32p4-poe")
+
+	require.True(t, t.Run("TestFirmwareSys", TestFirmwareSys), "the Sys row failed on the ESP32 over tcp:")
+
+	// The row's host has gone; the next one is accepted once the wire has
+	// let it go.
+	var si *tfw.SysInfo
+	require.Eventually(t, func() bool {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			return false
+		}
+		defer func() { _ = c.Close() }()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		si, err = tfw.New(c, tfw.WithTimeout(time.Second)).SysInfo(ctx)
+		return err == nil
+	}, 10*time.Second, 50*time.Millisecond)
+	assert.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so the row proved nothing")
 }
 
 func TestFirmwarePin(t *testing.T) {

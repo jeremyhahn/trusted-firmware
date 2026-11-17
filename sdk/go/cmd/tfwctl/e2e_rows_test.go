@@ -102,6 +102,15 @@ var boardImages = map[string]boardImage{
 		tier:  elementTier,
 		parts: partIdentity | partStager | partOTACtl,
 	},
+	// The ESP32-P4 at bench HIL-0 (boards/esp32p4-poe/profile.mk), CRYPTO=none:
+	// CAPS features 0x7ff on the bench record
+	// (docs/development/bench/esp32-p4.md), the AVR families exactly, tier
+	// none, so no tier's rows; no identity provisioned and no stager or
+	// application known to the rows.
+	"esp32p4-poe": {
+		caps: avrPeripherals,
+		tier: anyTier,
+	},
 }
 
 // firmwareRowNeeds is every TestFirmware row and what it needs.

@@ -78,7 +78,8 @@ sdk-coverage:
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
 # that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
 # does not exist and a board that does not answer all fail; none of them is a
-# skip. Flash the image first (`make flash`); the scenarios do not. -p 1 because
+# skip. PORT=tcp:<ip:port> dials a board whose wire is a TCP server (the
+# ESP32 port) instead, with no reset. Flash the image first (`make flash`); the scenarios do not. -p 1 because
 # every scenario opens, and so resets, the one board. Every TestFirmware*
 # scenario reaches its peer through that seam; a test that starts a simulator
 # itself is named otherwise, so none needs a host binary here. They live in
@@ -121,7 +122,7 @@ sdk-coverage:
 HW_TEST_RUN ?=
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
-	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@if [ -z "$(filter tcp:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go

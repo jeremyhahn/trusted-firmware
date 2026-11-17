@@ -214,6 +214,15 @@ var openPort = serialport.Open
 // event is delivered exactly as tfwsim delivers it. Nothing is written before
 // then, so no request lands in the bootloader.
 func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
+		// A board whose wire is a TCP server (the ESP32 port, hal_uart.c):
+		// no DTR to reset it, so the rows find it running, as it is.
+		c, err := dialTCP("tcp", addr, bound)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", port, err)
+		}
+		return c, nil
+	}
 	p, err := openPort(port, 0)
 	if err != nil {
 		return nil, err
@@ -224,6 +233,15 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// TCPPrefix marks a PortEnv that is a board's wire endpoint, host:port,
+// rather than a serial device: tcp:192.0.2.80:21574.
+const TCPPrefix = "tcp:"
+
+// dialTCP is net.DialTimeout, a variable so a test can see the address.
+var dialTCP = func(network, addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	return net.DialTimeout(network, addr, bound)
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket

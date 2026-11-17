@@ -17,6 +17,7 @@
 
 #include "../../src/crypto/stm32h5/h5_crypto_regs.h"
 #include "../../src/crypto/stm32h5/h5_pka.h"
+#include "tfw/crypto.h"
 
 #define RAM_WORDS  (TFW_H5_PKA_RAM_END / 4u + 1u)
 #define FILL       0xA5A5A5A5u
@@ -37,7 +38,8 @@ static struct {
     int      fault;
 } m;
 
-static uint8_t   regs_anchor[TFW_H5_PKA_RAM_END + 4u];
+/* Not static: h5_model/soc_regs.h points the provider's PKA base here. */
+uint8_t          regs_anchor[TFW_H5_PKA_RAM_END + 4u];
 #define BASE     ((uintptr_t)regs_anchor)
 
 static const uint8_t P[32] = {
@@ -408,6 +410,83 @@ static void test_h5_pka_error_flags_are_no_answer(void)
     TEST_ASSERT_FALSE(m.fault);
 }
 
+/* The provider (src/crypto/stm32h5/provider.c) over the same model. What it
+ * wraps of the soft provider is stubbed; its software verify is the real one,
+ * src/crypto/soft/verify_p256.c renamed as mk/firmware.mk renames it. */
+volatile uint32_t h5_model_ahb2enr;
+
+tfw_status_t      tfw_crypto_soft_init(void) { return TFW_OK; }
+tfw_crypto_tier_t tfw_crypto_soft_tier(void) { return TFW_CRYPTO_SOFTWARE; }
+uint16_t          tfw_crypto_soft_algorithms(void) { return 0; }
+tfw_status_t      tfw_crypto_soft_random(uint8_t *out, uint8_t len)
+{
+    (void)out; (void)len;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_crypto_soft_hmac(uint8_t slot, const uint8_t *data, uint16_t len, uint8_t out[32])
+{
+    (void)slot; (void)data; (void)len; (void)out;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_crypto_soft_sign(const uint8_t d[32], uint8_t sig[64], uint8_t *alg_id)
+{
+    (void)d; (void)sig; (void)alg_id;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_crypto_soft_pubkey(uint8_t out[64])
+{
+    (void)out;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_crypto_soft_counter(uint8_t idx, uint32_t *out)
+{
+    (void)idx; (void)out;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_crypto_soft_verify_image(const uint8_t d[32], const uint8_t sig[64])
+{
+    (void)d; (void)sig;
+    return TFW_ERR_UNSUPPORTED;
+}
+tfw_status_t tfw_h5_hash_sha256(uintptr_t base, const uint8_t *data, uint16_t len, uint8_t out[32])
+{
+    (void)base; (void)data; (void)len; (void)out;
+    return TFW_ERR_TIMEOUT;
+}
+void tfw_sha256(const uint8_t *data, size_t len, uint8_t out[32])
+{
+    (void)data; (void)len;
+    memset(out, 0, 32);
+}
+
+/* The PKA never reaches INITOK: every verify is micro-ecc's, and the PKA is
+ * never started. */
+static void test_h5_provider_verifies_in_software_when_the_pka_does_not_start(void)
+{
+    uint8_t sig[64];
+
+    memset(&m, 0, sizeof m);
+    m.no_initok = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(0, m.runs);
+}
+
+/* A PKA that never ends its run: the same signature is verified in software. */
+static void test_h5_provider_verifies_in_software_when_the_pka_times_out(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -425,5 +504,7 @@ int main(void)
     RUN_TEST(test_h5_pka_sign_refused_leaves_sig_alone);
     RUN_TEST(test_h5_pka_times_out_when_procendf_never_rises);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
+    RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
+    RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
     return UNITY_END();
 }

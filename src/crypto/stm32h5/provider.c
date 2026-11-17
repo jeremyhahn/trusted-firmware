@@ -32,8 +32,10 @@ tfw_status_t      tfw_crypto_soft_hmac(uint8_t slot, const uint8_t *data, uint16
 tfw_status_t      tfw_crypto_soft_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg_id);
 tfw_status_t      tfw_crypto_soft_pubkey(uint8_t out[64]);
 tfw_status_t      tfw_crypto_soft_counter(uint8_t idx, uint32_t *out);
-tfw_status_t      tfw_crypto_soft_verify_operator(const uint8_t digest[32], const uint8_t sig[64],
-                                                  const uint8_t pubkey[64]);
+/* The soft provider refuses verify_operator (issue #4); the fallback is
+ * src/crypto/soft/verify_p256.c's micro-ecc verify, linked renamed beside it. */
+tfw_status_t      tfw_crypto_soft_verify_p256(const uint8_t digest[32], const uint8_t sig[64],
+                                              const uint8_t pubkey[64]);
 tfw_status_t      tfw_crypto_soft_verify_image(const uint8_t digest[32], const uint8_t sig[64]);
 
 /* CMSIS stm32h573xx.h: HASH_BASE_NS and PKA_BASE_NS are AHB2PERIPH_BASE_NS
@@ -112,7 +114,7 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32], const uint8_t 
             return st;
         }
     }
-    return tfw_crypto_soft_verify_operator(digest, sig, pubkey);
+    return tfw_crypto_soft_verify_p256(digest, sig, pubkey);
 }
 
 tfw_status_t tfw_crypto_verify_image(const uint8_t digest[32], const uint8_t sig[64])

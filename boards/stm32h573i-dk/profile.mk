@@ -66,12 +66,15 @@ BOOT_BUDGET    := 32768
 # src/crypto/stm32h5/provider.c wraps the soft provider, renamed as auto's is,
 # and falls back to it wherever the hardware does not answer. Recursive, as
 # SOFT_ID_SRCS is set after this file is read. Soft stays the default until
-# the board slice confirms the register facts (docs/plans/544.md).
+# the board slice confirms the register facts (docs/plans/544.md). The PKA's
+# software fallback is verify_p256.c on micro-ecc, linked whatever SOFT_ID is.
 BOARD_TIERS    := soft stm32h5
 ARCH_CRYPTO_TIERS      := stm32h5
 ARCH_CRYPTO_WRAPS_SOFT := stm32h5
 ARCH_CRYPTO_SRCS_stm32h5 = src/crypto/sha256.c src/crypto/soft/provider.c \
-                           src/crypto/soft/uds_flash.c $(SOFT_ID_SRCS) \
+                           src/crypto/soft/uds_flash.c \
+                           $(filter-out src/third_party/micro-ecc/uECC.c,$(SOFT_ID_SRCS)) \
+                           src/crypto/soft/verify_p256.c src/third_party/micro-ecc/uECC.c \
                            src/crypto/stm32h5/h5_hash.c src/crypto/stm32h5/h5_pka.c \
                            src/crypto/stm32h5/provider.c
 

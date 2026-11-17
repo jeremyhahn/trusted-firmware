@@ -685,6 +685,10 @@ endif
 # ARCH_CRYPTO_WRAPS_SOFT; the STM32H5's, #544) links it renamed, as auto does.
 ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_WRAPS_SOFT)),)
 $(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,soft)
+# The soft provider refuses verify_operator (issue #4), so the wrapper falls
+# back to src/crypto/soft/verify_p256.c's micro-ecc verify, linked renamed.
+$(FW_DIR)/src/crypto/soft/verify_p256.o: FW_CFLAGS += -Isrc/third_party/micro-ecc \
+                                         -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_p256
 endif
 # The STM32H5 provider turns the HASH, RNG and PKA clocks on through the SoC's
 # RCC, named in the SoC's soc_regs.h, which it includes by its own name.

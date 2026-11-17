@@ -1,7 +1,7 @@
 # esp32p4-poe (ESP32-P4 PoE Ethernet)
 
 > **Status: INFORMATIVE** · SPEC row: `esp32-p4` · Scope: `boards/esp32p4-poe/`
-> · Last verified: 2026-10-21
+> · Last verified: 2026-11-17
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is
@@ -13,11 +13,10 @@ co-processor this firmware holds in reset — no firmware of ours runs on it and
 its radio is never enabled (`profile.mk:4`–`5`; the C6's enable line at
 `board_profile.h:57`–`60`, held low from the first instruction of
 `tfw_hal_init`). It is the first MCU onboarded beside the Raspberry Pi nodes;
-the row is `esp32-p4` of [`../SPEC.md`](../SPEC.md). The board has not yet
-booted this firmware: that is bench HIL-0,
+the row is `esp32-p4` of [`../SPEC.md`](../SPEC.md). The board runs this firmware since bench HIL-0,
 [`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md)
-(`board_profile.h:6`–`10`). Until then the port is exercised on Espressif's
-QEMU ([`esp32-qemu.md`](esp32-qemu.md)).
+(`board_profile.h:6`–`10`); what has run on it is in "Feature matrix". The
+port is also exercised on Espressif's QEMU ([`esp32-qemu.md`](esp32-qemu.md)).
 
 ## The part
 
@@ -92,15 +91,48 @@ trailer and re-signs
 ([`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md)
 "HIL-0"; `sdkconfig.hil0:10`–`32`).
 
+## Feature matrix
+
+Run 2026-11-17 (row 536) on the bench HIL-0 image: `make esp32-build
+BOARD=esp32p4-poe CRYPTO=none` with `sdkconfig.hil0` and a static-address
+overlay, built from commit `50d9ddb7`, sealed `trusted-firmware.bin` SHA-256
+`ba46a004da85c8d0be6065b29a7adf5cbb07ed74512dcd59f1dbbab1f2edab6a`, measured
+by layer 0 as `649e1db9…8f6c10c`. The build's `sdkconfig` has
+`CONFIG_SECURE_BOOT` and `CONFIG_SECURE_FLASH_ENC_ENABLED` not set. Each row is
+`make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574
+HW_TEST_RUN='^TestFirmware<Row>$'`: the wire on this port is the TCP server of
+`src/hal/esp32/hal_uart.c`, so the serial console answers no PING, and the
+`tcp:` port was added for it. The whole-flash read before the first write and
+`espefuse summary` before and after are in the bench record outside the tree;
+the two summaries differ in no eFuse line.
+
+| SPEC row | Feature | Result | Evidence |
+|---|---|---|---|
+| esp32-p4 | boot, layer 0, Ethernet link | verified 2026-11-17 | console: `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up … wire on tcp/21574` |
+| esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
+| esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
+| esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
+| esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | row `I2C` passes; nothing fitted on the header |
+| esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
+| esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
+| esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
+| esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` hard-code the AVR's pin 9 (an ADC pin here); issue to file: board-driven PWM pin in the rows |
+| esp32-p4 | tone (GPIO6) | fails: not measured | no hw-test row drives TONE; issue to file |
+| esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
+| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
+| esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
+| esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
+| esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |
+| esp32-p4 | wire over Ethernet, board dials (`HW_ETH`) | not run | the `TestEthernet*` rows listen for the board's dial; the run's host was not on the development VLAN; issue to file |
+| esp32-p4, ota | OTA write, trial, confirm, roll back | not run | the `CRYPTO=none` image has no operator session, so every OTA row is out of its row list; needs an element- or soft-tier image; issue to file |
+| esp32-p4 | secure boot v2, flash encryption | owner | each burns eFuses (CA 583) |
+| esp32-p4 | UDS / HMAC DICE identity (`hmac-p256`) | owner | needs the UDS written to an eFuse key block (CA 583) |
+| esp32 | the ESP-IDF port on the P4 | verified 2026-11-17 in part | the rows above; the rest as the `esp32-p4` lines |
+
 ## What is not met yet
 
-The board has not yet run this firmware. The recorded bench runs have carried
-out HIL-0's first two steps — the re-read of the factory state (positive) and
-the build, an image sealed at version 1 — read-only; the write of that image
-waits for the bench host to reach the board's network directly, which the
-second run's record says was not met
-([`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md),
-"Runs"). The rows the SPEC `esp32-p4` requires on the part — secure boot and
-OTA on the real eFuses, the wire over the P4's own EMAC, the identity keyed
-from the UDS — are unverified there; nothing in the tree has been measured on
-this board.
+The board runs this firmware and answers the wire over its own EMAC; GPIO,
+ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
+PWM, tone and EEPROM have no passing row on this board; the board-dials
+Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
+identity keyed from the UDS need eFuse writes and wait for the owner.

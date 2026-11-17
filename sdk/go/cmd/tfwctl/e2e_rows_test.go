@@ -102,6 +102,12 @@ var boardImages = map[string]boardImage{
 		tier:  elementTier,
 		parts: partIdentity | partStager | partOTACtl,
 	},
+	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
+	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
+	"esp32p4-poe": {
+		caps: avrPeripherals,
+		tier: anyTier,
+	},
 }
 
 // firmwareRowNeeds is every TestFirmware row and what it needs.

@@ -38,11 +38,12 @@ const boardRowsEnv = "TFW_HW_ROWS"
 type imageParts uint8
 
 const (
-	partStager   imageParts = 1 << iota // the OTA stager (OTA_STATUS)
-	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
-	partApp                             // an application (APP_INFO)
-	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
-	partTCP                             // served over TCP: the connect resets nothing, so no BOOT event comes
+	partStager      imageParts = 1 << iota // the OTA stager (OTA_STATUS)
+	partOTACtl                             // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
+	partApp                                // an application (APP_INFO)
+	partIdentity                           // a provisioned identity, the DEVICEID the rows verify under
+	partTCP                                // served over TCP: the connect resets nothing, so no BOOT event comes
+	partTonePinHeld                        // ETH=1 holds TFW_TONE_PIN: the Mega's pin 10 is the shield's chip select
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -79,6 +80,21 @@ func (n rowNeed) servedBy(img boardImage) bool {
 		img.parts&n.has == n.has && img.parts&n.not == 0
 }
 
+// boardImageHolds reports whether the board's bench image has every part in
+// p. A board with no row list has none: the rows that need a part skip there.
+func boardImageHolds(board string, p imageParts) bool {
+	img, ok := boardImages[board]
+	return ok && img.parts&p == p
+}
+
+// tonePinHeld reports whether the firmware under test is known to hold the
+// tone pin: hardware running a board image with partTonePinHeld. The
+// simulator and every other image leave it free, so a RESERVED_PIN there is
+// a regression, not a skip.
+func tonePinHeld(hardware bool, board string) bool {
+	return hardware && boardImageHolds(board, partTonePinHeld)
+}
+
 // avrPeripherals are the families config.h turns on and neither AVR board's
 // profile turns off.
 const avrPeripherals = tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
@@ -97,11 +113,13 @@ var boardImages = map[string]boardImage{
 		parts: partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
-	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
+	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM. The shield's chip
+	// select is the tone pin, which board.c marks TFW_PIN_ETH, in use under
+	// ETH=1: the tone row needs a shieldless image (ETH=0).
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl,
+		parts: partIdentity | partStager | partOTACtl | partTonePinHeld,
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
@@ -127,7 +145,8 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
-	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partTonePinHeld},
+	"TestFirmwareToneRefusesTheShieldsPin":               {caps: tfw.FeatureTone, has: partTonePinHeld},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
@@ -306,7 +325,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
+			"TestFirmwareTone",
 		}, []string{
+			"TestFirmwareToneRefusesTheShieldsPin",
 			"TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAAuthLetsTheCommandPastTheGate",
 			"TestFirmwareAttestRefusedUnprovisioned", "TestFirmwareBlankElementRefusesToAttest",
@@ -318,7 +339,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePing", "TestFirmwareAnOperatorSignatureOpensTheSession",
 			"TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAConfirm",
+			"TestFirmwareToneRefusesTheShieldsPin",
 		}, []string{
+			"TestFirmwareTone",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
@@ -398,5 +421,39 @@ func TestSelectBoardRowsDoesNothingUnasked(t *testing.T) {
 	t.Setenv(peer.BoardEnv, "atmega32u4")
 	if err := selectBoardRows(); err != nil {
 		t.Fatalf("selection ran unasked: %v", err)
+	}
+}
+
+// TestOnlyTheMegaImageHoldsTheTonePin: TestFirmwareToneRefusesTheShieldsPin
+// runs on an image whose tone pin is the shield's chip select and on no other,
+// so the 328P simulator, the P4 and a board with no list leave it free.
+func TestOnlyTheMegaImageHoldsTheTonePin(t *testing.T) {
+	for board, want := range map[string]bool{
+		"atmega2560":  true,
+		"atmega328p":  false,
+		"esp32p4-poe": false,
+		"no-such":     false,
+	} {
+		if got := boardImageHolds(board, partTonePinHeld); got != want {
+			t.Errorf("%s: holds the tone pin = %v, want %v", board, got, want)
+		}
+	}
+}
+
+func TestTonePinHeldOnlyOnTheMegaHardware(t *testing.T) {
+	for _, c := range []struct {
+		hardware bool
+		board    string
+		want     bool
+	}{
+		{true, "atmega2560", true},
+		{false, "atmega2560", false},
+		{true, "esp32p4-poe", false},
+		{true, "atmega328p", false},
+		{false, "atmega328p", false},
+	} {
+		if got := tonePinHeld(c.hardware, c.board); got != c.want {
+			t.Errorf("%s hardware=%v: tone pin held = %v, want %v", c.board, c.hardware, got, c.want)
+		}
 	}
 }

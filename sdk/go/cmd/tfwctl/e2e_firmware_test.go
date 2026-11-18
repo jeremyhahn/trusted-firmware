@@ -7,9 +7,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +25,7 @@ import (
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
 
 // The TestFirmware* scenarios run each verb against whatever the transport
@@ -110,13 +117,226 @@ func TestFirmwarePing(t *testing.T) {
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
-	dev := startFirmware(t, tfw.WithBootWait(0))
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	conn, skip := bootEventLink(t, target, os.Getenv(resetPortEnv))
+	if skip != "" {
+		t.Skip(skip)
+	}
+	assertBootEvent(t, conn)
+}
+
+// assertBootEvent pings over conn with no boot wait and asserts the first
+// event the device delivered is its boot event.
+func assertBootEvent(t *testing.T, conn io.ReadWriteCloser) {
+	t.Helper()
+	dev := tfw.New(conn, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
 	events := dev.Events()
 	require.NotEmpty(t, events, "no boot event was observed")
 	assert.True(t, events[0].IsEvent() && events[0].Payload[0] == tfw.EventBoot,
 		"first event = %+v, want a boot event", events[0])
+}
+
+// resetPortEnv names the serial port that resets a board whose wire is a
+// tcp: link (#550, make hw-test RESET_PORT=): the suite pulses its DTR and
+// nothing else, and talks to the board over TCP.
+const resetPortEnv = "TFW_HW_RESET_PORT"
+
+// pulseReset drops DTR on port for peer.ResetPulse and raises it again,
+// resetting the board; a variable so a host test can see the pulse.
+var pulseReset = func(port string) error {
+	p, err := serialport.Open(port, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = p.Close() }()
+	r, ok := p.(peer.ModemLines)
+	if !ok {
+		return fmt.Errorf("%s cannot drive RTS and DTR", port)
+	}
+	if err := peer.ESPReset(r); err != nil {
+		return fmt.Errorf("%s: %w", port, err)
+	}
+	return nil
+}
+
+// bootEventLink is the link the boot-event row reads, to a board that has
+// just booted. A serial or QMP link is the seam's, which resets the board as
+// it opens it. A tcp: link has no reset of its own: the board is reset by a
+// pulse on resetPort and its endpoint dialled again until it is back. With no
+// resetPort nothing resets it, so there is no link and skip says why: the row
+// skips by name, never passes on a boot it did not see.
+func bootEventLink(t *testing.T, target peer.Target, resetPort string) (conn io.ReadWriteCloser, skip string) {
+	t.Helper()
+	if !strings.HasPrefix(target.Port, peer.TCPPrefix) {
+		return peer.Start(t, simproc.Software), ""
+	}
+	if resetPort == "" {
+		return nil, fmt.Sprintf("%s=%s is a tcp: link and %s is unset: nothing resets the board, so its boot event cannot be observed",
+			peer.PortEnv, target.Port, resetPortEnv)
+	}
+	require.NoError(t, pulseReset(resetPort), "%s=%s", resetPortEnv, resetPort)
+	// The board answers once it is back; poll for that, not for a fixed time.
+	var c io.ReadWriteCloser
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var err error
+		c, err = peer.Open(target.Port, peer.StartBound)
+		assert.NoError(ct, err, "%s did not answer within %v of the reset", target.Port, peer.StartBound)
+	}, peer.StartBound, peer.ResetPulse)
+	t.Cleanup(func() { _ = c.Close() })
+	return c, ""
+}
+
+// TestBootEventLinkSkipsATCPLinkWithNoResetPort: with no reset port the
+// boot-event row has no link and a reason naming the variable to set.
+func TestBootEventLinkSkipsATCPLinkWithNoResetPort(t *testing.T) {
+	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + "192.0.2.1:7000"}, "")
+	assert.Nil(t, conn)
+	assert.Contains(t, skip, resetPortEnv)
+	assert.Contains(t, skip, peer.TCPPrefix+"192.0.2.1:7000")
+}
+
+// TestBootEventLinkResetsATCPLinkThroughTheResetPort runs the boot-event row
+// on a simulated tcp: peer, a listener bridged to the software simulator with
+// the ESP32 wire's accept/drop ordering (serveESPWire), so the boot event is
+// sent before any host is accepted, as on the board: the
+// reset port is pulsed before the endpoint is dialled, and the boot event
+// arrives over TCP.
+func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
+	sim := simproc.Start(t, simproc.Software)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	var pulsed, dialledAfterPulse atomic.Bool
+	serveESPWire(ln, sim, func() { dialledAfterPulse.Store(pulsed.Load()) })
+	restore := pulseReset
+	t.Cleanup(func() { pulseReset = restore })
+	var pulsedPort string
+	pulseReset = func(port string) error {
+		pulsedPort = port
+		pulsed.Store(true)
+		return nil
+	}
+
+	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + ln.Addr().String()}, "reset-port-under-test")
+	require.Empty(t, skip)
+	assert.Equal(t, "reset-port-under-test", pulsedPort)
+	assertBootEvent(t, conn)
+	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
+}
+
+// linePort records the modem-line changes peer.ESPReset makes, and when.
+type linePort struct {
+	calls []string
+	at    []time.Time
+	fail  string // the call that fails, if any
+}
+
+func (l *linePort) set(line string, on bool) error {
+	call := fmt.Sprintf("%s=%t", line, on)
+	l.calls, l.at = append(l.calls, call), append(l.at, time.Now())
+	if call == l.fail {
+		return errors.New("line stuck")
+	}
+	return nil
+}
+
+func (l *linePort) SetDTR(on bool) error { return l.set("DTR", on) }
+func (l *linePort) SetRTS(on bool) error { return l.set("RTS", on) }
+
+// The reset pulses EN through RTS with GPIO0 (DTR) released, so a running
+// ESP32 reboots into its application and sends BOOT again.
+func TestESPResetPulsesENThroughRTSWithDTRReleased(t *testing.T) {
+	l := &linePort{}
+	require.NoError(t, peer.ESPReset(l))
+	require.Equal(t, []string{"DTR=false", "RTS=true", "RTS=false"}, l.calls)
+	assert.GreaterOrEqual(t, l.at[2].Sub(l.at[1]), peer.ResetPulse, "EN held low too briefly")
+}
+
+// A line that will not move is an error, and the sequence stops there.
+func TestESPResetReportsALineThatFails(t *testing.T) {
+	for _, fail := range []string{"DTR=false", "RTS=true", "RTS=false"} {
+		l := &linePort{fail: fail}
+		err := peer.ESPReset(l)
+		require.Error(t, err, fail)
+		assert.Equal(t, fail, l.calls[len(l.calls)-1], "a call after the failed one")
+	}
+}
+
+// espWireHold is TX_BUF in src/hal/esp32/hal_uart.c.
+const espWireHold = 512
+
+// serveESPWire bridges ln to board with the ESP32 wire's ordering
+// (src/hal/esp32/hal_uart.c): the board runs from boot whether a host is
+// connected or not; what it sends before the first host is accepted is held,
+// up to espWireHold bytes (all of it or, on overflow, none), and goes to that
+// host on accept; what it sends with no host after that is dropped.
+func serveESPWire(ln net.Listener, board io.ReadWriter, onAccept func()) {
+	var (
+		mu       sync.Mutex
+		client   net.Conn
+		accepted bool
+		holding  = true
+		held     []byte
+		// booted closes once the reader has taken the board's first output
+		// (the boot event): the accept loop waits on it, so the first host is
+		// always accepted after that output, as on the device, never racing it.
+		booted   = make(chan struct{})
+		bootOnce sync.Once
+	)
+	go func() {
+		buf := make([]byte, 256)
+		defer bootOnce.Do(func() { close(booted) })
+		for {
+			n, err := board.Read(buf)
+			mu.Lock()
+			switch {
+			case client != nil:
+				_, _ = client.Write(buf[:n])
+			case !accepted && holding && len(held)+n <= espWireHold:
+				held = append(held, buf[:n]...)
+			case !accepted:
+				holding, held = false, nil
+			}
+			mu.Unlock()
+			if n > 0 {
+				bootOnce.Do(func() { close(booted) })
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		<-booted
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			onAccept()
+			mu.Lock()
+			if client != nil {
+				mu.Unlock()
+				_ = c.Close()
+				continue
+			}
+			client, accepted = c, true
+			_, _ = c.Write(held)
+			held = nil
+			mu.Unlock()
+			go func() {
+				_, _ = io.Copy(board, c)
+				mu.Lock()
+				if client == c {
+					client = nil
+				}
+				mu.Unlock()
+			}()
+		}
+	}()
 }
 
 // Forty pairs of (SOF, SOF). The framer treats the first byte of each pair as a
@@ -187,26 +407,83 @@ func TestFirmwareSys(t *testing.T) {
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
-	// #5: talked to over a clean link, the firmware counts no framing
-	// errors -- the appended fields decode against the live device, not only
-	// against canned replies. The counters are sticky: an image whose connect
-	// does not reset it (a TCP peer) still holds what an earlier row, such as
-	// TestFirmwarePingAfterAMalformedBurst, put there (Codex P1 on #565), so
-	// clean traffic must leave them where they were, and they are zero only
-	// on an image the connect has just reset.
-	var pong pingJSON
-	for i := 0; i < 20; i++ {
-		cliJSON(t, dev, &pong, "ping", strconv.Itoa(i))
+	if !b.resetAny {
+		assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
 	}
-	var after tfw.SysInfo
-	cliJSON(t, dev, &after, "sys")
-	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors on a clean link")
-	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors on a clean link")
+	// #5: talked to over a clean link, the firmware counts no framing errors
+	// -- the appended fields decode against the live device, not only
+	// against canned replies. #550: a delta, not zero, since over a tcp: link
+	// nothing resets the board and an earlier row's burst still counts.
+	sysCountersHold(t, dev, si)
+	// Zero only on an image the connect has just reset (Codex P1 on #565).
 	if sysCountersStartAtZero(board) {
 		assert.Zero(t, si.ErrCRC, "framer CRC errors after the connect's reset")
 		assert.Zero(t, si.ErrFormat, "framer format errors after the connect's reset")
 	}
+}
+
+// sysCountersHold runs a ping over dev and asserts the framer's CRC and
+// format counters still read as they did in before.
+func sysCountersHold(t *testing.T, dev *tfw.Device, before tfw.SysInfo) {
+	t.Helper()
+	var got pingJSON
+	cliJSON(t, dev, &got, "ping", "hi")
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, before.ErrCRC, after.ErrCRC, "framer CRC errors on a clean link")
+	assert.Equal(t, before.ErrFormat, after.ErrFormat, "framer format errors on a clean link")
+}
+
+// TestSysCountersHoldAfterAMalformedBurst is the Sys row on a board an
+// earlier row left with raised counters (#550): the burst counts, and the
+// row still passes.
+func TestSysCountersHoldAfterAMalformedBurst(t *testing.T) {
+	conn := simproc.Start(t, simproc.Software)
+	noise := make([]byte, 0, 80)
+	for i := 0; i < 40; i++ {
+		noise = append(noise, tfw.SOF, tfw.SOF)
+	}
+	_, err := conn.Write(noise)
+	require.NoError(t, err)
+	dev := tfw.New(conn, tfw.WithTimeout(5*time.Second))
+	var si tfw.SysInfo
+	cliJSON(t, dev, &si, "sys")
+	require.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so this proves nothing")
+	sysCountersHold(t, dev, si)
+}
+
+// The Sys row itself, as hw-test runs it on the ESP32-P4 (#550): BOARD
+// esp32p4-poe, PORT tcp: on a simulated tcp peer whose firmware took a
+// malformed burst first and was never reset. A first host sees the burst
+// counted; the row, the host after it, passes with the counters raised.
+func TestSysRowOnTheESP32OverTCPAfterAMalformedBurst(t *testing.T) {
+	sim := simproc.Start(t, simproc.Software)
+	noise := make([]byte, 0, 80)
+	for i := 0; i < 40; i++ {
+		noise = append(noise, tfw.SOF, tfw.SOF)
+	}
+	_, err := sim.Write(noise)
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	serveESPWire(ln, sim, func() {})
+	port := peer.TCPPrefix + ln.Addr().String()
+	t.Setenv(peer.PortEnv, port)
+	t.Setenv(peer.BoardEnv, "esp32p4-poe")
+
+	// A first host sees the burst counted, then leaves: the row is the next
+	// host, so it also reconnects as a row after another one does.
+	c, err := peer.Open(port, peer.StartBound)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	si, err := tfw.New(c, tfw.WithTimeout(5*time.Second)).SysInfo(ctx)
+	cancel()
+	_ = c.Close()
+	require.NoError(t, err)
+	require.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so the row would prove nothing")
+
+	require.True(t, t.Run("TestFirmwareSys", TestFirmwareSys), "the Sys row failed on the ESP32 over tcp:")
 }
 
 func TestFirmwarePin(t *testing.T) {

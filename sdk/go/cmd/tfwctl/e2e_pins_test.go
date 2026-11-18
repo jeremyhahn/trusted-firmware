@@ -20,6 +20,10 @@ type peerBoard struct {
 	// bootloader cleared MCUSR before the application could latch it, so the
 	// honest answer is unknown (src/hal/avr/hal_sys.c).
 	resetCause tfw.ResetCause
+	// resetAny is a board whose rows do not assert resetCause: over a tcp:
+	// link nothing resets it before the row, so it reports whatever its
+	// last reset was (#550).
+	resetAny   bool
 	ledPort    uint8          // the LED pin 13's port index
 	ledBit     uint8          // and bit
 	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
@@ -103,6 +107,7 @@ var peerBoards = map[string]peerBoard{
 	// PORT=tcp:, so no reset: the cause is the last boot's, power-on.
 	"esp32p4-poe": {
 		resetCause: tfw.ResetPowerOn,
+		resetAny:   true,
 		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
 		analog: 7, // GPIO20
 		adcPin: 7, adcChannel: 4, adcPort: true,

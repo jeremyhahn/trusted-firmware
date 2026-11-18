@@ -621,6 +621,32 @@ func start(p io.ReadWriteCloser, bound time.Duration) (io.ReadWriteCloser, error
 	return awaitStart(r, bound)
 }
 
+// ModemLines is what ESPReset needs of the reset port.
+type ModemLines interface {
+	SetDTR(bool) error
+	SetRTS(bool) error
+}
+
+// ESPReset is esptool's classic reset on the ESP32 auto-reset circuit
+// (docs/plans/550.md): RTS drives EN and DTR drives GPIO0, each asserted
+// line pulling its pin low, and both asserted together pull neither. DTR is
+// released first so GPIO0 is high when EN rises (a normal boot, not the ROM
+// download mode); RTS then holds EN low for ResetPulse and releases it.
+// Pulsing DTR alone never moves EN, so it does not reset a running board.
+func ESPReset(r ModemLines) error {
+	if err := r.SetDTR(false); err != nil {
+		return fmt.Errorf("releasing DTR (GPIO0 high): %w", err)
+	}
+	if err := r.SetRTS(true); err != nil {
+		return fmt.Errorf("asserting RTS (EN low): %w", err)
+	}
+	time.Sleep(ResetPulse)
+	if err := r.SetRTS(false); err != nil {
+		return fmt.Errorf("releasing RTS (EN high): %w", err)
+	}
+	return nil
+}
+
 // awaitStart reads until rwc yields its first bytes or bound passes. rwc must
 // return from Read within a bounded time even when nothing arrives, as
 // serialport.Open's read timeout makes it.

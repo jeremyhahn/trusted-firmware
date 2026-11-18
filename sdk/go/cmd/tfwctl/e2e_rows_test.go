@@ -373,10 +373,10 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		// resets nothing, so no BOOT arrives.
 		{"esp32p4-poe", []string{
 			"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePin", "TestFirmwareTone",
-			"TestFirmwareI2C", "TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
+			"TestFirmwareI2C", "TestFirmwareAttestRefusedUnprovisioned",
 		}, []string{
 			"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig",
-			"TestFirmwareAttestRefusedUnprovisioned",
+			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
 			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		}},
 	} {

@@ -260,6 +260,29 @@ CA 583 forbids: option bytes or provisioning).
   - not runnable on this image: `I2CConfig` (I2C off by default),
     `OTAInfo` and `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` (no OTA
     stager, `OTA_STATUS` unknown).
+- PR #584's `ETH_MAC=1` image on the board, 2026-11-18 (lane hw-584f,
+  rulings 922 and 814): built at 8c687368 with `make BOARD=stm32h573i-dk
+  ETH_MAC=1 cortex-m-dk-image` (size-check passes, application 38472
+  bytes), bench.hex SHA-256 `b94fb6c0…0929`; `boot.bin`, `app.bin` and
+  `platform.bin` written with `pyocd load -t stm32h573iikx -e sector
+  --format bin` at the `addrs.env` addresses (pyOCD 0.46.1 refuses
+  `bench.hex` itself: two start-address records), no option byte written.
+  The board is left on this image.
+  - PHY ID (#579): verified 2026-11-18. This image prints no `eth: phy`
+    line when it finds a PHY, so with the image running and the lease
+    held the core was halted and MDIO read through MACMDIOAR/MACMDIODR at
+    PHY address 0 (`pyocd cmd -c halt -c write32 … -c read32 …`, then
+    `go`): PHYID1 `0x0007`, PHYID2 `0xC131`, the LAN8742A of the
+    `ETH_PROBE=1` line above.
+  - Link (#579): verified 2026-11-18, the same read: BMSR `0x782D`, bit 2
+    (link up) set on the second read.
+  - DHCP lease (#581): verified 2026-11-18, the console line `eth: dhcp
+    bound` with a dev-VLAN lease, 16 s after a debugger reset; the address
+    was taken from that line only, no network scan.
+  - tfw-wire over TCP (#582): verified 2026-11-18, `make hw-test
+    BOARD=stm32h573i-dk PORT=tcp:<the bound line's address>:21574
+    HW_RESET='cmd:pyocd reset -t stm32h573iikx'`: the board's row
+    selection for a `tcp:` port passes (`ok`, 93 s).
 - Enrolling over Ethernet: CAPS and the attestation refusals verified over
   TCP 2026-11-17 (above); attestation itself is owner (provisioning; CA 583).
 

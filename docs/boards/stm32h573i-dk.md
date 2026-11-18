@@ -266,7 +266,10 @@ CA 583 forbids: option bytes or provisioning).
   bytes), bench.hex SHA-256 `b94fb6c0…0929`; `boot.bin`, `app.bin` and
   `platform.bin` written with `pyocd load -t stm32h573iikx -e sector
   --format bin` at the `addrs.env` addresses (pyOCD 0.46.1 refuses
-  `bench.hex` itself: two start-address records), no option byte written.
+  that `bench.hex` itself: two start-address records), no option byte written.
+  Since #584's fix-584b the packer keeps only the boot's start-address
+  record and checks there is one, with one end-of-file record, so the
+  packed HEX loads directly; that load is not yet run on the board.
   The board is left on this image.
   - PHY ID (#579): verified 2026-11-18. This image prints no `eth: phy`
     line when it finds a PHY, so with the image running and the lease
@@ -388,7 +391,8 @@ that row passing in the whole-list run, 385 s, every row from a probe reset.
   and `platform.bin` at the addresses in `addrs.env`, and `bench.hex` the
   same with `boot.bin`, the bench boot. Write the first with `make
   boot-flash BOARD=stm32h573i-dk BOOT_FLASH_HEX=<bench>/bench-unprovisioned.hex`
-  (or the three blobs with `pyocd load -t stm32h573iikxq -e sector`), and
+  (the packed HEX carries one start-address record, so it loads directly;
+  the three blobs with `pyocd load -t stm32h573iikxq -e sector` also work), and
   run the row by name. On that boot
   `attest` answers "no provisioned identity" in the 2.0 s a `caps` takes.
   The board was left on the same set's `boot.bin` (provisioned).

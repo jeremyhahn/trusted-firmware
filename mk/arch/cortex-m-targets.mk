@@ -340,11 +340,32 @@ cortex-m-dk-sign: $(CM_DK_DIR)/cm_image
 
 # One Intel HEX of a boot, app.bin and platform.bin at addrs.env's addresses:
 # each blob converted on its own, their end-of-file records dropped, one added.
+# objcopy gives every part a start-address record (type 03 or 05); pyOCD
+# refuses a HEX with more than one, so only the boot's, the first, is kept.
+# cm-dk-hex-check then fails the build unless exactly one of each remains.
 cm-dk-pack = d=$(CM_DK_DIR); . $$d/addrs.env || exit 1; \
-	{ for p in "$(1) $$BOOT_AT" "app.bin $$APP_AT" "platform.bin $$PLATFORM_AT"; do \
+	{ keep=1; for p in "$(1) $$BOOT_AT" "app.bin $$APP_AT" "platform.bin $$PLATFORM_AT"; do \
 	    set -- $$p; $(ARCH_OBJCOPY) -I binary -O ihex --change-addresses $$2 $$d/$$1 $$d/part.hex || exit 1; \
-	    grep -v '^:00000001FF' $$d/part.hex; done; echo ':00000001FF'; } > $$d/$(2).tmp && \
-	mv $$d/$(2).tmp $$d/$(2) && rm -f $$d/part.hex
+	    if [ $$keep = 1 ]; then grep -v '^:00000001FF' $$d/part.hex; \
+	    else grep -v -e '^:00000001FF' -e '^:0400000[35]' $$d/part.hex; fi; keep=0; \
+	    done; echo ':00000001FF'; } > $$d/$(2).tmp && \
+	mv $$d/$(2).tmp $$d/$(2) && rm -f $$d/part.hex && $(call cm-dk-hex-check,$$d/$(2))
+
+cm-dk-hex-check = s=$$(grep -c '^:0400000[35]' $(1)); e=$$(grep -c '^:00000001FF' $(1)); \
+	if [ "$$s" != 1 ] || [ "$$e" != 1 ]; then \
+	  echo "$(1): $$s start-address and $$e end-of-file records, want 1 and 1"; exit 1; fi
+
+# The packer on three small blobs with the host objcopy, no board image:
+# the packed HEX carries one start-address record and one end-of-file record.
+cm-dk-pack-test: CM_DK_DIR = $(BUILD_DIR)/cm-dk-pack-test
+cm-dk-pack-test: ARCH_OBJCOPY = $(or $(CM_DK_TEST_OBJCOPY),objcopy)
+cm-dk-pack-test:
+	@rm -rf $(CM_DK_DIR) && mkdir -p $(CM_DK_DIR)
+	@printf 'BOOT_AT=0x08000000\nAPP_AT=0x08020000\nPLATFORM_AT=0x081F0000\n' > $(CM_DK_DIR)/addrs.env
+	@for f in boot.bin app.bin platform.bin; do printf '%s-0123456789' $$f > $(CM_DK_DIR)/$$f; done
+	@$(call cm-dk-pack,boot.bin,bench.hex)
+	@echo "cm-dk-pack-test: one start-address and one end-of-file record"
+	@rm -rf $(CM_DK_DIR)
 
 # The signer for the DK: cm_image's sources, with CM_DK_DEFS added to the
 # board's BOARD_DEFS, in a directory of its own.
@@ -371,6 +392,6 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
         integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-pulse-wire cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
         cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire cortex-m-qemu-tone-wire cortex-m-qemu-onewire-wire cortex-m-qemu-pwm-wire \
-        cortex-m-qemu-cycle cortex-m-dk-image cortex-m-dk-sign \
+        cortex-m-qemu-cycle cortex-m-dk-image cortex-m-dk-sign cm-dk-pack-test \
         $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \
         $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS))

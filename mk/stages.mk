@@ -122,7 +122,7 @@ test-tools:
 	$(call require-tools,gcc gcovr python3)
 
 ## scripts-test: the unit tests of the Python scripts (scripts/test_*.py), no network
-scripts-test:
+scripts-test: cm-dk-pack-test
 	@python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 # -------------------------------------------------------- integration-test

@@ -159,10 +159,10 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {not: partTCP}, // a TCP connect boots nothing
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // #550: on TCP pulses TFW_HW_RESET_PORT, or skips by name
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {tier: cryptoTier},
-	"TestFirmwareSys":                                    {not: partTCP}, // wants zero framer errors since a boot
+	"TestFirmwareSys":                                    {}, // #550: counter deltas, so no boot needed
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
@@ -464,14 +464,16 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 	}
 }
 
-// TestBoardRunLeavesTheResetRowsOffATCPBoard: a TCP connect resets nothing,
-// so no BOOT event comes, and the framer counters keep the malformed burst's
-// errors across reconnects. The rows that need a fresh boot run on the
-// serial boards only.
-func TestBoardRunLeavesTheResetRowsOffATCPBoard(t *testing.T) {
+// A TCP connect resets nothing, so the boot-event row pulses
+// TFW_HW_RESET_PORT (and skips by name with none) and the Sys row checks the
+// framer counters' delta, not zero (#550, Codex P1 on #558): a TCP board
+// runs both, as the serial boards do.
+func TestBoardRunSelectsTheRepairedResetRowsOnATCPBoard(t *testing.T) {
+	// #550: the boot-event row pulses the reset port (or skips by name) and
+	// the Sys row checks counter deltas, so a TCP board runs both.
 	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwareSys"} {
-		if boardRun(t, "esp32p4-poe", false).MatchString(row) {
-			t.Errorf("the esp32p4-poe run selects %s, which needs a reset a TCP connect never makes", row)
+		if !boardRun(t, "esp32p4-poe", false).MatchString(row) {
+			t.Errorf("the esp32p4-poe run leaves out %s, which #550 repaired for a TCP link", row)
 		}
 		if !boardRun(t, "atmega2560", false).MatchString(row) {
 			t.Errorf("the atmega2560 run lost %s", row)

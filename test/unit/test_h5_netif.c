@@ -22,6 +22,11 @@ void tfw_hal_eth_poll(void);
 
 static tfw_ms_t now_ms;
 static uint8_t  link_up_flag;
+/* PSCSR: speed field bits 4:2, 0x6 = 100 Mbit/s full duplex; or a failed read. */
+static uint16_t pscsr_val = 0x0018u;
+static uint8_t  pscsr_fail;
+static uint32_t mac_cr;
+static uint8_t  mac_running;
 static unsigned tx_frames;
 
 tfw_ms_t tfw_hal_millis(void) { return now_ms; }
@@ -40,6 +45,12 @@ int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
     case TFW_PHY_REG_BMSR:
         *val = link_up_flag ? (uint16_t)(TFW_PHY_BMSR_LINK | TFW_PHY_BMSR_ANDONE) : 0u;
         break;
+    case TFW_PHY_REG_PSCSR:
+        if (pscsr_fail) {
+            return -1;
+        }
+        *val = pscsr_val;
+        break;
     default: *val = 0u; break;
     }
     return 0;
@@ -52,9 +63,9 @@ int tfw_h5_eth_mdio_write(uint8_t addr, uint8_t reg, uint16_t val)
 
 /* --- the MAC: frames sent are counted, none ever arrive (no DHCP server) -- */
 int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return 0; }
-void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; (void)mac; (void)sp; }
-void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; }
-void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; }
+void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; (void)mac; mac_cr = sp; }
+void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
+void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
 int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
 {
     (void)m; (void)frame; (void)len;
@@ -128,9 +139,40 @@ static void test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears(v
     TEST_ASSERT_FALSE(dhcp_supplied_address(nif));
 }
 
+static void test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read(void)
+{
+    struct netif *nif;
+
+    link_up_flag = 0u;
+    run_for(1000u);
+    TEST_ASSERT_FALSE(mac_running);
+
+    pscsr_fail = 1u;                    /* the read fails */
+    link_up_flag = 1u;
+    run_for(1000u);
+    TEST_ASSERT_FALSE(mac_running);
+    nif = netif_default;
+    TEST_ASSERT_NOT_NULL(nif);
+    TEST_ASSERT_FALSE(netif_is_link_up(nif));
+
+    pscsr_fail = 0u;                    /* read, but no speed in it */
+    pscsr_val = 0u;
+    run_for(1000u);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_FALSE(netif_is_link_up(nif));
+
+    pscsr_val = 0x0014u;                /* 10 Mbit/s full duplex */
+    run_for(1000u);
+    TEST_ASSERT_TRUE(mac_running);
+    TEST_ASSERT_TRUE(netif_is_link_up(nif));
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_MACCR_DM, mac_cr);
+    pscsr_val = 0x0018u;
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
+    RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
     return UNITY_END();
 }

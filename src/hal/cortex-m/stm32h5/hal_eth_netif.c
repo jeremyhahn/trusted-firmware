@@ -177,8 +177,13 @@ static void eth_watch_link(void)
         if (!up || (bmsr & TFW_PHY_BMSR_ANDONE) == 0u) {
             return;
         }
-        (void)phy_read(TFW_PHY_REG_PSCSR, &pscsr);
-        (void)tfw_eth_phy_speed(bmsr, pscsr, &cr);
+        /* A failed PSCSR read, or a PSCSR naming no speed, leaves the MAC
+         * stopped: starting it at a guessed 100 Mbit/s full duplex would
+         * mismatch a partner that negotiated otherwise. The next link poll,
+         * LINK_POLL_MS on, reads it again. */
+        if (phy_read(TFW_PHY_REG_PSCSR, &pscsr) != 0 || !tfw_eth_phy_speed(bmsr, pscsr, &cr)) {
+            return;
+        }
         tfw_eth_mac_init(&eth, eth_addr, cr);
         tfw_eth_mac_start(&eth);
         eth_link = 1u;

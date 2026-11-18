@@ -88,7 +88,7 @@ tfw-boot's span refused to `EEPROM_WRITE` by `hal_eeprom.c` as on the AVR. With 
 | `tfw_boot_store_open`, `_cmd`, `_close` | B `boot_ota_store_cortex-m.c` | the store rows (`…:0:1`): the memory image store, answering the SPI NOR opcodes `boot/boot_stage.c` sends ([README](README.md#the-image-store)) |
 | `tfw_boot_uart_init`, `_rx`, `_tx` | B `mps2/boot_uart.c` | UART0 polled; no interrupt is enabled in tfw-boot |
 | `tfw_boot_session_open` | B `recovery_halt.c` | does nothing: a row without OTA in boot has no session |
-| `tfw_boot_recovery` | B `recovery_halt.c` | masks interrupts and sleeps in WFI; never returns |
+| `tfw_boot_recovery` | B `recovery_halt.c` | masks interrupts, sends the reason as an EVENT frame on entry and for every frame it receives, answers nothing else; never returns (#542) |
 
 The two-slot rows also link `boot/hal/cortex-m/boot_factory.c`, which copies
 the factory application and platform block home once; the other rows link

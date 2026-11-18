@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -200,39 +201,54 @@ func TestRunHookRunsTheCommand(t *testing.T) {
 }
 
 // TestRunHookBoundsAHookWhoseChildHoldsItsOutput runs a hook that starts a
-// child holding the hook's output open and then blocks: runHook returns the
-// timeout within its bound plus hookWaitDelay, and the child is gone.
+// child holding the hook's output open and then either blocks or exits at
+// once: runHook returns within its bound plus hookWaitDelay, and the child is
+// gone after it returns (Codex on #568).
 func TestRunHookBoundsAHookWhoseChildHoldsItsOutput(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads the child's state from /proc")
 	}
-	dir := t.TempDir()
-	script := filepath.Join(dir, "hook.sh")
-	pidFile := filepath.Join(dir, "child.pid")
-	body := "sleep 600 &\necho $! > \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\nwait\n"
-	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	const bound = time.Second
-	start := time.Now()
-	err := runHook("sh "+script+" "+pidFile, bound)
-	took := time.Since(start)
-	if err == nil || !strings.Contains(err.Error(), "killed") {
-		t.Fatalf("runHook: %v, want the hook killed at its bound", err)
-	}
-	if limit := bound + hookWaitDelay + 5*time.Second; took > limit {
-		t.Fatalf("runHook took %v, want under %v", took, limit)
-	}
-	raw, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatalf("the hook's child pid: %v", err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !childGone(t, pid, 10*time.Second) {
-		t.Fatalf("the hook's child %d still runs after runHook returned", pid)
+	for _, tc := range []struct {
+		name, last string
+		want       func(error) bool
+	}{
+		{name: "the hook waits on its child", last: "wait", want: func(err error) bool {
+			return err != nil && strings.Contains(err.Error(), "killed")
+		}},
+		{name: "the hook exits first", last: "exit 0", want: func(err error) bool {
+			return errors.Is(err, exec.ErrWaitDelay)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			script := filepath.Join(dir, "hook.sh")
+			pidFile := filepath.Join(dir, "child.pid")
+			body := "sleep 600 &\necho $! > \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n" + tc.last + "\n"
+			if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			const bound = time.Second
+			start := time.Now()
+			err := runHook("sh "+script+" "+pidFile, bound)
+			took := time.Since(start)
+			if !tc.want(err) {
+				t.Fatalf("runHook: %v", err)
+			}
+			if limit := bound + hookWaitDelay + 5*time.Second; took > limit {
+				t.Fatalf("runHook took %v, want under %v", took, limit)
+			}
+			raw, err := os.ReadFile(pidFile)
+			if err != nil {
+				t.Fatalf("the hook's child pid: %v", err)
+			}
+			pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !childGone(t, pid, 10*time.Second) {
+				t.Fatalf("the hook's child %d still runs after runHook returned", pid)
+			}
+		})
 	}
 }
 

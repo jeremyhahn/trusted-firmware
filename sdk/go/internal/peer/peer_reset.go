@@ -77,6 +77,7 @@ var runHook = func(hook string, bound time.Duration) error {
 	killHookGroup(cmd)
 	cmd.WaitDelay = hookWaitDelay
 	out, err := cmd.CombinedOutput()
+	endHookGroup(cmd)
 	if err != nil {
 		if msg := bytes.TrimSpace(out); len(msg) > 0 {
 			return fmt.Errorf("%w: %s", err, msg)

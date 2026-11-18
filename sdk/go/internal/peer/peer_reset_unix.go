@@ -22,3 +22,14 @@ func killHookGroup(cmd *exec.Cmd) {
 		return err
 	}
 }
+
+// endHookGroup kills whatever is left of the hook's process group once the
+// hook has returned: a child the hook backgrounded outlives a hook that
+// exits first, and Cancel never runs for a parent already gone (Codex on
+// #568).
+func endHookGroup(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // ESRCH: the group is already gone
+}

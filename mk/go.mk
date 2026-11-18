@@ -137,10 +137,13 @@ sdk-coverage:
 # VCOM, not the ST-LINK the programmer resets, so that reset names the probe,
 # CM_PROBE_SERIAL (mk/arch/cortex-m.mk), and hw-test refuses it with none: with
 # two ST-LINKs attached, an unnamed reset could reset the other board.
+# PORT=tcp:<board>:21574 (the ETH_MAC=1 image's wire) takes no default reset
+# and so no CM_PROBE_SERIAL: the rows dial the board as it runs and select
+# the TCP rows of its Ethernet allow-list; an HW_RESET given runs before the dial.
 HW_TEST_RUN ?=
 HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
-hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET),,$(HW_RESET_$(BOARD)))
-hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_$(BOARD)))
+hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:%,$(PORT)),,$(HW_RESET_$(BOARD)))
+hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_DEFAULT))
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ -n "$(HW_RESET_DEFAULT)" ]; then case "$(CM_PROBE_SERIAL)" in \

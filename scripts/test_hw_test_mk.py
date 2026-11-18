@@ -61,6 +61,26 @@ class HwTestResetNamesTheProbe(unittest.TestCase):
         self.assertNotIn("REFUSED", out)
         self.assertIn(f"{PORT} does not exist", out)
 
+    def test_tcp_port_takes_no_default_reset_and_no_probe(self):
+        # PORT=tcp: is the ETH_MAC=1 image's wire: no probe reset by default,
+        # so no CM_PROBE_SERIAL demanded; the rows dial the board as it runs.
+        tcp = "tcp:board:21574"
+        rc, out = make("hw-test", "BOARD=stm32h573i-dk", f"PORT={tcp}",
+                       "GO=true")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("REFUSED", out)
+        rc, out = make("-n", "hw-test", "BOARD=stm32h573i-dk", f"PORT={tcp}")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"TFW_HW_PORT={tcp} ", out)
+        self.assertIn("TFW_HW_RESET=''", out)
+        self.assertNotIn("STM32_Programmer_CLI", out)
+
+    def test_tcp_port_runs_a_given_reset(self):
+        rc, out = make("-n", "hw-test", "BOARD=stm32h573i-dk",
+                       "PORT=tcp:board:21574", "HW_RESET=cmd:true")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("TFW_HW_RESET='cmd:true'", out)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -441,6 +441,19 @@ func startQMP(p io.ReadWriteCloser, socket string, bound time.Duration) (io.Read
 // tool's reset (TFW_HW_RESET=cmd:...), then waits up to bound for its first
 // transmission, as Open does after a DTR pulse. DTR is left alone.
 func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteCloser, error) {
+	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
+		// A board whose wire is TCP (the STM32H573I-DK's ETH_MAC=1 image):
+		// the reset goes first, then the dial, which is redialled while the
+		// board boots and takes its lease, within the bound.
+		if err := runResetCommand(argv, bound); err != nil {
+			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
+		}
+		c, err := openTCPAfterReset(addr, bound)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", port, err)
+		}
+		return c, nil
+	}
 	p, err := openPort(port, 0)
 	if err != nil {
 		return nil, err
@@ -451,6 +464,26 @@ func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteClose
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// tcpRedialPause is the wait between dials of a board still booting after
+// its reset command.
+var tcpRedialPause = 500 * time.Millisecond
+
+// openTCPAfterReset dials a board that was just reset until it answers or
+// the bound passes; the last dial's error is returned.
+func openTCPAfterReset(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	deadline := time.Now().Add(bound)
+	for {
+		c, err := openTCP(addr, bound)
+		if err == nil {
+			return c, nil
+		}
+		if time.Now().Add(tcpRedialPause).After(deadline) {
+			return nil, err
+		}
+		time.Sleep(tcpRedialPause)
+	}
 }
 
 // startCmd purges what the running application sent, then resets, then keeps

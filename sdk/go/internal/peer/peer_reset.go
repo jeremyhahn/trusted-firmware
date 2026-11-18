@@ -54,8 +54,7 @@ var runHook = func(hook string, bound time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
 	argv := strings.Fields(hook)
-	//nolint:gosec // G204: the command is the bench's own reset hook, named by its operator.
-	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput() // #nosec G204 -- the bench operator names its own reset hook
 	if err != nil {
 		if msg := bytes.TrimSpace(out); len(msg) > 0 {
 			return fmt.Errorf("%w: %s", err, msg)

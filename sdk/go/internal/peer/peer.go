@@ -27,6 +27,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -325,9 +326,58 @@ func (p *primed) Read(b []byte) (int, error) {
 	return p.Conn.Read(b)
 }
 
-// dialTCP is net.DialTimeout, a variable so a test can see the address.
+// dialTCP is net.DialTimeout, a variable so a test can see the address. The
+// conn keeps a read floor (floorConn), as serialport.Open's does.
 var dialTCP = func(network, addr string, bound time.Duration) (io.ReadWriteCloser, error) {
-	return net.DialTimeout(network, addr, bound)
+	c, err := net.DialTimeout(network, addr, bound)
+	if err != nil {
+		return nil, err
+	}
+	return &floorConn{Conn: c, floor: tcpReadFloor}, nil
+}
+
+// tcpReadFloor bounds every Read on a tcp: conn, the floor serialport.Open's
+// 200ms read timeout gives a serial PORT.
+const tcpReadFloor = 200 * time.Millisecond
+
+// floorConn is a TCP conn whose every Read returns within floor, or by the
+// caller's own read deadline if that is sooner, with the timeout error tfw's
+// read loop treats as "no bytes yet". tfw bounds a read only through
+// SetReadDeadline or such a floor, and a row that wraps the conn as a plain
+// io.ReadWriter (the CAPS row's meddler) hides SetReadDeadline: on a tcp:
+// board, found running with no BOOT event to come, the read then blocked
+// until the test binary's timeout (#551).
+type floorConn struct {
+	net.Conn
+	floor time.Duration
+
+	mu       sync.Mutex
+	deadline time.Time // the caller's read deadline; zero is none
+}
+
+func (c *floorConn) Read(p []byte) (int, error) {
+	c.mu.Lock()
+	at := time.Now().Add(c.floor)
+	if !c.deadline.IsZero() && c.deadline.Before(at) {
+		at = c.deadline
+	}
+	c.mu.Unlock()
+	if err := c.Conn.SetReadDeadline(at); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+func (c *floorConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *floorConn) SetDeadline(t time.Time) error {
+	_ = c.SetReadDeadline(t)
+	return c.SetWriteDeadline(t)
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket

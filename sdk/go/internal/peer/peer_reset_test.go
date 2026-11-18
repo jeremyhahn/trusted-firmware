@@ -284,6 +284,51 @@ func TestOpenResetPaths(t *testing.T) {
 	}
 }
 
+// TestOpenResetWaitsOutADHCPReLease runs openReset on a fake clock: the
+// board's server comes back 6 s after the reset (a new DHCP lease), which
+// TCPResetBound waits out and StartBound does not (#583).
+func TestOpenResetWaitsOutADHCPReLease(t *testing.T) {
+	saved, savedHook, savedNow, savedPause := dialTCP, runHook, resetNow, resetPause
+	t.Cleanup(func() { dialTCP, runHook, resetNow, resetPause = saved, savedHook, savedNow, savedPause })
+	runHook = func(string, time.Duration) error { return nil }
+	for _, tc := range []struct {
+		name  string
+		back  time.Duration // 0: the board never comes back
+		bound time.Duration
+		want  string // "" wants the wire back
+	}{
+		{name: "back 6s after the reset", back: 6 * time.Second, bound: TCPResetBound},
+		{name: "never back within the bound", bound: TCPResetBound, want: "did not come back"},
+		{name: "the serial bound is too short for a re-lease", back: 6 * time.Second, bound: StartBound, want: "did not come back"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Now()
+			reset := clock
+			resetNow = func() time.Time { return clock }
+			resetPause = func(d time.Duration) { clock = clock.Add(d) }
+			dialTCP = func(string, string, time.Duration) (io.ReadWriteCloser, error) {
+				if tc.back == 0 || clock.Sub(reset) < tc.back {
+					return nil, errors.New("connection refused")
+				}
+				a, b := net.Pipe()
+				go func() { _, _ = b.Write([]byte{0xA5}) }()
+				return a, nil
+			}
+			c, err := openReset("board:21574", "bench-reset", tc.bound)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("openReset: %v", err)
+				}
+				_ = c.Close()
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("openReset error %v, want one naming %q", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestOpenResetWaitsPastTheTCPReadFloor: a tcp: wire is a floorConn, whose
 // every Read times out within tcpReadFloor. A board that accepts and sends
 // BOOT later than that, inside the bound, has started; one that sends

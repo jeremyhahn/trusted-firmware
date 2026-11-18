@@ -22,6 +22,19 @@ import (
 // server is not back up after its reset.
 const tcpRedial = 100 * time.Millisecond
 
+// TCPResetBound bounds a tcp: board's reset through its hook, its reconnect
+// and its first bytes. It is longer than StartBound because a board on the
+// network (the ESP32-P4) takes a new DHCP lease after every reset, and the
+// lease alone can outlast StartBound (#583). A serial board keeps StartBound.
+const TCPResetBound = 30 * time.Second
+
+// resetNow and resetPause are openReset's clock, so a test can run a
+// reset that takes seconds without waiting for them.
+var (
+	resetNow   = time.Now
+	resetPause = time.Sleep
+)
+
 // StartBooted is Start for a row that needs the peer's BOOT event: the
 // simulator and a serial board are reset as Start opens them. A board whose
 // wire is TCP is not (Resets), so StartBooted runs the target's Hook,
@@ -40,7 +53,7 @@ func StartBooted(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWrite
 	if t.Hook == "" {
 		tb.Skipf("%s: %s=%s, and %s names no %s<command> to reset the board", NoResetOnOpen, PortEnv, t.Port, ResetEnv, ResetCmdPrefix)
 	}
-	c, err := openReset(strings.TrimPrefix(t.Port, TCPPrefix), t.Hook, StartBound)
+	c, err := openReset(strings.TrimPrefix(t.Port, TCPPrefix), t.Hook, TCPResetBound)
 	if err != nil {
 		tb.Fatal(fmt.Errorf("%s: %w", t.Port, err))
 	}
@@ -69,7 +82,7 @@ var runHook = func(hook string, bound time.Duration) error {
 // The connection is dialled after the hook, so what it carries is the new
 // application's: its BOOT event first.
 func openReset(addr, hook string, bound time.Duration) (io.ReadWriteCloser, error) {
-	start := time.Now()
+	start := resetNow()
 	deadline := start.Add(bound)
 	if err := runHook(hook, bound); err != nil {
 		return nil, fmt.Errorf("%s=%s%s: %w", ResetEnv, ResetCmdPrefix, hook, err)
@@ -77,14 +90,14 @@ func openReset(addr, hook string, bound time.Duration) (io.ReadWriteCloser, erro
 	var c io.ReadWriteCloser
 	for {
 		var err error
-		c, err = dialTCP("tcp", addr, time.Until(deadline))
+		c, err = dialTCP("tcp", addr, deadline.Sub(resetNow()))
 		if err == nil {
 			break
 		}
-		if time.Now().Add(tcpRedial).After(deadline) {
+		if resetNow().Add(tcpRedial).After(deadline) {
 			return nil, fmt.Errorf("the board's wire did not come back after its reset: %w", err)
 		}
-		time.Sleep(tcpRedial)
+		resetPause(tcpRedial)
 	}
 	nc, ok := c.(net.Conn)
 	if ok {
@@ -101,15 +114,15 @@ func openReset(addr, hook string, bound time.Duration) (io.ReadWriteCloser, erro
 	var err error
 	var ne net.Error
 	for {
-		s, err = awaitStart(c, time.Until(deadline))
-		if err == nil || !errors.As(err, &ne) || !ne.Timeout() || !time.Now().Before(deadline) {
+		s, err = awaitStart(c, deadline.Sub(resetNow()))
+		if err == nil || !errors.As(err, &ne) || !ne.Timeout() || !resetNow().Before(deadline) {
 			break
 		}
 	}
 	if err != nil {
 		_ = c.Close()
 		if errors.As(err, &ne) && ne.Timeout() {
-			return nil, fmt.Errorf("%w (waited %s)", ErrSilent, time.Since(start).Round(time.Millisecond))
+			return nil, fmt.Errorf("%w (waited %s)", ErrSilent, resetNow().Sub(start).Round(time.Millisecond))
 		}
 		return nil, err
 	}

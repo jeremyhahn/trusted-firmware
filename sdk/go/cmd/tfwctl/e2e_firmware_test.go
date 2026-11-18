@@ -106,6 +106,13 @@ func TestFirmwarePing(t *testing.T) {
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping", "pong")
 	assert.Equal(t, "pong", got.Echo)
+	// With the boot wait off (a tcp: link that does not reset the board), the
+	// first host after boot still reads the BOOT the board buffered for it
+	// (hal_uart.c holds startup output until a host connects); a later host
+	// reads none. Consume that one BOOT, never wait for it.
+	if !firmwareResets(t) {
+		assert.Empty(t, dropBufferedBoot(dev.Events()), "only a buffered BOOT may precede the first reply")
+	}
 
 	full := strings.Repeat("m", tfw.MaxPayload)
 	cliJSON(t, dev, &got, "ping", full)
@@ -119,6 +126,53 @@ func TestFirmwarePing(t *testing.T) {
 	}
 	// The startup BOOT event is consumed by the boot wait, not reported.
 	assert.Empty(t, dev.Events(), "the startup BOOT event must be consumed, not reported")
+}
+
+// dropBufferedBoot returns events without a leading BOOT event: at most one,
+// the one a board buffered before its first host connected.
+func dropBufferedBoot(events []tfw.Frame) []tfw.Frame {
+	if len(events) > 0 && events[0].IsEvent() && len(events[0].Payload) > 0 && events[0].Payload[0] == tfw.EventBoot {
+		return events[1:]
+	}
+	return events
+}
+
+// espWirePort serves a fresh tfwsim behind serveESPWire, as the ESP32-P4's
+// tcp: wire, and points the rows at it. The sim's BOOT is held for the first host.
+func espWirePort(t *testing.T) string {
+	t.Helper()
+	sim := simproc.Start(t, simproc.Software)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	serveESPWire(ln, sim, func() {})
+	port := peer.TCPPrefix + ln.Addr().String()
+	t.Setenv(peer.PortEnv, port)
+	t.Setenv(peer.BoardEnv, "esp32p4-poe")
+	return port
+}
+
+func TestPingRowOnTheESP32OverTCPAsTheFirstHostAfterBoot(t *testing.T) {
+	espWirePort(t)
+	require.True(t, t.Run("TestFirmwarePing", TestFirmwarePing), "the Ping row failed as the first host after boot")
+}
+
+func TestPingRowOnTheESP32OverTCPAsALaterHost(t *testing.T) {
+	port := espWirePort(t)
+	// A first host takes the buffered BOOT and leaves.
+	c, err := peer.Open(port, peer.StartBound)
+	require.NoError(t, err)
+	first := tfw.New(c, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = first.Ping(ctx, []byte("x"))
+	cancel()
+	events := first.Events()
+	_ = c.Close()
+	require.NoError(t, err)
+	require.NotEmpty(t, events, "the first host saw no BOOT, so the later host proves nothing")
+	require.Len(t, dropBufferedBoot(events), len(events)-1, "the first host's first event is not BOOT")
+
+	require.True(t, t.Run("TestFirmwarePing", TestFirmwarePing), "the Ping row failed as a later host")
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {

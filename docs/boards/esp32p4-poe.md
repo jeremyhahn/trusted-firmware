@@ -105,29 +105,37 @@ HW_TEST_RUN='^TestFirmware<Row>$'`: the wire on this port is the TCP server of
 `tcp:` port was added for it. The whole-flash read before the first write and
 `espefuse summary` before and after are in the bench record outside the tree;
 the two summaries differ in no eFuse line.
+The 2026-11-17 re-run (row 536, Codex on #546), `espefuse.py v4.13.0 summary`
+only, before and after the I2C, SPI, pin and PWM rows: both files have SHA-256
+`ea2a655c29fd0daabf56cba3471dee0e62134f1bd4564939b8bcccaead4d114e`, byte
+for byte the same, so the list of differing lines is empty. Comparing the 237
+lines left after removing the MAC, chip-ID/unique-ID and key-block lines
+(left out here because they identify the device or its keys) also gives no
+difference.
 
 | SPEC row | Feature | Result | Evidence |
 |---|---|---|---|
 | esp32-p4 | boot, layer 0, Ethernet link | verified 2026-11-17 | console: `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up … wire on tcp/21574` |
 | esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
-| esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
-| esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | row `I2C` passes; nothing fitted on the header |
-| esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
-| esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
+| esp32-p4 | ADC (ADC1) | fails: not measured | row `Analog` passes on GPIO20, ADC1 channel 4, but it only decodes Raw and never asserts it against a known input, so a constant result or a wrong channel passes it too; needs known input voltages on the ADC1 pins with the results recorded within tolerance; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table; issue to file |
+| esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | rows `I2C`, `I2CConfig` pass; bus transfer: a scan of 0x08–0x77 with `tfwctl i2c <addr> - 1` gets NACK on 110 addresses, the refusal on 0x60 (reserved), and an ACK at 0x18, whose registers 0xFD/0xFE read back `83`/`11`, the ES8311 codec's chip ID |
+| esp32-p4 | SPI (46/47/48) | fails: no target on the bus | row `SPIConfig` passes, but it only records the configuration: `hal_bus.c` creates the SPI driver on the first transfer, and none was recorded; needs an SPI target or a MOSI-MISO loopback on GPIO 46/47/48, issue #569 |
+| esp32-p4 | 1-Wire, pulse-in | fails: not measured | row `OneWireAndPulseIn` passes, but it does not check the presence value and only sees pulse-in time out on a silent pin, so a detector that always answers "absent" and a receiver that never captures an edge pass it too; needs a 1-Wire device on the pin answering presence, and a known pulse on the pulse-in pin measured within tolerance; issue to file |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
-| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` failed in the same run: `pin 11 flags = digital, want digital and led`. Row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag) |
+| esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO2, LEDC0), `noLED` and no tick pin, but `PWM` only checks that setting duty on GPIO2 returns success and `Pin` checks descriptors: no output is observed, and LEDC channels 1, 2 and 3 are never driven, so a wrong pin route or a missing waveform passes too; needs duty and frequency measured on each LEDC channel's pin within tolerance; issue to file. The 2026-11-17 run of #547: row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin, and row `Pin` fails on `pin 11 flags = digital, want digital and led`; row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag) |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
-| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
+| esp32-p4 | CAPS, I2C_CONFIG | facts corrected, hardware re-run pending #561 | rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576) |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
-| esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
-| esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |
+| esp32-p4 | boot event on connect | not run | a `tcp:` connect resets nothing, so the rows that need a fresh boot (`PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, and `Sys`, which wants a power-on reset cause and zero sticky framing counters) are out of this board's row list until it has a reset over the wire; issue to file |
+| esp32-p4 | CLI CAPS through the port | not re-run | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` hung on 2026-11-17; the test's wrapper now keeps the TCP read deadline and waits for no BOOT; needs a hardware re-run |
 | esp32-p4 | wire over Ethernet, board dials (`HW_ETH`) | not run | the `TestEthernet*` rows listen for the board's dial; the run's host was not on the development VLAN; issue to file |
 | esp32-p4, ota | OTA write (OTA_STAGE over the wire) | fails 2026-11-17 (#562) | soft-tier image (below); row `OTAAuthLetsTheCommandPastTheGate`, `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='OTAAuth'`. The first run's `crypto provider failed` was the row's image: ESP-IDF's `esp_ota_write` refuses a first chunk without the app-image magic (`ESP_ERR_OTA_VALIDATE_FAILED`, which `hal_ota.c` answers as TFW_ERR_CRYPTO). The row now stages an ESP-IDF app image (`sdk/go/cmd/tfwctl/esp_image_test.go`): all 512 bytes are written, its header, app descriptor and appended hash verify, and `esp_ota_end` refuses it at the app signature check (console: `Secure boot signature verification failed ... image valid, signature bad`). The image verifies app signatures on update, so the row stages only an image signed with the build's image key, which the row does not have yet. `espefuse summary` identical before and after |
 | esp32-p4, ota | OTA activate gate on the soft tier | verified 2026-11-17 | row `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` passes on the soft-tier image over `PORT=tcp:<board>:21574` |
 | esp32-p4, ota | OTA_INFO | not runnable | row `OTAInfo` needs the element tier: the soft image reports tier 1, the row wants 2; the P4 has no element fitted |
 | esp32-p4, ota | OTA trial, confirm, roll back | not runnable | rows `OTAActivate`, `OTAConfirm` need CAPS `auth` (`0x4000`), which no P4 image reports: the operator session is linked by the element tiers only (`mk/firmware.mk`, issue #4); soft, `none` and `hmac-p256` link `auth_session_none.c`. Trial and roll back have no board row; the simulator rows `TestE2EOTA*` cover them. Issue to file: the session on an element-less tier, or an element on the P4 |
+| esp32-p4, ota | OTA on the `CRYPTO=none` image | not run | the `CRYPTO=none` image has no operator session, so every OTA row is out of its row list; needs an element- or soft-tier image signed with the board's key, the open owner question in #562 and #568 |
 | esp32-p4 | secure boot v2, flash encryption | owner | each burns eFuses (CA 583) |
 | esp32-p4 | UDS / HMAC DICE identity (`hmac-p256`) | owner | needs the UDS written to an eFuse key block (CA 583) |
 | esp32 | the ESP-IDF port on the P4 | verified 2026-11-17 in part | the rows above; the rest as the `esp32-p4` lines |
@@ -147,9 +155,12 @@ are kept in the bench record outside the tree.
 
 ## What is not met yet
 
-The board runs this firmware and answers the wire over its own EMAC; GPIO,
-ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-EEPROM has no passing row on this board and row `Pin` has corrected facts and waits on its hardware re-run (#561); the board-dials
+The board runs this firmware and answers the wire over its own EMAC; GPIO
+and tone pass on it (Feature matrix). Not met:
+PWM has no measured duty or frequency on any LEDC channel and ADC no result
+checked against a known input; SPI has no recorded bus transfer (#569); 1-Wire has no device answering
+presence and pulse-in no measured pulse; EEPROM has no passing row on
+this board and row `Pin` has corrected facts and waits on its hardware re-run (#561); the board-dials
 Ethernet rows have not run; OTA staging fails on the soft tier and trial,
 confirm and roll back cannot run without an operator session; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

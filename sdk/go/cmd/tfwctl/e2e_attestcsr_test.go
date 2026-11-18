@@ -11,8 +11,10 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
+	"net"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -284,6 +286,85 @@ func TestMeddlerKeepsAPartialFrameAcrossAReadTimeout(t *testing.T) {
 			assert.ErrorIs(t, err, io.EOF, "nothing follows the one response")
 		})
 	}
+}
+
+// floored bounds every Read on a pipe end by floor, as peer's floorConn does
+// a tcp: conn: a Read with no bytes by then fails with a timeout.
+type floored struct {
+	net.Conn
+	floor time.Duration
+}
+
+func (c floored) Read(p []byte) (int, error) {
+	if err := c.SetReadDeadline(time.Now().Add(c.floor)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+// A tcp: reply can arrive in pieces further apart than the read floor: the
+// meddler keeps what it has of the frame across the timeout, so the host
+// reads the reply whole and not its tail as a new frame (Codex P1, #558).
+func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
+	const floor = 200 * time.Millisecond
+	host, dev := net.Pipe()
+	t.Cleanup(func() { _ = host.Close(); _ = dev.Close() })
+	frame, err := tfw.EncodeResponse(tfw.Seq(1), tfw.CmdCaps, tfw.StatusOK, []byte("caps reply"))
+	require.NoError(t, err)
+
+	// The writer sends each piece only after the reader has timed out on the
+	// floor waiting for it: a condition, not a clock, spaces the pieces.
+	timedOut := make(chan struct{}, 1)
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	sent := make(chan error, 1)
+	go func() {
+		pieces := [][]byte{frame[:1], frame[1:5], frame[5:]}
+		for i, piece := range pieces {
+			if i > 0 {
+				select {
+				case <-timedOut:
+				case <-done:
+					sent <- errors.New("the reader stopped before the reply was sent")
+					return
+				}
+			}
+			if _, err := dev.Write(piece); err != nil {
+				sent <- err
+				return
+			}
+		}
+		sent <- nil
+	}()
+
+	// The cut at 5 leaves the header saved when a Read times out: the
+	// resumed Read must finish the frame and still rewrite it.
+	rewritten, err := tfw.EncodeResponse(tfw.Seq(1), tfw.CmdCaps, tfw.StatusOK, []byte("rewritten"))
+	require.NoError(t, err)
+	m := &meddler{
+		conn:  floored{Conn: host, floor: floor},
+		reply: func(tfw.Frame) []byte { return []byte("rewritten") },
+	}
+	var got []byte
+	timeouts := 0
+	for deadline := time.Now().Add(5 * time.Second); len(got) < len(rewritten); {
+		require.True(t, time.Now().Before(deadline), "the reply never arrived whole: got % x", got)
+		buf := make([]byte, 64)
+		n, err := m.Read(buf)
+		got = append(got, buf[:n]...)
+		var ne net.Error
+		if err != nil {
+			require.True(t, errors.As(err, &ne) && ne.Timeout(), "got %v", err)
+			timeouts++
+			select {
+			case timedOut <- struct{}{}:
+			default:
+			}
+		}
+	}
+	assert.Equal(t, rewritten, got)
+	assert.Positive(t, timeouts, "no piece of the reply waited past the floor")
+	require.NoError(t, <-sent)
 }
 
 // A device whose caps does not report bit 15 is refused by the host without

@@ -84,8 +84,8 @@ func openPeer(t testing.TB, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.
 		conn = wrap(conn)
 	}
 	opts := []tfw.Option{tfw.WithTimeout(10 * time.Second)}
-	if !target.ResetsOnOpen() {
-		// No reset, so no BOOT to wait for (peer.Target.ResetsOnOpen).
+	if !target.Resets() {
+		// No reset, so no BOOT to wait for (peer.Target.Resets).
 		opts = append(opts, tfw.WithBootWait(0))
 	}
 	return serialPeer{serial: tfw.New(conn, opts...), board: target.Hardware()}

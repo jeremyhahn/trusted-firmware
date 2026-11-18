@@ -24,7 +24,7 @@ const tcpRedial = 100 * time.Millisecond
 
 // StartBooted is Start for a row that needs the peer's BOOT event: the
 // simulator and a serial board are reset as Start opens them. A board whose
-// wire is TCP is not (ResetsOnOpen), so StartBooted runs the target's Hook,
+// wire is TCP is not (Resets), so StartBooted runs the target's Hook,
 // dials the board until its server is back, and returns once it transmits;
 // with no Hook the row is skipped with NoResetOnOpen, as nothing can make
 // the board send BOOT.
@@ -34,7 +34,7 @@ func StartBooted(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWrite
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if t.ResetsOnOpen() {
+	if t.Resets() {
 		return Start(tb, sim, args...)
 	}
 	if t.Hook == "" {

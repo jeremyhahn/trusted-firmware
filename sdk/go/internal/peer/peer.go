@@ -82,12 +82,12 @@ type Target struct {
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
 
-// ResetsOnOpen reports whether the transport resets the peer when Start opens
-// it, so it sends BOOT: the simulator starts fresh, and a serial board is
-// reset by DTR or QMP. A board whose wire is TCP is found running, as it is,
-// and sends no BOOT; a device on it must not wait for one. StartBooted resets
-// such a board through its Hook.
-func (t Target) ResetsOnOpen() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+// Resets reports whether Start resets the peer, so it sends BOOT: the
+// simulator starts fresh, and a serial board is reset by DTR or QMP. A board
+// whose wire is TCP is found running, as it is, and sends no BOOT; a device
+// on it must not wait for one. StartBooted resets such a board through its
+// Hook.
+func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
 
 // NoResetOnOpen is why StartBooted skips a row on a TCP board with no Hook.
 const NoResetOnOpen = "transport does not reset on open"
@@ -176,7 +176,7 @@ func FromEnv() (Target, error) {
 		return Target{}, err
 	}
 	t := Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, Hook: hook}
-	if hook != "" && t.ResetsOnOpen() {
+	if hook != "" && t.Resets() {
 		return Target{}, fmt.Errorf("%s=%s: a reset command is for a board whose wire is TCP (%s=%s<host:port>); %s=%s is reset by DTR", ResetEnv, reset, PortEnv, TCPPrefix, PortEnv, port)
 	}
 	return t, nil

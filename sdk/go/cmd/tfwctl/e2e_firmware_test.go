@@ -178,7 +178,7 @@ func TestFirmwareSys(t *testing.T) {
 	// canned replies. Freshly reset, it has seen none at all; a peer found
 	// running (TCP) keeps the counts of earlier rows, so this row counts only
 	// the errors its own traffic adds.
-	if target.ResetsOnOpen() {
+	if target.Resets() {
 		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
 		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
 	}

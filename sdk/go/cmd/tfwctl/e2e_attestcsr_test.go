@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,6 +171,16 @@ type meddler struct {
 const frameOverhead = 4
 
 func (m *meddler) Write(p []byte) (int, error) { return m.conn.Write(p) }
+
+// SetReadDeadline passes the device's per-request deadline to the conn, when
+// it takes one (a TCP wire, the simulator's pipe), so a peer that stops
+// answering fails the request instead of blocking Read in io.ReadFull.
+func (m *meddler) SetReadDeadline(t time.Time) error {
+	if c, ok := m.conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return c.SetReadDeadline(t)
+	}
+	return nil
+}
 
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {

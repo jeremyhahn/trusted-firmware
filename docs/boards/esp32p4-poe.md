@@ -1,7 +1,7 @@
 # esp32p4-poe (ESP32-P4 PoE Ethernet)
 
 > **Status: INFORMATIVE** · SPEC row: `esp32-p4` · Scope: `boards/esp32p4-poe/`
-> · Last verified: 2026-11-17
+> · Last verified: 2026-11-18
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is
@@ -117,7 +117,7 @@ difference.
 |---|---|---|---|
 | esp32-p4 | boot, layer 0, Ethernet link | verified 2026-11-17 | console: `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up … wire on tcp/21574` |
 | esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
-| esp32-p4 | Ethernet DHCP lease | fail 2026-11-17 (#539): an image without the static overlay is refused by the board's layer-0 gate | boot console captured for 30 s across a USB-serial reset (RTS pulse; no break, no flash write): after `ethernet attached to netif` the only address lines are the got-IP event and `tfw-eth: link up, address …, wire on tcp/21574`, with no DHCP-client line, and the event's gateway is an RFC 5737 documentation address outside the board's subnet, which no DHCP server on the dev VLAN hands out and which the static-address overlay's placeholder gateway matches. The image does not log which path set the address, so the lease is not shown. The wire still answers there (`TestFirmwareCaps` passes, same date). A second run, same date: `make esp32-build` with the HIL-0 overlay only (`CONFIG_TFW_ETH_STATIC_IP` not set), the sealed app written to `ota_0` alone (the slot `otadata` boots; saved first), boot console captured for 30 s: the board's bootloader logs `Signature Check Failed` and `tfw-l0: app at 0x20000 refused by the trailer gate (status 14): no CDI`, then `no app passed the gate` and a reset loop. The build signs the trailer with its own layer-0 image key, which is not the key the board's bootloader holds, so a lane-built app cannot boot without the bootloader and table from the same build (a write outside the app partition). The saved app was written back; it verifies at layer 0, boots, and the wire answers (`TestFirmwareCaps` passes, same date). Next: a build with the bench's layer-0 image key, or a bootloader rewrite authorised for this board. MAC recorded in the bench record |
+| esp32-p4 | Ethernet DHCP lease | verified 2026-11-18 (#539, hw-568f) on the DHCP image ("The DHCP image" below): `tfw-eth: link up, address <a dev-VLAN lease>, wire on tcp/21574`, after the got-IP event 4.5 s after `ethernet attached to netif`, the gateway in the lease's own subnet; the image has `CONFIG_TFW_ETH_STATIC_IP` not set, so DHCP is its only address path. The earlier result: fail 2026-11-17 (#539): an image without the static overlay is refused by the board's layer-0 gate | boot console captured for 30 s across a USB-serial reset (RTS pulse; no break, no flash write): after `ethernet attached to netif` the only address lines are the got-IP event and `tfw-eth: link up, address …, wire on tcp/21574`, with no DHCP-client line, and the event's gateway is an RFC 5737 documentation address outside the board's subnet, which no DHCP server on the dev VLAN hands out and which the static-address overlay's placeholder gateway matches. The image does not log which path set the address, so the lease is not shown. The wire still answers there (`TestFirmwareCaps` passes, same date). A second run, same date: `make esp32-build` with the HIL-0 overlay only (`CONFIG_TFW_ETH_STATIC_IP` not set), the sealed app written to `ota_0` alone (the slot `otadata` boots; saved first), boot console captured for 30 s: the board's bootloader logs `Signature Check Failed` and `tfw-l0: app at 0x20000 refused by the trailer gate (status 14): no CDI`, then `no app passed the gate` and a reset loop. The build signs the trailer with its own layer-0 image key, which is not the key the board's bootloader holds, so a lane-built app cannot boot without the bootloader and table from the same build (a write outside the app partition). The saved app was written back; it verifies at layer 0, boots, and the wire answers (`TestFirmwareCaps` passes, same date). Next: a build with the bench's layer-0 image key, or a bootloader rewrite authorised for this board. MAC recorded in the bench record |
 | esp32-p4 | tfw-wire over TCP | verified 2026-11-17 (#539) | `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareCaps$'` passes (`--- PASS: TestFirmwareCaps`): CAPS read over TCP from the bench host. `HW_TEST_RUN='CAPS'` matches no test (`no tests to run`), so the row names the test |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
 | esp32-p4 | ADC (ADC1) | fails: not measured | row `Analog` passes on GPIO20, ADC1 channel 4, but it only decodes Raw and never asserts it against a known input, so a constant result or a wrong channel passes it too; needs known input voltages on the ADC1 pins with the results recorded within tolerance; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table; issue to file |
@@ -154,6 +154,31 @@ bootloader on the board. The console then shows `tfw-eth: link up … wire on
 tcp/21574`. `espefuse summary` before and after differ in no line. The board
 is left on this image; the first 0xA2000 bytes as they were, the HIL-0 image,
 are kept in the bench record outside the tree.
+
+### The DHCP image, 2026-11-18 (hw-568f)
+
+`make esp32-build BOARD=esp32p4-poe CRYPTO=none
+ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address
+overlay; the build's `sdkconfig` has `CONFIG_TFW_ETH_STATIC_IP`,
+`CONFIG_SECURE_BOOT` and `CONFIG_SECURE_FLASH_ENC_ENABLED` not set), ESP-IDF
+v5.5.5, built from commit `67155061`, sealed `trusted-firmware.bin` SHA-256
+`70ae35bddd4f9cfcdd229798d2f19355c1a16f243ebd05bbf7f7aa39c0a5692f`. Flashed
+over the CH343P console port (USB id `1a86:55d3`, checked first) by the bench
+procedure's step 3 with esptool v5.6.0: `erase-region 0x12000 0x5000`, then
+the bootloader, table, `tfw_plat.bin` and app, four `Hash of data verified.`.
+`espefuse summary` and a read of the first 0xA2000 bytes were taken before
+the write and kept outside the tree; no other `espefuse` command, no serial
+break. The board is left on this image.
+
+| Date | Row | Result | Evidence |
+|---|---|---|---|
+| 2026-11-18 | boot, layer 0 | verified | console after one reset (EN through RTS, IO0 high), 120 s: `tfw-l0: app at 0x20000 verified, measurement 4737e54c87f1974a29201bbc384b249ac60741f900db7184a0833d5ce8a6d58b`, `boot: Loaded app from partition at offset 0x20000`, `App version: xkms/v0.2.0-alpha-368-g67155061` |
+| 2026-11-18 | EMAC/PHY link up | verified | `ethernet attached to netif` at 0.78 s, `tfw-eth: link up, address <a dev-VLAN lease>, wire on tcp/21574` at 5.26 s; the image logs no separate PHY link line |
+| 2026-11-18 | DHCP lease | verified | the got-IP event (`esp_netif_handlers: eth ip: <a dev-VLAN lease>`, gateway in the same subnet) 4.5 s after the netif attached, well within 60 s; the address was read from that line only. The image has no DHCP-client log line of its own |
+| 2026-11-18 | `Ping`, `PingAfterAMalformedBurst`, `Caps`, `Sys` | verified | `make hw-test BOARD=esp32p4-poe PORT=tcp:<a dev-VLAN lease>:21574` (`GOFLAGS=-v`): each `--- PASS`, with and without `HW_RESET` |
+| 2026-11-18 | `Pin`, `Write`, `Timer`, `Analog`, `PWM`, `Tone`, `I2C`, `I2CConfig`, `SPIConfig`, `OneWireAndPulseIn` | verified (row passes) | same run, each `--- PASS`; `Tone`: `1000.0 Hz measured over 28 half periods, 1000 Hz asked`. Rows that only decode or configure stay "not measured" in the matrix above |
+| 2026-11-18 | `AttestRefusedUnprovisioned`, `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` | verified | same run, each `--- PASS` |
+| 2026-11-18 | `PingDeliversTheBootEventWithNoBootWait` | failed, issue to file (the lane had no forge credentials) | skipped without a reset hook; with `HW_RESET=cmd:<EN pulse through RTS, IO0 high>`, three of three runs: `the board's wire did not come back after its reset: dial tcp …: i/o timeout` after 5.00 s. The reset works: the board's TCP server answers 4.2 s after the same pulse, and the DHCP re-lease after each reset leaves too little of `StartBooted`'s 5 s bound for the hook, redial and first bytes. Every other row in the list passes in the same run |
 
 ## What is not met yet
 

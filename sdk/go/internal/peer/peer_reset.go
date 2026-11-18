@@ -28,6 +28,12 @@ const tcpRedial = 100 * time.Millisecond
 // lease alone can outlast StartBound (#583). A serial board keeps StartBound.
 const TCPResetBound = 30 * time.Second
 
+// hookWaitDelay bounds how long runHook still waits for the hook's output
+// once its bound has passed and the hook was killed: a child the hook left
+// behind may hold the output pipe open, and without this bound the wait
+// would last as long as that child does.
+const hookWaitDelay = 2 * time.Second
+
 // resetNow and resetPause are openReset's clock, so a test can run a
 // reset that takes seconds without waiting for them.
 var (
@@ -67,7 +73,10 @@ var runHook = func(hook string, bound time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
 	argv := strings.Fields(hook)
-	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput() // #nosec G204 -- the bench operator names its own reset hook
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- the bench operator names its own reset hook
+	killHookGroup(cmd)
+	cmd.WaitDelay = hookWaitDelay
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if msg := bytes.TrimSpace(out); len(msg) > 0 {
 			return fmt.Errorf("%w: %s", err, msg)

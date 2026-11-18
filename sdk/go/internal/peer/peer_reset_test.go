@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -195,6 +197,71 @@ func TestRunHookRunsTheCommand(t *testing.T) {
 	if err := runHook("ls /nonexistent-tfw-reset", time.Minute); err == nil || !strings.Contains(err.Error(), "nonexistent-tfw-reset") {
 		t.Fatalf("ls: %v, want the command's output in the error", err)
 	}
+}
+
+// TestRunHookBoundsAHookWhoseChildHoldsItsOutput runs a hook that starts a
+// child holding the hook's output open and then blocks: runHook returns the
+// timeout within its bound plus hookWaitDelay, and the child is gone.
+func TestRunHookBoundsAHookWhoseChildHoldsItsOutput(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads the child's state from /proc")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hook.sh")
+	pidFile := filepath.Join(dir, "child.pid")
+	body := "sleep 600 &\necho $! > \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\nwait\n"
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const bound = time.Second
+	start := time.Now()
+	err := runHook("sh "+script+" "+pidFile, bound)
+	took := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "killed") {
+		t.Fatalf("runHook: %v, want the hook killed at its bound", err)
+	}
+	if limit := bound + hookWaitDelay + 5*time.Second; took > limit {
+		t.Fatalf("runHook took %v, want under %v", took, limit)
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("the hook's child pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !childGone(t, pid, 10*time.Second) {
+		t.Fatalf("the hook's child %d still runs after runHook returned", pid)
+	}
+}
+
+// childGone reports whether pid has exited (gone from /proc, or a zombie
+// left for its reaper) before within passes, checking on a ticker.
+func childGone(t *testing.T, pid int, within time.Duration) bool {
+	t.Helper()
+	stat := filepath.Join("/proc", strconv.Itoa(pid), "stat")
+	gone := func() bool {
+		raw, err := os.ReadFile(stat)
+		if err != nil {
+			return true
+		}
+		// The state follows the parenthesised command name.
+		i := strings.LastIndexByte(string(raw), ')')
+		return i < 0 || strings.HasPrefix(string(raw[i+1:]), " Z")
+	}
+	deadline := time.NewTimer(within)
+	defer deadline.Stop()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for !gone() {
+		select {
+		case <-deadline.C:
+			return gone()
+		case <-tick.C:
+		}
+	}
+	return true
 }
 
 func TestOpenResetPaths(t *testing.T) {

@@ -67,3 +67,13 @@ int tfw_esp_tone_gpio(void)
 {
     return running ? tone_gpio : -1;
 }
+
+/* hal_gpio.c's MODE, before it resets the pin: gpio_reset_pin takes the pin
+ * off the LEDC channel, so a tone on that pin ends here too, and the RMT
+ * capture no longer loops back a pin that is now an input (#561). */
+void tfw_esp_tone_release(int gpio)
+{
+    if (running && tone_gpio == gpio) {
+        (void)tfw_hal_tone_stop();
+    }
+}

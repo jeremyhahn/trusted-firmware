@@ -43,6 +43,8 @@ tfw_status_t tfw_esp_part_write(const char *label, uint32_t off, const uint8_t *
  * linked when TFW_FEATURE_TONE is 1). The RMT capture loops a pin's output
  * back only on this pin (hal_pulse_rmt.c, #573). */
 int tfw_esp_tone_gpio(void);
+/* Ends the tone if it drives gpio: hal_gpio.c's MODE reconfigures the pin. */
+void tfw_esp_tone_release(int gpio);
 
 /* The partitions this HAL owns, by label. Each board's partitions.csv names
  * them; a table without one makes the capability behind it refuse. */

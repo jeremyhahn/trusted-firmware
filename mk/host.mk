@@ -174,7 +174,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
                             test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
                             test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
-                            test/unit/test_h5_wire_listener.c \
+                            test/unit/test_h5_wire_listener.c test/unit/test_h5_netif.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1544,7 +1544,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
                     $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
                     $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
-                    $(HOST_DIR)/test_h5_wire_listener \
+                    $(HOST_DIR)/test_h5_wire_listener $(HOST_DIR)/test_h5_netif \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -3004,6 +3004,28 @@ $(HOST_DIR)/test_h5_wire_listener: test/unit/test_h5_wire_listener.c \
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) \
 	  -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The STM32H5 netif (hal_eth_netif.c) on the real vendored lwIP core, DHCP and
+# timers, with the PHY, MAC and wire faked: a link flap leaves the lease clock
+# running, so an expired lease clears the address (#584). lwIP compiles with -w
+# as in the firmware build.
+H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum.c ip.c \
+                   mem.c memp.c netif.c pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
+                 $(addprefix third_party/lwip/src/core/ipv4/,acd.c dhcp.c etharp.c icmp.c \
+                   ip4.c ip4_addr.c ip4_frag.c) \
+                 third_party/lwip/src/netif/ethernet.c
+$(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
+                           $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' -c -o $@.o test/unit/test_h5_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' -c -o $@.netif.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
+	  -o $@ $@.o $@.netif.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

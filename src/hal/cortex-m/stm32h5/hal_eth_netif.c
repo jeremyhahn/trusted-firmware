@@ -34,6 +34,9 @@
 
 #define ETH_REGS          ((volatile uint32_t *)(uintptr_t)0x40028000u)
 #define H5_UID_BASE       0x08FFF800u          /* RM0481: 96-bit unique ID */
+#ifndef TFW_H5_UID_WORD                         /* a host test supplies its own */
+#define TFW_H5_UID_WORD(i) (*(volatile const uint32_t *)(uintptr_t)(H5_UID_BASE + 4u * (i)))
+#endif
 #define ETH_RESET_SPIN    1000000u
 #define ETH_TX_SPIN       100000u
 #define LINK_POLL_MS      100u
@@ -52,6 +55,7 @@ static uint8_t eth_state = ETH_INIT;
 static uint8_t eth_phy;
 static uint8_t eth_link;
 static uint8_t eth_bound_said;
+static uint8_t eth_dhcp_on;
 static tfw_ms_t eth_link_ms;
 static uint32_t eth_rand_state = 1u;
 
@@ -135,7 +139,7 @@ static void eth_bring_up(void)
         return;
     }
     for (unsigned i = 0u; i < 3u; i++) {
-        uid[i] = *(volatile const uint32_t *)(uintptr_t)(H5_UID_BASE + 4u * i);
+        uid[i] = TFW_H5_UID_WORD(i);
     }
     tfw_eth_mac_from_uid(uid, eth_addr);
     eth_rand_state = (uid[0] ^ uid[1] ^ uid[2] ^ (uint32_t)tfw_hal_millis()) | 1u;
@@ -179,7 +183,14 @@ static void eth_watch_link(void)
         tfw_eth_mac_start(&eth);
         eth_link = 1u;
         netif_set_link_up(&eth_netif);
-        (void)dhcp_start(&eth_netif);
+        /* DHCP starts once, at the first link. After a flap,
+         * netif_set_link_up has already asked the server to confirm the
+         * lease, and the lease timers keep running: restarting here would
+         * zero them and leave an expired address in place. */
+        if (!eth_dhcp_on) {
+            eth_dhcp_on = 1u;
+            (void)dhcp_start(&eth_netif);
+        }
         eth_state = ETH_RUNNING;
         return;
     }
@@ -247,6 +258,22 @@ static void eth_say_bound(void)
     eth_say(line);
 }
 
+/* lwIP drops an address at lease expiry only from BOUND, RENEWING or
+ * REBINDING. After a link flap whose reboot request went unanswered, DHCP is
+ * back to discovering when the lease runs out: dhcp_release_and_stop zeroes the
+ * lease clock but leaves the expired address on the netif. With no lease
+ * (t0 zero) and no supplied address, any address left is that one. */
+static void eth_drop_expired_address(void)
+{
+    struct dhcp *d = netif_dhcp_data(&eth_netif);
+
+    if (d != NULL && d->t0_timeout == 0u && !dhcp_supplied_address(&eth_netif) &&
+        !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif))) {
+        netif_set_addr(&eth_netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
+        eth_bound_said = 0u;
+    }
+}
+
 void tfw_hal_eth_poll(void)
 {
     tfw_h5_wire_say_poll();
@@ -257,11 +284,13 @@ void tfw_hal_eth_poll(void)
     case ETH_WAIT_LINK:
         eth_watch_link();
         sys_check_timeouts();
+        eth_drop_expired_address();
         return;
     case ETH_RUNNING:
         eth_rx_all();
         eth_watch_link();
         sys_check_timeouts();
+        eth_drop_expired_address();
         if (!eth_bound_said && dhcp_supplied_address(&eth_netif)) {
             eth_bound_said = 1u;
             eth_say_bound();

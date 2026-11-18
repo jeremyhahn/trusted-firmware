@@ -374,6 +374,18 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
 		}},
+		// The HIL-0 image has no crypto tier, and its wire is TCP: the BOOT
+		// and Sys rows decide for themselves what a running peer can show
+		// (TestEveryBoardRunsTheBootEventRow).
+		{"esp32p4-poe", []string{
+			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone", "TestFirmwareI2C",
+			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
+			"TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
+			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
+		}, []string{
+			"TestFirmwareEEPROM",
+			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
+		}},
 	} {
 		run := boardRun(t, tc.board, false)
 		for _, r := range tc.run {
@@ -421,6 +433,28 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 			if !run.MatchString(r) {
 				t.Errorf("%s: %s is not run", board, r)
 			}
+		}
+	}
+}
+
+// sysCountersStartAtZero reports whether connecting to board's image resets
+// it, so its framer counters start at zero; a board with no image record
+// (the simulator) starts fresh with every row.
+func sysCountersStartAtZero(board string) bool {
+	img, ok := boardImages[board]
+	return !ok || img.parts&partTCP == 0
+}
+
+// The P4's connect resets nothing (Codex P1 on #565): Sys there would compare
+// its counters before and after clean traffic, not against zero, while a board
+// whose connect resets it, and the simulator, still assert zero.
+func TestSysCountersAreZeroOnlyWhereTheConnectResets(t *testing.T) {
+	if sysCountersStartAtZero("esp32p4-poe") {
+		t.Error("esp32p4-poe: Sys asserts zero counters on an image the connect does not reset")
+	}
+	for _, board := range []string{"atmega328p", "atmega2560", ""} {
+		if !sysCountersStartAtZero(board) {
+			t.Errorf("%q: Sys does not assert zero counters after the connect's reset", board)
 		}
 	}
 }

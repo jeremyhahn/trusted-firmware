@@ -184,7 +184,7 @@ func TestFirmwareCaps(t *testing.T) {
 }
 
 func TestFirmwareSys(t *testing.T) {
-	_, b := firmwareBoard(t)
+	board, b := firmwareBoard(t)
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	dev := startFirmware(t)
@@ -192,19 +192,25 @@ func TestFirmwareSys(t *testing.T) {
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
 	assert.True(t, resetCauseHolds(b, target, si.ResetCause), "reset cause %v, want %v", si.ResetCause, b.resetCause)
-	// #5: talked to over a clean link, the firmware sees no framing errors --
-	// the appended fields decode against the live device, not only against
-	// canned replies. Freshly reset, it has seen none at all; a peer found
-	// running (TCP) keeps the counts of earlier rows, so this row counts only
-	// the errors its own traffic adds.
-	if target.Resets() {
-		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
-		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	// #5: talked to over a clean link, the firmware counts no framing
+	// errors -- the appended fields decode against the live device, not only
+	// against canned replies. The counters are sticky: an image whose connect
+	// does not reset it (a TCP peer) still holds what an earlier row, such as
+	// TestFirmwarePingAfterAMalformedBurst, put there (Codex P1 on #565), so
+	// clean traffic must leave them where they were, and they are zero only
+	// on an image the connect has just reset.
+	var pong pingJSON
+	for i := 0; i < 20; i++ {
+		cliJSON(t, dev, &pong, "ping", strconv.Itoa(i))
 	}
 	var after tfw.SysInfo
 	cliJSON(t, dev, &after, "sys")
-	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors added on a clean link")
-	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors added on a clean link")
+	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors on a clean link")
+	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors on a clean link")
+	if target.Resets() && sysCountersStartAtZero(board) {
+		assert.Zero(t, si.ErrCRC, "framer CRC errors after the connect's reset")
+		assert.Zero(t, si.ErrFormat, "framer format errors after the connect's reset")
+	}
 }
 
 func TestFirmwarePin(t *testing.T) {

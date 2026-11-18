@@ -341,39 +341,6 @@ void tearDown(void) {}
 
 /* ---- init ------------------------------------------------------------- */
 
-/* Runs first: hal_uart.c holds what is sent before its first host ever
- * connects (main.c's BOOT), and only the process's first host is given it. */
-static void test_bytes_sent_before_the_first_host_reach_it_once(void)
-{
-    unsigned i;
-
-    send_str("BOOT\n");
-    for (i = 5u; i < TFW_ESP_WIRE_BOOT_HOLD + 3u; i++) {
-        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try('x'));
-    }
-    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());   /* no host: not pending */
-    arrive(3);
-    idle_pass();
-    TEST_ASSERT_EQUAL_UINT(TFW_ESP_WIRE_BOOT_HOLD, k.fd[3].out_len);
-    TEST_ASSERT_EQUAL_MEMORY("BOOT\n", k.fd[3].out, 5u);
-    TEST_ASSERT_EQUAL_UINT8('x', k.fd[3].out[TFW_ESP_WIRE_BOOT_HOLD - 1u]);
-    TEST_ASSERT_EQUAL_STRING("tfw-wire: the first host missed 3 bytes sent before it came",
-                             k.last_warn);
-    /* After it, the first host's bytes are its own. */
-    send_str("ok");
-    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(TFW_ESP_WIRE_BOOT_HOLD + 2u, k.fd[3].out_len);
-    /* A host after it is not given BOOT again, nor what was sent hostless. */
-    k.fd[3].hung = 1;
-    idle_pass();
-    send_str("lost");
-    arrive(4);
-    idle_pass();
-    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].sends);
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].out_len);
-}
-
 static void test_the_listener_is_bound_reusable_and_nonblocking(void)
 {
     TEST_ASSERT_EQUAL_UINT(1u, eth_starts);
@@ -491,13 +458,15 @@ static void test_no_connection_touches_nothing(void)
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
     TEST_ASSERT_EQUAL_UINT(0u, k.warns);
-    /* Bytes with no host go nowhere, and are not kept for the next one. */
-    send_str("lost");
+    /* Bytes sent before the first host are kept for it, and do not hold up
+     * the loop (#550); test_esp_wire.c covers what is dropped after it. */
+    send_str("boot");
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, k.fd[3].sends);
 }
 
 static void take(int fd)
@@ -803,7 +772,6 @@ static void test_eagain_on_send_keeps_the_host_and_the_bytes(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_bytes_sent_before_the_first_host_reach_it_once);
     RUN_TEST(test_the_listener_is_bound_reusable_and_nonblocking);
     RUN_TEST(test_an_ethernet_failure_is_passed_up_before_any_socket);
     RUN_TEST(test_no_socket_is_internal_and_nothing_is_accepted);

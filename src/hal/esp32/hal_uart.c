@@ -53,15 +53,11 @@ static uint16_t rx_head;
 static uint16_t rx_len;
 static uint8_t tx_buf[TX_BUF];
 static uint16_t tx_len;
-/* The bytes sent before the first host connected: main.c sends BOOT before
- * its first poll, and a host is only accepted inside tfw_hal_uart_rx. The
- * first host accepted is sent them; no later host is. */
-static uint8_t  boot_hold[TFW_ESP_WIRE_BOOT_HOLD];
-static uint16_t boot_len;
-static uint32_t boot_drops;
-static uint8_t  boot_given;
-
-_Static_assert(TFW_ESP_WIRE_BOOT_HOLD <= TX_BUF, "the held bytes must fit the send buffer");
+/* Until the first host is accepted after boot, what the firmware sends waits in
+ * tx_buf for it: the boot event goes out before the loop that accepts a host
+ * runs, and would otherwise go nowhere (#550). Bounded by TX_BUF: past it the
+ * held bytes are discarded whole, never sent cut. */
+static uint8_t holding = 1u;
 
 static void nonblocking(int fd)
 {
@@ -89,8 +85,6 @@ static void drop_peer(void)
 /* Takes a waiting connection, if there is one: in place of the current one if
  * that has gone quiet, else not at all. A connection is heard when it is taken,
  * so one that has said nothing yet keeps the wire for the window too. */
-static void flush_tx(void);
-
 static void accept_peer(void)
 {
     int fd;
@@ -118,20 +112,9 @@ static void accept_peer(void)
     nonblocking(fd);
     /* A response is one small frame the host is waiting on: send it now. */
     (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-    peer = fd;
+    peer    = fd;
+    holding = 0u;               /* what was held goes to this host */
     heard();
-    if (!boot_given) {
-        /* The first host: what was sent before it came goes first, once. */
-        boot_given = 1u;
-        if (boot_drops != 0u) {
-            ESP_LOGW(TAG, "the first host missed %u bytes sent before it came",
-                     (unsigned)boot_drops);
-        }
-        memcpy(tx_buf, boot_hold, boot_len);
-        tx_len   = boot_len;
-        boot_len = 0u;
-        flush_tx();
-    }
 }
 
 static void flush_tx(void)
@@ -186,6 +169,10 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
         return TFW_ERR_INTERNAL;
     }
     nonblocking(listener);
+    if (peer < 0) {
+        holding = 1u;           /* init is boot: hold for the first host */
+        tx_len  = 0u;
+    }
     return TFW_OK;
 }
 
@@ -245,14 +232,13 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
     if (peer < 0) {
-        if (!boot_given) {      /* no host yet: hold it for the first */
-            if (boot_len < TFW_ESP_WIRE_BOOT_HOLD) {
-                boot_hold[boot_len++] = byte;
-            } else {
-                boot_drops++;
-            }
+        if (holding && tx_len < TX_BUF) {
+            tx_buf[tx_len++] = byte;    /* for the first host */
+        } else {
+            holding = 0u;       /* nobody listening: the byte goes nowhere */
+            tx_len  = 0u;
         }
-        return 1u;              /* nobody listening: the byte goes nowhere */
+        return 1u;
     }
     if (tx_len == TX_BUF) {
         flush_tx();
@@ -270,5 +256,5 @@ uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 uint8_t tfw_hal_uart_tx_idle(void)
 {
     flush_tx();
-    return (uint8_t)(tx_len == 0u);
+    return (uint8_t)(peer < 0 || tx_len == 0u);     /* held bytes wait on no reply */
 }

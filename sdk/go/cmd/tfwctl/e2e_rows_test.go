@@ -160,10 +160,10 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // StartBooted skips it where nothing resets the board
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // on TCP: the reset hook (#583) or reset port (#550), else skipped
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {},
-	"TestFirmwareSys":                                    {},
+	"TestFirmwareSys":                                    {}, // #550: counter deltas, so no boot needed
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
@@ -374,9 +374,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
 		}},
-		// The HIL-0 image has no crypto tier, and its wire is TCP: the BOOT
-		// and Sys rows decide for themselves what a running peer can show
-		// (TestEveryBoardRunsTheBootEventRow).
+		// The HIL-0 image has no crypto tier, and its wire is TCP: connecting
+		// resets nothing, so the reset rows reset it through its hook or
+		// reset port, or check counter deltas (#550, #583).
 		{"esp32p4-poe", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone", "TestFirmwareI2C",
 			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
@@ -447,7 +447,9 @@ func sysCountersStartAtZero(board string) bool {
 
 // The P4's connect resets nothing (Codex P1 on #565): Sys there would compare
 // its counters before and after clean traffic, not against zero, while a board
-// whose connect resets it, and the simulator, still assert zero.
+// whose connect resets it, and the simulator, still assert zero. The P4 run
+// selects Sys and the malformed-burst row
+// (TestEveryBoardRunsTheBootEventRow, #550).
 func TestSysCountersAreZeroOnlyWhereTheConnectResets(t *testing.T) {
 	if sysCountersStartAtZero("esp32p4-poe") {
 		t.Error("esp32p4-poe: Sys asserts zero counters on an image the connect does not reset")
@@ -502,10 +504,10 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 }
 
 // #583: the BOOT-event row decides for itself whether the board can be made
-// to send BOOT (peer.StartBooted: a serial board by DTR, a TCP board through
-// its reset hook, skipped with neither), and the Sys row counts only the
-// framer errors its own traffic adds on a peer found running, so every
-// board's run lists both.
+// to send BOOT (a serial board by DTR, a TCP board through its reset hook or
+// reset port (#550), skipped with none), and the Sys row checks the framer
+// counters' delta, not zero (#550, Codex P1 on #558), so every board's run
+// lists both.
 func TestEveryBoardRunsTheBootEventRow(t *testing.T) {
 	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareSys"} {
 		for _, board := range []string{"atmega328p", "atmega2560", "esp32p4-poe"} {

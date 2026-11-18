@@ -164,6 +164,7 @@ type meddler struct {
 	conn  io.ReadWriter
 	reply func(f tfw.Frame) []byte // new payload for a response, or nil to leave it
 	rx    []byte
+	part  []byte // a frame begun but not yet whole
 }
 
 // frameOverhead is SOF, LEN and the two CRC bytes around a frame's body, per
@@ -184,15 +185,16 @@ func (m *meddler) SetReadDeadline(t time.Time) error {
 
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {
-		var head [2]byte
-		if _, err := io.ReadFull(m.conn, head[:]); err != nil {
+		// A read timeout can cut a frame anywhere (a tcp: conn's floor), so
+		// what arrived before it stays in m.part and the next Read resumes it.
+		if err := m.fill(2); err != nil {
 			return 0, err
 		}
-		frame := make([]byte, int(head[1])+frameOverhead)
-		copy(frame, head[:])
-		if _, err := io.ReadFull(m.conn, frame[2:]); err != nil {
+		if err := m.fill(int(m.part[1]) + frameOverhead); err != nil {
 			return 0, err
 		}
+		frame := m.part
+		m.part = nil
 		if f, _, err := tfw.Decode(frame); err == nil && m.reply != nil && f.IsResponse() {
 			if payload := m.reply(f); payload != nil {
 				if frame, err = tfw.EncodeResponse(f.Seq, f.Cmd(), f.Status, payload); err != nil {
@@ -205,6 +207,19 @@ func (m *meddler) Read(p []byte) (int, error) {
 	n := copy(p, m.rx)
 	m.rx = m.rx[n:]
 	return n, nil
+}
+
+// fill reads until m.part holds n bytes, keeping what it got on an error.
+func (m *meddler) fill(n int) error {
+	for len(m.part) < n {
+		buf := make([]byte, n-len(m.part))
+		k, err := m.conn.Read(buf)
+		m.part = append(m.part, buf[:k]...)
+		if err != nil && len(m.part) < n {
+			return err
+		}
+	}
+	return nil
 }
 
 // A device whose caps does not report bit 15 is refused by the host without
@@ -247,4 +262,55 @@ func TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), d, "caps", nil, false, &out))
 	assert.Contains(t, out.String(), "attest-csr")
+}
+
+// timeoutErr is the error a conn's read floor returns: a timeout, no bytes.
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string { return "i/o timeout" }
+func (timeoutErr) Timeout() bool { return true }
+
+// splitConn hands out its chunks one Read at a time, a read timeout between
+// each, the way a tcp: conn's floor cuts a frame TCP delivered in pieces.
+type splitConn struct {
+	chunks  [][]byte
+	timeout bool
+}
+
+func (c *splitConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (c *splitConn) Read(p []byte) (int, error) {
+	if c.timeout {
+		c.timeout = false
+		return 0, timeoutErr{}
+	}
+	if len(c.chunks) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, c.chunks[0])
+	if c.chunks[0] = c.chunks[0][n:]; len(c.chunks[0]) == 0 {
+		c.chunks = c.chunks[1:]
+		c.timeout = true
+	}
+	return n, nil
+}
+
+// A response whose bytes straddle a read timeout, in the header and in the
+// body, reaches the caller whole: the meddler resumes the frame it began.
+func TestMeddlerKeepsAFrameSplitAcrossAReadTimeout(t *testing.T) {
+	frame, err := tfw.EncodeResponse(7, tfw.Cmd(0x01), tfw.Status(0), []byte("caps"))
+	require.NoError(t, err)
+	m := &meddler{conn: &splitConn{chunks: [][]byte{frame[:1], frame[1:5], frame[5:]}}}
+
+	var got []byte
+	buf := make([]byte, 64)
+	for i := 0; i < 10 && len(got) < len(frame); i++ {
+		n, err := m.Read(buf)
+		if err != nil {
+			require.ErrorIs(t, err, timeoutErr{}, "read %d", i)
+			continue
+		}
+		got = append(got, buf[:n]...)
+	}
+	assert.Equal(t, frame, got)
 }

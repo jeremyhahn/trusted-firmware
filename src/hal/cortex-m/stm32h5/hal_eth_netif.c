@@ -22,6 +22,8 @@
 #include "hal_eth_mac.h"
 #include "hal_eth_mdio.h"
 #include "hal_eth_wire.h"
+#include "hal_rng.h"
+#include "../../../crypto/sha256.h"
 
 #include "lwip/init.h"
 #include "lwip/netif.h"
@@ -40,6 +42,7 @@
 #define ETH_RESET_SPIN    1000000u
 #define ETH_TX_SPIN       100000u
 #define LINK_POLL_MS      100u
+#define RNG_RETRY_MS      1000u
 
 enum { ETH_INIT, ETH_WAIT_LINK, ETH_RUNNING, ETH_FAILED };
 
@@ -58,6 +61,9 @@ static uint8_t eth_bound_said;
 static uint8_t eth_dhcp_on;
 static tfw_ms_t eth_link_ms;
 static uint32_t eth_rand_state = 1u;
+static uint8_t  eth_isn_key[16];        /* RFC 6528's secret, from the RNG */
+static uint8_t  eth_rng_failed;         /* bring-up waits RNG_RETRY_MS */
+static tfw_ms_t eth_rng_failed_ms;
 
 uint32_t sys_now(void)
 {
@@ -75,6 +81,69 @@ uint32_t tfw_h5_eth_rand(void)
     x ^= x << 5;
     eth_rand_state = x;
     return x;
+}
+
+static void put_be32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+/* lwIP's LWIP_HOOK_TCP_ISN (lwipopts.h), RFC 6528: ISN = M + F(4-tuple, key),
+ * M a 4 us clock (250 ticks a millisecond, wrapping with the millisecond
+ * count), F the first 32 bits of SHA-256 over the local address and port, the
+ * remote address and port, and the 128-bit key drawn at bring-up. lwIP calls
+ * it only after lwip_init, so the key is always drawn by then. */
+uint32_t tfw_h5_tcp_isn(const struct ip4_addr *local_ip, uint16_t local_port,
+                        const struct ip4_addr *remote_ip, uint16_t remote_port)
+{
+    return tfw_h5_tcp_isn_keyed(eth_isn_key, (uint32_t)tfw_hal_millis() * 250u,
+                                local_ip, local_port, remote_ip, remote_port);
+}
+
+/* The hash part, with the key and M given (the host test compares keys). */
+uint32_t tfw_h5_tcp_isn_keyed(const uint8_t key[16], uint32_t m,
+                              const struct ip4_addr *local_ip, uint16_t local_port,
+                              const struct ip4_addr *remote_ip, uint16_t remote_port)
+{
+    uint8_t msg[12u + 16u];
+    uint8_t h[32];
+
+    put_be32(&msg[0], lwip_ntohl(ip4_addr_get_u32(local_ip)));
+    msg[4] = (uint8_t)(local_port >> 8);
+    msg[5] = (uint8_t)local_port;
+    put_be32(&msg[6], lwip_ntohl(ip4_addr_get_u32(remote_ip)));
+    msg[10] = (uint8_t)(remote_port >> 8);
+    msg[11] = (uint8_t)remote_port;
+    memcpy(&msg[12], key, 16u);
+    tfw_sha256(msg, (uint16_t)sizeof msg, h);
+    memset(msg, 0, sizeof msg);
+    return m + (((uint32_t)h[0] << 24) | ((uint32_t)h[1] << 16) |
+                ((uint32_t)h[2] << 8) | (uint32_t)h[3]);
+}
+
+/* The ISN key and the LWIP_RAND seed, from the hardware RNG. 0, or -1 if the
+ * RNG fails: the netif then stays down, with no fallback key. */
+static int eth_draw_secrets(void)
+{
+    uint32_t w;
+
+    if (tfw_h5_rng_init(&tfw_h5_rng) != 0) {
+        return -1;
+    }
+    for (unsigned i = 0u; i < sizeof eth_isn_key / 4u; i++) {
+        if (tfw_h5_rng_read(&tfw_h5_rng, &w) != 0) {
+            return -1;
+        }
+        put_be32(&eth_isn_key[4u * i], w);
+    }
+    if (tfw_h5_rng_read(&tfw_h5_rng, &w) != 0) {
+        return -1;
+    }
+    eth_rand_state = w | 1u;
+    return 0;
 }
 
 static void eth_say(const char *s)
@@ -121,6 +190,15 @@ static void eth_bring_up(void)
     tfw_phy_probe_t p;
     uint32_t uid[3];
 
+    if (eth_draw_secrets() != 0) {
+        if (!eth_rng_failed) {
+            eth_say("eth: rng failed\r\n");
+        }
+        eth_rng_failed = 1u;
+        eth_rng_failed_ms = tfw_hal_millis();
+        return;                         /* ETH_INIT: tried again later */
+    }
+    eth_rng_failed = 0u;
     tfw_h5_eth_mdio_init();
     if (tfw_phy_scan(tfw_h5_eth_mdio_read, &p) != 0) {
         eth_say("eth: phy none\r\n");
@@ -142,7 +220,6 @@ static void eth_bring_up(void)
         uid[i] = TFW_H5_UID_WORD(i);
     }
     tfw_eth_mac_from_uid(uid, eth_addr);
-    eth_rand_state = (uid[0] ^ uid[1] ^ uid[2] ^ (uint32_t)tfw_hal_millis()) | 1u;
 
     lwip_init();
     (void)netif_add(&eth_netif, NULL, NULL, NULL, NULL, eth_netif_init, ethernet_input);
@@ -284,6 +361,10 @@ void tfw_hal_eth_poll(void)
     tfw_h5_wire_say_poll();
     switch (eth_state) {
     case ETH_INIT:
+        if (eth_rng_failed &&
+            (tfw_ms_t)(tfw_hal_millis() - eth_rng_failed_ms) < RNG_RETRY_MS) {
+            return;
+        }
         eth_bring_up();
         return;
     case ETH_WAIT_LINK:

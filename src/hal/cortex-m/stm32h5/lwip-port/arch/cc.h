@@ -21,6 +21,8 @@
 #define X32_F "lx"
 #define SZT_F "u"
 
+/* DHCP xids and local ports: xorshift32 seeded from the hardware RNG at
+ * bring-up (hal_eth_netif.c). TCP ISNs do not use it (lwipopts.h). */
 uint32_t tfw_h5_eth_rand(void);
 #define LWIP_RAND()              tfw_h5_eth_rand()
 

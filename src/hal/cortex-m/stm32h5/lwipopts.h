@@ -63,4 +63,18 @@
 #define LWIP_STATS                  0
 #define LWIP_DEBUG                  0
 
+/* TCP initial sequence numbers per RFC 6528 (#584): a 4 us clock plus a keyed
+ * hash of the connection's 4-tuple, the key drawn from the STM32H5 hardware
+ * RNG when the netif comes up (hal_eth_netif.c). IPv4 only, so lwIP's
+ * ip_addr_t is struct ip4_addr. */
+#include <stdint.h>
+struct ip4_addr;
+uint32_t tfw_h5_tcp_isn(const struct ip4_addr *local_ip, uint16_t local_port,
+                        const struct ip4_addr *remote_ip, uint16_t remote_port);
+uint32_t tfw_h5_tcp_isn_keyed(const uint8_t key[16], uint32_t m,
+                              const struct ip4_addr *local_ip, uint16_t local_port,
+                              const struct ip4_addr *remote_ip, uint16_t remote_port);
+#define LWIP_HOOK_TCP_ISN(local_ip, local_port, remote_ip, remote_port) \
+    tfw_h5_tcp_isn((local_ip), (local_port), (remote_ip), (remote_port))
+
 #endif /* TFW_H5_LWIPOPTS_H */

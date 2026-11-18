@@ -44,6 +44,23 @@
 #define TFW_H5_RCC_CCIPR5_ADCDACSEL (0x7u << 0)
 #define TFW_H5_RCC_ADCDACSEL_HCLK   0x0u
 
+/* The true random number generator (RM0481 RNG; hal_rng.c). RNG_BASE_NS on
+ * AHB2, clocked by HSI48 (RCC_CCIPR5 RNGSEL's reset value, left as is), so
+ * RCC_CR HSI48ON and RCC_AHB2ENR RNGEN are the only RCC bits it sets. */
+#define TFW_H5_RNG_BASE        0x420C0800u
+#define TFW_H5_RCC_CR_HSI48ON  (0x1u << 12)
+#define TFW_H5_RCC_CR_HSI48RDY (0x1u << 13)
+#define TFW_H5_RCC_AHB2ENR_RNGEN    (0x1u << 18)
+#define TFW_H5_RNG_CR_IX       0u             /* word index of RNG_CR */
+#define TFW_H5_RNG_SR_IX       1u             /* RNG_SR, offset 0x04 */
+#define TFW_H5_RNG_DR_IX       2u             /* RNG_DR, offset 0x08 */
+#define TFW_H5_RNG_CR_RNGEN    (0x1u << 2)
+#define TFW_H5_RNG_SR_DRDY     (0x1u << 0)
+#define TFW_H5_RNG_SR_CECS     (0x1u << 1)    /* clock error now */
+#define TFW_H5_RNG_SR_SECS     (0x1u << 2)    /* seed error now */
+#define TFW_H5_RNG_SR_CEIS     (0x1u << 5)    /* a clock error happened */
+#define TFW_H5_RNG_SR_SEIS     (0x1u << 6)    /* a seed error happened */
+
 /* ---- FLASH interface, AHB1PERIPH_BASE_NS + 0x2000 */
 #define TFW_H5_FLASH_ACR       TFW_CM_REG(0x40022000u)
 #define TFW_H5_FLASH_ACR_LATENCY 0xFu

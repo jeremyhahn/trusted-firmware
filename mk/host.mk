@@ -3007,7 +3007,8 @@ $(HOST_DIR)/test_h5_wire_listener: test/unit/test_h5_wire_listener.c \
 
 # The STM32H5 netif (hal_eth_netif.c) on the real vendored lwIP core, DHCP and
 # timers, with the PHY, MAC and wire faked: a link flap leaves the lease clock
-# running, so an expired lease clears the address (#584). lwIP compiles with -w
+# running, so an expired lease clears the address (#584); the RNG (hal_rng.c)
+# over fake registers keys the RFC 6528 TCP ISNs. lwIP compiles with -w
 # as in the firmware build.
 H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum.c ip.c \
                    mem.c memp.c netif.c pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
@@ -3015,17 +3016,23 @@ H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum
                    ip4.c ip4_addr.c ip4_frag.c) \
                  third_party/lwip/src/netif/ethernet.c
 $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
+                           src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
+                           src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \
                            $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	  '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' -c -o $@.o test/unit/test_h5_netif.c
+	  -Isrc/hal/cortex-m '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' \
+	  -c -o $@.o test/unit/test_h5_netif.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' -c -o $@.netif.o \
 	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.sha.o src/crypto/sha256.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
-	  -o $@ $@.o $@.netif.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	  -o $@ $@.o $@.netif.o $@.rng.o $@.sha.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

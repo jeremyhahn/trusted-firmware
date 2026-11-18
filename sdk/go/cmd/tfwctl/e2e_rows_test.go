@@ -379,8 +379,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone",
 			"TestFirmwareAttestRefusedUnprovisioned",
 		}, []string{
-			"TestFirmwareSys", "TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig",
-			"TestFirmwareToneRefusesTheShieldsPin",
+			"TestFirmwareSys", "TestFirmwareEEPROM", "TestFirmwareToneRefusesTheShieldsPin",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)

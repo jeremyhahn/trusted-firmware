@@ -282,6 +282,53 @@ func TestOpenResetPaths(t *testing.T) {
 	}
 }
 
+// TestOpenResetWaitsPastTheTCPReadFloor: a tcp: wire is a floorConn, whose
+// every Read times out within tcpReadFloor. A board that accepts and sends
+// BOOT later than that, inside the bound, has started; one that sends
+// nothing within the bound is silent, after the whole bound.
+func TestOpenResetWaitsPastTheTCPReadFloor(t *testing.T) {
+	saved, savedHook := dialTCP, runHook
+	t.Cleanup(func() { dialTCP, runHook = saved, savedHook })
+	runHook = func(string, time.Duration) error { return nil }
+	for _, tc := range []struct {
+		name  string
+		boot  time.Duration // when the board sends BOOT; 0 never
+		bound time.Duration
+	}{
+		{name: "BOOT 500ms after the accept", boot: 500 * time.Millisecond, bound: StartBound},
+		{name: "no BOOT within the bound", bound: 3 * tcpReadFloor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dialTCP = func(string, string, time.Duration) (io.ReadWriteCloser, error) {
+				a, b := net.Pipe()
+				t.Cleanup(func() { _ = b.Close() })
+				if tc.boot > 0 {
+					go func() {
+						time.Sleep(tc.boot)
+						_, _ = b.Write([]byte{0xA5})
+					}()
+				}
+				return &floorConn{Conn: a, floor: tcpReadFloor}, nil
+			}
+			began := time.Now()
+			c, err := openReset("board:21574", "bench-reset", tc.bound)
+			if tc.boot > 0 {
+				if err != nil {
+					t.Fatalf("openReset: %v", err)
+				}
+				_ = c.Close()
+				return
+			}
+			if !errors.Is(err, ErrSilent) {
+				t.Fatalf("openReset error %v, want ErrSilent", err)
+			}
+			if waited := time.Since(began); waited < tc.bound {
+				t.Fatalf("openReset gave up after %s, before its bound %s", waited, tc.bound)
+			}
+		})
+	}
+}
+
 // TestOpenResetWireKeepsReadDeadlines: a board that sends its BOOT and then
 // goes silent fails a read by the deadline the Device sets on the wire, not at
 // the test's timeout (Codex P1 on #568).

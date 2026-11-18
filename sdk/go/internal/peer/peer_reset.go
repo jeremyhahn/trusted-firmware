@@ -69,7 +69,8 @@ var runHook = func(hook string, bound time.Duration) error {
 // The connection is dialled after the hook, so what it carries is the new
 // application's: its BOOT event first.
 func openReset(addr, hook string, bound time.Duration) (io.ReadWriteCloser, error) {
-	deadline := time.Now().Add(bound)
+	start := time.Now()
+	deadline := start.Add(bound)
 	if err := runHook(hook, bound); err != nil {
 		return nil, fmt.Errorf("%s=%s%s: %w", ResetEnv, ResetCmdPrefix, hook, err)
 	}
@@ -92,12 +93,23 @@ func openReset(addr, hook string, bound time.Duration) (io.ReadWriteCloser, erro
 			return nil, err
 		}
 	}
-	s, err := awaitStart(c, time.Until(deadline))
+	// A tcp: wire is a floorConn, whose every Read times out within its
+	// 200ms floor: a board that accepts before it sends BOOT (the ESP32-P4
+	// listens before its init ends) is still starting, so read on until
+	// the reset's own deadline passes.
+	var s io.ReadWriteCloser
+	var err error
+	var ne net.Error
+	for {
+		s, err = awaitStart(c, time.Until(deadline))
+		if err == nil || !errors.As(err, &ne) || !ne.Timeout() || !time.Now().Before(deadline) {
+			break
+		}
+	}
 	if err != nil {
 		_ = c.Close()
-		var ne net.Error
 		if errors.As(err, &ne) && ne.Timeout() {
-			return nil, fmt.Errorf("%w (waited %s)", ErrSilent, bound)
+			return nil, fmt.Errorf("%w (waited %s)", ErrSilent, time.Since(start).Round(time.Millisecond))
 		}
 		return nil, err
 	}

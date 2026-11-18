@@ -281,3 +281,61 @@ func TestOpenResetPaths(t *testing.T) {
 		})
 	}
 }
+
+// TestOpenResetWireKeepsReadDeadlines: a board that sends its BOOT and then
+// goes silent fails a read by the deadline the Device sets on the wire, not at
+// the test's timeout (Codex P1 on #568).
+func TestOpenResetWireKeepsReadDeadlines(t *testing.T) {
+	saved, savedHook := dialTCP, runHook
+	t.Cleanup(func() { dialTCP, runHook = saved, savedHook })
+	runHook = func(string, time.Duration) error { return nil }
+	dialTCP = func(string, string, time.Duration) (io.ReadWriteCloser, error) {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = b.Close() })
+		go func() { _, _ = b.Write([]byte{0xA5}) }()
+		return a, nil
+	}
+	c, err := openReset("board:21574", "bench-reset", 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("openReset: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	dc, ok := c.(interface {
+		SetReadDeadline(time.Time) error
+		SetDeadline(time.Time) error
+	})
+	if !ok {
+		t.Fatalf("openReset's wire %T hides SetReadDeadline", c)
+	}
+	buf := make([]byte, 8)
+	if n, err := c.Read(buf); err != nil || n != 1 || buf[0] != 0xA5 {
+		t.Fatalf("first read = %d %v %x, want the BOOT byte", n, err, buf[:n])
+	}
+	for _, set := range []func(time.Time) error{dc.SetReadDeadline, dc.SetDeadline} {
+		if err := set(time.Now().Add(50 * time.Millisecond)); err != nil {
+			t.Fatalf("set deadline: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() { _, err := c.Read(buf); done <- err }()
+		select {
+		case err := <-done:
+			var ne net.Error
+			if !errors.As(err, &ne) || !ne.Timeout() {
+				t.Fatalf("read on a stalled board = %v, want a timeout", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("read on a stalled board ignored its deadline")
+		}
+	}
+}
+
+// TestStartedWithoutDeadlinesKeepsNone: a wire with no deadlines takes the
+// call as a no-op.
+func TestStartedWithoutDeadlinesKeepsNone(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	s := &started{rwc: pipeEnd{a}}
+	if err := s.SetDeadline(time.Now()); err != nil {
+		t.Fatalf("SetDeadline: %v", err)
+	}
+}

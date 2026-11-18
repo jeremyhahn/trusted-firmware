@@ -518,3 +518,21 @@ func (s *started) Read(p []byte) (int, error) {
 
 func (s *started) Write(p []byte) (int, error) { return s.rwc.Write(p) }
 func (s *started) Close() error                { return s.rwc.Close() }
+
+// SetReadDeadline passes the Device's read bound through to the conn, so a
+// board that sends its BOOT and then stalls fails its read by the deadline
+// rather than at the test's timeout. A conn with no deadlines keeps none.
+func (s *started) SetReadDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return c.SetReadDeadline(t)
+	}
+	return nil
+}
+
+// SetDeadline passes a read and write bound through to the conn.
+func (s *started) SetDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetDeadline(time.Time) error }); ok {
+		return c.SetDeadline(t)
+	}
+	return s.SetReadDeadline(t)
+}

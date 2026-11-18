@@ -192,6 +192,13 @@ endif
 # UART and on a TCP listener (hal_eth_wire_tcp.c, port 21574). Off by default.
 ETH_MAC ?= 0
 LWIP_DIR := third_party/lwip/src
+
+## lwip-check: the vendored lwIP is byte-identical to upstream at its VERSION's commit (third_party/lwip/SHA256SUMS)
+# Fails on a changed byte, a missing file or a file the sums do not list;
+# scripts-test runs the same check (scripts/test_vendor_sums.py).
+.PHONY: lwip-check
+lwip-check:
+	@python3 -B scripts/vendor_sums.py third_party/lwip
 ifeq ($(ETH_MAC),1)
 ifeq ($(wildcard $(HAL_SOC_DIR)/hal_eth_netif.c),)
 $(error ETH_MAC=1 but $(HAL_SOC_DIR) has no hal_eth_netif.c -- this SoC has no MAC driver)

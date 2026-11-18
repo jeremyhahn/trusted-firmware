@@ -77,6 +77,17 @@
 | Connector | an RJ45 on the board | **verified on the board 2026-11-17** (#579): cabled, the PHY reports link up |
 | IP stack | lwIP 2.2.1 (`STABLE-2_2_1_RELEASE`), `NO_SYS`, raw API, over our MAC and descriptor driver (option (a)); vendored unmodified under `third_party/lwip`, built with `ETH_MAC=1` | **verified on the board 2026-11-17** (#581): a DHCP lease, the console line `eth: dhcp bound`; the `ETH_MAC=1` application measured 35 816 bytes of flash and 45 004 bytes of RAM (lwIP's heap 8 KiB, 8 pool buffers) |
 
+**Provenance of the vendored lwIP.** `third_party/lwip` is pinned to upstream
+lwIP `STABLE-2_2_1_RELEASE`, commit `77dcd25a72509eb83f72b033d219b1d40cd8eb95`
+(`third_party/lwip/VERSION`). `third_party/lwip/SHA256SUMS` lists every
+vendored file with its SHA-256, summed from a fresh fetch of that commit;
+`make lwip-check` (and `scripts-test`, through `scripts/test_vendor_sums.py`)
+fails on a changed byte, a missing file or a file the list does not name. The
+subset is therefore upstream's bytes and needs no line review here; the review
+falls on our port files: `src/hal/cortex-m/stm32h5/lwipopts.h`,
+`src/hal/cortex-m/stm32h5/lwip-port/arch/cc.h`, `hal_eth_netif.c` (the netif
+glue) and `hal_eth_wire_tcp.c` (the raw-API listener).
+
 ## Options
 
 ### (a) lwIP, `NO_SYS`, raw API, over our own MAC and descriptor driver

@@ -137,38 +137,12 @@ var pulseReset = func(port string) error {
 		return err
 	}
 	defer func() { _ = p.Close() }()
-	r, ok := p.(modemLines)
+	r, ok := p.(peer.ModemLines)
 	if !ok {
 		return fmt.Errorf("%s cannot drive RTS and DTR", port)
 	}
-	if err := espReset(r); err != nil {
+	if err := peer.ESPReset(r); err != nil {
 		return fmt.Errorf("%s: %w", port, err)
-	}
-	return nil
-}
-
-// modemLines is what espReset needs of the reset port.
-type modemLines interface {
-	SetDTR(bool) error
-	SetRTS(bool) error
-}
-
-// espReset is esptool's classic reset on the ESP32 auto-reset circuit
-// (docs/plans/550.md): RTS drives EN and DTR drives GPIO0, each asserted
-// line pulling its pin low, and both asserted together pull neither. DTR is
-// released first so GPIO0 is high when EN rises (a normal boot, not the ROM
-// download mode); RTS then holds EN low for peer.ResetPulse and releases it.
-// Pulsing DTR alone never moves EN, so it does not reset a running board.
-func espReset(r modemLines) error {
-	if err := r.SetDTR(false); err != nil {
-		return fmt.Errorf("releasing DTR (GPIO0 high): %w", err)
-	}
-	if err := r.SetRTS(true); err != nil {
-		return fmt.Errorf("asserting RTS (EN low): %w", err)
-	}
-	time.Sleep(peer.ResetPulse)
-	if err := r.SetRTS(false); err != nil {
-		return fmt.Errorf("releasing RTS (EN high): %w", err)
 	}
 	return nil
 }
@@ -189,16 +163,15 @@ func bootEventLink(t *testing.T, target peer.Target, resetPort string) (conn io.
 			peer.PortEnv, target.Port, resetPortEnv)
 	}
 	require.NoError(t, pulseReset(resetPort), "%s=%s", resetPortEnv, resetPort)
-	deadline := time.Now().Add(peer.StartBound)
-	for {
-		c, err := peer.Open(target.Port, peer.StartBound)
-		if err == nil {
-			t.Cleanup(func() { _ = c.Close() })
-			return c, ""
-		}
-		require.True(t, time.Now().Before(deadline), "%s did not answer within %v of the reset: %v", target.Port, peer.StartBound, err)
-		time.Sleep(peer.ResetPulse)
-	}
+	// The board answers once it is back; poll for that, not for a fixed time.
+	var c io.ReadWriteCloser
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var err error
+		c, err = peer.Open(target.Port, peer.StartBound)
+		assert.NoError(ct, err, "%s did not answer within %v of the reset", target.Port, peer.StartBound)
+	}, peer.StartBound, peer.ResetPulse)
+	t.Cleanup(func() { _ = c.Close() })
+	return c, ""
 }
 
 // TestBootEventLinkSkipsATCPLinkWithNoResetPort: with no reset port the
@@ -239,7 +212,7 @@ func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
 	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
 }
 
-// linePort records the modem-line changes espReset makes, and when.
+// linePort records the modem-line changes peer.ESPReset makes, and when.
 type linePort struct {
 	calls []string
 	at    []time.Time
@@ -262,7 +235,7 @@ func (l *linePort) SetRTS(on bool) error { return l.set("RTS", on) }
 // ESP32 reboots into its application and sends BOOT again.
 func TestESPResetPulsesENThroughRTSWithDTRReleased(t *testing.T) {
 	l := &linePort{}
-	require.NoError(t, espReset(l))
+	require.NoError(t, peer.ESPReset(l))
 	require.Equal(t, []string{"DTR=false", "RTS=true", "RTS=false"}, l.calls)
 	assert.GreaterOrEqual(t, l.at[2].Sub(l.at[1]), peer.ResetPulse, "EN held low too briefly")
 }
@@ -271,7 +244,7 @@ func TestESPResetPulsesENThroughRTSWithDTRReleased(t *testing.T) {
 func TestESPResetReportsALineThatFails(t *testing.T) {
 	for _, fail := range []string{"DTR=false", "RTS=true", "RTS=false"} {
 		l := &linePort{fail: fail}
-		err := espReset(l)
+		err := peer.ESPReset(l)
 		require.Error(t, err, fail)
 		assert.Equal(t, fail, l.calls[len(l.calls)-1], "a call after the failed one")
 	}

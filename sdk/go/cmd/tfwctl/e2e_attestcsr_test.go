@@ -236,14 +236,27 @@ func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
 	frame, err := tfw.EncodeResponse(tfw.Seq(1), tfw.CmdCaps, tfw.StatusOK, []byte("caps reply"))
 	require.NoError(t, err)
 
+	// The writer sends each piece only after the reader has timed out on the
+	// floor waiting for it: a condition, not a clock, spaces the pieces.
+	timedOut := make(chan struct{}, 1)
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
 	sent := make(chan error, 1)
 	go func() {
-		for _, piece := range [][]byte{frame[:1], frame[1:5], frame[5:]} {
+		pieces := [][]byte{frame[:1], frame[1:5], frame[5:]}
+		for i, piece := range pieces {
+			if i > 0 {
+				select {
+				case <-timedOut:
+				case <-done:
+					sent <- errors.New("the reader stopped before the reply was sent")
+					return
+				}
+			}
 			if _, err := dev.Write(piece); err != nil {
 				sent <- err
 				return
 			}
-			time.Sleep(floor + floor/2)
 		}
 		sent <- nil
 	}()
@@ -267,6 +280,10 @@ func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
 		if err != nil {
 			require.True(t, errors.As(err, &ne) && ne.Timeout(), "got %v", err)
 			timeouts++
+			select {
+			case timedOut <- struct{}{}:
+			default:
+			}
 		}
 	}
 	assert.Equal(t, rewritten, got)

@@ -103,7 +103,7 @@ CM_QEMU_PULSE_BUILD  := $(BUILD_DIR)/qemu-pulse
 CM_QEMU_ONEWIRE_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_ONEWIRE_BUILD  := $(BUILD_DIR)/qemu-onewire
 
-## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require
+## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; with no platform block tfw-boot refuses and names TFW_ERR_NOT_PROVISIONED; on mps2-an505 the tamper-response loop decides as its sets require
 #
 # One board after the other, not in parallel: a red board names itself, and
 # the two QEMUs never compete for the host. integration-test-cortex-m-<board>

@@ -6,7 +6,7 @@
 <dir>/SHA256SUMS lists every vendored file of <dir> (sha256sum format, paths
 relative to <dir>), summed from a fresh fetch of the upstream commit its
 VERSION names. The check fails on a file whose bytes differ, a listed file
-that is missing, and a file in <dir> the list does not name (VERSION and
+that is missing, and a file in <dir> the list does not name (VERSION, README.tfw.md and
 SHA256SUMS themselves aside). third_party/lwip is checked by make lwip-check
 and by scripts-test (test_vendor_sums.py).
 """
@@ -16,7 +16,7 @@ import os
 import sys
 
 SUMS = "SHA256SUMS"
-OURS = {SUMS, "VERSION"}
+OURS = {SUMS, "VERSION", "README.tfw.md"}  # ours, not upstream's
 
 
 def read_sums(path):

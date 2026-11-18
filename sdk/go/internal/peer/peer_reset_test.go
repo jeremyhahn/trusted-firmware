@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -286,33 +288,50 @@ func TestOpenResetPaths(t *testing.T) {
 // every Read times out within tcpReadFloor. A board that accepts and sends
 // BOOT later than that, inside the bound, has started; one that sends
 // nothing within the bound is silent, after the whole bound.
+// timeoutSignalConn closes timedOut the first time a Read ends at its
+// deadline, so a test can act once the reader has waited past one floor.
+type timeoutSignalConn struct {
+	net.Conn
+	timedOut chan struct{}
+	once     sync.Once
+}
+
+func (c *timeoutSignalConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		c.once.Do(func() { close(c.timedOut) })
+	}
+	return n, err
+}
+
 func TestOpenResetWaitsPastTheTCPReadFloor(t *testing.T) {
 	saved, savedHook := dialTCP, runHook
 	t.Cleanup(func() { dialTCP, runHook = saved, savedHook })
 	runHook = func(string, time.Duration) error { return nil }
 	for _, tc := range []struct {
 		name  string
-		boot  time.Duration // when the board sends BOOT; 0 never
+		boot  bool // the board sends BOOT once a read has timed out at the floor
 		bound time.Duration
 	}{
-		{name: "BOOT 500ms after the accept", boot: 500 * time.Millisecond, bound: StartBound},
+		{name: "BOOT after a read timed out at the floor", boot: true, bound: StartBound},
 		{name: "no BOOT within the bound", bound: 3 * tcpReadFloor},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dialTCP = func(string, string, time.Duration) (io.ReadWriteCloser, error) {
 				a, b := net.Pipe()
 				t.Cleanup(func() { _ = b.Close() })
-				if tc.boot > 0 {
+				timedOut := make(chan struct{})
+				if tc.boot {
 					go func() {
-						time.Sleep(tc.boot)
+						<-timedOut
 						_, _ = b.Write([]byte{0xA5})
 					}()
 				}
-				return &floorConn{Conn: a, floor: tcpReadFloor}, nil
+				return &floorConn{Conn: &timeoutSignalConn{Conn: a, timedOut: timedOut}, floor: tcpReadFloor}, nil
 			}
 			began := time.Now()
 			c, err := openReset("board:21574", "bench-reset", tc.bound)
-			if tc.boot > 0 {
+			if tc.boot {
 				if err != nil {
 					t.Fatalf("openReset: %v", err)
 				}

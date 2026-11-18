@@ -22,6 +22,11 @@
  * host which restarted is back on within a retry or two. */
 #define TFW_ESP_WIRE_IDLE_MS 2000u
 
+/* What the wire holds for its first host (hal_uart.c): the bytes sent before
+ * any host has connected, BOOT among them, keeping the first this many and
+ * counting the rest dropped. No larger than the send buffer they move into. */
+#define TFW_ESP_WIRE_BOOT_HOLD 128u
+
 /* The board's own bring-up, from tfw_hal_init (hal_board.c). */
 tfw_status_t tfw_esp_board_init(void);
 

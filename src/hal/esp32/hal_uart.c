@@ -53,6 +53,15 @@ static uint16_t rx_head;
 static uint16_t rx_len;
 static uint8_t tx_buf[TX_BUF];
 static uint16_t tx_len;
+/* The bytes sent before the first host connected: main.c sends BOOT before
+ * its first poll, and a host is only accepted inside tfw_hal_uart_rx. The
+ * first host accepted is sent them; no later host is. */
+static uint8_t  boot_hold[TFW_ESP_WIRE_BOOT_HOLD];
+static uint16_t boot_len;
+static uint32_t boot_drops;
+static uint8_t  boot_given;
+
+_Static_assert(TFW_ESP_WIRE_BOOT_HOLD <= TX_BUF, "the held bytes must fit the send buffer");
 
 static void nonblocking(int fd)
 {
@@ -80,6 +89,8 @@ static void drop_peer(void)
 /* Takes a waiting connection, if there is one: in place of the current one if
  * that has gone quiet, else not at all. A connection is heard when it is taken,
  * so one that has said nothing yet keeps the wire for the window too. */
+static void flush_tx(void);
+
 static void accept_peer(void)
 {
     int fd;
@@ -109,6 +120,18 @@ static void accept_peer(void)
     (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
     peer = fd;
     heard();
+    if (!boot_given) {
+        /* The first host: what was sent before it came goes first, once. */
+        boot_given = 1u;
+        if (boot_drops != 0u) {
+            ESP_LOGW(TAG, "the first host missed %u bytes sent before it came",
+                     (unsigned)boot_drops);
+        }
+        memcpy(tx_buf, boot_hold, boot_len);
+        tx_len   = boot_len;
+        boot_len = 0u;
+        flush_tx();
+    }
 }
 
 static void flush_tx(void)
@@ -222,6 +245,13 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
     if (peer < 0) {
+        if (!boot_given) {      /* no host yet: hold it for the first */
+            if (boot_len < TFW_ESP_WIRE_BOOT_HOLD) {
+                boot_hold[boot_len++] = byte;
+            } else {
+                boot_drops++;
+            }
+        }
         return 1u;              /* nobody listening: the byte goes nowhere */
     }
     if (tx_len == TX_BUF) {

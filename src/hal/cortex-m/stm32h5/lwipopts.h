@@ -37,7 +37,15 @@
 #define LWIP_NETIF_HOSTNAME         0
 #define LWIP_SINGLE_NETIF           1
 
+/* lwIP carves struct pbuf (which holds pointers) out of its pools at
+ * MEM_ALIGNMENT, so it must be at least the pointer alignment: 4 on the
+ * Cortex-M33 target, 8 when the host unit tests build this file on a
+ * 64-bit machine (UBSan rejects the misaligned pbuf otherwise). */
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#define MEM_ALIGNMENT               8
+#else
 #define MEM_ALIGNMENT               4
+#endif
 #define MEM_SIZE                    (8 * 1024)
 #define MEMP_NUM_PBUF               8
 #define MEMP_NUM_UDP_PCB            2

@@ -37,7 +37,10 @@ MCU            := stm32h573iik3q
 FLASH_BUDGET   := 131072
 # ETH_MAC=1 (#581) adds the MAC's rings (12 KiB of 1536-byte buffers) and
 # lwIP's heap and pbuf pool: 64 KiB of the 256 KiB bank.
-RAM_BUDGET     := $(if $(filter 1,$(ETH_MAC)),65536,32768)
+RAM_BUDGET     := 32768
+ifeq ($(ETH_MAC),1)
+  RAM_BUDGET   := 65536
+endif
 FLASH_TOTAL    := 2097152
 RAM_TOTAL      := 262144
 

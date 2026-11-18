@@ -2191,7 +2191,9 @@ lint-grep-selftest:
 # by the prefixes the port includes them by (esp_, driver/, freertos/, lwip/,
 # bootloader_, soc/, rom/, hal/, sdkconfig.h), and the ESP-IDF names no portable
 # file has a reason to spell (esp_err_t, ESP_OK, IRAM_ATTR, portMAX_DELAY, ...),
-# matched with string literals blanked. Its sweep is src, boot, include, tools
+# matched with string literals blanked. Under src/hal/cortex-m/ lwip/ is not an
+# ESP-IDF prefix: the STM32H5 Ethernet port (#581) builds lwIP itself, so its
+# includes are the port's own stack (ARCH_LEAK_ESP_INC_CM). Its sweep is src, boot, include, tools
 # and every other board, bar src/third_party/; the test tree holds the HAL's
 # ESP-IDF stand-ins and is not swept. scripts/test_esp32_port.py
 # (EspIdfStaysBehindTheHal) plants a leak of each kind and runs this target.
@@ -2207,6 +2209,7 @@ ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
 ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Za-z0-9_])(tfw_cm_[a-z_]+|TFW_CM_(REG|VTOR|AIRCR[A-Z_]*|SYST_[A-Z_]+|NVIC_[A-Z]+)|SCB|NVIC|SysTick(_[A-Za-z]+)?|__(DSB|ISB|DMB|WFI|WFE)|__(disable|enable)_irq)([^A-Za-z0-9_]|$$)|"(dsb|isb|dmb|wfi|wfe|cpsi[de]|msr|mrs)[ \\"]
 ARCH_LEAK_ESP_DIRS := src boot include tools boards
 ARCH_LEAK_ESP_INC  := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|lwip/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
+ARCH_LEAK_ESP_INC_CM := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
 ARCH_LEAK_ESP_PAT  := (^|[^A-Za-z0-9_])(esp_err_t|ESP_OK|ESP_FAIL|ESP_ERR_[A-Za-z0-9_]+|IRAM_ATTR|DRAM_ATTR|RTC_NOINIT_ATTR|EXT_RAM_ATTR|CONFIG_IDF_[A-Za-z0-9_]+|portMAX_DELAY|xTaskCreate[A-Za-z0-9_]*|vTaskDelay[A-Za-z0-9_]*)([^A-Za-z0-9_]|$$)
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
@@ -2230,7 +2233,9 @@ lint-arch-leak:
 	      if grep -Eqs '^ARCH[[:space:]]*:?=[[:space:]]*esp32[[:space:]]*$$' boards/$$b/profile.mk; then continue; fi ;; esac; \
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
-	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_ESP_INC)' || true); \
+	  inc='$(ARCH_LEAK_ESP_INC)'; \
+  case $$f in src/hal/cortex-m/*) inc='$(ARCH_LEAK_ESP_INC_CM)' ;; esac; \
+  hits=$$(printf '%s\n' "$$code" | grep -En "$$inc" || true); \
 	  hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | sed -E 's/"([^"\\]|\\.)*"/""/g' | grep -En '$(ARCH_LEAK_ESP_PAT)' || true)"; \
 	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \

@@ -196,9 +196,17 @@ LWIP_DIR := third_party/lwip/src
 ## lwip-check: the vendored lwIP is byte-identical to upstream at its VERSION's commit (third_party/lwip/SHA256SUMS)
 # Fails on a changed byte, a missing file or a file the sums do not list;
 # scripts-test runs the same check (scripts/test_vendor_sums.py).
-.PHONY: lwip-check
-lwip-check:
+.PHONY: lwip-check lwip-upstream-check
+lwip-check: lwip-upstream-check
 	@python3 -B scripts/vendor_sums.py third_party/lwip
+
+## lwip-upstream-check: every vendored lwIP file (src/, COPYING, README) is byte-identical to a fresh fetch of upstream at LWIP_UPSTREAM_COMMIT
+# The fetched commit id must equal that hash. Fails on any difference; with no
+# network it prints SKIP and its reason, never PASS (#584). lwip-check runs it.
+LWIP_UPSTREAM_URL    ?= https://github.com/lwip-tcpip/lwip
+LWIP_UPSTREAM_COMMIT := 77dcd25a72509eb83f72b033d219b1d40cd8eb95
+lwip-upstream-check:
+	@python3 -B scripts/lwip_upstream_check.py third_party/lwip $(LWIP_UPSTREAM_URL) $(LWIP_UPSTREAM_COMMIT)
 ifeq ($(ETH_MAC),1)
 ifeq ($(wildcard $(HAL_SOC_DIR)/hal_eth_netif.c),)
 $(error ETH_MAC=1 but $(HAL_SOC_DIR) has no hal_eth_netif.c -- this SoC has no MAC driver)

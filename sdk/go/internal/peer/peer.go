@@ -353,7 +353,7 @@ func (c *floorConn) SetReadDeadline(t time.Time) error {
 
 func (c *floorConn) SetDeadline(t time.Time) error {
 	_ = c.SetReadDeadline(t)
-	return c.Conn.SetWriteDeadline(t)
+	return c.SetWriteDeadline(t)
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket

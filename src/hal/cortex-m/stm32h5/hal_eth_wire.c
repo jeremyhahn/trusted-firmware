@@ -22,6 +22,7 @@
 #include "tfw/link.h"
 #include "tfw/hal.h"
 #include "hal_eth_wire.h"
+#include "link_eth.h"
 
 enum { WIRE_SERIAL = 0u, WIRE_TCP = 1u };
 
@@ -36,6 +37,7 @@ static uint16_t tx_len;
 static uint8_t  up;
 static uint8_t  cur = WIRE_SERIAL;
 static uint8_t  peer_changed;   /* for tfw_link_take_reset() */
+static uint8_t  peer_eof;       /* the peer sent FIN: finish, then close */
 
 static void wire_reset(void)
 {
@@ -43,6 +45,7 @@ static void wire_reset(void)
     rx_tail    = 0u;
     rx_unacked = 0u;
     tx_len     = 0u;
+    peer_eof   = 0u;
     /* The transport's half of the old peer -- a partly decoded frame, a
      * reply still owed -- goes too, but only when TCP is the current wire:
      * a UART frame in flight is not the TCP peer's to discard. */
@@ -61,6 +64,13 @@ void tfw_h5_wire_drop(void)
 {
     wire_reset();
     up = 0u;
+}
+
+void tfw_h5_wire_eof(void)
+{
+    if (up) {
+        peer_eof = 1u;
+    }
 }
 
 uint16_t tfw_h5_wire_push(const uint8_t *buf, uint16_t len)
@@ -104,6 +114,12 @@ void tfw_link_poll(void)
         rx_unacked = 0u;
     }
     wire_flush();
+    /* A peer that sent FIN is closed once what it sent is read and answered:
+     * the transport reads and answers a frame in one poll, so an empty ring
+     * and an empty batch at the top of the next poll mean nothing is owed. */
+    if (peer_eof && rx_tail == rx_head && tx_len == 0u) {
+        tfw_h5_wire_finish();
+    }
 }
 
 static uint8_t tcp_rx(uint8_t *out)
@@ -163,8 +179,13 @@ void tfw_link_tx_done(uint8_t serial)
 
 uint8_t tfw_link_admits(uint8_t cmd)
 {
-    (void)cmd;
-    return 1u;
+    /* The UART carries every command; a TCP peer only the Ethernet
+     * allow-list (link_eth.h): device control and provisioning stay on
+     * serial (SPEC, the STM32H5 Ethernet ADR). */
+    if (cur == WIRE_SERIAL) {
+        return 1u;
+    }
+    return tfw_link_eth_allows(cmd);
 }
 
 uint8_t tfw_link_take_reset(void)

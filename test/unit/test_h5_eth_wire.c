@@ -10,7 +10,9 @@
 
 #include "unity.h"
 #include "tfw/link.h"
+#include "tfw/protocol.h"
 #include "hal_eth_wire.h"
+#include "link_eth.h"
 
 /* --- fake UART ----------------------------------------------------------- */
 static uint8_t  uart_in[64];
@@ -55,6 +57,15 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 
 void tfw_h5_wire_recved(uint16_t n) { recved_total += n; }
 
+static unsigned finish_calls;
+
+/* As the listener does once its send queue is empty: forget the peer. */
+void tfw_h5_wire_finish(void)
+{
+    finish_calls++;
+    tfw_h5_wire_drop();
+}
+
 static void uart_feed(const char *s)
 {
     uart_in_len = (unsigned)strlen(s);
@@ -72,7 +83,7 @@ void setUp(void)
     uint8_t b;
 
     uart_in_len = uart_in_pos = uart_out_len = 0u;
-    sent_len = send_calls = recved_total = 0u;
+    sent_len = send_calls = recved_total = finish_calls = 0u;
     send_room = 0xFFFFu;
     tfw_h5_wire_drop();
     /* Leave the link on the UART, as a fresh boot is. */
@@ -241,16 +252,52 @@ static void test_a_new_connection_starts_clean(void)
     TEST_ASSERT_EQUAL_UINT(1, recved_total);
 }
 
-static void test_every_command_is_admitted_on_tcp(void)
+static void test_tcp_admits_the_ethernet_allow_list_only(void)
 {
     uint8_t b;
 
+    /* The UART carries every command. */
+    for (unsigned cmd = 0u; cmd < 256u; cmd++) {
+        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_admits((uint8_t)cmd));
+    }
+    /* A TCP peer only what link_eth.h allows: control stays on serial. */
     tfw_h5_wire_open();
     (void)tcp_feed("a");
     (void)tfw_link_rx(&b, 0u);
     for (unsigned cmd = 0u; cmd < 256u; cmd++) {
-        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_admits((uint8_t)cmd));
+        TEST_ASSERT_EQUAL_UINT8(tfw_link_eth_allows((uint8_t)cmd),
+                                tfw_link_admits((uint8_t)cmd));
     }
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_admits(TFW_CMD_CAPS));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_admits(TFW_CMD_OTA_DATA));
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_admits(TFW_CMD_RESET));
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_admits(TFW_CMD_PING));
+}
+
+static void test_a_half_closed_peer_is_answered_then_closed(void)
+{
+    uint8_t b;
+
+    tfw_h5_wire_open();
+    (void)tcp_feed("ab");
+    tfw_h5_wire_eof();                  /* FIN behind the request */
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0, finish_calls);        /* unread: kept */
+    (void)tfw_link_rx(&b, 0u);
+    (void)tfw_link_rx(&b, 1u);
+    TEST_ASSERT_EQUAL_CHAR('b', b);
+    send_room = 0u;                     /* the reply cannot go yet */
+    (void)tfw_link_tx_try('R', 0u);
+    tfw_link_tx_done(0u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0, finish_calls);        /* still owed */
+    send_room = 8u;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1, sent_len);
+    TEST_ASSERT_EQUAL_UINT(1, finish_calls);
+    TEST_ASSERT_EQUAL_UINT(2, recved_total);        /* window reopened first */
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1, finish_calls);        /* the wire has dropped */
 }
 
 int main(void)
@@ -265,6 +312,7 @@ int main(void)
     RUN_TEST(test_a_partly_sent_reply_finishes_on_the_next_poll);
     RUN_TEST(test_a_reply_owed_to_a_dropped_peer_is_discarded);
     RUN_TEST(test_a_new_connection_starts_clean);
-    RUN_TEST(test_every_command_is_admitted_on_tcp);
+    RUN_TEST(test_tcp_admits_the_ethernet_allow_list_only);
+    RUN_TEST(test_a_half_closed_peer_is_answered_then_closed);
     return UNITY_END();
 }

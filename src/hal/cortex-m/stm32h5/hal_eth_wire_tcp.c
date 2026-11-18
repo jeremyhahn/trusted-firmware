@@ -39,6 +39,13 @@ static void wire_err(void *arg, err_t err)
 static err_t wire_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     (void)arg;
+    /* FIN, perhaps in the segment that carried the request: lwIP hands the
+     * data over first, then p == NULL. The request is still answered; the
+     * link closes the connection once it is (tfw_h5_wire_finish). */
+    if (p == NULL && err == ERR_OK && pcb == wire_pcb) {
+        tfw_h5_wire_eof();
+        return ERR_OK;
+    }
     if (p == NULL || err != ERR_OK) {
         if (p != NULL) {
             pbuf_free(p);
@@ -132,5 +139,22 @@ void tfw_h5_wire_recved(uint16_t n)
 {
     if (wire_pcb != NULL) {
         tcp_recved(wire_pcb, n);
+    }
+}
+
+void tfw_h5_wire_finish(void)
+{
+    struct tcp_pcb *pcb = wire_pcb;
+
+    if (pcb == NULL) {
+        return;
+    }
+    if (tcp_sndqueuelen(pcb) != 0u) {
+        (void)tcp_output(pcb);
+        return;                         /* the reply is still in flight */
+    }
+    wire_forget();
+    if (tcp_close(pcb) != ERR_OK) {
+        tcp_abort(pcb);                 /* no memory for the FIN: reset */
     }
 }

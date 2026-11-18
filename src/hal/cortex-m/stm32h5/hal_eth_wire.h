@@ -37,6 +37,10 @@ void     tfw_h5_wire_drop(void);
  * overran the window). */
 uint16_t tfw_h5_wire_push(const uint8_t *buf, uint16_t len);
 
+/* The peer sent FIN: what it sent is still read and answered; the link then
+ * calls tfw_h5_wire_finish(). */
+void     tfw_h5_wire_eof(void);
+
 /* --- provided by the listener ------------------------------------------- */
 
 /* Starts listening on TFW_H5_WIRE_PORT; called once lwIP is up. */
@@ -48,5 +52,9 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len);
 
 /* The transport has read n bytes: reopen the receive window by n. */
 void     tfw_h5_wire_recved(uint16_t n);
+
+/* A half-closed peer has nothing left to read or answer: close the
+ * connection once its send queue has drained (a later poll retries). */
+void     tfw_h5_wire_finish(void);
 
 #endif /* TFW_H5_ETH_WIRE_H */

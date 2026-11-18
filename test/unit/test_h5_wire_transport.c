@@ -35,6 +35,8 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 
 void tfw_h5_wire_recved(uint16_t n) { (void)n; }
 
+void tfw_h5_wire_finish(void) { tfw_h5_wire_drop(); }
+
 void setUp(void)
 {
     tfw_mock_reset();
@@ -48,22 +50,43 @@ void setUp(void)
 
 void tearDown(void) { }
 
-/* 1 if what went back on TCP holds an OK reply under seq. */
-static uint8_t answered(uint8_t seq)
+/* 1 if what went back on TCP holds a reply under seq with status st. */
+static uint8_t answered_with(uint8_t seq, uint8_t st)
 {
     for (unsigned i = 0u; i < sent_len; i++) {
         if (tfw_framer_push(&rxf, sent[i]) == TFW_FRAME_READY &&
-            tfw_frame_seq(&rxf) == seq && tfw_frame_status(&rxf) == TFW_OK) {
+            tfw_frame_seq(&rxf) == seq && tfw_frame_status(&rxf) == st) {
             return 1u;
         }
     }
     return 0u;
 }
 
+/* 1 if what went back on TCP holds an OK reply under seq. */
+static uint8_t answered(uint8_t seq)
+{
+    return answered_with(seq, TFW_OK);
+}
+
+/* Device control stays on serial: a reset asked for over TCP gets the answer
+ * an absent command gets, and the part is not reset. */
+static void test_a_reset_over_tcp_is_not_admitted(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_RESET, 0, 0u);
+
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(len, tfw_h5_wire_push(wire, len));
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+
+    TEST_ASSERT_TRUE(answered_with(9u, TFW_ERR_UNKNOWN_CMD));
+    TEST_ASSERT_EQUAL_UINT(0, tfw_mock_reset_count());
+}
+
 static void test_a_replacement_connection_is_not_read_as_the_old_frames_tail(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
-    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, 0, 0u);
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_CAPS, 0, 0u);
 
     TEST_ASSERT_NOT_EQUAL(0u, len);
     tfw_h5_wire_open();                                 /* connection A */
@@ -73,7 +96,7 @@ static void test_a_replacement_connection_is_not_read_as_the_old_frames_tail(voi
 
     tfw_h5_wire_drop();                                 /* B replaces A */
     tfw_h5_wire_open();
-    len = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_PING, 0, 0u);
+    len = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_CAPS, 0, 0u);
     TEST_ASSERT_EQUAL_UINT16(len, tfw_h5_wire_push(wire, len));
     for (unsigned i = 0u; i < 8u; i++) { tfw_transport_poll(&t); }
 
@@ -83,7 +106,7 @@ static void test_a_replacement_connection_is_not_read_as_the_old_frames_tail(voi
 static void test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
-    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_PING, 0, 0u);
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_CAPS, 0, 0u);
 
     tfw_h5_wire_open();
     (void)tfw_h5_wire_push(wire, len);
@@ -95,7 +118,7 @@ static void test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new(void)
     t.out_pos = 0u;
     sent_len = 0u;
     tfw_framer_init(&rxf);
-    len = tfw_frame_encode_request(wire, sizeof wire, 6u, TFW_CMD_PING, 0, 0u);
+    len = tfw_frame_encode_request(wire, sizeof wire, 6u, TFW_CMD_CAPS, 0, 0u);
     (void)tfw_h5_wire_push(wire, len);
     for (unsigned i = 0u; i < 8u; i++) { tfw_transport_poll(&t); }
 
@@ -108,5 +131,6 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_replacement_connection_is_not_read_as_the_old_frames_tail);
     RUN_TEST(test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new);
+    RUN_TEST(test_a_reset_over_tcp_is_not_admitted);
     return UNITY_END();
 }

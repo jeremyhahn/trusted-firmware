@@ -74,7 +74,9 @@ BOARD_TIERS    := soft
 # I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
 # bus; the soft:I2C=1 row builds that image and size-check measures it. Built
 # and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
-# run on the kit.
+# run on the kit. The soft:ETH_MAC=1 row likewise builds and size-checks the
+# Ethernet image (mk/firmware.mk's ETH_MAC: hal_eth_netif.c, the TCP listener
+# hal_eth_wire_tcp.c and lwIP), which the default image does not link.
 I2C               ?= 0
 # ETH_PROBE=1 prints one console line at boot, "eth: phy addr=N
 # id=XXXX:XXXX link=up|down", from an MDIO scan of the kit's Ethernet PHY
@@ -88,7 +90,7 @@ BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
 # clean rebuilds hal_uart.o and the objects that test the -D.
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) \
                      $(if $(filter 1,$(ETH_PROBE)),ETH_PROBE)
-BOARD_ROWS        := soft:I2C=1
+BOARD_ROWS        := soft:I2C=1 soft:ETH_MAC=1
 
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI
 # (UM2237), which reads and writes the STM32H5's flash and prints its option

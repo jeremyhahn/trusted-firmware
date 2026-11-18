@@ -174,6 +174,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
                             test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
                             test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
+                            test/unit/test_h5_wire_listener.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1543,6 +1544,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
                     $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
                     $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
+                    $(HOST_DIR)/test_h5_wire_listener \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -2981,7 +2983,7 @@ $(HOST_DIR)/test_h5_eth_mac: test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h
 # UART: wire choice and hold, the receive window, reply batching, a dropped peer.
 $(HOST_DIR)/test_h5_eth_wire: test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
                               src/hal/cortex-m/stm32h5/hal_eth_wire.h $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/proto $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
 	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
@@ -2991,6 +2993,17 @@ $(HOST_DIR)/test_h5_wire_transport: test/unit/test_h5_wire_transport.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
                         src/hal/cortex-m/stm32h5/hal_eth_wire.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The TCP listener (hal_eth_wire_tcp.c) on that link and transport, over a fake
+# of lwIP's raw TCP API built against the vendored lwIP headers: a request
+# that arrives with FIN is answered before the connection is closed (#584).
+$(HOST_DIR)/test_h5_wire_listener: test/unit/test_h5_wire_listener.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire_tcp.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) \
+	  -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

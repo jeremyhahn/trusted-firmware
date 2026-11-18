@@ -198,8 +198,8 @@ var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
 	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {not: partTCP}, // a TCP connect boots nothing
-	"TestFirmwarePingAfterAMalformedBurst":               {},
-	"TestFirmwareCaps":                                   {tier: cryptoTier},
+	"TestFirmwarePingAfterAMalformedBurst":               {not: partTCP}, // its errors stay in the counters across reconnects
+	"TestFirmwareCaps":                                   {},
 	"TestFirmwareSys":                                    {not: partTCP}, // wants zero framer errors since a boot
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
@@ -211,7 +211,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partTonePinHeld},
 	"TestFirmwareToneRefusesTheShieldsPin":               {caps: tfw.FeatureTone, has: partTonePinHeld},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
-	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C, tier: cryptoTier},
+	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
 	"TestFirmwareOneWire":                                {caps: tfw.FeatureOneWire},
 	"TestFirmwarePulseIn":                                {caps: tfw.FeaturePulse},
@@ -426,6 +426,16 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareAttestRefusedUnprovisioned",
 		}},
+		// The HIL-0 image has no crypto tier, and its wire is TCP: connecting
+		// resets nothing, so no BOOT arrives.
+		{"esp32p4-poe", []string{
+			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone", "TestFirmwareI2C",
+			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
+		}, []string{
+			"TestFirmwareEEPROM", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
+			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
+			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
+		}},
 	} {
 		run := boardRun(t, tc.board, false)
 		for _, r := range tc.run {
@@ -462,9 +472,10 @@ func TestEachHeldRowIsOneItsImageServes(t *testing.T) {
 }
 
 // The ESP32-P4's bench image is CRYPTO=none (Codex P1 on #558): the rows that
-// hold facts only for the software and element tiers (Caps, EEPROM,
-// I2CConfig) are not in its run, where they could only fail; the rows with no
-// tier in them are, and the AVR boards, on a tier, still run those three.
+// hold facts only for the software and element tiers (EEPROM) are not in its
+// run, where they could only fail; the rows with no tier in them are, Caps and
+// I2CConfig among them now that they hold none-tier facts (#576), and the AVR
+// boards, on a tier, still run all three.
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	// The unprovisioned attest row stays: it holds the none tier's refusal.
 	if got := attestRefusal(tfw.CryptoNone); got != tfw.StatusErrUnsupported {
@@ -473,9 +484,10 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	if got := attestRefusal(tfw.CryptoSoftware); got != tfw.StatusErrNotProvisioned {
 		t.Errorf("attest refusal on the software tier = %v, want NOT_PROVISIONED", got)
 	}
-	tiered := []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"}
+	tiered := []string{"TestFirmwareEEPROM"}
 	p4 := boardRun(t, "esp32p4-poe", false)
-	for _, r := range []string{"TestFirmwarePing", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareI2C", "TestFirmwareAttestRefusedUnprovisioned"} {
+	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C",
+		"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
 		}
@@ -487,10 +499,34 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	}
 	for _, board := range []string{"atmega328p", "atmega2560"} {
 		run := boardRun(t, board, false)
-		for _, r := range tiered {
+		for _, r := range []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"} {
 			if !run.MatchString(r) {
 				t.Errorf("%s: %s is not run", board, r)
 			}
+		}
+	}
+}
+
+// sysCountersStartAtZero reports whether connecting to board's image resets
+// it, so its framer counters start at zero; a board with no image record
+// (the simulator) starts fresh with every row.
+func sysCountersStartAtZero(board string) bool {
+	img, ok := boardImages[board]
+	return !ok || img.parts&partTCP == 0
+}
+
+// The P4's connect resets nothing (Codex P1 on #565): Sys there would compare
+// its counters before and after clean traffic, not against zero, while a board
+// whose connect resets it, and the simulator, still assert zero. The P4 run
+// leaves Sys and the malformed-burst row out until it has a reset over the
+// wire (TestBoardRunLeavesTheResetRowsOffATCPBoard, Codex P1 on #546).
+func TestSysCountersAreZeroOnlyWhereTheConnectResets(t *testing.T) {
+	if sysCountersStartAtZero("esp32p4-poe") {
+		t.Error("esp32p4-poe: Sys asserts zero counters on an image the connect does not reset")
+	}
+	for _, board := range []string{"atmega328p", "atmega2560", ""} {
+		if !sysCountersStartAtZero(board) {
+			t.Errorf("%q: Sys does not assert zero counters after the connect's reset", board)
 		}
 	}
 }
@@ -542,7 +578,17 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 // errors across reconnects. The rows that need a fresh boot run on the
 // serial boards only.
 func TestBoardRunLeavesTheResetRowsOffATCPBoard(t *testing.T) {
-	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwareSys"} {
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePing") {
+		t.Error("esp32p4-poe dropped TestFirmwarePing")
+	}
+	for _, row := range []string{
+		"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
+		"TestFirmwarePingAfterAMalformedBurst",
+		// a power-on reset cause and zero sticky framing counters: a board
+		// restarted through firmware, or sent a malformed frame on an
+		// earlier connection, keeps neither (Codex P1 on #546)
+		"TestFirmwareSys",
+	} {
 		if boardRun(t, "esp32p4-poe", false).MatchString(row) {
 			t.Errorf("the esp32p4-poe run selects %s, which needs a reset a TCP connect never makes", row)
 		}

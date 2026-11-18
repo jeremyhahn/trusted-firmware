@@ -62,6 +62,7 @@ three QEMU machines, each with the console on a local socket
 | genuine | signed with the provisioned key | it answers `CAPS` with the board's id and tier 1, takes a soft reset, is verified again and answers again |
 | tampered | one bit flipped after signing | it stays silent for the whole window (10 s) and QEMU is still running |
 | otherkey | signed with a key tfw-boot does not hold | the same |
+| unprovisioned | the genuine image, no platform block loaded | it answers no `PING`, its EVENT names `TFW_ERR_NOT_PROVISIONED`, and QEMU is still running (#542) |
 
 `integration-test-cortex-m-wire` boots the same signed image with its UART on
 a pty and runs the tfwctl wire suite (`make hw-test`) against it, resetting

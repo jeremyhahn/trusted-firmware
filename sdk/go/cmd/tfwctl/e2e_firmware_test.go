@@ -42,6 +42,21 @@ func firmwareBoard(t *testing.T) (string, peerBoard) {
 	return target.Board, b
 }
 
+// The ESP32-P4's header has no LED and its tick runs on a timer no pin
+// shares (boards/esp32p4-poe/board.c): its facts must say both, or the pin
+// and PWM rows demand an LED flag and a refused duty the board cannot give.
+func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
+	p4 := peerBoards["esp32p4-poe"]
+	assert.True(t, p4.noLED, "esp32p4-poe has no LED; ledPin is a plain digital pin")
+	assert.Negative(t, p4.tickPin, "esp32p4-poe's tick timer drives no pin")
+	assert.EqualValues(t, 0, p4.pwmPin, "esp32p4-poe's free PWM pin is GPIO2, LEDC0, not the AVRs' pin 9 (an ADC pin there)")
+	for _, name := range []string{"atmega328p", "atmega2560"} {
+		b := peerBoards[name]
+		assert.False(t, b.noLED, "%s has an LED on pin 13", name)
+		assert.GreaterOrEqual(t, b.tickPin, 0, "%s ticks on timer0, whose compare pins are spent", name)
+	}
+}
+
 // startFirmware opens the device the seam names. A missing simulator binary or
 // a port that does not answer fails the scenario; neither is a skip.
 func startFirmware(t *testing.T, opts ...tfw.Option) *tfw.Device {
@@ -143,7 +158,9 @@ func TestFirmwareCaps(t *testing.T) {
 	// its P-256 DeviceID (SOFT_ID=p256: tfwsim and the ATmega2560), except the
 	// ATmega328P and ATmega32U4 images, which keep the HMAC-SHA256 signer
 	// (SOFT_ID=hmac); docs/dice-attestation/cli.md, the element performs
-	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519.
+	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519. A CRYPTO=none
+	// image (the ESP32-P4 PoE at HIL-0) has no provider and reports no
+	// algorithm at all (src/crypto/none/provider.c, tfw_crypto_algorithms).
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	soft := tfw.AlgECDSAP256SHA256
@@ -156,6 +173,8 @@ func TestFirmwareCaps(t *testing.T) {
 	case "secure-element":
 		assert.Equal(t, tfw.AlgHMACSHA256|tfw.AlgECDSAP256SHA256, c.Algorithms,
 			"algorithms = %s, want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms)
+	case "none":
+		assert.Zero(t, c.Algorithms, "algorithms = %s, want none on a CRYPTO=none image", c.Algorithms)
 	default:
 		t.Fatalf("crypto tier %s: no facts for it", tier)
 	}
@@ -163,17 +182,31 @@ func TestFirmwareCaps(t *testing.T) {
 }
 
 func TestFirmwareSys(t *testing.T) {
-	_, b := firmwareBoard(t)
+	board, b := firmwareBoard(t)
 	dev := startFirmware(t)
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
 	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
-	// #5: freshly started and talked to over a clean link, the firmware has
-	// seen no framing errors -- the appended fields decode against the live
-	// device, not only against canned replies.
-	assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
-	assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	// #5: talked to over a clean link, the firmware counts no framing
+	// errors -- the appended fields decode against the live device, not only
+	// against canned replies. The counters are sticky: an image whose connect
+	// does not reset it (a TCP peer) still holds what an earlier row, such as
+	// TestFirmwarePingAfterAMalformedBurst, put there (Codex P1 on #565), so
+	// clean traffic must leave them where they were, and they are zero only
+	// on an image the connect has just reset.
+	var pong pingJSON
+	for i := 0; i < 20; i++ {
+		cliJSON(t, dev, &pong, "ping", strconv.Itoa(i))
+	}
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors on a clean link")
+	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors on a clean link")
+	if sysCountersStartAtZero(board) {
+		assert.Zero(t, si.ErrCRC, "framer CRC errors after the connect's reset")
+		assert.Zero(t, si.ErrFormat, "framer format errors after the connect's reset")
+	}
 }
 
 func TestFirmwarePin(t *testing.T) {
@@ -508,9 +541,10 @@ func TestFirmwareI2CConfig(t *testing.T) {
 	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
-	// peripheral on an element build; the software tier applies the clock.
+	// peripheral on an element build; the software tier applies the clock, and
+	// so does a CRYPTO=none image (src/caps/bus.c refuses on the element only).
 	switch tier := cliTier(t, dev); tier {
-	case "software":
+	case "software", "none":
 	case "secure-element":
 		cliRefused(t, dev, "i2c-config", "400000")
 		return

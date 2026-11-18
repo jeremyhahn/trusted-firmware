@@ -18,7 +18,7 @@
 | `boot/hal/cortex-m/boot_hal_cortex-m.c` | tfw-boot's core half of `boot/boot_hal.h` |
 | `boot/hal/cortex-m/boot_ota_store_cortex-m.c` | The store rows' memory image store |
 | `boot/hal/cortex-m/boot_factory.c`, `boot_factory_none.c` | The two-slot rows' factory copy; empty on one slot |
-| `boot/hal/cortex-m/recovery_halt.c` | The refusal on a row without OTA in boot: halt in WFI |
+| `boot/hal/cortex-m/recovery_halt.c` | The refusal on a row without OTA in boot: halt, naming the reason in an EVENT frame (#542) |
 | `boot/hal/cortex-m/mps2/boot_uart.c` | tfw-boot's polled UART |
 | `boards/mps2-an505/`, `boards/mps2-an500/` | `profile.mk` (map, budgets, tiers, rows), `board_profile.h` (id, features, regions), `board.c` (pin table) |
 | `test/integration/cortex-m/cm_image.c` | The signer and jig: provisions tfw-boot, signs the application three ways, writes the platform block and, per row, the staged images |

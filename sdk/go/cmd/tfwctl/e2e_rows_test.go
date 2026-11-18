@@ -77,9 +77,9 @@ type boardImage struct {
 	caps  uint32
 	tier  rowTier
 	parts imageParts
-	// held are rows the image serves that its default list leaves out, each
-	// with the issue that holds it; they run by name.
-	held map[string]string
+	// drop names rows the image serves that this board's run leaves out
+	// until the PR named beside each fixes them there.
+	drop map[string]string
 	// attestTimeout is how long a row that may sign waits for ATTEST's
 	// reply; zero keeps suiteTimeout. Set from a measured signing time,
 	// with margin, on a board whose software signer is slow.
@@ -186,7 +186,7 @@ var boardImages = map[string]boardImage{
 		// the suite's 5 s timeout. Verified by name on the unprovisioned
 		// boot (#570, docs/boards/stm32h573i-dk.md); held from the bench
 		// boot's list.
-		held: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
+		drop: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
 		// Software P-256 at 64 MHz: attest answered with evidence in 27.7 s,
 		// twice, on the bench boot (#570); 45 s leaves the margin.
 		attestTimeout: 45 * time.Second,
@@ -309,7 +309,8 @@ func boardRunPattern(board string, eth bool, rows []string) (string, error) {
 		switch {
 		case !ok:
 			unlisted = append(unlisted, r)
-		case need.servedBy(img) && img.held[r] == "":
+		case img.drop[r] != "":
+		case need.servedBy(img):
 			run = append(run, r)
 		}
 	}
@@ -445,7 +446,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 // nothing.
 func TestEachHeldRowIsOneItsImageServes(t *testing.T) {
 	for board, img := range boardImages {
-		for r, issue := range img.held {
+		for r, issue := range img.drop {
 			need, ok := firmwareRowNeeds[r]
 			switch {
 			case !ok:
@@ -498,6 +499,28 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {
 		t.Fatal("the run matched a row by its prefix")
+	}
+}
+
+// The esp32p4-poe run leaves out the rows the stacked PRs fix there, and
+// every dropped row is a listed row the image would otherwise serve.
+func TestBoardRunDropsTheRowsAStackedPROwns(t *testing.T) {
+	run := boardRun(t, "esp32p4-poe", false)
+	for row, pr := range boardImages["esp32p4-poe"].drop {
+		if _, ok := firmwareRowNeeds[row]; !ok {
+			t.Errorf("dropped row %s (%s) is in no row list", row, pr)
+		}
+		if pr == "" || pr[0] != '#' {
+			t.Errorf("dropped row %s names no PR: %q", row, pr)
+		}
+		if run.MatchString(row) {
+			t.Errorf("esp32p4-poe run still runs %s, owned by %s", row, pr)
+		}
+	}
+	for _, row := range []string{"TestFirmwarePin", "TestFirmwarePWM", "TestFirmwarePing"} {
+		if !run.MatchString(row) {
+			t.Errorf("esp32p4-poe run lost %s", row)
+		}
 	}
 }
 

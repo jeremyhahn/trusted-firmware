@@ -127,6 +127,20 @@ func TestOpenTCPNamesTheEndpointThatRefused(t *testing.T) {
 	}
 }
 
+// Connecting to a TCP wire does not reset the board, so no BOOT follows; the
+// simulator and a serial board are reset by Start.
+func TestResetsIsFalseOnlyForATCPWire(t *testing.T) {
+	for port, want := range map[string]bool{
+		"":                       true,
+		"serial-port":            true,
+		TCPPrefix + "board:3333": false,
+	} {
+		if got := (Target{Port: port, Board: "b"}).Resets(); got != want {
+			t.Errorf("Target{Port: %q}.Resets() = %v, want %v", port, got, want)
+		}
+	}
+}
+
 // A board that speaks inside tcpSettle has kept the connection: the byte
 // openTCP read to find that out is the first the caller reads, not lost.
 func TestOpenTCPKeepsTheByteABoardSentAtOnce(t *testing.T) {

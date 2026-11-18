@@ -105,6 +105,12 @@ type Target struct {
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
 
+// Resets reports whether Start resets the peer, so it sends BOOT: the
+// simulator starts fresh, and a serial board is reset by DTR or QMP. A board
+// whose wire is TCP is found running, as it is, and sends no BOOT; a device
+// on it must not wait for one.
+func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+
 // Listen returns the address the Ethernet rows listen on for the device to
 // dial: SimListen for the simulator; for a board, EthListenEnv's, or EthEnv's
 // when that is unset. A board run that names no endpoint fails the row instead

@@ -371,6 +371,84 @@ static void test_a_wire_that_cannot_listen_says_why(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));      /* for the next test */
 }
 
+/* The event id of the one whole frame in c->out, or -1 if there is none. */
+static int event_on(const mock_conn_t *c)
+{
+    tfw_framer_t f;
+    unsigned     j;
+
+    tfw_framer_init(&f);
+    for (j = 0u; j < c->out_len; j++) {
+        if (tfw_framer_push(&f, c->out[j]) == TFW_FRAME_READY) {
+            TEST_ASSERT_EQUAL_UINT(c->out_len, j + 1u);   /* nothing after it */
+            TEST_ASSERT_EQUAL_UINT8(1u, tfw_frame_payload_len(&f));
+            return (int)tfw_frame_payload(&f)[0];
+        }
+    }
+    return -1;
+}
+
+/* src/main.c sends BOOT before its loop accepts a host (#550). */
+static void test_the_boot_event_waits_for_the_first_host(void)
+{
+    mock_conn_t *a;
+    unsigned     i;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_transport_send_event(&t, TFW_EVENT_BOOT));
+    for (i = 0u; i < 8u; i++) {
+        tfw_transport_poll(&t);                  /* the loop runs, nobody there */
+    }
+    a = mock_lwip_connect();
+    TEST_ASSERT_NOT_NULL(a);
+    for (i = 0u; i < 8u; i++) {
+        tfw_transport_poll(&t);
+    }
+    TEST_ASSERT_TRUE(a->open);
+    TEST_ASSERT_EQUAL_INT(TFW_EVENT_BOOT, event_on(a));
+    a->out_len = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_PING, NULL, 0u));
+}
+
+static void test_held_output_past_the_buffer_is_discarded_whole(void)
+{
+    mock_conn_t *a;
+    unsigned     i;
+
+    for (i = 0u; i <= 512u; i++) {               /* TX_BUF, and one more */
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)i));
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x55u));  /* not held either */
+    a = mock_lwip_connect();
+    TEST_ASSERT_NOT_NULL(a);
+    for (i = 0u; i < 8u; i++) {
+        tfw_transport_poll(&t);
+    }
+    TEST_ASSERT_TRUE(a->open);
+    TEST_ASSERT_EQUAL_UINT(0u, a->out_len);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_PING, NULL, 0u));
+}
+
+static void test_output_with_no_host_after_the_first_goes_nowhere(void)
+{
+    mock_conn_t *a = host(), *b;
+    unsigned     i;
+
+    a->hung_up = 1u;
+    TEST_ASSERT_EQUAL_INT(NO_REPLY, reply_on(a, TFW_CMD_PING));
+    TEST_ASSERT_TRUE(a->closed);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_transport_send_event(&t, TFW_EVENT_BOOT));
+    for (i = 0u; i < 8u; i++) {
+        tfw_transport_poll(&t);
+    }
+    b = mock_lwip_connect();
+    TEST_ASSERT_NOT_NULL(b);
+    for (i = 0u; i < 8u; i++) {
+        tfw_transport_poll(&t);
+    }
+    TEST_ASSERT_TRUE(b->open);
+    TEST_ASSERT_EQUAL_UINT(0u, b->out_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -388,5 +466,8 @@ int main(void)
     RUN_TEST(test_a_full_send_buffer_waits_rather_than_drops);
     RUN_TEST(test_the_listener_is_on_the_wire_port);
     RUN_TEST(test_a_wire_that_cannot_listen_says_why);
+    RUN_TEST(test_the_boot_event_waits_for_the_first_host);
+    RUN_TEST(test_held_output_past_the_buffer_is_discarded_whole);
+    RUN_TEST(test_output_with_no_host_after_the_first_goes_nowhere);
     return UNITY_END();
 }

@@ -42,6 +42,21 @@ func firmwareBoard(t *testing.T) (string, peerBoard) {
 	return target.Board, b
 }
 
+// The ESP32-P4's header has no LED and its tick runs on a timer no pin
+// shares (boards/esp32p4-poe/board.c): its facts must say both, or the pin
+// and PWM rows demand an LED flag and a refused duty the board cannot give.
+func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
+	p4 := peerBoards["esp32p4-poe"]
+	assert.True(t, p4.noLED, "esp32p4-poe has no LED; ledPin is a plain digital pin")
+	assert.Negative(t, p4.tickPin, "esp32p4-poe's tick timer drives no pin")
+	assert.EqualValues(t, 0, p4.pwmPin, "esp32p4-poe's free PWM pin is GPIO2, LEDC0, not the AVRs' pin 9 (an ADC pin there)")
+	for _, name := range []string{"atmega328p", "atmega2560"} {
+		b := peerBoards[name]
+		assert.False(t, b.noLED, "%s has an LED on pin 13", name)
+		assert.GreaterOrEqual(t, b.tickPin, 0, "%s ticks on timer0, whose compare pins are spent", name)
+	}
+}
+
 // startFirmware opens the device the seam names. A missing simulator binary or
 // a port that does not answer fails the scenario; neither is a skip.
 func startFirmware(t *testing.T, opts ...tfw.Option) *tfw.Device {
@@ -170,7 +185,9 @@ func TestFirmwareCaps(t *testing.T) {
 	// its P-256 DeviceID (SOFT_ID=p256: tfwsim and the ATmega2560), except the
 	// ATmega328P and ATmega32U4 images, which keep the HMAC-SHA256 signer
 	// (SOFT_ID=hmac); docs/dice-attestation/cli.md, the element performs
-	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519.
+	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519. A CRYPTO=none
+	// image (the ESP32-P4 PoE at HIL-0) has no provider and reports no
+	// algorithm at all (src/crypto/none/provider.c, tfw_crypto_algorithms).
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	soft := tfw.AlgECDSAP256SHA256
@@ -196,7 +213,7 @@ func capsTierRow(t *testing.T, c tfw.Caps, soft tfw.AlgorithmSet) {
 		assert.Equal(t, tfw.AlgHMACSHA256|tfw.AlgECDSAP256SHA256, c.Algorithms,
 			"algorithms = %s, want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms)
 	case "none":
-		assert.Zero(t, c.Algorithms, "algorithms = %s, want none on a tier that signs with nothing", c.Algorithms)
+		assert.Zero(t, c.Algorithms, "algorithms = %s, want none on a CRYPTO=none image", c.Algorithms)
 	default:
 		t.Fatalf("crypto tier %s: no facts for it", tier)
 	}
@@ -591,8 +608,8 @@ func i2cConfigRow(t *testing.T, dev *tfw.Device) {
 	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
-	// peripheral on an element build; src/caps/bus.c:121 refuses on that
-	// tier alone, so the software and none tiers apply the clock.
+	// peripheral on an element build; the software tier applies the clock, and
+	// so does a CRYPTO=none image (src/caps/bus.c refuses on the element only).
 	switch tier := cliTier(t, dev); tier {
 	case "software", "none":
 	case "secure-element":

@@ -75,9 +75,7 @@ uint32_t tfw_h5_eth_rand(void)
 
 static void eth_say(const char *s)
 {
-    while (*s != '\0') {
-        (void)tfw_hal_uart_tx_try((uint8_t)*s++);
-    }
+    tfw_h5_wire_say(s);                 /* between frames only (#584) */
 }
 
 static int phy_read(uint8_t reg, uint16_t *v)
@@ -251,6 +249,7 @@ static void eth_say_bound(void)
 
 void tfw_hal_eth_poll(void)
 {
+    tfw_h5_wire_say_poll();
     switch (eth_state) {
     case ETH_INIT:
         eth_bring_up();

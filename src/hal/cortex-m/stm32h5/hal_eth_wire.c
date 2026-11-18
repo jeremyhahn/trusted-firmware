@@ -39,6 +39,25 @@ static uint8_t  cur = WIRE_SERIAL;
 static uint8_t  peer_changed;   /* for tfw_link_take_reset() */
 static uint8_t  peer_eof;       /* the peer sent FIN: finish, then close */
 
+/* Diagnostic text (tfw_h5_wire_say) waits here while a transport frame is
+ * partly in the UART ring, and goes out only between frames (#584). */
+static uint8_t say_buf[TFW_H5_WIRE_SAY_BUF];
+static uint8_t say_len, say_pos;
+static uint8_t uart_frame;              /* a frame's first byte is out, its end is not */
+
+static uint8_t say_flush(void)
+{
+    while (say_pos < say_len) {
+        if (!tfw_hal_uart_tx_try(say_buf[say_pos])) {
+            return 0u;
+        }
+        say_pos++;
+    }
+    say_len = 0u;
+    say_pos = 0u;
+    return 1u;
+}
+
 static void wire_reset(void)
 {
     rx_head    = 0u;
@@ -155,6 +174,14 @@ uint8_t tfw_link_rx(uint8_t *out, uint8_t hold)
 uint8_t tfw_link_tx_try(uint8_t byte, uint8_t serial)
 {
     if (serial || cur == WIRE_SERIAL) {
+        /* A frame's first byte waits until every queued diagnostic is in the
+         * UART ring, so diagnostic text never lands inside a frame. */
+        if (!uart_frame) {
+            if (!say_flush()) {
+                return 0u;
+            }
+            uart_frame = 1u;
+        }
         return tfw_hal_uart_tx_try(byte);
     }
     if (!up) {
@@ -172,8 +199,35 @@ uint8_t tfw_link_tx_try(uint8_t byte, uint8_t serial)
 
 void tfw_link_tx_done(uint8_t serial)
 {
+    uart_frame = 0u;                    /* the transport holds one frame at a time */
     if (!serial && cur == WIRE_TCP && up) {
         wire_flush();
+    }
+    (void)say_flush();
+}
+
+void tfw_h5_wire_say(const char *s)
+{
+    uint8_t n = 0u;
+
+    while (s[n] != '\0' && n < TFW_H5_WIRE_SAY_BUF) {
+        n++;
+    }
+    if (s[n] != '\0' || n > (uint8_t)(TFW_H5_WIRE_SAY_BUF - say_len)) {
+        return;                         /* no room for the whole line: dropped */
+    }
+    for (uint8_t i = 0u; i < n; i++) {
+        say_buf[say_len++] = (uint8_t)s[i];
+    }
+    if (!uart_frame) {
+        (void)say_flush();
+    }
+}
+
+void tfw_h5_wire_say_poll(void)
+{
+    if (!uart_frame) {
+        (void)say_flush();
     }
 }
 

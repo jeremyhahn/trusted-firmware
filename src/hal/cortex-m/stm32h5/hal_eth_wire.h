@@ -25,6 +25,19 @@
 /* Reply bytes batched before they are handed to TCP. */
 #define TFW_H5_WIRE_TX_BUF 512u
 
+/* --- diagnostics on the UART (hal_eth_netif.c) ----------------------------- */
+
+#ifndef TFW_H5_WIRE_SAY_BUF
+#define TFW_H5_WIRE_SAY_BUF 64u
+#endif
+
+/* Queues one diagnostic line for the UART. It goes out only between transport
+ * frames, never inside one; a line with no room left is dropped whole. */
+void     tfw_h5_wire_say(const char *s);
+
+/* Sends queued diagnostics when no frame is in flight; called each poll. */
+void     tfw_h5_wire_say_poll(void);
+
 /* --- called by the listener (hal_eth_wire_tcp.c) -------------------------- */
 
 /* A connection was accepted: whatever the last one left is discarded. */

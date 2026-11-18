@@ -17,8 +17,9 @@
 /* --- fake UART ----------------------------------------------------------- */
 static uint8_t  uart_in[64];
 static unsigned uart_in_len, uart_in_pos;
-static uint8_t  uart_out[64];
+static uint8_t  uart_out[256];
 static unsigned uart_out_len;
+static unsigned uart_room = ~0u;        /* bytes the fake UART ring takes in all */
 
 uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
@@ -31,6 +32,9 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
 
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
+    if (uart_out_len >= uart_room || uart_out_len >= sizeof uart_out) {
+        return 0u;                      /* the UART ring is full */
+    }
     uart_out[uart_out_len++] = byte;
     return 1u;
 }
@@ -80,6 +84,7 @@ static uint16_t tcp_feed(const char *s)
 
 void setUp(void)
 {
+    uart_room = ~0u;
     uint8_t b;
 
     uart_in_len = uart_in_pos = uart_out_len = 0u;
@@ -300,6 +305,58 @@ static void test_a_half_closed_peer_is_answered_then_closed(void)
     TEST_ASSERT_EQUAL_UINT(1, finish_calls);        /* the wire has dropped */
 }
 
+/* The DHCP-bound line arrives while a long UART response is half in a full
+ * ring: it waits, and goes out after the frame's last byte, not inside it. */
+static void test_a_diagnostic_waits_for_the_frame_in_flight(void)
+{
+    static const char line[] = "eth: dhcp bound\r\n";
+    uint8_t  frame[100];
+    unsigned i;
+
+    for (i = 0u; i < sizeof frame; i++) {
+        frame[i] = (uint8_t)(0x80u + (i & 0x3fu));
+    }
+    uart_room = 40u;
+    for (i = 0u; i < sizeof frame && tfw_link_tx_try(frame[i], 1u); i++) {
+    }
+    TEST_ASSERT_EQUAL_UINT(40, i);
+    tfw_h5_wire_say(line);
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(40, uart_out_len);
+    uart_room = ~0u;
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(40, uart_out_len);
+    for (; i < sizeof frame; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try(frame[i], 1u));
+    }
+    tfw_link_tx_done(1u);
+    TEST_ASSERT_EQUAL_UINT(sizeof frame + sizeof line - 1u, uart_out_len);
+    TEST_ASSERT_EQUAL_MEMORY(frame, uart_out, sizeof frame);
+    TEST_ASSERT_EQUAL_MEMORY(line, uart_out + sizeof frame, sizeof line - 1u);
+}
+
+/* A line queued while the ring is full goes out whole before the next frame's
+ * first byte; a line with no room left is dropped whole. */
+static void test_a_frame_waits_for_a_queued_diagnostic(void)
+{
+    char big[TFW_H5_WIRE_SAY_BUF + 2u];
+
+    uart_room = 3u;
+    tfw_h5_wire_say("eth: phy none\r\n");
+    TEST_ASSERT_EQUAL_UINT(3, uart_out_len);
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_tx_try('F', 1u));
+    uart_room = ~0u;
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('F', 1u));
+    tfw_link_tx_done(1u);
+    TEST_ASSERT_EQUAL_MEMORY("eth: phy none\r\nF", uart_out, 16);
+    TEST_ASSERT_EQUAL_UINT(16, uart_out_len);
+
+    memset(big, 'x', sizeof big - 1u);
+    big[sizeof big - 1u] = '\0';
+    tfw_h5_wire_say(big);
+    TEST_ASSERT_EQUAL_UINT(16, uart_out_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -314,5 +371,7 @@ int main(void)
     RUN_TEST(test_a_new_connection_starts_clean);
     RUN_TEST(test_tcp_admits_the_ethernet_allow_list_only);
     RUN_TEST(test_a_half_closed_peer_is_answered_then_closed);
+    RUN_TEST(test_a_diagnostic_waits_for_the_frame_in_flight);
+    RUN_TEST(test_a_frame_waits_for_a_queued_diagnostic);
     return UNITY_END();
 }

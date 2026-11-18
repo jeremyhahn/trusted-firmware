@@ -89,6 +89,15 @@ void tfw_transport_poll(tfw_transport_t *t)
 
     tfw_link_poll();
 
+    /* A new peer: the old one's partial frame and owed reply are not its. */
+    if (tfw_link_take_reset()) {
+        tfw_framer_abort(&t->framer);
+        t->in_frame  = 0u;
+        t->out_len   = 0u;
+        t->out_pos   = 0u;
+        t->out_event = 0u;
+    }
+
     /* Finish what is owed before reading more. */
     if (t->out_len && drain(t)) {
         return;

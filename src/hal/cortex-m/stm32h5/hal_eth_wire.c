@@ -35,6 +35,7 @@ static uint8_t  tx_buf[TFW_H5_WIRE_TX_BUF];
 static uint16_t tx_len;
 static uint8_t  up;
 static uint8_t  cur = WIRE_SERIAL;
+static uint8_t  peer_changed;   /* for tfw_link_take_reset() */
 
 static void wire_reset(void)
 {
@@ -42,6 +43,12 @@ static void wire_reset(void)
     rx_tail    = 0u;
     rx_unacked = 0u;
     tx_len     = 0u;
+    /* The transport's half of the old peer -- a partly decoded frame, a
+     * reply still owed -- goes too, but only when TCP is the current wire:
+     * a UART frame in flight is not the TCP peer's to discard. */
+    if (cur == WIRE_TCP) {
+        peer_changed = 1u;
+    }
 }
 
 void tfw_h5_wire_open(void)
@@ -158,4 +165,12 @@ uint8_t tfw_link_admits(uint8_t cmd)
 {
     (void)cmd;
     return 1u;
+}
+
+uint8_t tfw_link_take_reset(void)
+{
+    uint8_t r = peer_changed;
+
+    peer_changed = 0u;
+    return r;
 }

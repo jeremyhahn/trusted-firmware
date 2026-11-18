@@ -185,13 +185,15 @@ static void eth_watch_link(void)
         eth_state = ETH_RUNNING;
         return;
     }
-    if (up && !eth_link) {
-        eth_link = 1u;
-        netif_set_link_up(&eth_netif);
-    } else if (!up && eth_link) {
+    if (!up) {
+        /* Link lost: the next partner may negotiate another speed or duplex,
+         * so wait for autonegotiation again and re-read PSCSR into MACCR
+         * rather than marking the old settings up. */
+        tfw_eth_mac_stop(&eth);
         eth_link = 0u;
         eth_bound_said = 0u;
         netif_set_link_down(&eth_netif);
+        eth_state = ETH_WAIT_LINK;
     }
 }
 

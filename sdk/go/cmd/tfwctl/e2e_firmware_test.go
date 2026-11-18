@@ -242,8 +242,14 @@ func sysRow(t testing.TB, dev *tfw.Device, causes []tfw.ResetCause, resets bool)
 		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
 		return
 	}
-	var ping pingJSON
-	cliJSON(t, dev, &ping, "ping")
+	// The counters are sticky: an image whose connect does not reset it (a
+	// TCP peer) still holds what an earlier row, such as
+	// TestFirmwarePingAfterAMalformedBurst, put there (Codex P1 on #565), so
+	// clean traffic must leave them where they were.
+	var pong pingJSON
+	for i := 0; i < 20; i++ {
+		cliJSON(t, dev, &pong, "ping", strconv.Itoa(i))
+	}
 	var after tfw.SysInfo
 	cliJSON(t, dev, &after, "sys")
 	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors grew over a clean link")

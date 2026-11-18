@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
@@ -79,6 +80,22 @@ type boardImage struct {
 	// drop names rows the image serves that this board's run leaves out
 	// until the PR named beside each fixes them there.
 	drop map[string]string
+	// attestTimeout is how long a row that may sign waits for ATTEST's
+	// reply; zero keeps suiteTimeout. Set from a measured signing time,
+	// with margin, on a board whose software signer is slow.
+	attestTimeout time.Duration
+}
+
+// suiteTimeout is the hw suite's command timeout (startFirmware).
+const suiteTimeout = 5 * time.Second
+
+// attestTimeoutFor is the ATTEST timeout of a row on board: the board's
+// attestTimeout, or suiteTimeout on a board without one (tfwsim among them).
+func attestTimeoutFor(board string) time.Duration {
+	if d := boardImages[board].attestTimeout; d > 0 {
+		return d
+	}
+	return suiteTimeout
 }
 
 // servedBy reports whether img serves a row with this need.
@@ -153,6 +170,27 @@ var boardImages = map[string]boardImage{
 		tier:  noneTier,
 		parts: partTCP,
 	},
+	// The default image this checkout builds (boards/stm32h573i-dk/
+	// board_profile.h, mk/firmware.mk): the #535 port's 13-pin table, CAPS
+	// gpio sched analog pwm tone pulse eeprom attest, the soft tier, no
+	// stager, no provisioned identity. I2C (off unless I2C=1), SPI and
+	// 1-Wire are off, so their refusal rows run; the I2C=1 image's rows run
+	// by name, HW_TEST_RUN='TestFirmwareI2C'.
+	"stm32h573i-dk": {
+		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
+			tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureAttest,
+		tier: softTier,
+		// The attest refusal needs tfw-boot with its UDS slot erased
+		// (cm_image's boot-unprovisioned.bin): the bench boot, boot.bin,
+		// carries a UDS, so attest signs, in about 26 s on the board, past
+		// the suite's 5 s timeout. Verified by name on the unprovisioned
+		// boot (#570, docs/boards/stm32h573i-dk.md); held from the bench
+		// boot's list.
+		drop: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
+		// Software P-256 at 64 MHz: attest answered with evidence in 27.7 s,
+		// twice, on the bench boot (#570); 45 s leaves the margin.
+		attestTimeout: 45 * time.Second,
+	},
 }
 
 // firmwareRowNeeds is every TestFirmware row and what it needs.
@@ -175,7 +213,8 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
-	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
+	"TestFirmwareOneWire":                                {caps: tfw.FeatureOneWire},
+	"TestFirmwarePulseIn":                                {caps: tfw.FeaturePulse},
 
 	// e2e_dice_test.go
 	"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce":              {caps: tfw.FeatureAliasCert, has: partIdentity},
@@ -347,7 +386,8 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		run, not []string
 	}{
 		{"atmega328p", []string{
-			"TestFirmwarePing", "TestFirmwareEEPROM", "TestFirmwareOneWireAndPulseIn",
+			"TestFirmwarePing", "TestFirmwareEEPROM", "TestFirmwareOneWire",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
@@ -373,6 +413,19 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
 		}},
+		{"stm32h573i-dk", []string{
+			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareWrite", "TestFirmwareTimer",
+			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
+			"TestFirmwareRefusesI2CItsCapsLacks", "TestFirmwareRefusesSPIItsCapsLacks",
+			"TestFirmwareRefusesOneWireItsCapsLacks",
+		}, []string{
+			"TestFirmwareRefusesAnalogItsCapsLacks", "TestFirmwareRefusesPWMItsCapsLacks",
+			"TestFirmwareRefusesPulseItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
+			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWire",
+			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
+			"TestFirmwareAttestRefusedUnprovisioned",
+		}},
 		// The HIL-0 image has no crypto tier, and its wire is TCP: connecting
 		// resets nothing, so no BOOT arrives.
 		{"esp32p4-poe", []string{
@@ -393,6 +446,26 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		for _, r := range tc.not {
 			if run.MatchString(r) {
 				t.Errorf("%s: %s is run", tc.board, r)
+			}
+		}
+	}
+}
+
+// A held row is one its board's image serves, named in firmwareRowNeeds: a
+// hold on a row the list would not run anyway, or on a renamed row, holds
+// nothing.
+func TestEachHeldRowIsOneItsImageServes(t *testing.T) {
+	for board, img := range boardImages {
+		for r, issue := range img.drop {
+			need, ok := firmwareRowNeeds[r]
+			switch {
+			case !ok:
+				t.Errorf("%s holds %s, in no row list", board, r)
+			case !need.servedBy(img):
+				t.Errorf("%s holds %s, which its image does not serve", board, r)
+			}
+			if !regexp.MustCompile(`^#\d+$`).MatchString(issue) {
+				t.Errorf("%s holds %s for %q, not an issue", board, r, issue)
 			}
 		}
 	}
@@ -564,6 +637,24 @@ func TestSelectBoardRowsDoesNothingUnasked(t *testing.T) {
 	t.Setenv(peer.BoardEnv, "atmega32u4")
 	if err := selectBoardRows(); err != nil {
 		t.Fatalf("selection ran unasked: %v", err)
+	}
+}
+
+func TestAttestTimeoutIsPerBoard(t *testing.T) {
+	for board, want := range map[string]time.Duration{
+		"stm32h573i-dk": 45 * time.Second, // the measured 27.7 s, with margin (#570)
+		"atmega2560":    suiteTimeout,
+		"no-such-board": suiteTimeout,
+		"":              suiteTimeout, // tfwsim
+	} {
+		if got := attestTimeoutFor(board); got != want {
+			t.Errorf("attestTimeoutFor(%q) = %v, want %v", board, got, want)
+		}
+	}
+	for board, img := range boardImages {
+		if img.attestTimeout != 0 && img.attestTimeout < suiteTimeout {
+			t.Errorf("%s: attestTimeout %v is below the suite's %v", board, img.attestTimeout, suiteTimeout)
+		}
 	}
 }
 

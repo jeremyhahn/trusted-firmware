@@ -68,13 +68,14 @@
 
 | | Value | Status |
 |---|---|---|
-| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its register layout: **to confirm** against RM0481 |
-| MII or RMII | RMII | **to confirm on the board** and against UM3143 |
-| PHY part | a Microchip LAN8742A, the PHY on ST's other boards with an on-chip MAC | **to confirm on the board** (read PHYID1/PHYID2 over MDIO) and against UM3143 |
-| PHY address on MDIO | 0 | **to confirm on the board**: slice 2's driver scans addresses 0–31 and logs the one that answers, so the value is never assumed |
-| RMII pins | REF_CLK, MDIO, MDC, CRS_DV, RXD0, RXD1, TX_EN, TXD0, TXD1, each on alternate function 11. ST's usual H5 assignment is PA1, PA2, PC1, PA7, PC4, PC5, PG11, PG13 and a TXD1 on PG12 or PB15 | **to confirm on the board** and against UM3143; none is taken from a document read in this lane. Slice 2 reads them from UM3143 or from ST's board-support source at a pinned commit, as the board page does for the console |
+| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its MAC, MTL and DMA registers and descriptors as RM0481 gives them: **verified on the board 2026-11-17** (#581), frames sent and received |
+| MII or RMII | RMII | **verified on the board 2026-11-17** (#579): the PHY answers over MDIO with SBS PMCR set to RMII; ST's pin data for the kit, `ETH.MediaInterface=HAL_ETH_RMII_MODE` |
+| PHY part | a Microchip LAN8742A: PHYID1 `0x0007`, PHYID2 `0xC131` (model `0x13`, revision 1) | **verified on the board 2026-11-17** (#579), read over MDIO; board page "Ethernet PHY" |
+| PHY address on MDIO | 0 | **verified on the board 2026-11-17** (#579): the scan of 0–31 found it at 0; the driver keeps scanning, so the value is never assumed |
+| RMII pins | REF_CLK PA1, MDIO PA2, CRS_DV PA7, MDC PC1, RXD0 PC4, RXD1 PC5, TX_EN PG11, TXD1 PG12, TXD0 PG13, each on alternate function 11 | ST's pin data for the kit (`STM32_open_pin_data` at the commit the board page pins, the kit's board file); MDIO and MDC **verified on the board 2026-11-17** (#579); the data pins **verified on the board 2026-11-17** (#581), a DHCP exchange through them |
 | Reference clock | 50 MHz to REF_CLK, from the PHY or a crystal on the board | **to confirm** against UM3143 |
-| Connector | an RJ45 on the board | **to confirm on the board** |
+| Connector | an RJ45 on the board | **verified on the board 2026-11-17** (#579): cabled, the PHY reports link up |
+| IP stack | lwIP 2.2.1 (`STABLE-2_2_1_RELEASE`), `NO_SYS`, raw API, over our MAC and descriptor driver (option (a)); vendored unmodified under `third_party/lwip`, built with `ETH_MAC=1` | **verified on the board 2026-11-17** (#581): a DHCP lease, the console line `eth: dhcp bound`; the `ETH_MAC=1` application measured 35 816 bytes of flash and 45 004 bytes of RAM (lwIP's heap 8 KiB, 8 pool buffers) |
 
 ## Options
 

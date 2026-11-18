@@ -26,6 +26,24 @@
 #include "soc_regs.h"
 #include "soc_console.h"
 #include "h5_calc.h"
+#include "hal_eth_mdio.h"
+
+/* The ETH_PROBE=1 build's one boot line (#579), queued once the console is
+ * up; the 64-byte ring holds it whole. TFW_H5_ETH_PROBE is 0 in every other
+ * build, so the call and the driver drop out of the image. */
+static void eth_probe_line(void)
+{
+    char   line[48];
+    size_t n;
+
+    if (!TFW_H5_ETH_PROBE) {
+        return;
+    }
+    n = tfw_h5_eth_probe(line, sizeof line);
+    for (size_t i = 0u; i < n; i++) {
+        (void)tfw_hal_uart_tx_try((uint8_t)line[i]);
+    }
+}
 
 #define TFW_UART_RX_RING 64u
 #define TFW_UART_TX_RING 64u
@@ -81,6 +99,7 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     TFW_H5_CON_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE |
                        TFW_H5_USART_CR1_TE | TFW_H5_USART_CR1_RXNEIE;
     tfw_cm_nvic_enable(TFW_H5_CON_IRQ);
+    eth_probe_line();
     return TFW_OK;
 }
 

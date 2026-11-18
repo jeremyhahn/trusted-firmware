@@ -230,7 +230,8 @@ func TestFirmwarePin(t *testing.T) {
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
 	// The board's free PWM pin: pin 9 is OC1A on the 328P and OC2B on the
-	// Mega, neither timer the tick; LEDC0 on the ESP32-P4.
+	// Mega, neither timer the tick; LEDC0 on the ESP32-P4; TIM5_CH1 on the
+	// STM32H573I-DK.
 	if caps.Has(tfw.FeaturePWM) {
 		pwm := cliPin(t, dev, b.pwmPin)
 		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
@@ -246,7 +247,7 @@ func TestFirmwarePin(t *testing.T) {
 		assert.True(t, adc.HasADC, "pin %d has an adc channel", b.adcPin)
 		assert.Equal(t, b.adcChannel, adc.ADCChannel, "pin %d adc channel", b.adcPin)
 		assert.True(t, adc.Flags.Has(tfw.PinADC), "pin %d flags = %s, want adc", b.adcPin, adc.Flags)
-		assert.Equal(t, b.adcPort, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
+		assert.Equal(t, b.adcPort && !b.adcAnalog, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
 	}
 
 	// The UART pins are in use by this build; a host must be able to see that
@@ -360,7 +361,11 @@ func TestFirmwareEEPROM(t *testing.T) {
 }
 
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
-	dev := startFirmware(t)
+	// The board's attest timeout, so a boot that signs instead of refusing
+	// fails on the status, not on a timeout (#570).
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	dev := startFirmware(t, tfw.WithTimeout(attestTimeoutFor(target.Board)))
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
 	assert.Equal(t, attestRefusal(cliCaps(t, dev).CryptoTier), cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
@@ -376,7 +381,10 @@ func TestFirmwareAnalog(t *testing.T) {
 		Raw uint16 `json:"raw"`
 	}
 	cliJSON(t, dev, &got, "analog", strconv.Itoa(int(b.analog)))
-	cliRefused(t, dev, "analog", "13") // digital-only
+	// The LED pin is a valid pin with a port and no ADC channel on every
+	// board (TestFirmwarePin asserts it), so the refusal is the digital-only
+	// one and not an out-of-range pin: 13 is past the DK's 13-pin table.
+	cliRefused(t, dev, "analog", strconv.Itoa(int(b.ledPin)))
 }
 
 func TestFirmwarePWM(t *testing.T) {
@@ -389,7 +397,7 @@ func TestFirmwarePWM(t *testing.T) {
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
 	// wondering why nothing moves.
-	if b.tickPin >= 0 {
+	if b.tickPin >= 0 { // the ESP32-P4's and the STM32H573I-DK's ticks spend no compare pin
 		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
 	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
@@ -561,16 +569,21 @@ func TestFirmwareSPIConfig(t *testing.T) {
 		&ae, "a mode past 3")
 }
 
-func TestFirmwareOneWireAndPulseIn(t *testing.T) {
+func TestFirmwareOneWire(t *testing.T) {
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureOneWire)
-	requireFeature(t, dev, tfw.FeaturePulse)
 	var reset struct {
 		Present bool `json:"present"`
 	}
 	cliJSON(t, dev, &reset, "1wire-reset", "9")
-	// No signal on a simulated pin, so a timeout is the correct answer -- the
+}
+
+func TestFirmwarePulseIn(t *testing.T) {
+	_, b := firmwareBoard(t)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeaturePulse)
+	// Nothing drives the pin, so a timeout is the correct answer -- the
 	// point is that the command round-trips and is bounded.
-	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{"9", "1", "10ms"}, false, &strings.Builder{}),
+	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{strconv.Itoa(int(b.pulsePin)), "1", "10ms"}, false, &strings.Builder{}),
 		tfw.StatusErrTimeout, "silent line: want TFW_ERR_TIMEOUT")
 }

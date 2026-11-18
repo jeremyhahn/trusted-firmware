@@ -1,0 +1,10 @@
+lwIP 2.2.1, tag STABLE-2_2_1_RELEASE, commit 77dcd25a72509eb83f72b033d219b1d40cd8eb95
+upstream https://github.com/lwip-tcpip/lwip (mirror of https://git.savannah.nongnu.org/git/lwip.git)
+license BSD-3-Clause (COPYING, kept verbatim)
+vendored subset, unmodified: COPYING, README, src/core/*.c, src/core/ipv4/*.c,
+src/netif/ethernet.c, src/include/lwip (without apps/ and init.h.cmake.in),
+src/include/netif/etharp.h and ethernet.h, src/include/netif/ppp (headers
+only: core/init.c includes ppp_opts.h and ppp_impl.h with PPP off)
+tree sha256 7fb673241320c8b38f6a97da000ce3565f84e2eb5ddfc9eb8ac163de08c0b216
+  (cd third_party/lwip && find . -type f ! -name VERSION | LC_ALL=C sort | xargs sha256sum | sha256sum)
+port files (ours, not lwIP's): src/hal/cortex-m/stm32h5/lwipopts.h, arch/cc.h, hal_eth_netif.c

@@ -23,6 +23,20 @@ Vendored files, sha256 of each as committed:
     c4220e36bc7c66f81a0f0b026e694865f3f33e6c8b48113dedd8db1d50ce0716  unity_internals.h
     865b12a0747d1e8973612a04ea978767aa8fa8aab1466c662807b54bfe517d2c  LICENSE.txt
 
+## lwIP 2.2.1 (third_party/lwip)
+
+lwIP, BSD-3-Clause (COPYING kept verbatim), for the STM32H5 ETH_MAC=1 image
+(#581). Pinned by tag and commit; the vendored subset (core, IPv4,
+netif/ethernet and the headers) and its tree hash are in
+`third_party/lwip/VERSION`, with the command that recomputes it. It sits
+outside `src/third_party/` because lwIP repeats basenames across its include
+directories (`lwip/ip4.h`, `lwip/prot/ip4.h`), which the per-basename check
+below cannot tell apart.
+
+    tag             STABLE-2_2_1_RELEASE
+    commit          77dcd25a72509eb83f72b033d219b1d40cd8eb95
+    upstream        https://github.com/lwip-tcpip/lwip
+
 ## ed25519-donna 8757bd4
 
 floodyberry/ed25519-donna, **public domain** -- declared per file in each

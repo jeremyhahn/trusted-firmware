@@ -167,3 +167,8 @@ uint8_t tfw_link_admits(uint8_t cmd)
         return 0u;
     }
 }
+
+uint8_t tfw_link_take_reset(void)
+{
+    return 0u;                  /* this link keeps its own per-socket state */
+}

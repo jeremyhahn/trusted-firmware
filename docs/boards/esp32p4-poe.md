@@ -91,6 +91,10 @@ trailer and re-signs
 ([`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md)
 "HIL-0"; `sdkconfig.hil0:10`–`32`).
 
+**Provisioning**: writing the bootloader, partition table and `tfw_plat`
+for a new board or a new image key is its own procedure,
+[`esp32p4-provisioning.md`](esp32p4-provisioning.md).
+
 ## Feature matrix
 
 Run 2026-11-17 (row 536) on the bench HIL-0 image: `make esp32-build

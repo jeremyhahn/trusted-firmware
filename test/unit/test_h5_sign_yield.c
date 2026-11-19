@@ -43,6 +43,15 @@ tfw_ms_t tfw_hal_millis(void)
     return t;
 }
 
+/* The netif's deadline service (hal_eth_netif.c), faked: counted per sweep.
+ * test_h5_netif.c runs it on the real lwIP timers across a lease expiry. */
+static unsigned deadline_sweeps;
+
+void tfw_h5_eth_service_deadlines(void)
+{
+    deadline_sweeps++;
+}
+
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
     (void)out;
@@ -173,11 +182,13 @@ static void test_a_sign_with_nothing_armed_writes_no_pin(void)
 {
     uint8_t sig[64];
 
+    deadline_sweeps = 0u;
     signing = 1;
     TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
     signing = 0;
     TEST_ASSERT_FALSE(released);
     TEST_ASSERT_TRUE(now_ms >= 250u * STEP_MS); /* one sweep per ladder step */
+    TEST_ASSERT_TRUE(deadline_sweeps >= 250u);  /* the network's deadlines too */
 }
 
 int main(void)

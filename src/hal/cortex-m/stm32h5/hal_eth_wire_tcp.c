@@ -139,6 +139,11 @@ void tfw_h5_wire_dial_poll(void)
     if (tfw_netcfg_load(&cfg) != TFW_OK) {
         return;                         /* not provisioned: nothing to dial */
     }
+    /* The block may have been rewritten over serial since bring-up: bring
+     * the netif to it first, and dial only once it is up on it. */
+    if (!tfw_h5_eth_reconcile(&cfg)) {
+        return;
+    }
     pcb = tcp_new();
     if (pcb == NULL) {
         return;

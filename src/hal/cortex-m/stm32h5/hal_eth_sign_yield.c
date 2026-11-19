@@ -12,8 +12,10 @@
  */
 #include "../../../caps/sched.h"
 #include "../../../crypto/deviceid_p256.h"
+#include "hal_eth_wire.h"
 
 void tfw_sign_yield(void)
 {
     tfw_sched_poll();
+    tfw_h5_eth_service_deadlines();     /* lwIP timers, lease expiry; no dispatch */
 }

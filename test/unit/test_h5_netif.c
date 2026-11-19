@@ -769,6 +769,13 @@ int main(void)
     RUN_TEST(test_a_dhcp_block_starts_dhcp_with_the_block_mac);
     RUN_TEST(test_an_all_zero_block_mac_takes_the_uid_mac);
     RUN_TEST(test_a_missing_or_bad_block_keeps_the_device_off_the_network);
+    /* In a child each, before the suite's own netif below comes up. */
+    RUN_TEST(test_a_changed_static_address_applies_before_the_next_dial);
+    RUN_TEST(test_a_switch_to_dhcp_drops_the_static_address_and_asks);
+    RUN_TEST(test_a_switch_to_static_stops_dhcp_and_keeps_the_block_address);
+    RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
+    RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
+    RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);
@@ -776,11 +783,5 @@ int main(void)
     RUN_TEST(test_an_unanswered_probe_binds_the_offered_address);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
-    RUN_TEST(test_a_changed_static_address_applies_before_the_next_dial);
-    RUN_TEST(test_a_switch_to_dhcp_drops_the_static_address_and_asks);
-    RUN_TEST(test_a_switch_to_static_stops_dhcp_and_keeps_the_block_address);
-    RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
-    RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
-    RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     return UNITY_END();
 }

@@ -188,12 +188,27 @@ static err_t eth_netif_init(struct netif *nif)
     return ERR_OK;
 }
 
-static void eth_bring_up(void)
+/* The block's MAC; the UID-derived, locally administered one only until a MAC
+ * is supplied (an all-zero field), as the SPEC allows. */
+static void eth_block_mac(const tfw_netcfg_t *cfg, uint8_t mac[6])
 {
     static const uint8_t no_mac[6];
+    uint32_t uid[3];
+
+    if (memcmp(cfg->mac, no_mac, sizeof no_mac) != 0) {
+        memcpy(mac, cfg->mac, sizeof no_mac);
+        return;
+    }
+    for (unsigned i = 0u; i < 3u; i++) {
+        uid[i] = TFW_H5_UID_WORD(i);
+    }
+    tfw_eth_mac_from_uid(uid, mac);
+}
+
+static void eth_bring_up(void)
+{
     tfw_phy_probe_t p;
     tfw_netcfg_t cfg;
-    uint32_t uid[3];
     ip4_addr_t ip, mask, gw;
 
     /* The network block gives the address, mask, gateway and MAC, or asks
@@ -235,16 +250,7 @@ static void eth_bring_up(void)
         eth_state = ETH_FAILED;
         return;
     }
-    /* The block's MAC; the UID-derived, locally administered one only until
-     * a MAC is supplied (an all-zero field), as the SPEC allows. */
-    if (memcmp(cfg.mac, no_mac, sizeof no_mac) != 0) {
-        memcpy(eth_addr, cfg.mac, sizeof eth_addr);
-    } else {
-        for (unsigned i = 0u; i < 3u; i++) {
-            uid[i] = TFW_H5_UID_WORD(i);
-        }
-        tfw_eth_mac_from_uid(uid, eth_addr);
-    }
+    eth_block_mac(&cfg, eth_addr);
     eth_use_dhcp = (cfg.flags & TFW_NETCFG_DHCP) != 0u;
 
     lwip_init();
@@ -383,11 +389,76 @@ static void eth_drop_expired_address(void)
 {
     struct dhcp *d = netif_dhcp_data(&eth_netif);
 
-    if (d != NULL && d->t0_timeout == 0u && !dhcp_supplied_address(&eth_netif) &&
+    /* Only while DHCP runs: a static address set after DHCP was stopped is
+     * the block's own and never expires. */
+    if (eth_dhcp_on && d != NULL && d->t0_timeout == 0u && !dhcp_supplied_address(&eth_netif) &&
         !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif))) {
         netif_set_addr(&eth_netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
         eth_bound_said = 0u;
     }
+}
+
+void tfw_h5_eth_service_deadlines(void)
+{
+    if (eth_state != ETH_WAIT_LINK && eth_state != ETH_RUNNING) {
+        return;                         /* no netif yet: lwIP not initialised */
+    }
+    sys_check_timeouts();
+    eth_drop_expired_address();
+}
+
+/* Stops DHCP and forgets the address it gave, if it runs. */
+static void eth_stop_dhcp(void)
+{
+    if (eth_dhcp_on) {
+        dhcp_release_and_stop(&eth_netif);
+        eth_dhcp_on = 0u;
+        eth_bound_said = 0u;
+    }
+}
+
+int tfw_h5_eth_reconcile(const tfw_netcfg_t *cfg)
+{
+    uint8_t mac[6];
+    uint8_t dhcp = (uint8_t)((cfg->flags & TFW_NETCFG_DHCP) != 0u);
+    ip4_addr_t ip, mask, gw;
+
+    if (eth_state != ETH_WAIT_LINK && eth_state != ETH_RUNNING) {
+        return 0;
+    }
+    eth_block_mac(cfg, mac);
+    if (memcmp(mac, eth_addr, sizeof eth_addr) != 0) {
+        /* A new MAC: a lease was for the old one, and the MAC's address
+         * filter is programmed at link up, so the link comes up again. */
+        eth_stop_dhcp();
+        memcpy(eth_addr, mac, sizeof eth_addr);
+        memcpy(eth_netif.hwaddr, mac, sizeof eth_addr);
+        if (eth_state == ETH_RUNNING) {
+            tfw_eth_mac_stop(&eth);
+            eth_link = 0u;
+            netif_set_link_down(&eth_netif);
+            eth_state = ETH_WAIT_LINK;
+        }
+    }
+    if (dhcp) {
+        if (!eth_use_dhcp) {
+            netif_set_addr(&eth_netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
+        }
+        eth_use_dhcp = 1u;
+        if (eth_link && !eth_dhcp_on) { /* otherwise started at link up */
+            eth_dhcp_on = 1u;
+            (void)dhcp_start(&eth_netif);
+        }
+    } else {
+        eth_stop_dhcp();
+        eth_use_dhcp = 0u;
+        IP4_ADDR(&ip, cfg->ip[0], cfg->ip[1], cfg->ip[2], cfg->ip[3]);
+        IP4_ADDR(&mask, cfg->mask[0], cfg->mask[1], cfg->mask[2], cfg->mask[3]);
+        IP4_ADDR(&gw, cfg->gateway[0], cfg->gateway[1], cfg->gateway[2], cfg->gateway[3]);
+        netif_set_addr(&eth_netif, &ip, &mask, &gw);
+    }
+    return eth_state == ETH_RUNNING && eth_link &&
+           !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif));
 }
 
 void tfw_hal_eth_poll(void)
@@ -403,14 +474,12 @@ void tfw_hal_eth_poll(void)
         return;
     case ETH_WAIT_LINK:
         eth_watch_link();
-        sys_check_timeouts();
-        eth_drop_expired_address();
+        tfw_h5_eth_service_deadlines();
         return;
     case ETH_RUNNING:
         eth_rx_all();
         eth_watch_link();
-        sys_check_timeouts();
-        eth_drop_expired_address();
+        tfw_h5_eth_service_deadlines();
         if (eth_link && !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif))) {
             tfw_h5_wire_dial_poll();    /* the device opens the connection */
         }

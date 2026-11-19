@@ -1,7 +1,7 @@
 # esp32p4-poe (ESP32-P4 PoE Ethernet)
 
 > **Status: INFORMATIVE** · SPEC row: `esp32-p4` · Scope: `boards/esp32p4-poe/`
-> · Last verified: 2026-11-17
+> · Last verified: 2026-11-18
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is
@@ -91,6 +91,10 @@ trailer and re-signs
 ([`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md)
 "HIL-0"; `sdkconfig.hil0:10`–`32`).
 
+**Provisioning**: writing the bootloader, partition table and `tfw_plat`
+for a new board or a new image key is its own procedure,
+[`esp32p4-provisioning.md`](esp32p4-provisioning.md).
+
 ## Feature matrix
 
 Run 2026-11-17 (row 536) on the bench HIL-0 image: `make esp32-build
@@ -117,6 +121,8 @@ difference.
 |---|---|---|---|
 | esp32-p4 | boot, layer 0, Ethernet link | verified 2026-11-17 | console: `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up … wire on tcp/21574` |
 | esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
+| esp32-p4 | Ethernet DHCP lease | verified 2026-11-19 (#539, hw-568h) on the DHCP image, written to the app partition only ("The DHCP image" below): `tfw-eth: link up, address <a dev-VLAN lease>, wire on tcp/21574`, after the got-IP event 4.5 s after `ethernet attached to netif`, the gateway in the lease's own subnet; the image has `CONFIG_TFW_ETH_STATIC_IP` not set, so DHCP is its only address path. The earlier result: fail 2026-11-17 (#539): an image without the static overlay is refused by the board's layer-0 gate | boot console captured for 30 s across a USB-serial reset (RTS pulse; no break, no flash write): after `ethernet attached to netif` the only address lines are the got-IP event and `tfw-eth: link up, address …, wire on tcp/21574`, with no DHCP-client line, and the event's gateway is an RFC 5737 documentation address outside the board's subnet, which no DHCP server on the dev VLAN hands out and which the static-address overlay's placeholder gateway matches. The image does not log which path set the address, so the lease is not shown. The wire still answers there (`TestFirmwareCaps` passes, same date). A second run, same date: `make esp32-build` with the HIL-0 overlay only (`CONFIG_TFW_ETH_STATIC_IP` not set), the sealed app written to `ota_0` alone (the slot `otadata` boots; saved first), boot console captured for 30 s: the board's bootloader logs `Signature Check Failed` and `tfw-l0: app at 0x20000 refused by the trailer gate (status 14): no CDI`, then `no app passed the gate` and a reset loop. The build signs the trailer with its own layer-0 image key, which is not the key the board's bootloader holds, so a lane-built app cannot boot without the bootloader and table from the same build (a write outside the app partition). The saved app was written back; it verifies at layer 0, boots, and the wire answers (`TestFirmwareCaps` passes, same date). Next: a build with the bench's layer-0 image key, or a bootloader rewrite authorised for this board. MAC recorded in the bench record |
+| esp32-p4 | tfw-wire over TCP | verified 2026-11-17 (#539) | `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareCaps$'` passes (`--- PASS: TestFirmwareCaps`): CAPS read over TCP from the bench host. `HW_TEST_RUN='CAPS'` matches no test (`no tests to run`), so the row names the test |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
 | esp32-p4 | ADC (ADC1) | fails: not measured | row `Analog` passes on GPIO20, ADC1 channel 4, but it only decodes Raw and never asserts it against a known input, so a constant result or a wrong channel passes it too; needs known input voltages on the ADC1 pins with the results recorded within tolerance; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table; issue to file |
 | esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | rows `I2C`, `I2CConfig` pass; bus transfer: a scan of 0x08–0x77 with `tfwctl i2c <addr> - 1` gets NACK on 110 addresses, the refusal on 0x60 (reserved), and an ACK at 0x18, whose registers 0xFD/0xFE read back `83`/`11`, the ES8311 codec's chip ID |
@@ -125,8 +131,8 @@ difference.
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO2, LEDC0), `noLED` and no tick pin, but `PWM` only checks that setting duty on GPIO2 returns success and `Pin` checks descriptors: no output is observed, and LEDC channels 1, 2 and 3 are never driven, so a wrong pin route or a missing waveform passes too; needs duty and frequency measured on each LEDC channel's pin within tolerance; issue to file. The 2026-11-17 run of #547: row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin, and row `Pin` fails on `pin 11 flags = digital, want digital and led`; row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag) |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-19 | row `Tone` (#548) on the 2026-11-19 image below, built from commit `6c6a3dfb`, which has `hal_pulse_rmt.c`'s RMT `io_loop_back` capture: 1 kHz on pin 4 started, read back with `pulse-capture` on the same pin as `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%), and stopped with `notone`, after which the capture times out. This replaces the 2026-11-17 measurement on `50d9ddb7`, an image without that change |
-| esp32-p4 | EEPROM (`tfw_eeprom`) | facts corrected, hardware re-run pending #561 | row `EEPROM` stopped at "crypto tier none: no reserved-read facts"; the row now expects the reserved read answered on the none tier, as `tfw_auth_gate` gives it (#575) |
-| esp32-p4 | CAPS, I2C_CONFIG | facts corrected, hardware re-run pending #561 | rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576) |
+| esp32-p4 | EEPROM (`tfw_eeprom`) | facts corrected, hardware re-run pending #561 | row `EEPROM` stopped at "crypto tier none: no reserved-read facts"; the row now expects the reserved read answered on the none tier, as `tfw_auth_gate` gives it (#575). On the image the board runs, row `EEPROM` passes (2026-11-19, #539, "The DHCP image" below) |
+| esp32-p4 | CAPS, I2C_CONFIG | facts corrected, hardware re-run pending #561 | rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576). On the image the board runs, row `Caps` passes (2026-11-17, #539, "tfw-wire over TCP" above) |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
 | esp32-p4 | boot event on connect | not run | a `tcp:` connect resets nothing, so the rows that need a fresh boot (`PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, and `Sys`, which wants a power-on reset cause and zero sticky framing counters) are out of this board's row list until it has a reset over the wire; issue to file |
 | esp32-p4 | CLI CAPS through the port | not re-run | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` hung on 2026-11-17; the test's wrapper now keeps the TCP read deadline and waits for no BOOT; needs a hardware re-run |
@@ -189,15 +195,41 @@ tcp/21574`. `espefuse summary` before and after differ in no line. The board
 is left on this image; the first 0xA2000 bytes as they were, the HIL-0 image,
 are kept in the bench record outside the tree.
 
+### The DHCP image, 2026-11-19 (hw-568h)
+
+`make esp32-build BOARD=esp32p4-poe CRYPTO=none
+ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address
+overlay; the build's `sdkconfig` has `CONFIG_TFW_ETH_STATIC_IP`,
+`CONFIG_SECURE_BOOT` and `CONFIG_SECURE_FLASH_ENC_ENABLED` not set), ESP-IDF
+v5.5.5, built from commit `74be91a5` and sealed with the image key of the
+bootloader the board already runs, sealed `trusted-firmware.bin` SHA-256
+`8ee12ea1b7d8290fe87e2d906a3fc8f5d9692ff1f22052da96f463d3ce42cc08`. Only the
+app partition was written: `ota_0` at 0x20000 (the build's partition table
+places it there), over the CH343P console port (USB id `1a86:55d3`, checked
+first) with esptool v5.6.0 `write-flash 0x20000 trusted-firmware.bin`. No
+bootloader, partition table, `tfw_plat` or erase was written. The board is
+left on this image. Writing the bootloader, partition table and `tfw_plat`
+is a provisioning procedure, documented separately (#589, ruling 945 (3)),
+and is not part of this evidence.
+
+| Date | Row | Result | Evidence |
+|---|---|---|---|
+| 2026-11-19 | app-only flash | verified | `write-flash 0x20000` alone: `Wrote 532480 bytes … at 0x00020000`, one `Hash of data verified.`; `espefuse summary` before and after identical (the only `espefuse` command run); no serial break |
+| 2026-11-19 | boot, layer 0 | verified | console after one reset (EN through RTS, IO0 high), 120 s: `tfw-l0: app at 0x20000 verified, measurement f931b517ff8b0d8362588a1153fe06abea482e2b9bace0e9ec98b5e6e05cbd80`, `boot: Loaded app from partition at offset 0x20000`, `App version: xkms/v0.2.0-alpha-377-g74be91a5` |
+| 2026-11-19 | EMAC/PHY link up | verified | `ethernet attached to netif` at 0.76 s, `tfw-eth: link up, address <a dev-VLAN lease>, wire on tcp/21574` at 5.24 s; the image logs no separate PHY link line |
+| 2026-11-19 | DHCP lease | verified | the got-IP event (`esp_netif_handlers: eth ip: <a dev-VLAN lease>`, gateway in the same subnet) 4.5 s after the netif attached, well within 60 s; the address was read from that line only. The image has no DHCP-client log line of its own |
+| 2026-11-19 | `Ping`, `PingAfterAMalformedBurst`, `Caps`, `Sys`, `EEPROM` | verified | `make hw-test BOARD=esp32p4-poe PORT=tcp:<a dev-VLAN lease>:21574` (`GOFLAGS=-v`): each `--- PASS` |
+| 2026-11-19 | `Pin`, `Write`, `Timer`, `Analog`, `PWM`, `Tone`, `I2C`, `I2CConfig`, `SPIConfig`, `OneWireAndPulseIn` | verified (row passes) | same run, each `--- PASS`. Rows that only decode or configure stay "not measured" in the matrix above |
+| 2026-11-19 | `AttestRefusedUnprovisioned`, `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` | verified | same run, each `--- PASS` |
+| 2026-11-19 | `PingDeliversTheBootEventWithNoBootWait` | verified (#583) | skipped in the run above (no `HW_RESET`); then `make hw-test BOARD=esp32p4-poe PORT=tcp:<a dev-VLAN lease>:21574 HW_RESET=cmd:<EN pulse through RTS, IO0 high> HW_TEST_RUN='^TestFirmwarePingDeliversTheBootEventWithNoBootWait$'` (`GOFLAGS=-v`), three of three runs `--- PASS` (5.42 s, 5.42 s, 7.46 s) within the 30 s `TCPResetBound` |
+
 ## What is not met yet
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO
 and tone pass on it (Feature matrix). Not met:
 PWM has no measured duty or frequency on any LEDC channel and ADC no result
 checked against a known input; SPI has no recorded bus transfer (#569); 1-Wire has no device answering
-presence and pulse-in no measured pulse; EEPROM has no passing row on
-this board (its facts are corrected, the re-run waits on #561) and row `Pin`
-has corrected facts and waits on its hardware re-run (#561); the board-dials
+presence and pulse-in no measured pulse; the board-dials
 Ethernet rows have not run; OTA staging fails on the soft tier and trial,
 confirm and roll back cannot run without an operator session; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

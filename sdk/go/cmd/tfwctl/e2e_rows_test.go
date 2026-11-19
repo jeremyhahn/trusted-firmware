@@ -147,7 +147,8 @@ var boardImages = map[string]boardImage{
 	// (docs/development/bench/esp32-p4.md), the AVR families exactly, tier
 	// none, so no tier's rows, nor the rows that hold facts only for a tier
 	// (cryptoTier); no identity provisioned and no stager or application
-	// known to the rows.
+	// known to the rows. Its wire is TCP, which finds it running: the
+	// BOOT-event row resets it through HW_RESET=cmd:, or is skipped (#583).
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so the none
 	// tier and no identity (no UDS in eFuse); CAPS is the AVR peripheral set,
 	// 0x7ff.
@@ -162,7 +163,7 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // #550: on TCP pulses TFW_HW_RESET_PORT, or skips by name
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // on TCP: the reset hook (#583) or reset port (#550), else skipped
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {},
 	"TestFirmwareSys":                                    {}, // #550: counter deltas, so no boot needed
@@ -377,8 +378,8 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
 		}},
 		// The HIL-0 image has no crypto tier, and its wire is TCP: connecting
-		// resets nothing, so the reset rows pulse the reset port or check
-		// counter deltas (#550).
+		// resets nothing, so the reset rows reset it through its hook or
+		// reset port, or check counter deltas (#550, #583).
 		{"esp32p4-poe", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone", "TestFirmwareI2C",
 			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
@@ -445,7 +446,7 @@ func sysCountersStartAtZero(board string) bool {
 // its counters before and after clean traffic, not against zero, while a board
 // whose connect resets it, and the simulator, still assert zero. The P4 run
 // selects Sys and the malformed-burst row
-// (TestBoardRunSelectsTheRepairedResetRowsOnATCPBoard, #550).
+// (TestEveryBoardRunsTheBootEventRow, #550).
 func TestSysCountersAreZeroOnlyWhereTheConnectResets(t *testing.T) {
 	if sysCountersStartAtZero("esp32p4-poe") {
 		t.Error("esp32p4-poe: Sys asserts zero counters on an image the connect does not reset")
@@ -499,23 +500,17 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 	}
 }
 
-// A TCP connect resets nothing, so the boot-event row pulses
-// TFW_HW_RESET_PORT (and skips by name with none) and the Sys row checks the
-// framer counters' delta, not zero (#550, Codex P1 on #558): a TCP board
-// runs both, as the serial boards do.
-func TestBoardRunSelectsTheRepairedResetRowsOnATCPBoard(t *testing.T) {
-	// #550: the boot-event row pulses the reset port (or skips by name) and
-	// the Sys row checks counter deltas, so a TCP board runs both.
-	for _, row := range []string{
-		"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
-		"TestFirmwarePingAfterAMalformedBurst",
-		"TestFirmwareSys",
-	} {
-		if !boardRun(t, "esp32p4-poe", false).MatchString(row) {
-			t.Errorf("the esp32p4-poe run leaves out %s, which #550 repaired for a TCP link", row)
-		}
-		if !boardRun(t, "atmega2560", false).MatchString(row) {
-			t.Errorf("the atmega2560 run lost %s", row)
+// #583: the BOOT-event row decides for itself whether the board can be made
+// to send BOOT (a serial board by DTR, a TCP board through its reset hook or
+// reset port (#550), skipped with none), and the Sys row checks the framer
+// counters' delta, not zero (#550, Codex P1 on #558), so every board's run
+// lists both.
+func TestEveryBoardRunsTheBootEventRow(t *testing.T) {
+	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareSys"} {
+		for _, board := range []string{"atmega328p", "atmega2560", "esp32p4-poe"} {
+			if !boardRun(t, board, false).MatchString(row) {
+				t.Errorf("%s: %s is not run", board, row)
+			}
 		}
 	}
 }

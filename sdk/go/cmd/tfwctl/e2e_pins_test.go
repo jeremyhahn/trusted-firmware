@@ -20,10 +20,10 @@ type peerBoard struct {
 	// bootloader cleared MCUSR before the application could latch it, so the
 	// honest answer is unknown (src/hal/avr/hal_sys.c).
 	resetCause tfw.ResetCause
-	// resetAny is a board whose rows do not assert resetCause: over a tcp:
-	// link nothing resets it before the row, so it reports whatever its
-	// last reset was (#550).
-	resetAny   bool
+	// heldCauses are what a board found running (a TCP wire, no reset) may
+	// report: the cause of its last boot, which the run did not choose. Nil
+	// means the board is always reset on connect and reports resetCause.
+	heldCauses []tfw.ResetCause
 	ledPort    uint8          // the LED pin 13's port index
 	ledBit     uint8          // and bit
 	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
@@ -87,10 +87,12 @@ var peerBoards = map[string]peerBoard{
 	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
 	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
 	// digital pin; the console UART is outside the table. Reached over
-	// PORT=tcp:, so no reset: the cause is the last boot's, power-on.
+	// PORT=tcp:, so no reset: the cause is the last boot's, power-on after a
+	// power cycle or the EN button, software after a RESET command
+	// (src/hal/esp32/hal_sys.c). A watchdog or panic boot is not healthy.
 	"esp32p4-poe": {
 		resetCause: tfw.ResetPowerOn,
-		resetAny:   true,
+		heldCauses: []tfw.ResetCause{tfw.ResetPowerOn, tfw.ResetExternal, tfw.ResetSoftware},
 		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
 		analog: 7, // GPIO20
 		adcPin: 7, adcChannel: 4, adcPort: true,

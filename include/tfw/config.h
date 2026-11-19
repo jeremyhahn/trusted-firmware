@@ -586,4 +586,16 @@ _Static_assert(TFW_MAX_PAYLOAD + 3u <= 255u,
 _Static_assert(TFW_SCHED_SLOTS >= 1u && TFW_SCHED_SLOTS <= 32u,
                "TFW_SCHED_SLOTS out of range");
 
+/* STM32H5 crypto register access (src/crypto/stm32h5/h5_crypto_regs.h). By
+ * default tfw_h5_rd and tfw_h5_wr name that header's volatile MMIO accessors.
+ * A host test defines TFW_H5_REG_MODEL and supplies tfw_h5_rd and tfw_h5_wr
+ * itself, so its model sees every access in order. */
+#ifdef TFW_H5_REG_MODEL
+uint32_t tfw_h5_rd(uintptr_t addr);
+void     tfw_h5_wr(uintptr_t addr, uint32_t value);
+#else
+#define tfw_h5_rd tfw_h5_mmio_rd
+#define tfw_h5_wr tfw_h5_mmio_wr
+#endif
+
 #endif /* TFW_CONFIG_H */

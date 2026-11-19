@@ -741,6 +741,18 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# An architecture tier whose provider wraps the soft one (the board profile's
+# ARCH_CRYPTO_WRAPS_SOFT; the STM32H5's, #544) links it renamed, as auto does.
+ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_WRAPS_SOFT)),)
+$(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,soft)
+# The soft provider refuses verify_operator (issue #4), so the wrapper falls
+# back to src/crypto/soft/verify_p256.c's micro-ecc verify, linked renamed.
+$(FW_DIR)/src/crypto/soft/verify_p256.o: FW_CFLAGS += -Isrc/third_party/micro-ecc \
+                                         -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_p256
+endif
+# The STM32H5 provider turns the HASH, RNG and PKA clocks on through the SoC's
+# RCC, named in the SoC's soc_regs.h, which it includes by its own name.
+$(FW_DIR)/src/crypto/stm32h5/provider.o: FW_CFLAGS += -I$(HAL_DIR)/stm32h5
 # The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
 # the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
 $(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350

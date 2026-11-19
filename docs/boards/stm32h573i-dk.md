@@ -143,11 +143,31 @@ tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p2
 | | | Source |
 |---|---|---|
 | TrustZone-M | yes: Armv8-M with the Security Extension | ST product page *STM32H573II*; not confirmed against DS14053 |
-| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
+| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update. **Not taken** as this project's secure world (ruling 935, [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)) | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
 | Secure Manager access kit | X-CUBE-SEC-M-H5, distributed under export-control conditions | ST's STM32TRUSTEE-SM page |
 | Certification targets | PSA Certified Level 3 and SESIP 3 are the part's targets; the SESIP guidance is UM3238 | ST product page *STM32H573II*; UM3238, *STM32H573xx STM32TrusteeSM security guidance for SESIP 3 certification*, revision not confirmed |
 | Factory device certificate | **not confirmed** (the `stm32h5` row states one; no ST document was read that says so) | |
-| Hardware crypto (PKA, AES, HASH) | **not offered** (board 2026-11-17): CAPS reports root of trust software and ecdsa-p256-sha256 only; the port uses the soft tier | |
+| Hardware crypto (PKA, AES, HASH) | the default image does **not offer** it (board 2026-11-17: CAPS reports root of trust software and ecdsa-p256-sha256 only; the port uses the soft tier). The `CRYPTO=stm32h5` tier drives the HASH and the PKA (#544); its bench results are in "Hardware crypto on the kit", below. The AES is not driven | `src/crypto/stm32h5/` |
+
+## Hardware crypto on the kit
+
+`make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5`, on the kit on 2026-11-17.
+The kit's tfw-boot holds a bench key whose private half was not on the bench
+host, so the image could not be signed for it. It was written to the
+application slot alone with pyOCD (`load` at `0x08008000`, read back equal) and
+started from the debugger at its own vector table, after tfw-boot had run. The
+whole flash was read before the write and written back after it; the read-out
+after matched the first one's SHA-256, and tfw-boot booted the board's prior
+application. No option byte, RDP, TZEN, OTP or WRP was written and nothing was
+mass-erased.
+
+| Row | 2026-11-17 | Evidence |
+|---|---|---|
+| CAPS | **pass** | `tfwctl caps`: board id `0x43`, root of trust software (`TFW_CRYPTO_SOFTWARE`, as the tier states), algorithms `ecdsa-p256-sha256`; ping answers. `make hw-test` could not run its CAPS row: the harness has no pin facts for `stm32h573i-dk` (`peerBoards`) |
+| PKA start (INITOK) | **fail, fixed in #544** | RCC_AHB2ENR's HASHEN, RNGEN and PKAEN set and PKA CR EN 1, but SR stayed 0: with the RNG's bus clock alone the PKA never reached INITOK, so every sign and verify answered from the soft code. With RCC_CR HSI48ON set and HSI48RDY up, INITOK rose at EN. The provider now starts the HSI48 first (`tfw_h5_hsi48_start`); with it, after boot RCC_CR shows HSI48RDY and PKA SR INITOK 1 |
+| verify (PKA ECDSA P-256) | **not run** | no command of the unprovisioned image reaches `verify_operator` or `verify_image` (the attestation commands refuse unprovisioned, OTA is off in this build), and `make hw-test` has no row for this board |
+| hash (HASH SHA-256) | **not run** | the same: no command of this image reaches `tfw_crypto_sha256` unprovisioned. HASH SR read `0x00110001` and CR 0 after boot: the peripheral is clocked and idle |
+| PKA error flags, poll bound | **not observed** | no PKA operation ran on the kit |
 
 ## Upstream TF-M
 
@@ -210,8 +230,11 @@ CA 583 forbids: option bytes or provisioning).
 - Cortex-M33 with TrustZone: owner (TZEN is an option byte; CA 583).
 - Hardware crypto: fails, CAPS offers the soft tier only (issue to file:
   PKA/HASH not ported).
-- ST Secure Manager: owner (provisioning writes; CA 583).
-- Factory device certificate: owner (provisioning writes; CA 583).
+- ST Secure Manager: not taken (ruling 935,
+  [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
+  the secure world is our own TrustZone-M firmware.
+- Factory device certificate: not the identity root under ruling 935; whether
+  the part carries one is a hardware fact, owner (provisioning writes; CA 583).
 - Enrolling over Ethernet: fails, no Ethernet driver in the port (issue to
   file).
 
@@ -236,9 +259,9 @@ CA 583 forbids: option bytes or provisioning).
 
 ## What this page bears on
 
-- **ADR #15 open question 2** (vendor secure worlds): the Secure Manager is
-  documented in UM3254, and its access kit is export-controlled. The licence
-  check that question asks for starts there.
+- **ADR #15 open question 2** (vendor secure worlds): closed by ruling 935;
+  the Secure Manager (UM3254, export-controlled access kit) is not taken
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **ADR #15 open question 1**: the upstream TF-M platform is this board, not
   the NUCLEO-H563ZI.
 - **The `stm32h5` row's "enrolling over Ethernet"**: this board has Ethernet on
@@ -267,7 +290,9 @@ erases a sector once and then programs it page by page.
 The bench run (2026-11-17) checked the console, the timers' clock ratio to
 SysTick (the absolute 64 MHz is pending a scope or counter), the PWM, the tone, the pulse timing, the EEPROM, the I2C NACK path and the ADC on A0 to A5 at
 levels the board sets itself (see the ADC section); not a known voltage on the
-ADC (none wired; issue to file), the watchdog's period or tfw-boot's own flash writes. The port's register
+ADC (none wired; issue to file), the watchdog's period or tfw-boot's own flash writes. Of the
+`CRYPTO=stm32h5` image only CAPS and the PKA start have run on the board
+("Hardware crypto on the kit"). The port's register
 values are ST's source code, not RM0481. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.

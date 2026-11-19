@@ -315,8 +315,19 @@ const tcpSettle = 100 * time.Millisecond
 // socket closes the next one at once, after the dial has succeeded, so a
 // connection the board closes inside tcpSettle is dialled again.
 func openTCP(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	return openTCPWithin(addr, func() (time.Duration, error) { return bound, nil })
+}
+
+// openTCPWithin is openTCP with each dial's bound taken from within, which
+// fails when no time is left, so a caller holding one absolute deadline
+// never starts a dial it cannot finish.
+func openTCPWithin(addr string, within func() (time.Duration, error)) (io.ReadWriteCloser, error) {
 	var err error
 	for range tcpDials {
+		var bound time.Duration
+		if bound, err = within(); err != nil {
+			return nil, err
+		}
 		var c io.ReadWriteCloser
 		c, err = dialTCP("tcp", addr, bound)
 		if err != nil {
@@ -472,11 +483,13 @@ func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteClose
 	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
 		// A board whose wire is TCP (the STM32H573I-DK's ETH_MAC=1 image):
 		// the reset goes first, then the dial, which is redialled while the
-		// board boots and takes its lease, within the bound.
+		// board boots and takes its lease. Hook and dials share one
+		// absolute deadline, so the whole sequence ends within the bound.
+		deadline := time.Now().Add(bound)
 		if err := runHook(hook, bound); err != nil {
 			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
 		}
-		c, err := openTCPAfterReset(addr, bound)
+		c, err := openTCPAfterReset(addr, deadline)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", port, err)
 		}
@@ -500,19 +513,49 @@ var tcpRedialPause = 500 * time.Millisecond
 
 // openTCPAfterReset dials a board that was just reset until it answers or
 // the bound passes; the last dial's error is returned.
-func openTCPAfterReset(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
-	deadline := time.Now().Add(bound)
+func openTCPAfterReset(addr string, deadline time.Time) (io.ReadWriteCloser, error) {
+	var last error
+	within := func() (time.Duration, error) {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return 0, errTCPResetDeadline(last)
+		}
+		return left, nil
+	}
 	for {
-		c, err := openTCP(addr, bound)
+		c, err := openTCPWithin(addr, within)
 		if err == nil {
+			if time.Now().After(deadline) {
+				// A connection completed past the deadline is not the
+				// board answering within the bound.
+				_ = c.Close()
+				return nil, errTCPResetDeadline(last)
+			}
 			return c, nil
 		}
-		if time.Now().Add(tcpRedialPause).After(deadline) {
+		last = err
+		left := time.Until(deadline)
+		if left <= tcpRedialPause {
 			return nil, err
 		}
 		time.Sleep(tcpRedialPause)
 	}
 }
+
+// errTCPResetDeadline is the error of a reset board not answering by the
+// deadline, carrying the last dial's error when there was one.
+func errTCPResetDeadline(last error) error {
+	if last == nil {
+		return errResetDeadline
+	}
+	if errors.Is(last, errResetDeadline) {
+		return last
+	}
+	return fmt.Errorf("%w: %w", errResetDeadline, last)
+}
+
+// errResetDeadline marks a reset sequence that ran out of its bound.
+var errResetDeadline = errors.New("the board did not answer within the bound")
 
 // startCmd purges what the running application sent, then resets, then keeps
 // the new application's first bytes: the order startQMP keeps, since the

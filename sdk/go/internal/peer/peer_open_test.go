@@ -187,6 +187,89 @@ func TestOpenCmdRedialsATCPBoardStillBooting(t *testing.T) {
 	}
 }
 
+// lateWire is a wire that is not a net.Conn and records its Close.
+type lateWire struct{ closed *bool }
+
+func (lateWire) Read([]byte) (int, error)    { return 0, io.EOF }
+func (lateWire) Write(p []byte) (int, error) { return len(p), nil }
+func (w lateWire) Close() error              { *w.closed = true; return nil }
+
+// TestOpenCmdTCPResetKeepsOneDeadline: the hook and every dial share one
+// absolute deadline. Each dial is given only what is left of it, none starts
+// with nothing left, a connection completed past it is closed and refused,
+// and the whole sequence returns within the bound.
+func TestOpenCmdTCPResetKeepsOneDeadline(t *testing.T) {
+	const bound = 400 * time.Millisecond
+	const slack = 150 * time.Millisecond
+	saved, pause := dialTCP, tcpRedialPause
+	t.Cleanup(func() { dialTCP, tcpRedialPause = saved, pause })
+	tcpRedialPause = time.Millisecond
+
+	t.Run("a late connection is refused", func(t *testing.T) {
+		var bounds []time.Duration
+		closed := false
+		dialTCP = func(_, _ string, b time.Duration) (io.ReadWriteCloser, error) {
+			bounds = append(bounds, b)
+			if len(bounds) < 3 {
+				time.Sleep(120 * time.Millisecond)
+				return nil, errors.New("connection refused")
+			}
+			// A dial that takes all it was given, and a little more.
+			time.Sleep(b + 20*time.Millisecond)
+			return lateWire{&closed}, nil
+		}
+		start := time.Now()
+		c, err := OpenCmd(TCPPrefix+"board:21574", []string{"true"}, bound)
+		elapsed := time.Since(start)
+		if err == nil {
+			_ = c.Close()
+			t.Fatal("OpenCmd accepted a connection completed past the deadline")
+		}
+		if !errors.Is(err, errResetDeadline) {
+			t.Fatalf("err = %v, want errResetDeadline", err)
+		}
+		if !closed {
+			t.Fatal("the late connection was not closed")
+		}
+		if elapsed > bound+slack {
+			t.Fatalf("OpenCmd took %v, want within %v", elapsed, bound+slack)
+		}
+		for i, b := range bounds {
+			if b <= 0 || b > bound {
+				t.Fatalf("dial %d bound = %v, want in (0, %v]", i, b, bound)
+			}
+		}
+		if last := bounds[len(bounds)-1]; last > bound-200*time.Millisecond {
+			t.Fatalf("last dial bound = %v, want only what was left", last)
+		}
+	})
+
+	t.Run("refusals stop at the deadline", func(t *testing.T) {
+		dials := 0
+		dialTCP = func(_, _ string, b time.Duration) (io.ReadWriteCloser, error) {
+			dials++
+			if b <= 0 {
+				t.Errorf("dial %d started with bound %v", dials, b)
+			}
+			time.Sleep(min(b, 50*time.Millisecond))
+			return nil, errors.New("connection refused")
+		}
+		start := time.Now()
+		c, err := OpenCmd(TCPPrefix+"board:21574", []string{"true"}, bound)
+		elapsed := time.Since(start)
+		if err == nil {
+			_ = c.Close()
+			t.Fatal("OpenCmd succeeded with every dial refused")
+		}
+		if elapsed > bound+slack {
+			t.Fatalf("OpenCmd took %v, want within %v", elapsed, bound+slack)
+		}
+		if dials < 2 {
+			t.Fatalf("dials = %d, want redials within the bound", dials)
+		}
+	})
+}
+
 // A failed reset command, or a board that never answers, is reported with
 // the port; a failed reset dials nothing.
 func TestOpenCmdOnATCPPortReportsItsFailures(t *testing.T) {

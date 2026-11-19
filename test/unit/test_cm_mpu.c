@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #include "unity.h"
-#include "hal_mpu.h"
+#include "mpu_table_model.h"
 
 /* mps2-an500 (boards/mps2-an500/board_profile.h, profile.mk). */
 #define AN500_BOOT_BASE  0x00000000uL
@@ -21,7 +21,7 @@
 #define RASR_NOACCESS(size_field) \
     (TFW_CM_MPU_RASR_XN | TFW_CM_MPU_RASR_SIZE(size_field) | TFW_CM_MPU_RASR_ENABLE)
 
-static tfw_cm_mpu_region_t t[TFW_CM_MPU_REGIONS];
+static cm_model_mpu_region_t t[TFW_CM_MPU_REGIONS];
 
 void setUp(void) { }
 void tearDown(void) { }
@@ -53,7 +53,7 @@ static void assert_all_rules(void)
 
 void test_app_table_has_all_three_guards(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, AN500_APP_BASE, AN500_HEAP,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP,
                                               AN500_BOOT_BASE, AN500_BOOT_SIZE));
     assert_all_rules();
 
@@ -78,7 +78,7 @@ void test_app_table_has_all_three_guards(void)
 
 void test_app_table_in_slot_b(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, AN500_APP_AB, AN500_HEAP,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_APP_AB, AN500_HEAP,
                                               AN500_BOOT_BASE, AN500_BOOT_SIZE));
     assert_all_rules();
     TEST_ASSERT_NOT_EQUAL(0u, t[TFW_CM_MPU_NULL].rasr);
@@ -87,7 +87,7 @@ void test_app_table_in_slot_b(void)
 
 void test_boot_table_keeps_its_own_region_and_vectors(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, AN500_BOOT_BASE, AN500_HEAP,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_BOOT_BASE, AN500_HEAP,
                                               AN500_BOOT_BASE, AN500_BOOT_SIZE));
     assert_all_rules();
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_NULL].rasr);   /* its vectors are at 0 */
@@ -97,14 +97,14 @@ void test_boot_table_keeps_its_own_region_and_vectors(void)
 
 void test_aligned_stack_floor_is_the_guard_base(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, AN500_APP_BASE, 0x20001000uL,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_APP_BASE, 0x20001000uL,
                                               AN500_BOOT_BASE, AN500_BOOT_SIZE));
     TEST_ASSERT_EQUAL_HEX32(0x20001000uL, base_of(TFW_CM_MPU_STACK));
 }
 
 void test_no_stack_floor_no_stack_guard(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, AN500_APP_BASE, 0u,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_APP_BASE, 0u,
                                               AN500_BOOT_BASE, AN500_BOOT_SIZE));
     assert_all_rules();
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_STACK].rasr);
@@ -112,13 +112,13 @@ void test_no_stack_floor_no_stack_guard(void)
 
 void test_boot_region_away_from_zero(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, 0x00010000uL, AN500_HEAP,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, 0x00010000uL, AN500_HEAP,
                                               0x00100000uL, 0x00010000uL));
     assert_all_rules();
     TEST_ASSERT_EQUAL_HEX32(0x00100000uL, base_of(TFW_CM_MPU_BOOT));
     TEST_ASSERT_EQUAL_HEX32(0x00010000uL, bytes_of(TFW_CM_MPU_BOOT));
     /* An image inside that region is tfw-boot: nothing hidden. */
-    TEST_ASSERT_EQUAL_INT(0, tfw_cm_mpu_table(t, 0x00100400uL, AN500_HEAP,
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, 0x00100400uL, AN500_HEAP,
                                               0x00100000uL, 0x00010000uL));
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_BOOT].rasr);
 }
@@ -127,13 +127,13 @@ void test_bad_boot_geometry_is_rejected(void)
 {
     uint32_t i;
 
-    TEST_ASSERT_EQUAL_INT(-1, tfw_cm_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 0x6000uL));
+    TEST_ASSERT_EQUAL_INT(-1, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 0x6000uL));
     for (i = 0u; i < TFW_CM_MPU_REGIONS; i++) {
         TEST_ASSERT_EQUAL_HEX32(0u, t[i].rasr);
     }
-    TEST_ASSERT_EQUAL_INT(-1, tfw_cm_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0x4000uL, 0x8000uL));
-    TEST_ASSERT_EQUAL_INT(-1, tfw_cm_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 16u));
-    TEST_ASSERT_EQUAL_INT(-1, tfw_cm_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 0u));
+    TEST_ASSERT_EQUAL_INT(-1, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0x4000uL, 0x8000uL));
+    TEST_ASSERT_EQUAL_INT(-1, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 16u));
+    TEST_ASSERT_EQUAL_INT(-1, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP, 0u, 0u));
 }
 
 int main(void)

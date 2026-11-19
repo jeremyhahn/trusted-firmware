@@ -1816,8 +1816,9 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 # table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu
 $(HOST_DIR)/test_cm_mpu: test/unit/test_cm_mpu.c src/hal/cortex-m/hal_mpu.c \
-                         src/hal/cortex-m/hal_mpu.h $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -DTFW_CM_MPU_TABLE_ONLY -Isrc/hal/cortex-m \
+                         src/hal/cortex-m/hal_mpu.h test/model/cortex-m/mpu_table_model.h \
+                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MPU_TABLE_ONLY -Isrc/hal/cortex-m -Itest/model/cortex-m \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
 # The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.

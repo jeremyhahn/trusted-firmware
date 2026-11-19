@@ -86,7 +86,7 @@ fails on a changed byte, a missing file or a file the list does not name. The
 subset is therefore upstream's bytes and needs no line review here; the review
 falls on our port files: `src/hal/cortex-m/stm32h5/lwipopts.h`,
 `src/hal/cortex-m/stm32h5/lwip-port/arch/cc.h`, `hal_eth_netif.c` (the netif
-glue) and `hal_eth_wire_tcp.c` (the raw-API listener).
+glue) and `hal_eth_wire_tcp.c` (the raw-API outbound connection).
 
 ## Options
 
@@ -184,6 +184,15 @@ Exactly as on the `ethernet-transport` row; nothing on the wire changes.
 - The device opens the one TCP connection to the endpoint in its network
   block; it listens on nothing. The frames, command ids and wire vectors are
   unchanged.
+- The `ETH_MAC=1` image built today (`hal_eth_wire.c` in place of
+  `link_serial.c`) does the same since #584's fix-584k: `hal_eth_wire_tcp.c`
+  dials the block's peer and port once the netif has an address, redials a
+  refused or dropped connection after 1 s (doubling per refusal up to 16 s,
+  the block read again each time), and binds no port; the inbound listener on
+  21574 is gone. `hal_eth_netif.c` takes the address, mask, gateway and MAC
+  from the block (`src/net/netcfg.c`), starts lwIP's DHCP client only when the
+  block's DHCP flag is set, and with no valid block keeps the device off the
+  network while the UART is served, reading the block again later.
 - The Ethernet link admits the attestation and enrolment commands only; serial
   (the ST-LINK Virtual COM port) keeps provisioning and every other command.
 - The MAC address follows the row: the network block's, or a locally

@@ -40,6 +40,20 @@ static unsigned         close_calls, abort_calls;
 static unsigned         sent_at_close;
 static unsigned         recved_total;
 
+/* The netif (hal_eth_netif.c), faked: what the wire asks it before a dial. */
+static unsigned reconcile_calls;
+static unsigned reconcile_at_connect;   /* connect_calls when it was asked */
+static uint16_t reconcile_port;
+static int      reconcile_ready = 1;
+
+int tfw_h5_eth_reconcile(const tfw_netcfg_t *cfg)
+{
+    reconcile_calls++;
+    reconcile_at_connect = connect_calls;
+    reconcile_port = cfg->port;
+    return reconcile_ready;
+}
+
 struct tcp_pcb *tcp_new(void)
 {
     new_calls++;
@@ -311,6 +325,35 @@ static void test_an_error_closes_at_once(void)
     TEST_ASSERT_FALSE(answered(3u));
 }
 
+static void test_a_redial_reconciles_the_netif_with_the_block_it_dials(void)
+{
+    err_cb(cb_arg, ERR_RST);
+    put_block(4003u);                   /* written over serial meanwhile */
+    reconcile_calls = 0u;
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, reconcile_calls);         /* one block read */
+    TEST_ASSERT_EQUAL_UINT(0, reconcile_at_connect);    /* before the connect */
+    TEST_ASSERT_EQUAL_UINT16(4003u, reconcile_port);
+    TEST_ASSERT_EQUAL_UINT16(4003u, connect_port);      /* the same block */
+    connect_answers(ERR_OK);
+}
+
+static void test_no_dial_while_the_netif_is_not_ready_on_the_block(void)
+{
+    err_cb(cb_arg, ERR_RST);
+    reconcile_ready = 0;                /* say a new MAC: the link comes up again */
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    reconcile_ready = 1;
+    TEST_ASSERT_EQUAL_UINT(0, new_calls);
+    TEST_ASSERT_EQUAL_UINT(0, connect_calls);
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    connect_answers(ERR_OK);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -320,5 +363,7 @@ int main(void)
     RUN_TEST(test_a_request_sent_with_fin_is_answered_before_the_close);
     RUN_TEST(test_a_bare_fin_closes_on_the_next_poll);
     RUN_TEST(test_an_error_closes_at_once);
+    RUN_TEST(test_a_redial_reconciles_the_netif_with_the_block_it_dials);
+    RUN_TEST(test_no_dial_while_the_netif_is_not_ready_on_the_block);
     return UNITY_END();
 }

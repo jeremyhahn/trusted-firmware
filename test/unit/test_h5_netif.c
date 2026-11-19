@@ -24,6 +24,8 @@
 #include "hal_eth_mdio.h"
 #include "hal_eth_wire.h"
 #include "hal_rng.h"
+#include "../../src/caps/sched.h"
+#include "../../src/crypto/deviceid_p256.h"
 #include "soc_regs.h"
 
 #include "lwip/netif.h"
@@ -146,14 +148,17 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 }
 
 /* The block's addresses: RFC 5737; its MACs: 02:00:00 test MACs. */
+static uint8_t block_host = 20u;        /* the block's own address: 192.0.2.<this> */
+
 static void put_block(uint8_t flags, const uint8_t mac[6])
 {
-    static const uint8_t addrs[18] = {
+    uint8_t addrs[18] = {
         192u, 0u, 2u, 20u, 255u, 255u, 255u, 0u, 192u, 0u, 2u, 1u,
         192u, 0u, 2u, 50u, 0x0Fu, 0xA0u,        /* endpoint, port 4000 */
     };
     uint16_t crc;
 
+    addrs[3] = block_host;
     memcpy(eeprom_block, "TFNC", 4);
     eeprom_block[4] = TFW_NETCFG_VERSION;
     eeprom_block[5] = flags;
@@ -590,6 +595,166 @@ static void test_tcp_isns_follow_rfc6528(void)
     TEST_ASSERT_TRUE(bits_set(a ^ b) >= 8u);
 }
 
+/* --- a block changed after bring-up applies before the next dial (#584) --- */
+
+static const uint8_t mac_a[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x0Au };
+static const uint8_t mac_b[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x0Bu };
+
+/* What the wire does before it dials: load the block, reconcile the netif. */
+static int reconcile_from_block(void)
+{
+    tfw_netcfg_t cfg;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_load(&cfg));
+    return tfw_h5_eth_reconcile(&cfg);
+}
+
+static uint32_t host_addr(uint8_t host)
+{
+    return PP_HTONL(LWIP_MAKEU32(192u, 0u, 2u, host));
+}
+
+static void static_a_to_static_b(void)
+{
+    block_host = 20u;
+    put_block(0u, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);
+    TEST_ASSERT_EQUAL_HEX32(host_addr(20u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+
+    block_host = 21u;                                   /* written over serial */
+    put_block(0u, mac_a);
+    TEST_ASSERT_EQUAL_INT(1, reconcile_from_block());   /* dial on the new one */
+    TEST_ASSERT_EQUAL_HEX32(host_addr(21u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+    TEST_ASSERT_NULL(netif_dhcp_data(netif_default));
+    TEST_ASSERT_TRUE(mac_running);                      /* same MAC: no relink */
+}
+
+static void test_a_changed_static_address_applies_before_the_next_dial(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(static_a_to_static_b));
+}
+
+static void static_to_dhcp(void)
+{
+    put_block(0u, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);
+    dhcp_sent = 0u;
+
+    put_block(TFW_NETCFG_DHCP, mac_a);
+    TEST_ASSERT_EQUAL_INT(0, reconcile_from_block());   /* no lease yet: no dial */
+    TEST_ASSERT_TRUE(ip4_addr_isany_val(*netif_ip4_addr(netif_default)));
+    TEST_ASSERT_NOT_NULL(netif_dhcp_data(netif_default));
+    run_for(5000u);
+    TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DISCOVER)) != 0u);
+}
+
+static void test_a_switch_to_dhcp_drops_the_static_address_and_asks(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(static_to_dhcp));
+}
+
+static void dhcp_to_static(void)
+{
+    struct dhcp *d;
+
+    put_block(TFW_NETCFG_DHCP, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);
+    bind_by_hand(netif_default);
+    TEST_ASSERT_TRUE(dhcp_supplied_address(netif_default));
+
+    block_host = 20u;
+    put_block(0u, mac_a);
+    TEST_ASSERT_EQUAL_INT(1, reconcile_from_block());
+    TEST_ASSERT_EQUAL_HEX32(host_addr(20u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+    d = netif_dhcp_data(netif_default);
+    TEST_ASSERT_TRUE(d == NULL || d->state == DHCP_STATE_OFF);
+    dhcp_sent = 0u;
+    run_for(400000u);                                   /* past the old lease */
+    TEST_ASSERT_EQUAL_HEX32(host_addr(20u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+    TEST_ASSERT_EQUAL_UINT(0u, dhcp_sent & (1u << DHCP_DISCOVER));
+}
+
+static void test_a_switch_to_static_stops_dhcp_and_keeps_the_block_address(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(dhcp_to_static));
+}
+
+static void unbound_dhcp_to_static(void)
+{
+    put_block(TFW_NETCFG_DHCP, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);                                     /* still discovering */
+
+    put_block(0u, mac_a);
+    TEST_ASSERT_EQUAL_INT(1, reconcile_from_block());
+    run_for(5000u);                                     /* no expiry clears it */
+    TEST_ASSERT_EQUAL_HEX32(host_addr(20u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+}
+
+static void test_a_static_address_set_before_any_lease_is_kept(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unbound_dhcp_to_static));
+}
+
+static void new_mac(void)
+{
+    put_block(0u, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac_a, mac_seen, 6);
+
+    put_block(0u, mac_b);
+    TEST_ASSERT_EQUAL_INT(0, reconcile_from_block());   /* relinks first */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac_b, netif_default->hwaddr, 6);
+    TEST_ASSERT_FALSE(mac_running);
+    run_for(2000u);
+    TEST_ASSERT_TRUE(mac_running);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac_b, mac_seen, 6);   /* the MAC filter too */
+    TEST_ASSERT_EQUAL_INT(1, reconcile_from_block());
+}
+
+static void test_a_new_block_mac_reprograms_the_mac_before_the_next_dial(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(new_mac));
+}
+
+/* --- the network deadlines run through an ATTEST signature (#584) -------- */
+
+static unsigned sched_polls;
+
+void tfw_sched_poll(void) { sched_polls++; }
+
+static void lease_expires_mid_sign(void)
+{
+    unsigned dials;
+
+    put_block(TFW_NETCFG_DHCP, mac_a);
+    link_up_flag = 1u;
+    run_for(1000u);
+    bind_by_hand(netif_default);
+    run_for(170000u);                                   /* 10 s left on the lease */
+    TEST_ASSERT_TRUE(dhcp_supplied_address(netif_default));
+    dials = dial_calls;
+
+    /* A 26 s software signature: only the ladder hook's yield runs, so the
+     * lwIP timers and the expiry check must run from there. */
+    for (tfw_ms_t end = now_ms + 26000u; now_ms < end; now_ms += 100u) {
+        tfw_sign_yield();
+    }
+    TEST_ASSERT_TRUE(sched_polls > 0u);
+    TEST_ASSERT_FALSE(dhcp_supplied_address(netif_default));
+    TEST_ASSERT_TRUE(ip4_addr_isany_val(*netif_ip4_addr(netif_default)));
+    TEST_ASSERT_EQUAL_UINT(dials, dial_calls);          /* nothing dispatched */
+}
+
+static void test_the_lease_expires_on_time_during_a_signature(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(lease_expires_mid_sign));
+}
+
 int main(void)
 {
     tfw_h5_rng.regs = fake_rng;
@@ -611,5 +776,11 @@ int main(void)
     RUN_TEST(test_an_unanswered_probe_binds_the_offered_address);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
+    RUN_TEST(test_a_changed_static_address_applies_before_the_next_dial);
+    RUN_TEST(test_a_switch_to_dhcp_drops_the_static_address_and_asks);
+    RUN_TEST(test_a_switch_to_static_stops_dhcp_and_keeps_the_block_address);
+    RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
+    RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
+    RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     return UNITY_END();
 }

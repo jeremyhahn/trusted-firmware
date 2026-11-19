@@ -14,6 +14,8 @@
 
 #include <stdint.h>
 
+#include "tfw/eth.h"
+
 /* The device opens the one connection to the endpoint in its network block
  * (include/tfw/eth.h) and listens on nothing. A refused or dropped
  * connection is dialled again after TFW_H5_WIRE_REDIAL_MS, the wait doubling
@@ -47,6 +49,21 @@ void     tfw_h5_wire_say(const char *s);
 
 /* Sends queued diagnostics when no frame is in flight; called each poll. */
 void     tfw_h5_wire_say_poll(void);
+
+/* --- the interface (hal_eth_netif.c), for the connection and the signer ---- */
+
+/* Brings the interface to the network block just loaded before a dial: a
+ * changed address, mask or gateway is set, a switch between DHCP and a static
+ * address stops one and starts the other, and a new MAC is programmed (the
+ * link then comes up again), so a block written over serial takes effect
+ * without a reset (include/tfw/eth.h). Returns 1 when the interface is up on
+ * that block with an address and the dial may go ahead, 0 otherwise. */
+int      tfw_h5_eth_reconcile(const tfw_netcfg_t *cfg);
+
+/* Runs the lwIP timers and drops an expired lease's address, and nothing
+ * else: no frame is read and no request is dispatched. Called each poll, and
+ * from tfw_sign_yield() so a long software signature keeps them on time. */
+void     tfw_h5_eth_service_deadlines(void);
 
 /* --- called by the connection (hal_eth_wire_tcp.c) -------------------------- */
 

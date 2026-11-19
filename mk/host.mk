@@ -3045,6 +3045,7 @@ $(HOST_DIR)/test_h5_sign_yield: test/unit/test_h5_sign_yield.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
+                           src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
                            src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
                            src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \
                            src/net/netcfg.c src/proto/crc16.c src/proto/crc16_update.c \
@@ -3059,13 +3060,15 @@ $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/ha
 	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.yield.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.sha.o src/crypto/sha256.c
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.netcfg.o src/net/netcfg.c
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crc.o src/proto/crc16.c
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crcu.o src/proto/crc16_update.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
-	  -o $@ $@.o $@.netif.o $@.rng.o $@.sha.o $@.netcfg.o $@.crc.o $@.crcu.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	  -o $@ $@.o $@.netif.o $@.yield.o $@.rng.o $@.sha.o $@.netcfg.o $@.crc.o $@.crcu.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

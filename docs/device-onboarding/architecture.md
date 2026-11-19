@@ -65,30 +65,14 @@ the earlier table, which `engineering.md` cites.
 
 ### Remaining slices
 
-1. **Refresh this folder's stale facts.** Docs only; no hardware, owner or
-   other project. The audit found on `main`: the Ethernet allow-list also
-   admits `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and `OTA_STATUS`
-   (`src/proto/link_eth.c`; `TestEthernetDeviceAdmitsTheOTAIdsOverTCP` in
-   `sdk/go/cmd/tfwctl/e2e_ethernet_test.go`), so "exactly five commands" below
-   is out of date; the network block has DHCP
-   (`TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice` in
-   `sdk/go/cmd/tfwctl/e2e_netcfg_test.go`), so "no DHCP yet" is too;
-   `xkms/go.mod` pins go-xkms v0.64.2-alpha and `sdk/go` v0.4.2-alpha, not the
-   v0.57.0-alpha and v0.4.0-alpha that R5 and open question 4 name;
-   `xkms/e2e/device_attest_dice_e2e_test.go` holds only the helpers, the
-   tests are in `xkms/e2e/soft_enroll_test.go` and `xkms/e2e/hw_enroll_test.go`;
-   `sdk/go/tfwsim/attestcsr_test.go`, cited for `ATTEST_CSR`, does not exist
-   (the check from Go is `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`).
-   Files: `docs/device-onboarding/architecture.md`, `engineering.md`,
-   `api.md`. Proof: each cited path and test name found with one search.
-2. **Adapter reads the claims through `sdk/go`** (open question 4). Once the
+1. **Adapter reads the claims through `sdk/go`** (open question 4). Once the
    `sdk/go` tag `xkms/go.mod` pins carries `AliasUCCS` and
    `ApplicationEvidence` (v0.4.2-alpha may already; to be checked against the
    tag), the adapter calls them instead of decoding the claims through
    go-xkms alone. Files: `xkms/avr/attestation.go`, `xkms/go.mod`. Proof:
    `xkms/avr/attestation_test.go` under `make xkms-test`. Needs an `sdk/go`
    tag if v0.4.2-alpha lacks them (a release, the owner's).
-3. **Requirement 5: the firmware measurement beside the application's.**
+2. **Requirement 5: the firmware measurement beside the application's.**
    Blocked on go-xkms (owner question 3: a `DiceTcbInfo` FWID, a second CoSWID
    in 273, or a submodule 266). Then: new templates and vectors in
    `src/caps/uccs.c`, `src/caps/alias.c`, `testdata/uccs_vectors.h`,
@@ -97,35 +81,35 @@ the earlier table, which `engineering.md` cites.
    `test/unit/test_alias.c`, `sdk/go/appevidence_test.go` and
    `xkms/e2e/soft_enroll_test.go` at the go-xkms version that accepts the
    shape. Needs another project and an owner decision.
-4. **T3: the ATmega328P enrols.** The owner's choice of the 328P budget
+3. **T3: the ATmega328P enrols.** The owner's choice of the 328P budget
    ([ADR](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
    Files: `boards/atmega328p/profile.mk` and whatever the choice drops. Proof:
    the 328P element-tier `ETH=1` image builds within its flash and answers
    `ATTEST_CSR` under `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`. Needs an
    owner decision.
-5. **T4: the ATECC608C slot map.** The owner's ruling on the
+4. **T4: the ATECC608C slot map.** The owner's ruling on the
    [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md).
    Files: `sdk/go/cmd/tfwprov/template.go`, `sdk/go/cmd/tfwprov/steps.go`.
    Proof: `sdk/go/cmd/tfwprov/template_test.go`, then `make hw-enroll` on a
    MIKROE-6774 board. Needs an owner decision and hardware.
-6. **T1's open item: the serial bound to the element.** An authenticated read
+5. **T1's open item: the serial bound to the element.** An authenticated read
    of the platform block, so the record's `ueid` is not the operator's word.
    Files: `sdk/go/cmd/tfwprov/record.go`, `sdk/go/cmd/tfwprov/steps.go`.
    Proof: `sdk/go/cmd/tfwprov/e2e_record_test.go`. Needs an owner decision on
    the mechanism.
-7. **R4: retire the `diceElement` test glue.** When go-xkms ships a generic
+6. **R4: retire the `diceElement` test glue.** When go-xkms ships a generic
    DICE attested-key source (owner question 2), the adapter implements its
    possession-signer interface and `xkms/e2e/device_attest_dice_e2e_test.go`
    drops `diceElement`. Files: `xkms/avr/possession.go` or its successor,
    `xkms/e2e/device_attest_dice_e2e_test.go`. Proof:
-   `xkms/e2e/soft_enroll_test.go` under `make xkms-test`. Needs another
+   `xkms/e2e/soft_enroll_test.go` under `make xkms-e2e-soft`. Needs another
    project.
-8. **Enrolment on the bench over Ethernet.** `make hw-enroll`
+7. **Enrolment on the bench over Ethernet.** `make hw-enroll`
    (`TestHardwareEnrollment`, `xkms/e2e/hw_enroll_test.go`) over TCP through a
    W5500 board, recorded in
    [hardware enrollment](../development/hardware-enrollment.md). Needs
    hardware.
-9. **Owner question 1: the composition root.** Which repository's binary
+8. **Owner question 1: the composition root.** Which repository's binary
    imports `github.com/jeremyhahn/trusted-firmware/xkms`. No file here until
    the owner rules. Needs an owner decision and another project
    (go-quicbaas, go-trusted-platform: R1 to R3).
@@ -263,8 +247,8 @@ verifier's nonce alone; no board in this family has a clock.
 
 ### Wire commands
 
-The Ethernet link admits exactly `0x00`, `0x06`, `0x60`, `0x63` and `0x64`, pinned id by
-id against literals in `test/unit/test_link_eth.c`. Every other id received on
+The Ethernet link admits exactly `0x00`, `0x06`, `0x60`, `0x63`, `0x64` and the
+OTA staging ids `0x68`–`0x6B` (`src/proto/link_eth.c`), pinned id by id against literals in `test/unit/test_link_eth.c`. Every other id received on
 Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 ([allow-list](../ethernet-transport/adr-wire-protocol-over-w5x00.md#2-allow-list)).
 
@@ -274,7 +258,8 @@ Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 | `0x06` | `APP_INFO` | serial, Ethernet; images with an application only | `Device.AppInfo` (the descriptor's `profile` among it) | `TFWV_APPINFO_*` in `testdata/vectors.h`; Go mirror `sdk/go/internal/vectors`; checked from Go against `tfwsim-app-heartbeat` |
 | `0x60` | `ATTEST` | serial, Ethernet | `Device.Attest` (16-byte nonce) | the frame layout in `include/tfw/protocol.h`; no literal frame vector |
 | `0x63` | `ATTEST_CERT` | serial, Ethernet | `Device.AttestCert` (32-byte nonce) | `TFWV_UCCS`, `TFWV_ALIAS_TBS_DIGEST`, `TFWV_ALIAS_CERT` and its negative variants in `testdata/uccs_vectors.h` |
-| `0x64` | `ATTEST_CSR` | serial, Ethernet | `Device.AttestCSR` (32-byte `b`, returns 64 bytes) | `TFWV_CSR_CRI`, `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`; checked from Go in `sdk/go/tfwsim/attestcsr_test.go`; go-xkms pins its CRI builder to the same bytes |
+| `0x64` | `ATTEST_CSR` | serial, Ethernet | `Device.AttestCSR` (32-byte `b`, returns 64 bytes) | `TFWV_CSR_CRI`, `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`; checked from Go in `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go` (`TestFirmwareAttestCSR*`); go-xkms pins its CRI builder to the same bytes |
+| `0x68`–`0x6B` | `OTA_BEGIN`, `OTA_DATA`, `OTA_END`, `OTA_STATUS` | serial, Ethernet; images with the OTA stager only (any other answers `TFW_ERR_UNKNOWN_CMD`) | `Device.OTABegin`, `Device.OTAData`, `Device.OTAEnd`, `Device.OTAStatus` | the ids in `include/tfw/protocol.h`, literals in `test/unit/test_link_eth.c`; `TestEthernetDeviceAdmitsTheOTAIdsOverTCP` in `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` |
 | `0x41` | `EEPROM_WRITE` | serial only | `Device.WriteNetConfig` | the network block, a literal in both `test/unit/test_link_eth.c` (`NETCFG`) and `sdk/go/netcfg_test.go` (`netcfgVector`) |
 | `0x40` | `EEPROM_READ` | serial only | `Device.ReadNetConfig` | the same literal, decoded by `(*NetConfig).UnmarshalBinary` in `sdk/go/netcfg_test.go` |
 | `0x70`–`0x75` | `PROV_*` | serial, provisioning image only | `Device.Prov*` | [device-provisioning api](../device-provisioning/api.md) |
@@ -312,11 +297,16 @@ directly. go-quicbaas does not need to (R3).
   (step 13), `AttestLevel` from the crypto tier, and `Algorithms` from the
   device's bitmap. It never owns the link: closing the backend leaves the
   connection to whoever accepted it.
-- **End to end.** `xkms/e2e/device_attest_dice_e2e_test.go` enrols the real
-  firmware (`tfwsim.StartElement`) through go-xkms's ACME client and server with
-  device-attest-01 and a stand-in registry. It also covers the refusals: another
-  UEID, another nonce, a CSR for another key or nonce, another provisioned key,
-  an unprovisioned device.
+- **End to end.** `TestSoftRootEnrollsThroughDeviceAttest01` in
+  `xkms/e2e/soft_enroll_test.go` (`make xkms-e2e-soft`, in `make ci`) enrols the
+  real firmware compiled for the host through go-xkms's ACME client and server
+  with device-attest-01 and a stand-in registry; `TestHardwareEnrollment` in
+  `xkms/e2e/hw_enroll_test.go` (`make hw-enroll`, bench only) does the same
+  against a board. `xkms/e2e/device_attest_dice_e2e_test.go` holds only their
+  helpers (`diceElement`, `deviceRegistry`). The refusals (another UEID,
+  another nonce, a CSR for another key or nonce, another provisioned key, an
+  unprovisioned device) are `TestDeviceAttest*` in
+  `xkms/avr/device_attest_test.go`.
 
 ## Requirements on other repositories
 
@@ -357,7 +347,7 @@ around one.
   device seam.
 - **R5 — go-xkms#1441: the verifier and the CSR builder.** The registry-anchored
   DICE verifier, the possession-CSR profile and its builder, pinned to
-  `TFWV_CSR_CRI`. The e2e above runs them at go-xkms v0.57.0-alpha, the version `xkms/go.mod` pins.
+  `TFWV_CSR_CRI`. The e2e above runs them at go-xkms v0.64.2-alpha, the version `xkms/go.mod` pins.
 
 ## This repository's own open items
 
@@ -415,9 +405,9 @@ around one.
    the firmware hash as an FWID, a second CoSWID file in 273, or a submodule
    (266)? The firmware follows with new templates and new vectors; nothing here
    changes until go-xkms rules.
-4. **An `sdk/go` tag.** `xkms` pins `sdk/go` v0.4.0-alpha, which predates
-   `AliasUCCS` and `ApplicationEvidence` (`sdk/go/appevidence.go`). Cutting the
-   next `sdk/go` tag lets the adapter call them instead of reading the claims
+4. **An `sdk/go` tag.** Closed (#524): `xkms` pins `sdk/go` v0.4.2-alpha,
+   which exports `AliasUCCS` and `ApplicationEvidence`, and the adapter reads
+   claim 273 through them (`Attestation.ApplicationEvidence`) rather than
    from go-xkms alone.
 
 ## Trust boundaries
@@ -438,8 +428,11 @@ around one.
 
 - **No enrolment, registry, profile or verification code.** Those are
   go-trusted-platform's and go-xkms's; this page names the seam.
-- **No ACME client on the device, no DHCP yet, no listening port.** The device
-  dials one provisioned endpoint and answers five commands, `APP_INFO` only
-  in an image with an application.
+- **No ACME client on the device, no listening port.** The device dials one
+  provisioned endpoint and answers only the allow-listed commands above
+  (`APP_INFO` only in an image with an application, the OTA ids only in an
+  image with the stager). Its address is static or, in an image built with
+  `DHCP=1`, leased (`TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice` in
+  `sdk/go/cmd/tfwctl/e2e_netcfg_test.go`).
 - **No new command, status, vector or `sdk/go` call.** Every row above cites what
   already ships.

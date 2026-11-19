@@ -70,8 +70,11 @@ ARCH_BOARD_RESTORE = \
 # memory (src/hal/esp32/hal_handoff.c), so the real identity sources link.
 ARCH_HANDOFF := 1
 # ...but takes no update request: OTA is ESP-IDF's, and RESET(1) asks
-# tfw-boot for a session this bootloader does not open.
-ARCH_UPDATE_REQUEST := none
+# tfw-boot for a session this bootloader does not open. "arch" links
+# src/core/update_request_arch.c, which leaves tfw_update_slots() to
+# ARCH_OTA_SRCS below: the update path an application's ota_slots is checked
+# against is ESP-IDF's (#461).
+ARCH_UPDATE_REQUEST := arch
 
 # The OTA session (#48, design slices 4 and 5): OTA_BEGIN/DATA/END/STATUS, then
 # OTA_AUTH and OTA_ACTIVATE into the slot that is not running, OTA_CONFIRM on

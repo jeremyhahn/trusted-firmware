@@ -80,7 +80,9 @@ def main():
                     write(args[0], args[1])
     elif tool == "pyocd":
         if argv[0] == "cmd":
-            _, addr, size, path = after(argv, "-c")[0].split()
+            # The recipe halts the core before it reads: the last -c reads.
+            last = len(argv) - 1 - argv[::-1].index("-c")
+            _, addr, size, path = argv[last + 1].split()
             read(addr, size, path)
         elif argv[0] == "load":
             write(argv[-1], after(argv, "--base-address")[0])

@@ -19,8 +19,9 @@ Documents cited:
   2025-03-07; document version **not confirmed**). It describes the board
   PCA10156 and mentions DK v0.9.1. Sections cited by title.
 - **[PS]** *nRF54L15 | nRF54L10 | nRF54L05 Datasheet*, Nordic Semiconductor
-  (docs.nordicsemi.com, `ps_nrf54l15`; version **not confirmed**). Sections
-  cited by title.
+  (docs.nordicsemi.com, `ps_nrf54l15`; version **not confirmed**, and not
+  pinned: the site answered a Cloudflare challenge on 2026-11-16, #513).
+  Sections cited by title.
 - **[MDK]** the nrfx MDK, Nordic's device headers and `SystemInit`
   (<https://github.com/NordicSemiconductor/nrfx>, revision `d1f2c35a4820961f4f7b7b2ece007f8e037842db`),
   files cited by name.
@@ -84,11 +85,16 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
    RP2350's are; proven by the new `boot/hal/cortex-m/nrf54l/test/test_boot_nrf54l_uart.c`
    and `test_boot_nrf54l_rram.c`.
 2. **The datasheet reads left open** (no hardware; ADR open question 9 pins
-   [PS]'s revision): the KMU's slot and metadata layout, the immutable boot
-   region's start and `BOOTCONF.SIZE` unit, the system `RRAMC.REGION`, the
-   UICR's address (`0x00FFD000`, used by `make board-record`), CRACEN's
-   curves, and the PWM and tone items under "What is not verified"; updates
-   this page and `docs/reference/README.md`; docs only.
+   [PS]'s revision): read for #513, "Datasheet reads (#513)" below. The UICR's
+   address (`0x00FFD000`, used by `make board-record`) is settled from [MDK];
+   the KMU's slot count and fields, the `BOOTCONF` and `RRAMC.REGION`
+   registers and the CRACEN driver's curves are recorded from [MDK] and
+   sdk-nrf. Still open, because [PS] could not be retrieved (a Cloudflare
+   challenge): the KMU's slot and metadata layout, the immutable boot
+   region's start and `BOOTCONF.SIZE` unit, the system `RRAMC.REGION`,
+   CRACEN's hardware curves, and the PWM and tone items under "What is not
+   verified". Once a copy of [PS] is held: pin it in
+   `docs/reference/README.md` and fill that section's open column; docs only.
 3. **The first bench run** (needs hardware and the bench; ADR open question 7
    for the restore): `make board-record BOARD=nrf54l15-dk
    CM_PROBE_SERIAL=<serial>`, then `make boot-flash` and `make flash`, the
@@ -215,9 +221,35 @@ detail is **not confirmed**; none is used by the first slice.
 |---|---|
 | TrustZone-M | hardware isolation between secure and non-secure resources as defined by Arm TrustZone, with peripherals assignable to either world ("TrustZone security"; "Peripherals with split security access") |
 | KMU | Key management unit: keys in a dedicated RRAM region; the KMU and its key slots in SICR are accessible from secure mode only ("KMU — Key management unit") |
-| CRACEN | Cryptographic accelerator engine. With the KMU, keys can be pushed to CRACEN so they stay protected even from secure-world code; it has DPA countermeasures ("CRACEN — Cryptographic accelerator engine"). Which curves it accelerates is **not confirmed** |
+| CRACEN | Cryptographic accelerator engine. With the KMU, keys can be pushed to CRACEN so they stay protected even from secure-world code; it has DPA countermeasures ("CRACEN — Cryptographic accelerator engine"). Which curves it accelerates is **not confirmed**; the curves Nordic's driver supports are in "Datasheet reads (#513)" |
 | Boot | an immutable boot region ("Immutable boot region"); Nordic does not call it "secure boot" in the section read |
 | Tamper | TAMPC tamper controller and voltage glitch detectors ("TAMPC — Tamper controller"; "GLITCHDET — Voltage glitch detectors") |
+
+## Datasheet reads (#513)
+
+Slice 2 of "Remaining slices": the values the page left open for [PS]. [PS]
+could not be read: on 2026-11-16 every Nordic documentation host answered 403
+with a Cloudflare browser challenge, so its revision is not pinned
+([`../reference/README.md`](../reference/README.md), "Cortex-M sources") and
+no item below is settled by a [PS] section. What the pinned [MDK] files and
+sdk-nrf documents ([NCS], below) settle is recorded; what they leave is
+**open**, waiting on a copy of [PS]. Nothing here is used by the code yet.
+
+| Item | What the pinned sources settle | Open, and why |
+|---|---|---|
+| UICR address | **settled**: `NRF_UICR_S_BASE` is `0x00FFD000`, the address `make board-record` reads. `BOOTCONF` is at UICR offset `0x080`, reset value `0xFFFFFFFF`; the UICR is `0xA00` bytes ([MDK] `nrf54l15_global.h`; `nrf54l15_types.h`, `NRF_UICR_Type`) | nothing for the address; [PS]'s UICR chapter is the second source when it is held |
+| Immutable boot region: start | `BOOTCONF` has no address field: READ (bit 0, needed for the CPU to start executing from RRAM), WRITE (1), EXECUTE (2), SECURE (3), WRITEONCE (12), LOCK (13: the RRAMC configuration registers of the immutable boot region read-only) and SIZE (bits 16-20). So the start is fixed by the part, not configured ([MDK] `nrf54l15_types.h`, `UICR_BOOTCONF_*`) | **open**: the start address itself; the port assumes `0x0`, where the core boots tfw-boot. Needs [PS], "Immutable boot region" |
+| Immutable boot region: `BOOTCONF.SIZE` unit | a 5-bit field at the bit position of `RRAMC.REGION[n].CONFIG.SIZE`, which the MDK gives as "Size in KBytes"; [NCS] memory protection, "Hardware background", gives RRAMC regions of roughly 31 kB on the nRF54L15, the 5-bit maximum in KB ([MDK] `nrf54l15_types.h`, `RRAMC_REGION_CONFIG_SIZE_*`) | **open**: the MDK states no unit for `BOOTCONF.SIZE` itself; KB is the likely reading, not a confirmed one. Needs [PS]'s UICR chapter, `BOOTCONF` |
+| The system `RRAMC.REGION` | five regions, `REGION[0..4]`, each an `ADDRESS` and a `CONFIG` (READ, WRITE, EXECUTE, SECURE, OWNER, WRITEONCE, LOCK, SIZE), both resetting to 0. The MDK says "some regions are dedicated for system use and are not available for configuration - refer to the instantiation table"; [NCS] memory protection, "During MCUboot execution", uses region 4 by default ([MDK] `nrf54l15_types.h`, `NRF_RRAMC_REGION_Type`) | **open**: which indices are the system's and which one `BOOTCONF` feeds, so whether reset's regions let the Secure core write the platform block ("What is not verified"). Needs [PS]'s RRAMC chapter, its instantiation table |
+| KMU slots | 256 slots, each 128 bits of key material, a 32-bit destination address and 32 bits of metadata; a key over 128 bits takes consecutive slots; the slots live in SICR, `NRF_SICR_S_BASE` `0x00FFE000`. sdk-nrf reserves 180-255 (the IKG seed in 183-185, the bootloader key generations in 226-231 and 242-247). The KMU at `0x50045000` is driven by `KEYSLOT` (`0x500`), `SRC` (`0x504`) and the tasks `PROVISION`, `PUSH`, `REVOKE`, `READMETADATA`, `PUSHBLOCK` ([NCS] KMU and CRACEN overview, "KMU slots", "KMU hardware peripheral"; [MDK] `nrf54l15_global.h`, `nrf54l15_types.h`, `NRF_KMU_Type`) | **open**: the slot's layout in SICR, which the MDK does not describe, and whether the slot count is the part's or sdk-nrf's. Needs [PS], "KMU — Key management unit" |
+| KMU metadata | 32 bits per slot, read through `METADATA` (`0x508`) after `TASKS_READMETADATA`; sdk-nrf's provisioning fields are VALUE, RPOLICY, DEST and METADATA ([MDK] `NRF_KMU_Type`; [NCS] KMU provisioning overview, "kmu_metadata_fields") | **open**: the bit layout. [NCS] defers it to [PS] and the CRACEN driver's own `struct kmu_metadata`, which is a software convention, not the part's. Needs [PS], "KMU" |
+| CRACEN curves | the CRACEN driver supports, on the nRF54L15: secp224r1, secp256r1, secp384r1, secp521r1, secp256k1, BrainpoolP224r1 to P512r1, X25519, X448, Ed25519 and Ed448; its ECC countermeasures cover ECDSA, point multiplication, X25519/X448 and EdDSA ([NCS] Cryptographic supported features, "ECC curve types", the CRACEN nRF54L table; KMU and CRACEN overview, "CRACEN side-channel countermeasures") | **open**: which of these the hardware accelerates and which the driver builds on a generic engine; a driver table is not the part's. Needs [PS], "CRACEN — Cryptographic accelerator engine" |
+| PWM, tone | none of the items under "What is not verified" is in the MDK or [NCS]: each is a behaviour, not a register | **open**, every item: needs [PS], "PWM — Pulse width modulation" and its TIMER, GPIOTE and DPPI chapters, and a run on the board (slice 3) |
+
+[NCS] is sdk-nrf at `94c7193d404ccb023e4b2f09a595149de681028e`: *nRF54L
+memory protection*, *KMU and CRACEN overview*, *KMU provisioning overview*
+and *Cryptographic supported features*, each listed with its SHA-256 in
+[`../reference/README.md`](../reference/README.md), "Cortex-M sources".
 
 ## Upstream TF-M
 
@@ -277,7 +309,7 @@ verified:
   disconnected as far as the registers say.
 
 For the PWM, none of these is verified on the board, and each needs [PS],
-"PWM — Pulse width modulation":
+"PWM — Pulse width modulation", which #513 could not retrieve:
 
 - that PWM20 reaches port 1 only (the port drives no port 0 or port 2 pin
   with it, the reversible choice) and that its EasyDMA reads the sequence
@@ -292,7 +324,8 @@ For the PWM, none of these is verified on the board, and each needs [PS],
   disconnected (the port never clears it, rather than clearing it before
   `EVENTS_STOPPED`).
 
-For the tone, none of these is verified ([PS] was not read):
+For the tone, none of these is verified ([PS] was not read; #513 could not
+retrieve it):
 
 - that GPIOTE20 drives P1's pins and no other port's (taken from the
   instance numbers and addresses above);

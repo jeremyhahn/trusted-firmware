@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package main
+
+import (
+	"fmt"
+	"math"
+	"testing"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
+)
+
+// peerBoard is what the scenarios have to know about the board they talk to:
+// pin numbers and what the board's own profile says about them. tfwsim is
+// compiled against the 328P's profile; `make hw-test` names the board on the
+// port.
+type peerBoard struct {
+	// resetCause is what SYS_INFO reports after the connect. tfwsim starts
+	// from power-on. A real board was just reset through DTR, and its stock
+	// bootloader cleared MCUSR before the application could latch it, so the
+	// honest answer is unknown (src/hal/avr/hal_sys.c). It holds only where
+	// Start resets the peer: see resetCauseHolds.
+	resetCause tfw.ResetCause
+	// heldCauses are what a board found running (a TCP wire, no reset) may
+	// report: the cause of its last boot, which the run did not choose. Nil
+	// means the board is always reset on connect and reports resetCause.
+	heldCauses []tfw.ResetCause
+	ledPort    uint8          // the LED pin 13's port index
+	ledBit     uint8          // and bit
+	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
+	analog     uint8          // a pin with an ADC channel and a digital port
+	adcPin     uint8          // the ADC pin the descriptor scenario reads
+	adcChannel uint8          // adcPin's channel
+	adcPort    bool           // whether adcPin has a digital port
+	adcOnly    int            // how many pins are ADC inputs with no digital port
+	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where no PWM pin is spent on it
+	noPWMPin   uint8          // a digital pin with no compare unit at all
+	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
+	ledPin     uint8          // the pin the board's table flags as its LED; with noLED, a plain GPIO
+	noLED      bool           // the board has no LED: ledPin is a plain digital pin, TFW_PIN_DIGITAL alone
+	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
+	timerPin   uint8          // a digital output the timer scenario drives and reads back
+	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
+}
+
+var peerBoards = map[string]peerBoard{
+	"atmega328p": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    0, ledBit: 5, ledPWM: tfw.PWMNone, // PB5
+		analog: 14,                                // A0, PC0
+		adcPin: 20, adcChannel: 6, adcPort: false, // A6
+		adcOnly: 2,               // A6 and A7
+		tickPin: 5, noPWMPin: 13, // OC0B
+		pwmPin: 9, // OC1A
+		ledPin: 13, txPin: 1, timerPin: 2,
+		tonePin: 11, // OC2A, PB3
+	},
+	"atmega2560": {
+		resetCause: tfw.ResetUnknown,
+		ledPort:    1, ledBit: 7, ledPWM: tfw.PWMSystemTick, // PB7, OC0A
+		analog: 54, // A0, PF0
+		adcPin: 54, adcChannel: 0, adcPort: true,
+		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
+		tickPin: 4, noPWMPin: 22, // OC0B; PA0
+		pwmPin: 9, // OC2B
+		ledPin: 13, txPin: 1, timerPin: 2,
+		tonePin: 10, // OC2A, PB4: not the 328P's 11
+	},
+	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
+	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
+	// 1 on the FPGA I/O block's port 0, outputs only, and pin 2 the shield 0
+	// SPI select (MISC, port 1 bit 8), no flags; no ADC, no PWM, and the
+	// UART outside the pin table. QEMU's system_reset leaves no reset mark
+	// behind, so the HAL reads power-on (src/hal/cortex-m/hal_early.c). The
+	// analog, PWM, EEPROM, bus and pulse rows find their families absent from
+	// CAPS and fail (requireFeature), so the QEMU run leaves them out; their
+	// pin fields here are never read.
+	"mps2-an505": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
+		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+	},
+	"mps2-an500": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
+		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+	},
+	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
+	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
+	// digital pin; the console UART is outside the table. Reached over
+	// PORT=tcp:, so no reset: the cause is the last boot's, power-on after a
+	// power cycle or the EN button, software after a RESET command
+	// (src/hal/esp32/hal_sys.c). A watchdog or panic boot is not healthy.
+	"esp32p4-poe": {
+		resetCause: tfw.ResetPowerOn,
+		heldCauses: []tfw.ResetCause{tfw.ResetPowerOn, tfw.ResetExternal, tfw.ResetSoftware},
+		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
+		analog: 7, // GPIO20
+		adcPin: 7, adcChannel: 4, adcPort: true,
+		adcOnly: 0,
+		// The tick is the system timer, not an LEDC channel: no PWM pin is
+		// spent on it. Pin 9 here is GPIO22, an ADC input with no LEDC.
+		tickPin: -1, noPWMPin: 11, // GPIO32
+		pwmPin: 0,                                        // GPIO2, LEDC0
+		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
+		tonePin: 4, // GPIO6, the first pin with no LEDC channel
+	},
+}
+
+// The Pin and PWM rows take their PWM pin from the board's facts (#547):
+// every board whose row list runs either row has facts, and its PWM pin is
+// none of the pins those rows expect to refuse a duty or to be an ADC input.
+// The AVR boards keep pin 9; the ESP32-P4's pin 9 is an ADC input, so its
+// row drives LEDC0.
+func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
+	want := map[string]uint8{"atmega328p": 9, "atmega2560": 9, "esp32p4-poe": 0}
+	for board := range boardImages {
+		run := boardRun(t, board, false)
+		if !run.MatchString("TestFirmwarePWM") && !run.MatchString("TestFirmwarePin") {
+			continue
+		}
+		b, ok := peerBoards[board]
+		if !ok {
+			t.Errorf("%s runs the Pin or PWM row and has no pin facts in peerBoards", board)
+			continue
+		}
+		if pin, ok := want[board]; !ok {
+			t.Errorf("%s: no expected PWM pin in this test", board)
+		} else if b.pwmPin != pin {
+			t.Errorf("%s: PWM pin %d, want %d", board, b.pwmPin, pin)
+		}
+		if b.pwmPin == b.noPWMPin || int(b.pwmPin) == b.tickPin {
+			t.Errorf("%s: PWM pin %d is a pin the PWM row expects to refuse a duty", board, b.pwmPin)
+		}
+		if b.pwmPin == b.adcPin || b.pwmPin == b.analog {
+			t.Errorf("%s: PWM pin %d is the board's ADC pin", board, b.pwmPin)
+		}
+	}
+}
+
+// ledPinFlags is what the Pin row expects of the board's ledPin: digital and
+// LED on a board with an LED; on one without (noLED), digital and not LED,
+// the pin's own flags in board.c (Codex P1 on #567).
+func ledPinFlags(b peerBoard) (want, absent tfw.PinFlags) {
+	if b.noLED {
+		return tfw.PinDigital, tfw.PinLED
+	}
+	return tfw.PinDigital | tfw.PinLED, 0
+}
+
+// TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne: the ESP32-P4 has no LED, so
+// its Pin row asserts pin 11 plain digital (boards/esp32p4-poe/board.c gives
+// it TFW_PIN_DIGITAL alone); the AVR and MPS2 boards keep digital and LED.
+func TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne(t *testing.T) {
+	for board, b := range peerBoards {
+		want, absent := ledPinFlags(b)
+		if board == "esp32p4-poe" {
+			if want != tfw.PinDigital || absent != tfw.PinLED {
+				t.Errorf("%s: pin %d expects %s without %s, want digital without led", board, b.ledPin, want, absent)
+			}
+			continue
+		}
+		if want != tfw.PinDigital|tfw.PinLED || absent != 0 {
+			t.Errorf("%s: pin %d expects %s, want digital and led", board, b.ledPin, want)
+		}
+	}
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePin") {
+		t.Error("esp32p4-poe: the Pin row is not run")
+	}
+}
+
+// resetCauseHolds reports whether the Sys row accepts got as board b's reset
+// cause on target. Start resets a simulator or a serial board, so the cause
+// is the board's resetCause; a TCP wire finds the board running after
+// whatever restart it last had, a software one among them, so there no one
+// cause is established (Codex P1 on #568).
+func resetCauseHolds(b peerBoard, target peer.Target, got tfw.ResetCause) bool {
+	return !target.Resets() || got == b.resetCause
+}
+
+func TestSysRowFixesTheResetCauseOnlyWhereStartResets(t *testing.T) {
+	p4 := peerBoards["esp32p4-poe"]
+	tcp := peer.Target{Board: "esp32p4-poe", Port: peer.TCPPrefix + "<board>:21574"}
+	if !resetCauseHolds(p4, tcp, tfw.ResetSoftware) {
+		t.Error("esp32p4-poe over TCP: a software restart fails the Sys row")
+	}
+	serial := peer.Target{Board: "atmega2560", Port: "serial"}
+	mega := peerBoards["atmega2560"]
+	if !resetCauseHolds(mega, serial, mega.resetCause) {
+		t.Errorf("atmega2560 reset by Start: its own cause %v fails the Sys row", mega.resetCause)
+	}
+	if resetCauseHolds(mega, serial, tfw.ResetSoftware) {
+		t.Error("atmega2560 reset by Start: a software restart passes the Sys row")
+	}
+}
+
+// TestToneRowUsesTheBoardsTonePin: each board that runs the tone row has its
+// TFW_TONE_PIN in its pin facts (boards/<board>/board_profile.h), and that pin
+// is not the PWM pin the row expects TONE to refuse.
+func TestToneRowUsesTheBoardsTonePin(t *testing.T) {
+	want := map[string]uint8{"atmega328p": 11, "atmega2560": 10, "esp32p4-poe": 4}
+	for board := range boardImages {
+		if !boardRun(t, board, false).MatchString("TestFirmwareTone") {
+			continue
+		}
+		b, ok := peerBoards[board]
+		if !ok {
+			t.Errorf("%s runs the tone row and has no pin facts in peerBoards", board)
+			continue
+		}
+		if pin, ok := want[board]; !ok {
+			t.Errorf("%s: no expected tone pin in this test", board)
+		} else if b.tonePin != pin {
+			t.Errorf("%s: tone pin %d, want %d", board, b.tonePin, pin)
+		}
+		if b.tonePin == b.pwmPin {
+			t.Errorf("%s: tone pin %d is the PWM pin the tone row expects to be refused", board, b.tonePin)
+		}
+	}
+}
+
+// toneFrequency is the frequency a capture's half periods give. The first
+// interval runs from the capture seeing its start level, not from an edge, so
+// it is dropped, and so is the last when it would leave half a period over.
+func toneFrequency(edgesUS []uint16) (float64, error) {
+	if len(edgesUS) < 3 {
+		return 0, fmt.Errorf("%d edges: no whole period left to time", len(edgesUS))
+	}
+	halves := edgesUS[1:]
+	if len(halves)%2 != 0 {
+		halves = halves[:len(halves)-1]
+	}
+	var sum uint64
+	for _, h := range halves {
+		sum += uint64(h)
+	}
+	if sum == 0 {
+		return 0, fmt.Errorf("%d half periods summing to 0 us", len(halves))
+	}
+	return float64(len(halves)/2) * 1e6 / float64(sum), nil
+}
+
+// TestToneFrequencyTimesWholePeriods: the first interval, which starts at no
+// edge, and an odd half period left over are not timed.
+func TestToneFrequencyTimesWholePeriods(t *testing.T) {
+	for _, c := range []struct {
+		edges []uint16
+		want  float64
+	}{
+		{[]uint16{123, 500, 500, 500, 500, 999}, 1000},
+		{[]uint16{7, 250, 250, 250}, 2000},
+		{[]uint16{0, 490, 510}, 1000},
+	} {
+		got, err := toneFrequency(c.edges)
+		if err != nil || math.Abs(got-c.want) > 0.001 {
+			t.Errorf("toneFrequency(%v) = %v, %v; want %v", c.edges, got, err, c.want)
+		}
+	}
+	for _, edges := range [][]uint16{nil, {500}, {500, 500}, {1, 0, 0}} {
+		if _, err := toneFrequency(edges); err == nil {
+			t.Errorf("toneFrequency(%v): no error", edges)
+		}
+	}
+}

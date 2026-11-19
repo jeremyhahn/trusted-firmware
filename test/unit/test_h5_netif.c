@@ -2,7 +2,9 @@
  * The STM32H5 netif (hal_eth_netif.c) on the vendored lwIP, built for the
  * host: the PHY, MAC and wire it drives are fakes here, lwIP's netif, DHCP and
  * timers are the real ones. A link flap must not restart DHCP: after the lease
- * runs out with no reply, the address is cleared (#584, Codex round 3).
+ * runs out with no reply, the address is cleared (#584, Codex round 3). An
+ * offered address is ARP-probed before it is bound, and declined when another
+ * host answers (#584, Codex round 3 on 459ee3f23).
  */
 #include <stdint.h>
 #include <string.h>
@@ -63,18 +65,56 @@ int tfw_h5_eth_mdio_write(uint8_t addr, uint8_t reg, uint16_t val)
     return 0;
 }
 
-/* --- the MAC: frames sent are counted, none ever arrive (no DHCP server) -- */
+/* --- the MAC: frames sent are counted and the DHCP and ARP ones decoded; a
+ * test hands one frame at a time up (the DHCP server, a conflicting host) -- */
+/* The offered address, 192.0.2.10: RFC 5737 documentation range. */
+static const uint8_t offered_ip[4] = { 192, 0, 2, 10 };
+static unsigned dhcp_sent;              /* bit n: a DHCP message of type n went out */
+static uint8_t  dhcp_xid[4];            /* the xid of the last one */
+static unsigned arp_probes;             /* ARP probes for offered_ip */
+static uint8_t  rx_frame[400];
+static size_t   rx_len;
+
 int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return 0; }
 void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; (void)mac; mac_cr = sp; }
 void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
 void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
 int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
 {
-    (void)m; (void)frame; (void)len;
+    const uint8_t *f = frame;
+    static const uint8_t zero[4];
+
+    (void)m;
     tx_frames++;
+    if (len >= 42u && f[12] == 0x08u && f[13] == 0x06u && f[21] == 1u &&
+        memcmp(f + 28, zero, 4) == 0 && memcmp(f + 38, offered_ip, 4) == 0) {
+        arp_probes++;
+    }
+    /* IPv4, UDP to port 67: BOOTP at 42, its options after the cookie at 282. */
+    if (len >= 285u && f[12] == 0x08u && f[13] == 0x00u && f[23] == 17u &&
+        f[36] == 0u && f[37] == 67u) {
+        memcpy(dhcp_xid, f + 46, 4);
+        for (size_t o = 282u; o + 2u < len && f[o] != 255u; o += 2u + f[o + 1u]) {
+            if (f[o] == 53u) {
+                dhcp_sent |= 1u << f[o + 2u];
+                break;
+            }
+        }
+    }
     return 0;
 }
-int tfw_eth_mac_rx(tfw_eth_mac_t *m, void *out, size_t cap) { (void)m; (void)out; (void)cap; return 0; }
+int tfw_eth_mac_rx(tfw_eth_mac_t *m, void *out, size_t cap)
+{
+    size_t n = rx_len;
+
+    (void)m;
+    if (n == 0u || n > cap) {
+        return 0;
+    }
+    memcpy(out, rx_frame, n);
+    rx_len = 0u;
+    return (int)n;
+}
 
 /* --- the wire: tested on its own in test_h5_eth_wire.c ------------------- */
 void tfw_h5_wire_listen(void) { }
@@ -93,6 +133,113 @@ static void run_for(tfw_ms_t ms)
 
 /* The lease, as dhcp_bind leaves it after an ACK: 3 coarse ticks (180 s),
  * renewing at 60 s and rebinding at 120 s. */
+/* A DHCP reply from the server at 192.0.2.1 (MAC 02:00:00:00:00:01) to the
+ * broadcast address, for the client's last xid, offering offered_ip. */
+static void inject_dhcp_reply(uint8_t type)
+{
+    static const uint8_t opts[] = {
+        53, 1, 0,                       /* message type, patched below */
+        54, 4, 192, 0, 2, 1,            /* server identifier */
+        51, 4, 0, 0, 0x0e, 0x10,        /* lease 3600 s */
+        1, 4, 255, 255, 255, 0,         /* subnet mask */
+        255
+    };
+    uint8_t *f = rx_frame, *ip = f + 14, *udp = f + 34, *b = f + 42;
+    uint32_t sum = 0u;
+
+    memset(rx_frame, 0, sizeof rx_frame);
+    memset(f, 0xFF, 6);
+    f[6] = 0x02u; f[11] = 0x01u;
+    f[12] = 0x08u;
+    ip[0] = 0x45u; ip[2] = 0x01u; ip[3] = 0x48u;   /* 20 + 8 + 300 */
+    ip[8] = 64u; ip[9] = 17u;
+    ip[12] = 192u; ip[13] = 0u; ip[14] = 2u; ip[15] = 1u;
+    memset(ip + 16, 0xFF, 4);
+    for (unsigned i = 0u; i < 20u; i += 2u) {
+        sum += ((uint32_t)ip[i] << 8) | ip[i + 1u];
+    }
+    sum = (sum & 0xFFFFu) + (sum >> 16);
+    sum = ~sum & 0xFFFFu;
+    ip[10] = (uint8_t)(sum >> 8); ip[11] = (uint8_t)sum;
+    udp[1] = 67u; udp[3] = 68u; udp[4] = 0x01u; udp[5] = 0x34u;  /* 8 + 300, no checksum */
+    b[0] = 2u; b[1] = 1u; b[2] = 6u;
+    memcpy(b + 4, dhcp_xid, 4);
+    memcpy(b + 16, offered_ip, 4);
+    memcpy(b + 28, netif_default->hwaddr, 6);
+    b[236] = 0x63u; b[237] = 0x82u; b[238] = 0x53u; b[239] = 0x63u;
+    memcpy(b + 240, opts, sizeof opts);
+    b[242] = type;
+    rx_len = 42u + 300u;
+}
+
+/* An ARP reply from another host (MAC 02:00:00:00:00:02) that holds offered_ip. */
+static void inject_arp_conflict(void)
+{
+    uint8_t *f = rx_frame, *a = f + 14;
+
+    memset(rx_frame, 0, sizeof rx_frame);
+    memset(f, 0xFF, 6);
+    f[6] = 0x02u; f[11] = 0x02u;
+    f[12] = 0x08u; f[13] = 0x06u;
+    a[1] = 1u; a[2] = 0x08u; a[4] = 6u; a[5] = 4u; a[7] = 2u;
+    a[8] = 0x02u; a[13] = 0x02u;
+    memcpy(a + 14, offered_ip, 4);
+    memcpy(a + 24, offered_ip, 4);
+    rx_len = 60u;
+}
+
+static int run_until(const unsigned *what, unsigned want, tfw_ms_t max_ms)
+{
+    for (tfw_ms_t end = now_ms + max_ms; now_ms < end; now_ms += 100u) {
+        tfw_hal_eth_poll();
+        if ((*what & want) != 0u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* DISCOVER, OFFER, REQUEST, ACK: the client then probes the offered address
+ * (RFC 5227) before taking it. */
+static void offer_and_ack(void)
+{
+    TEST_ASSERT_TRUE(run_until(&dhcp_sent, 1u << DHCP_DISCOVER, 70000u));
+    inject_dhcp_reply(DHCP_OFFER);
+    TEST_ASSERT_TRUE(run_until(&dhcp_sent, 1u << DHCP_REQUEST, 2000u));
+    arp_probes = 0u;
+    inject_dhcp_reply(DHCP_ACK);
+    run_for(100u);
+}
+
+/* #584 Codex round 3: another host answering the probe for the offered
+ * address makes the client decline it, not bind it. */
+static void test_a_conflicting_arp_reply_declines_the_offered_address(void)
+{
+    link_up_flag = 1u;
+    dhcp_sent = 0u;
+    offer_and_ack();
+    TEST_ASSERT_FALSE(dhcp_supplied_address(netif_default));
+    TEST_ASSERT_TRUE(run_until(&arp_probes, ~0u, 3000u));
+    inject_arp_conflict();
+    run_for(500u);
+    TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DECLINE)) != 0u);
+    run_for(10000u);
+    TEST_ASSERT_FALSE(dhcp_supplied_address(netif_default));
+    TEST_ASSERT_TRUE(ip4_addr_isany_val(*netif_ip4_addr(netif_default)));
+}
+
+/* With no reply to the probes, the client binds the offered address. */
+static void test_an_unanswered_probe_binds_the_offered_address(void)
+{
+    dhcp_sent = 0u;
+    offer_and_ack();
+    run_for(10000u);
+    TEST_ASSERT_TRUE(arp_probes >= 3u);
+    TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DECLINE)) == 0u);
+    TEST_ASSERT_TRUE(dhcp_supplied_address(netif_default));
+    TEST_ASSERT_EQUAL_HEX32(PP_HTONL(0xC000020Au), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+}
+
 static void bind_by_hand(struct netif *nif)
 {
     struct dhcp *d = netif_dhcp_data(nif);
@@ -274,6 +421,8 @@ int main(void)
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);
+    RUN_TEST(test_a_conflicting_arp_reply_declines_the_offered_address);
+    RUN_TEST(test_an_unanswered_probe_binds_the_offered_address);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
     return UNITY_END();

@@ -155,7 +155,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_mps2_pwm.c test/unit/test_mps2_tone.c test/unit/test_mps2_onewire.c test/unit/test_mps2_gpio_line.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c test/unit/test_stm32h5_eeprom.c test/unit/test_mcxn94x_eeprom.c test/unit/test_rp2350_eeprom.c \
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
-                            test/unit/test_mps2_soc.c \
+                            test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -1519,6 +1519,14 @@ $(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_puls
                            src/hal/cortex-m/cm_cycles.h $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
+# test_tz_regions_<board> checks a TZ=1 board's SAU table (#590): the same
+# test and table source, with the board's map header, as its secure image.
+$(HOST_DIR)/test_tz_regions_%: test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c \
+                               src/hal/cortex-m/tz/tz_regions.h src/hal/cortex-m/tz/tz_map_%.h \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -include src/hal/cortex-m/tz/tz_map_$*.h -Isrc/hal/cortex-m/tz $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # test_rp2350_eeprom links the RP2350's flash EEPROM and tfw-boot's
 # read-modify-write and the Cortex-M millisecond clock over a NOR, TIMER0 and
 # SysTick model; the model's cm_regs.h comes ahead of src/hal/cortex-m/.
@@ -1536,6 +1544,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
+                    $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
@@ -1931,6 +1940,13 @@ test-verdict = fail=0; for t in $(1); do read -r rc < $$t.rc; \
 
 host-test: $(HOST_TEST_BINS) $(addsuffix .run,$(HOST_TEST_BINS))
 	@$(call test-verdict,$(HOST_TEST_BINS))
+
+# The TZ=1 QEMU case's fault-report parse (#591) over fixed CRLF and LF
+# reports: no QEMU, so host-test carries it.
+.PHONY: qemu-tz-parse-test
+qemu-tz-parse-test:
+	@test/integration/cortex-m/qemu_tz_test.sh --self-test
+host-test: qemu-tz-parse-test
 
 ## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is

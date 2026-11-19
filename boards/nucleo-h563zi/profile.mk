@@ -17,6 +17,13 @@ MCU            := stm32h563zit6
 # No QEMU_MACHINE: QEMU models no STM32H5. CI builds it (the firmware matrix)
 # and the host tests check its tables.
 
+# TZ=1 (#590, docs/plans/590.md): the TrustZone-M split's secure and
+# non-secure images (mk/arch/cortex-m-targets.mk tz-firmware), built and
+# size-checked only. Running them needs TZEN=1 and the bank 1 secure
+# watermark over the secure image's 128 KiB: option bytes the owner sets
+# (CA 583). Nothing in this tree writes an option byte.
+TZ_MAP         := src/hal/cortex-m/tz/tz_map_nucleo_h563zi.h
+
 # The memory map, the STM32H573I-DK's: the same two 1 MiB flash banks at
 # 0x08000000 and 0x08100000, and SRAM1, 256 KiB at 0x20000000, of which this
 # port uses the same 32 KiB. tfw-boot's 32 KiB at flash's base, the

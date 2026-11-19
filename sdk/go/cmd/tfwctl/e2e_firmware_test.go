@@ -69,7 +69,12 @@ func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
 func startFirmware(t *testing.T, opts ...tfw.Option) *tfw.Device {
 	t.Helper()
 	// WithTimeout first so a caller's own option, if any, wins.
-	return tfw.New(peer.Start(t, simproc.Software), append([]tfw.Option{tfw.WithTimeout(5 * time.Second)}, opts...)...)
+	base := []tfw.Option{tfw.WithTimeout(5 * time.Second)}
+	if !firmwareResets(t) {
+		// No reset, so no BOOT to wait for (peer.Target.Resets).
+		base = append(base, tfw.WithBootWait(0))
+	}
+	return tfw.New(peer.Start(t, simproc.Software), append(base, opts...)...)
 }
 
 // cliTier is the crypto tier the device's caps verb names.
@@ -101,6 +106,13 @@ func TestFirmwarePing(t *testing.T) {
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping", "pong")
 	assert.Equal(t, "pong", got.Echo)
+	// With the boot wait off (a tcp: link that does not reset the board), the
+	// first host after boot still reads the BOOT the board buffered for it
+	// (hal_uart.c holds startup output until a host connects); a later host
+	// reads none. Consume that one BOOT, never wait for it.
+	if !firmwareResets(t) {
+		assert.Empty(t, dropBufferedBoot(dev.Events()), "only a buffered BOOT may precede the first reply")
+	}
 
 	full := strings.Repeat("m", tfw.MaxPayload)
 	cliJSON(t, dev, &got, "ping", full)
@@ -116,6 +128,53 @@ func TestFirmwarePing(t *testing.T) {
 	assert.Empty(t, dev.Events(), "the startup BOOT event must be consumed, not reported")
 }
 
+// dropBufferedBoot returns events without a leading BOOT event: at most one,
+// the one a board buffered before its first host connected.
+func dropBufferedBoot(events []tfw.Frame) []tfw.Frame {
+	if len(events) > 0 && events[0].IsEvent() && len(events[0].Payload) > 0 && events[0].Payload[0] == tfw.EventBoot {
+		return events[1:]
+	}
+	return events
+}
+
+// espWirePort serves a fresh tfwsim behind serveESPWire, as the ESP32-P4's
+// tcp: wire, and points the rows at it. The sim's BOOT is held for the first host.
+func espWirePort(t *testing.T) string {
+	t.Helper()
+	sim := simproc.Start(t, simproc.Software)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	serveESPWire(ln, sim, func() {})
+	port := peer.TCPPrefix + ln.Addr().String()
+	t.Setenv(peer.PortEnv, port)
+	t.Setenv(peer.BoardEnv, "esp32p4-poe")
+	return port
+}
+
+func TestPingRowOnTheESP32OverTCPAsTheFirstHostAfterBoot(t *testing.T) {
+	espWirePort(t)
+	require.True(t, t.Run("TestFirmwarePing", TestFirmwarePing), "the Ping row failed as the first host after boot")
+}
+
+func TestPingRowOnTheESP32OverTCPAsALaterHost(t *testing.T) {
+	port := espWirePort(t)
+	// A first host takes the buffered BOOT and leaves.
+	c, err := peer.Open(port, peer.StartBound)
+	require.NoError(t, err)
+	first := tfw.New(c, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = first.Ping(ctx, []byte("x"))
+	cancel()
+	events := first.Events()
+	_ = c.Close()
+	require.NoError(t, err)
+	require.NotEmpty(t, events, "the first host saw no BOOT, so the later host proves nothing")
+	require.Len(t, dropBufferedBoot(events), len(events)-1, "the first host's first event is not BOOT")
+
+	require.True(t, t.Run("TestFirmwarePing", TestFirmwarePing), "the Ping row failed as a later host")
+}
+
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
@@ -126,14 +185,38 @@ func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
 	assertBootEvent(t, conn)
 }
 
-// assertBootEvent pings over conn with no boot wait and asserts the first
-// event the device delivered is its boot event.
+// assertBootEvent pings over conn, a link to a board that has just booted,
+// with no boot wait and asserts the first event the device delivered is its
+// boot event.
 func assertBootEvent(t *testing.T, conn io.ReadWriteCloser) {
 	t.Helper()
-	dev := tfw.New(conn, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
+	bootEventRow(t, tfw.New(conn, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0)), true)
+}
+
+// firmwareResets reports whether the run's target is reset on connect, so it
+// sends BOOT and starts with clean counters (peer.Target.Resets). A board on
+// a TCP wire is found running, with the state earlier rows left on it.
+func firmwareResets(t *testing.T) bool {
+	t.Helper()
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	return target.Resets()
+}
+
+// bootEventRow: a reset peer's first event is BOOT. A peer found running
+// sends none on connect: connecting does not restart it.
+func bootEventRow(t *testing.T, dev *tfw.Device, resets bool) {
+	t.Helper()
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
 	events := dev.Events()
+	if !resets {
+		for _, e := range events {
+			assert.False(t, e.IsEvent() && len(e.Payload) > 0 && e.Payload[0] == tfw.EventBoot,
+				"a board found running sent BOOT on connect: %+v", e)
+		}
+		return
+	}
 	require.NotEmpty(t, events, "no boot event was observed")
 	assert.True(t, events[0].IsEvent() && events[0].Payload[0] == tfw.EventBoot,
 		"first event = %+v, want a boot event", events[0])
@@ -370,7 +453,6 @@ func TestFirmwareCaps(t *testing.T) {
 	assert.EqualValues(t, tfw.MaxPayload, c.MaxPayload,
 		"device MaxPayload and the host constant must agree or a host will send frames the device refuses")
 	assert.True(t, c.Has(tfw.FeatureGPIO), "GPIO not reported; the default build should have it")
-	assert.True(t, c.Has(tfw.FeatureAttest), "attestation compiled in but not reported in CAPS")
 	// CAPS must report the crypto tier it actually has, so a verifier learns
 	// what it is talking to before it decides what the evidence is worth
 	// (docs/wire-protocol/api.md:63), and what it can sign with:
@@ -387,6 +469,18 @@ func TestFirmwareCaps(t *testing.T) {
 	if target.Hardware() && (target.Board == "atmega328p" || target.Board == "atmega32u4") {
 		soft = tfw.AlgHMACSHA256
 	}
+	capsTierRow(t, c, soft)
+}
+
+// capsTierRow is TestFirmwareCaps's tier facts, so a host test can run them
+// against a peer of any tier; soft is the software tier's signer. The none
+// provider's tfw_crypto_algorithms answers 0 (src/crypto/none/provider.c):
+// a host negotiating against it finds nothing to select. ATTEST stays in
+// CAPS on every tier; the none tier answers it UNSUPPORTED
+// (attestRefusedUnprovisionedRow).
+func capsTierRow(t *testing.T, c tfw.Caps, soft tfw.AlgorithmSet) {
+	t.Helper()
+	assert.True(t, c.Has(tfw.FeatureAttest), "attestation compiled in but not reported in CAPS")
 	switch tier := c.CryptoTier.String(); tier {
 	case "software":
 		assert.Equal(t, soft, c.Algorithms, "algorithms = %s, want %s alone", c.Algorithms, soft)
@@ -398,28 +492,53 @@ func TestFirmwareCaps(t *testing.T) {
 	default:
 		t.Fatalf("crypto tier %s: no facts for it", tier)
 	}
-	assert.False(t, c.Algorithms.Can(tfw.AlgEd25519), "the provider claimed Ed25519, which neither tier can perform")
+	assert.False(t, c.Algorithms.Can(tfw.AlgEd25519), "the provider claimed Ed25519, which no tier can perform")
 }
 
 func TestFirmwareSys(t *testing.T) {
-	board, b := firmwareBoard(t)
-	dev := startFirmware(t)
+	_, b := firmwareBoard(t)
+	resets := firmwareResets(t)
+	sysRow(t, startFirmware(t), b.causes(resets), resets)
+}
+
+// sysRow: SYS_INFO decodes against the live device. #5: a reset peer has
+// seen no framing errors; a peer found running keeps the counters earlier
+// rows raised (a malformed burst), so a clean exchange must add none. Its
+// reset cause is its last boot's, one of causes, and the same after the
+// exchange: a cause that changes means the board restarted under the row.
+func sysRow(t testing.TB, dev *tfw.Device, causes []tfw.ResetCause, resets bool) {
+	t.Helper()
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	if !b.resetAny {
-		assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
+	assert.Contains(t, causes, si.ResetCause, "reset cause")
+	if resets {
+		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
+		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+		return
 	}
-	// #5: talked to over a clean link, the firmware counts no framing errors
-	// -- the appended fields decode against the live device, not only
-	// against canned replies. #550: a delta, not zero, since over a tcp: link
-	// nothing resets the board and an earlier row's burst still counts.
-	sysCountersHold(t, dev, si)
-	// Zero only on an image the connect has just reset (Codex P1 on #565).
-	if sysCountersStartAtZero(board) {
-		assert.Zero(t, si.ErrCRC, "framer CRC errors after the connect's reset")
-		assert.Zero(t, si.ErrFormat, "framer format errors after the connect's reset")
+	// The counters are sticky: an image whose connect does not reset it (a
+	// TCP peer) still holds what an earlier row, such as
+	// TestFirmwarePingAfterAMalformedBurst, put there (Codex P1 on #565), so
+	// clean traffic must leave them where they were.
+	var pong pingJSON
+	for i := 0; i < 20; i++ {
+		cliJSON(t, dev, &pong, "ping", strconv.Itoa(i))
 	}
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors grew over a clean link")
+	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors grew over a clean link")
+	assert.Equal(t, si.ResetCause, after.ResetCause, "reset cause changed across exchanges: the board restarted")
+}
+
+// causes are the reset causes the SYS row accepts: resetCause on a board the
+// run resets, heldCauses on one it finds running.
+func (b peerBoard) causes(resets bool) []tfw.ResetCause {
+	if resets || b.heldCauses == nil {
+		return []tfw.ResetCause{b.resetCause}
+	}
+	return b.heldCauses
 }
 
 // sysCountersHold runs a ping over dev and asserts the framer's CRC and
@@ -622,13 +741,21 @@ func TestFirmwareEEPROM(t *testing.T) {
 	cliJSON(t, dev, &got, "eeprom-read", "0x180", "2")
 	assert.Equal(t, "dead", got.Hex, "read back")
 
-	// docs/device-provisioning/engineering.md:110: the software tier reads the
-	// reserved region; the element tier gates the read behind the operator
-	// session.
+	eepromReservedReadRow(t, dev)
+}
+
+// eepromReservedReadRow is TestFirmwareEEPROM's reserved-region read, so a
+// host test can run it against a peer of any tier.
+// docs/device-provisioning/engineering.md:110: the software tier reads the
+// reserved region; the element tier gates the read behind the operator
+// session. The none tier links src/core/auth_session_none.c
+// (mk/firmware.mk), whose tfw_auth_gate answers OK: it reads it too.
+func eepromReservedReadRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
 	err := run(context.Background(), dev, "eeprom-read", []string{"0", "4"}, false, &strings.Builder{})
 	switch tier := cliTier(t, dev); tier {
-	case "software":
-		assert.NoError(t, err, "reserved-region read refused on the soft tier")
+	case "software", "none":
+		assert.NoError(t, err, "reserved-region read refused on the %s tier", tier)
 	case "secure-element":
 		assert.Error(t, err, "reserved-region read answered on the element tier without an operator session")
 	default:
@@ -637,7 +764,17 @@ func TestFirmwareEEPROM(t *testing.T) {
 }
 
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
-	dev := startFirmware(t)
+	attestRefusedUnprovisionedRow(t, startFirmware(t))
+}
+
+// attestRefusedUnprovisionedRow is the row's body, so a host test can run it
+// against a peer of any crypto tier. A tier with no UDS has nothing to sign
+// with: the none provider's tfw_crypto_sign answers UNSUPPORTED
+// (src/crypto/none/provider.c; docs/boards/esp32p4-poe.md "Building and
+// HIL-0"), where a tier that could sign but holds no identity answers
+// NOT_PROVISIONED.
+func attestRefusedUnprovisionedRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
 	assert.Equal(t, attestRefusal(cliCaps(t, dev).CryptoTier), cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
@@ -806,7 +943,13 @@ func TestFirmwareI2C(t *testing.T) {
 }
 
 func TestFirmwareI2CConfig(t *testing.T) {
-	dev := startFirmware(t)
+	i2cConfigRow(t, startFirmware(t))
+}
+
+// i2cConfigRow is TestFirmwareI2CConfig's body, so a host test can run it
+// against a peer of any tier.
+func i2cConfigRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
 	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI

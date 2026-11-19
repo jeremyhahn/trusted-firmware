@@ -45,6 +45,11 @@
 #define TFW_DICE_NONCE_LEN  32u  /* TFW_ALIAS_NONCE_LEN */
 #define TFW_DICE_PAGE_MAX   255u /* the most one tfw_dice_alias_cert call returns */
 
+/* The alias seed is HMAC-SHA256(CDI, TFW_DICE_ALIAS_LABEL): a key apart from
+ * the DeviceID key, so no entry point reaches a DeviceID private-key operation. */
+#define TFW_DICE_ALIAS_LABEL     "tfw-dice-alias-v1"
+#define TFW_DICE_ALIAS_LABEL_LEN 17u
+
 /* What secure boot hands the service. Copied in; the caller zeroes its own. */
 typedef struct {
     const uint8_t    *uds;      /* 32 bytes */

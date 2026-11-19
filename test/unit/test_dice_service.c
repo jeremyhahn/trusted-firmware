@@ -3,12 +3,12 @@
 /*
  * The secure-world DICE service (#590 slice b, docs/plans/590b.md) on host.
  *
- * The reference is today's non-secure path, linked beside the service: the
- * soft root's P-256 identity (src/crypto/soft/id_p256.c) over this suite's own
- * CDI handoff, and alias.c's TBS digest and certificate signed the way its
- * mint signs them, through that identity. For the fixed UDS 00..1F every
- * service answer must be those bytes, and SEED_PUB is the point
- * test_soft_id_p256 pins for the same UDS.
+ * The DeviceID reference is today's non-secure path, linked beside the
+ * service: the soft root's P-256 identity (src/crypto/soft/id_p256.c) over this
+ * suite's own seed handoff, and SEED_PUB is the point test_soft_id_p256 pins
+ * for the fixed UDS 00..1F. The alias reference is the same P-256 derivation
+ * over HMAC-SHA256(CDI, TFW_DICE_ALIAS_LABEL), and alias.c's TBS digest and
+ * certificate signed with it: the alias key is never the DeviceID key.
  */
 #include <stddef.h>
 #include <string.h>
@@ -65,18 +65,25 @@ static void init_service(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_service_init(&in));
 }
 
-/* The whole alias certificate the non-secure path builds for NONCE. */
+/* The alias seed the service must derive from CDI. */
+static void alias_seed_ref(uint8_t out[32])
+{
+    tfw_hmac_sha256(CDI, 32u, (const uint8_t *)TFW_DICE_ALIAS_LABEL,
+                    TFW_DICE_ALIAS_LABEL_LEN, out);
+}
+
+/* The whole alias certificate for NONCE, signed with the alias key. */
 static uint16_t reference_cert(uint8_t *buf, uint16_t cap)
 {
-    uint8_t pub[64], sig[64], digest[32], alg = TFW_ALG_NONE, got = 0u;
+    uint8_t pub[64], sig[64], digest[32], seed[32], got = 0u;
     uint16_t total = 0u, off = 0u;
     tfw_alias_parts_t p = { NONCE, UEID, FW_HASH, pub, sig, TFW_CRYPTO_SOFTWARE };
 
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
+    alias_seed_ref(seed);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
     memset(sig, 0, sizeof sig);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg));
-    TEST_ASSERT_EQUAL(TFW_ALG_ECDSA_P256_SHA256, alg);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
     do {
         TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cert(&p, off, buf + off, 200u, &total, &got));
         TEST_ASSERT_TRUE(total <= cap);
@@ -154,16 +161,18 @@ static void test_deviceid_pub_is_the_non_secure_deviceid(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED_PUB, got, 64);
 }
 
-static void test_alias_pub_is_the_alias_certificate_subject_key(void)
+static void test_alias_pub_is_the_cdi_derived_key(void)
 {
-    uint8_t got[64], ref[64];
+    uint8_t got[64], ref[64], seed[32];
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_pub(got, sizeof got));
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(ref));
+    alias_seed_ref(seed);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, ref));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, got, 64);
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(SEED_PUB, got, 64));
 }
 
-static void test_alias_cert_is_the_non_secure_certificate(void)
+static void test_alias_cert_is_signed_by_the_alias_key(void)
 {
     static uint8_t ref[1024], got[1024];
     uint16_t       n = reference_cert(ref, sizeof ref);
@@ -175,12 +184,13 @@ static void test_alias_cert_is_the_non_secure_certificate(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, got, n);
 }
 
-static void test_alias_sign_is_the_non_secure_signature(void)
+static void test_alias_sign_is_the_alias_key_signature(void)
 {
-    uint8_t got[64], ref[64], alg = TFW_ALG_NONE;
+    uint8_t got[64], ref[64], seed[32];
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_sign(DIGEST, 32u, got, sizeof got));
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(DIGEST, ref, &alg));
+    alias_seed_ref(seed);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, DIGEST, ref));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, got, 64);
 }
 
@@ -196,6 +206,30 @@ static void test_alias_sign_verifies_under_the_alias_pub(void)
     memcpy(other, DIGEST, sizeof other);
     other[0] ^= 1u;
     TEST_ASSERT_FALSE(uECC_verify(pub, other, 32u, sig, uECC_secp256r1()));
+}
+
+/* Codex round 1 on #592: the sign call is no DeviceID signing oracle. */
+static void test_alias_sign_does_not_verify_under_the_deviceid_pub(void)
+{
+    uint8_t dev[64], sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(dev, sizeof dev));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_sign(DIGEST, 32u, sig, sizeof sig));
+    TEST_ASSERT_FALSE(uECC_verify(dev, DIGEST, 32u, sig, uECC_secp256r1()));
+}
+
+static void test_alias_sign_before_alias_derivation_is_refused_untouched(void)
+{
+    uint8_t           buf[64];
+    tfw_dice_inputs_t no_cdi = { UDS, NULL, UEID, FW_HASH, TFW_CRYPTO_SOFTWARE };
+
+    tfw_dice_service_clear();
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_dice_alias_sign(DIGEST, 32u, buf, 64u));
+    /* An init without a CDI derives no alias key, so still nothing is signed. */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_service_init(&no_cdi));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_dice_alias_sign(DIGEST, 32u, buf, 64u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
 }
 
 /* ---- NULL and short buffers: refused, nothing written -------------------- */
@@ -247,11 +281,13 @@ static void test_before_init_is_not_provisioned_untouched(void)
 static void test_no_answer_carries_a_secret(void)
 {
     static uint8_t out[1024];
-    uint8_t        seed[32], d[32];
+    uint8_t        seed[32], d[32], aseed[32], ad[32];
     uint32_t       n;
 
     TEST_ASSERT_EQUAL(1u, tfw_boot_handoff_device_seed(seed));
     TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(seed, d));
+    alias_seed_ref(aseed);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(aseed, ad));
 
     memset(out, 0, sizeof out);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(out, 64u));
@@ -261,6 +297,8 @@ static void test_no_answer_carries_a_secret(void)
     TEST_ASSERT_FALSE(contains(out, n, CDI));
     TEST_ASSERT_FALSE(contains(out, n, seed));
     TEST_ASSERT_FALSE(contains(out, n, d));
+    TEST_ASSERT_FALSE(contains(out, n, aseed));
+    TEST_ASSERT_FALSE(contains(out, n, ad));
     TEST_ASSERT_FALSE(contains(out, n, UDS));
 }
 
@@ -268,10 +306,12 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_deviceid_pub_is_the_non_secure_deviceid);
-    RUN_TEST(test_alias_pub_is_the_alias_certificate_subject_key);
-    RUN_TEST(test_alias_cert_is_the_non_secure_certificate);
-    RUN_TEST(test_alias_sign_is_the_non_secure_signature);
+    RUN_TEST(test_alias_pub_is_the_cdi_derived_key);
+    RUN_TEST(test_alias_cert_is_signed_by_the_alias_key);
+    RUN_TEST(test_alias_sign_is_the_alias_key_signature);
     RUN_TEST(test_alias_sign_verifies_under_the_alias_pub);
+    RUN_TEST(test_alias_sign_does_not_verify_under_the_deviceid_pub);
+    RUN_TEST(test_alias_sign_before_alias_derivation_is_refused_untouched);
     RUN_TEST(test_null_and_short_buffers_are_refused_untouched);
     RUN_TEST(test_before_init_is_not_provisioned_untouched);
     RUN_TEST(test_no_answer_carries_a_secret);

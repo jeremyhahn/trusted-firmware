@@ -130,7 +130,7 @@ difference.
 | esp32-p4 | 1-Wire, pulse-in | fails: not measured | row `OneWireAndPulseIn` passes, but it does not check the presence value and only sees pulse-in time out on a silent pin, so a detector that always answers "absent" and a receiver that never captures an edge pass it too; needs a 1-Wire device on the pin answering presence, and a known pulse on the pulse-in pin measured within tolerance; issue to file |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO2, LEDC0), `noLED` and no tick pin, but `PWM` only checks that setting duty on GPIO2 returns success and `Pin` checks descriptors: no output is observed, and LEDC channels 1, 2 and 3 are never driven, so a wrong pin route or a missing waveform passes too; needs duty and frequency measured on each LEDC channel's pin within tolerance; issue to file. The 2026-11-17 run of #547: row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin, and row `Pin` fails on `pin 11 flags = digital, want digital and led`; row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag); in the run of lane hw-564a on 2026-11-19 rows `Pin` and `PWM` pass |
-| esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
+| esp32-p4 | tone (GPIO6) | verified 2026-11-19 | row `Tone` (#548, hw-561b) on the image built from commit `2195e2cf`, sealed `trusted-firmware.bin` SHA-256 `20a73898aad8f209cbbad23ef60ea6c4f41eb8e483a5081a51d8240897b923fe` (\"Run 2026-11-19, hw-561b\" below), whose capture loops back the pin LEDC owns after NOTONE too, so the silence capture keeps the pad's output and reads what LEDC drives (Codex P1 on #561): 1 kHz on pin 4 read back with `pulse-capture` on the same pin as `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone`, 0 edges: the 4-edge, 20 ms capture answers TIMEOUT. The earlier 2026-11-19 run on `6c6a3dfb` captured after NOTONE with the pad's output off, so its silence proved nothing |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | verified 2026-11-19 | row `EEPROM` passes on the soft-tier image in the run of lane hw-564a (below), and on the `CRYPTO=none` image (2026-11-19, #539, "The DHCP image" below); before: row `EEPROM` stopped at "crypto tier none: no reserved-read facts"; the row now expects the reserved read answered on the none tier, as `tfw_auth_gate` gives it (#575) |
 | esp32-p4 | CAPS, I2C_CONFIG | verified 2026-11-19 | rows `Caps`, `I2CConfig` pass on the soft-tier image in the run of lane hw-564a (below); on the `CRYPTO=none` image row `Caps` passes (2026-11-17, #539, "tfw-wire over TCP" above); before: rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576) |
 | esp32-p4 | ATTEST unprovisioned | verified 2026-11-19 | row `AttestRefusedUnprovisioned` passes on the soft-tier image in the run of lane hw-564a (below); before: the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wanted NOT_PROVISIONED, a tier's answer; on a none-tier image it now wants UNSUPPORTED (`attestRefusal`, `sdk/go/cmd/tfwctl/e2e_rows_test.go`) |
@@ -146,8 +146,75 @@ difference.
 | esp32-p4 | UDS / HMAC DICE identity (`hmac-p256`) | owner | needs the UDS written to an eFuse key block (CA 583) |
 | esp32 | the ESP-IDF port on the P4 | verified 2026-11-17 in part | the rows above; the rest as the `esp32-p4` lines |
 
-The `esp32-p4, ota` lines and the lines dated 2026-11-19 are the run of lane
-hw-564a on 2026-11-19 (row 552, PR #564), on a soft-tier image: `make
+Run 2026-11-19 (#561) on the HIL-0 image of "Building and HIL-0": `make
+esp32-build BOARD=esp32p4-poe CRYPTO=none
+ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0`, built from the merge
+commit `6c6a3dfb`, sealed `trusted-firmware.bin` SHA-256
+`3acc3f4a9520d3eddae87372b42c4db7e092409a560edd058f77fa885f8be341`, measured by
+layer 0 as `6be4c98a…0df590e6b2a73`. Only the app partition was written
+(`write-flash 0x20000`, `Hash of data verified.`); `espefuse summary` is
+identical before and after. After an RTS reset the console shows `tfw-l0: app
+at 0x20000 verified` and `tfw-eth: link up` with a dev-VLAN lease. The run is
+`GOFLAGS=-v make hw-test BOARD=esp32p4-poe PORT=tcp:<lease>:21574
+RESET_PORT=<the board's UART>` (`HW_RESET` takes only `qmp:`, and the TCP rows
+reset through `RESET_PORT`, which drives EN by RTS with IO0 high):
+
+- `Ping`: verified 2026-11-19
+- `PingDeliversTheBootEventWithNoBootWait`: failed 2026-11-19: after the
+  `RESET_PORT` reset the row's poll for `tcp/21574` timed out ("Condition
+  never satisfied", 5.1 s); on the console the link comes up 5.2 s after reset,
+  so the board is not back inside the row's window
+- `PingAfterAMalformedBurst`: verified 2026-11-19
+- `Caps`: verified 2026-11-19 (none-tier facts, #576)
+- `Sys`: verified 2026-11-19
+- `Pin`: verified 2026-11-19 (pin 11 digital with no led flag, #574)
+- `Write`: verified 2026-11-19
+- `Timer`: verified 2026-11-19
+- `EEPROM`: verified 2026-11-19 (reserved read answered on the none tier, #575)
+- `AttestRefusedUnprovisioned`: verified 2026-11-19
+- `Analog`: verified 2026-11-19 (passes; not measured, as the ADC line says)
+- `PWM`: verified 2026-11-19 (passes; not measured, as the PWM line says)
+- `Tone`: verified 2026-11-19, 1000.0 Hz over 28 half periods for 1000 Hz
+- `I2C`: verified 2026-11-19
+- `I2CConfig`: verified 2026-11-19 (none-tier facts, #576)
+- `SPIConfig`: verified 2026-11-19 (passes; no target, as the SPI line says)
+- `OneWireAndPulseIn`: verified 2026-11-19 (passes; not measured, as its line says)
+- `RefusesTheAuthSessionItsCapsLacks`: verified 2026-11-19
+- `RefusesAttestCSRItsCapsLacks`: verified 2026-11-19
+
+### Run 2026-11-19, hw-561b
+
+The same build command (no static-address overlay; `CONFIG_SECURE_BOOT`,
+`CONFIG_SECURE_FLASH_ENC_ENABLED` and `CONFIG_TFW_ETH_STATIC_IP` not set),
+ESP-IDF v5.5.5, from commit `2195e2cf`, sealed with the image key of the
+bootloader the board runs, sealed `trusted-firmware.bin` SHA-256
+`20a73898aad8f209cbbad23ef60ea6c4f41eb8e483a5081a51d8240897b923fe`. esptool
+v5.6.0 `write-flash 0x20000` alone over the CH343P console (USB id
+`1a86:55d3`, checked first): `Wrote 532480 bytes`, one `Hash of data
+verified.`. `espefuse summary` before and after differ only in esptool's
+`Connecting...` progress dots. After an RTS reset (IO0 high): `tfw-l0: app at
+0x20000 verified, measurement 53ab8cb3…5006ea2`, `App version:
+xkms/v0.2.0-alpha-360-g2195e2cf`, and `tfw-eth: link up, address <a dev-VLAN
+lease>`, the lease from the board's own got-IP line. `GOFLAGS=-v make hw-test
+BOARD=esp32p4-poe PORT=tcp:<a dev-VLAN lease>:21574 RESET_PORT=<the board's
+UART>`, first with `HW_TEST_RUN='Tone'`, then the full list:
+
+- `Tone` (`HW_TEST_RUN='Tone'`): verified 2026-11-19, 1000.0 Hz over 28 half
+  periods, 0 edges after NOTONE (TIMEOUT). The same selector also matches the
+  simulator row `TestE2ELinksAnalogPWMTonePulse`, which failed because
+  `build/host/tfwsim-atecc608a` was not built in this run, not on the board
+- `PingDeliversTheBootEventWithNoBootWait`: failed 2026-11-19, "Condition
+  never satisfied" after 5.1 s, as in the run above: the link comes up 5.2 s
+  after the reset
+- `Ping`, `PingAfterAMalformedBurst`, `Caps`, `Sys`, `Pin`, `Write`, `Timer`,
+  `EEPROM`, `AttestRefusedUnprovisioned`, `Analog`, `PWM`, `Tone`, `I2C`,
+  `I2CConfig`, `SPIConfig`, `OneWireAndPulseIn`,
+  `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks`: each
+  verified 2026-11-19 (`--- PASS`; the rows that only decode or configure stay
+  "not measured" in the matrix)
+
+The `esp32-p4, ota` lines and the other lines dated 2026-11-19 (not the tone
+line, the run above) are the run of lane hw-564a on 2026-11-19 (row 552, PR #564), on a soft-tier image: `make
 esp32-build BOARD=esp32p4-poe CRYPTO=soft
 ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0`, no static-address
 overlay, built from commit `016b002e` (the merge of main `7553dea36`; the

@@ -386,6 +386,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareEEPROM", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
 			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		}, []string{
+			"TestFirmwareToneRefusesTheShieldsPin",
 			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
 		}},
 	} {

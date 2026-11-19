@@ -1686,6 +1686,14 @@ $(HOST_DIR)/test_esp_tone_mutate: test/unit/test_esp_tone_mutate.c src/hal/esp32
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/tone -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mutate
 
+# #561: TONE, MODE on the same pin, then PULSE_CAPTURE: the three ESP32 units
+# linked together, so the capture sees the tone MODE ended.
+$(HOST_DIR)/test_esp_tone_mode_pulse: test/unit/test_esp_tone_mode_pulse.c src/hal/esp32/hal_tone.c \
+                                      src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse_rmt.c \
+                                      test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mode_pulse
+
 # The pulse timing over a stand-in gpio driver and esp_timer playing a
 # scripted waveform (#163).
 $(HOST_DIR)/test_esp_pulse_mutate: test/unit/test_esp_pulse_mutate.c src/hal/esp32/hal_pulse.c \

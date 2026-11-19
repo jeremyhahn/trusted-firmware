@@ -252,6 +252,72 @@ func TestRunHookBoundsAHookWhoseChildHoldsItsOutput(t *testing.T) {
 	}
 }
 
+// TestOpenCmdBoundsAResetWhoseChildHoldsItsOutput: a cmd: reset runs through
+// runHook, so a reset command whose child keeps its output open neither hangs
+// OpenCmd past its bound nor leaves the child running, and a failed reset's
+// output reaches the error.
+func TestOpenCmdBoundsAResetWhoseChildHoldsItsOutput(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads the child's state from /proc")
+	}
+	saved := dialTCP
+	t.Cleanup(func() { dialTCP = saved })
+	dialTCP = func(string, string, time.Duration) (io.ReadWriteCloser, error) {
+		t.Error("a failed reset dialled the board")
+		return nil, errors.New("dialled")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "reset.sh")
+	pidFile := filepath.Join(dir, "child.pid")
+	body := "echo no-probe-found\nsleep 600 &\necho $! > \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\nwait\n"
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const bound = time.Second
+	start := time.Now()
+	_, err := OpenCmd(TCPPrefix+"board:21574", []string{"sh", script, pidFile}, bound)
+	took := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "resetting the board") || !strings.Contains(err.Error(), "no-probe-found") {
+		t.Fatalf("OpenCmd: %v, want the reset's failure and its output", err)
+	}
+	if limit := bound + hookWaitDelay + 5*time.Second; took > limit {
+		t.Fatalf("OpenCmd took %v, want under %v", took, limit)
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("the reset's child pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !childGone(t, pid, 10*time.Second) {
+		t.Fatalf("the reset's child %d still runs after OpenCmd returned", pid)
+	}
+}
+
+// TestOpenTargetGivesATCPResetTheTCPResetBound: Start's cmd: reset of a tcp:
+// board runs under TCPResetBound, not the board's serial start bound.
+func TestOpenTargetGivesATCPResetTheTCPResetBound(t *testing.T) {
+	saved := runHook
+	t.Cleanup(func() { runHook = saved })
+	var got time.Duration
+	runHook = func(_ string, bound time.Duration) error {
+		got = bound
+		return errors.New("stop after the reset")
+	}
+	tgt := Target{Port: TCPPrefix + "board:21574", Board: "esp32p4-poe", ResetCmd: "true"}
+	if tgt.Bound() >= TCPResetBound {
+		t.Fatalf("esp32p4-poe's start bound %v already covers TCPResetBound", tgt.Bound())
+	}
+	if _, err := openTarget(tgt); err == nil {
+		t.Fatal("openTarget succeeded past a failed reset")
+	}
+	if got != TCPResetBound {
+		t.Fatalf("the reset ran under %v, want TCPResetBound %v", got, TCPResetBound)
+	}
+}
+
 // childGone reports whether pid has exited (gone from /proc, or a zombie
 // left for its reaper) before within passes, checking on a ticker.
 func childGone(t *testing.T, pid int, within time.Duration) bool {

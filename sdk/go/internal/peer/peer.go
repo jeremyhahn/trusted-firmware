@@ -19,7 +19,6 @@
 package peer
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,7 +26,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -239,7 +237,21 @@ func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser
 	if !t.Hardware() {
 		return simproc.Start(tb, sim, args...)
 	}
+	c, err := openTarget(t)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// openTarget opens a hardware target the way its reset asks. A tcp: board
+// reset by a cmd: hook gets TCPResetBound: the reset, the reboot and the
+// lease all fall within it, which the board's serial start bound does not
+// cover (an ESP32-P4's 5 s against a 6 s DHCP re-lease).
+func openTarget(t Target) (io.ReadWriteCloser, error) {
 	open := Open
+	bound := t.Bound()
 	if t.QMP != "" {
 		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 			return OpenQMP(port, t.QMP, bound)
@@ -249,13 +261,11 @@ func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser
 		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 			return OpenCmd(port, strings.Fields(t.ResetCmd), bound)
 		}
+		if strings.HasPrefix(t.Port, TCPPrefix) && bound < TCPResetBound {
+			bound = TCPResetBound
+		}
 	}
-	c, err := open(t.Port, t.Bound())
-	if err != nil {
-		tb.Fatal(err)
-	}
-	tb.Cleanup(func() { _ = c.Close() })
-	return c
+	return open(t.Port, bound)
 }
 
 // openPort is serialport.Open, swapped by tests: a port that resets and boots
@@ -456,11 +466,14 @@ func startQMP(p io.ReadWriteCloser, socket string, bound time.Duration) (io.Read
 // tool's reset (TFW_HW_RESET=cmd:...), then waits up to bound for its first
 // transmission, as Open does after a DTR pulse. DTR is left alone.
 func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteCloser, error) {
+	// The reset runs through runHook, which bounds it and kills the whole
+	// process group, so a hook whose child holds its output cannot hang it.
+	hook := strings.Join(argv, " ")
 	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
 		// A board whose wire is TCP (the STM32H573I-DK's ETH_MAC=1 image):
 		// the reset goes first, then the dial, which is redialled while the
 		// board boots and takes its lease, within the bound.
-		if err := runResetCommand(argv, bound); err != nil {
+		if err := runHook(hook, bound); err != nil {
 			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
 		}
 		c, err := openTCPAfterReset(addr, bound)
@@ -473,7 +486,7 @@ func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteClose
 	if err != nil {
 		return nil, err
 	}
-	c, err := startCmd(p, func() error { return runResetCommand(argv, bound) }, bound)
+	c, err := startCmd(p, func() error { return runHook(hook, bound) }, bound)
 	if err != nil {
 		_ = p.Close()
 		return nil, fmt.Errorf("%s: %w", port, err)
@@ -516,18 +529,6 @@ func startCmd(p io.ReadWriteCloser, reset func() error, bound time.Duration) (io
 		return nil, fmt.Errorf("resetting the board: %w", err)
 	}
 	return awaitStart(r, bound)
-}
-
-// runResetCommand runs argv, bounded, and names its output when it fails.
-func runResetCommand(argv []string, bound time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), bound)
-	defer cancel()
-	// #nosec G204 -- argv is the operator's TFW_HW_RESET, run on the bench.
-	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 // qmpMessage is one QMP server message: a command's return or error, or an

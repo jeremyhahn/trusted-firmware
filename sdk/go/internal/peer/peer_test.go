@@ -409,16 +409,6 @@ func TestStartCmdReportsAFailedReset(t *testing.T) {
 	}
 }
 
-func TestRunResetCommandReportsItsOutputOnFailure(t *testing.T) {
-	err := runResetCommand([]string{"sh", "-c", "echo no-probe-found; exit 3"}, time.Second)
-	if err == nil || !strings.Contains(err.Error(), "no-probe-found") {
-		t.Fatalf("err = %v, want the command's output", err)
-	}
-	if err := runResetCommand([]string{"true"}, time.Second); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // bootAfterPurge delivers boot once the purge has happened, as a board does:
 // its application starts after the bootloader, long after the reset.
 type bootAfterPurge struct {

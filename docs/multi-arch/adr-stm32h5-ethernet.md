@@ -192,7 +192,13 @@ Exactly as on the `ethernet-transport` row; nothing on the wire changes.
   21574 is gone. `hal_eth_netif.c` takes the address, mask, gateway and MAC
   from the block (`src/net/netcfg.c`), starts lwIP's DHCP client only when the
   block's DHCP flag is set, and with no valid block keeps the device off the
-  network while the UART is served, reading the block again later.
+  network while the UART is served, reading the block again later. Before
+  each dial the netif is reconciled with the block just read
+  (`tfw_h5_eth_reconcile`): a changed static address is set, a switch to or
+  from DHCP starts or stops the client, and a changed MAC is reprogrammed with
+  the link brought up again; no dial runs until the netif is up on that block.
+  The sign yield runs lwIP's timers and the lease-expiry check while ATTEST
+  computes a signature (`tfw_h5_eth_service_deadlines`, #584).
 - The Ethernet link admits the attestation and enrolment commands only; serial
   (the ST-LINK Virtual COM port) keeps provisioning and every other command.
 - The MAC address follows the row: the network block's, or a locally
@@ -200,7 +206,12 @@ Exactly as on the `ethernet-transport` row; nothing on the wire changes.
   No address, host name or MAC is written in `src/` or in this repository.
 - On the bench the host end is `sdk/go`'s `tfw.Listen`, which accepts the
   device's connection; in the field it is go-trusted-platform's device-facing
-  endpoint.
+  endpoint. The hw-test rows take the same direction: `make hw-test
+  BOARD=stm32h573i-dk PORT=tcp-listen:<host-port>` listens on the host
+  (`sdk/go/internal/peer`, `TCPListenPrefix`) and accepts the board's dial,
+  one listener per row, opened before any `HW_RESET` so the rebooted board's
+  first dial is accepted. `PORT=tcp:<board>:<port>` still dials a board that
+  listens (the P4, the earlier DK image).
 
 ## Slices
 

@@ -49,7 +49,7 @@ state is **not confirmed** and is named below where the port leans on it.
 | Ethernet frames | **verified on the board 2026-11-17**: the MAC and DMA in poll mode (`src/hal/cortex-m/stm32h5/hal_eth_mac.c`, four TX and four RX descriptors, 1536-byte buffers, the speed and duplex from the LAN8742A's PSCSR), host-tested by `test/unit/test_h5_eth_mac.c`; on the board the frames of a whole DHCP exchange went out and came in. Commit b0226d8f, the `ETH_MAC=1` application's sha256 `c3de81f3a65ba7260803ec2f3509b0dfcb7ec217440f3b24c8b4589c010d2f31` (`trusted-firmware.bin`), written signed in the bench image (see "Bench run"), whose packed sha256 is `26ba05ce4d03b41bb550cd5fa8b97b6ddcce0d9789b3f2c8386a97f600e1fa5d` (`.bin`) | RM0481 (the ETH MAC, MTL and DMA registers, the descriptor formats); LAN8742A data sheet (PSCSR) |
 | DHCP lease | **verified on the board 2026-11-17**: the same image printed `eth: dhcp bound` and the leased address on the console about 15.6 s after a debugger reset, 10 s of it tfw-boot's P-256 check; the address was on the dev network (VLAN 101) | as above |
 | IP stack | **lwIP 2.2.1** (`STABLE-2_2_1_RELEASE`), NO_SYS raw API polled from the main loop, IPv4 with ARP, ICMP, UDP, TCP and DHCP, vendored unmodified under `third_party/lwip` (`VERSION` pins the commit and the tree hash); the options are `src/hal/cortex-m/stm32h5/lwipopts.h`; built only with `ETH_MAC=1` | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
-| tfw-wire over TCP | **to re-run after fix-584k (outbound transport)**. Since #584's fix-584k the `ETH_MAC=1` image opens one outbound TCP connection to the endpoint (peer and port) in its network block and listens on nothing (lwIP raw API, `hal_eth_wire_tcp.c`); a refused or dropped connection is redialled after 1 s, the wait doubling per refusal up to 16 s, the block read again each time. Its address, mask, gateway and MAC come from the network block (`src/net/netcfg.c`); DHCP runs only when the block's DHCP flag is set; the UID-derived, locally administered MAC is used only while the block's MAC is all zero; with no valid block the device stays off the network and serves the UART. Host-tested by `test/unit/test_h5_wire_connect.c` and `test/unit/test_h5_netif.c`. The 2026-11-17 verification (#582) was of the earlier inbound listener on port 21574, one connection at a time, a new one replacing the held one; `hal_eth_wire.c` serves it and the UART to the one transport, replies on the wire the request came on, events on the UART. Commit 1cf43fdf; the P4's row set passes over `PORT=tcp:<board>:21574` but for the boot-event row (see the feature matrix) | `src/hal/cortex-m/stm32h5/hal_eth_wire.h` |
+| tfw-wire over TCP | **to re-run after fix-584k (outbound transport)**. Since #584's fix-584k the `ETH_MAC=1` image opens one outbound TCP connection to the endpoint (peer and port) in its network block and listens on nothing (lwIP raw API, `hal_eth_wire_tcp.c`); a refused or dropped connection is redialled after 1 s, the wait doubling per refusal up to 16 s, the block read again each time, and the netif reconciled with it before the dial; `make hw-test PORT=tcp-listen:<host-port>` accepts that connection (below). Its address, mask, gateway and MAC come from the network block (`src/net/netcfg.c`); DHCP runs only when the block's DHCP flag is set; the UID-derived, locally administered MAC is used only while the block's MAC is all zero; with no valid block the device stays off the network and serves the UART. Host-tested by `test/unit/test_h5_wire_connect.c` and `test/unit/test_h5_netif.c`. The 2026-11-17 verification (#582) was of the earlier inbound listener on port 21574, one connection at a time, a new one replacing the held one; `hal_eth_wire.c` serves it and the UART to the one transport, replies on the wire the request came on, events on the UART. Commit 1cf43fdf; the P4's row set passes over `PORT=tcp:<board>:21574` but for the boot-event row (see the feature matrix) | `src/hal/cortex-m/stm32h5/hal_eth_wire.h` |
 | Other radios | a Wi-Fi module | UM3143, introduction |
 
 ## The port
@@ -312,6 +312,20 @@ CA 583 forbids: option bytes or provisioning).
     BOARD=stm32h573i-dk PORT=tcp:<the bound line's address>:21574
     HW_RESET='cmd:pyocd reset -t stm32h573iikx'`: the board's row
     selection for a `tcp:` port passes (`ok`, 93 s).
+- The hw-test form for the outbound transport (#584, Codex round 5): `make
+  hw-test BOARD=stm32h573i-dk PORT=tcp-listen:<host-port>`. The host
+  listens on `<host-port>` (all interfaces; `<host>:<port>` binds one) and
+  accepts the connection the board dials to the endpoint in its network
+  block, so the block's peer and port must name the bench host and
+  `<host-port>`. Each row opens a new listener and waits for the board's
+  redial (at most 16 s after the last connection ended). With `HW_RESET`
+  set, the listener opens before the reset, so the rebooted board's first
+  dial is accepted. A `tcp-listen:` run selects the same rows as a `tcp:`
+  run (no boot-event row). Host-tested by `sdk/go/internal/peer` and
+  `TestTheDKRowsRunOverTheDevicesOutboundConnection` (tfwsim); not yet run
+  on the board. A changed network block now applies at the next dial: the
+  netif is reconciled with the block first (address, DHCP, MAC), and the
+  lwIP and DHCP timers run while a signature is computed (#584).
 - Enrolling over Ethernet: CAPS and the attestation refusals verified over
   TCP 2026-11-17 (above); attestation itself is owner (provisioning; CA 583).
 

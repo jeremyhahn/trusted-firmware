@@ -16,4 +16,8 @@ void tz_soc_open(void);
 
 void tz_s_sau_program(const struct tz_sau_region *r, size_t n);
 
+/* Initialises the DICE service from its inputs (tz_veneer.c); nonzero when it
+ * holds keys to serve. */
+int tz_s_dice_start(void);
+
 #endif

@@ -187,24 +187,42 @@ static unsigned bits_set(uint32_t v)
     return n;
 }
 
-/* A seed error keeps the netif down (no lwIP, no MAC, no PHY scan); once the
- * RNG reads again, the next retry brings it up with HSI48 and RNGEN set. */
+/* A seed error that does not clear, or a zero word, keeps the netif down (no
+ * lwIP, no MAC, no PHY scan). */
 static void test_an_rng_seed_error_leaves_the_netif_down(void)
 {
     link_up_flag = 0u;
-    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_DRDY;
+    /* A seed error that persists: the driver pulses CONDRST and clears the
+     * latch, SECS stays set, the netif stays down. */
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;
+    fake_rng[TFW_H5_RNG_DR_IX] = RNG_WORD;
     run_for(3000u);
     TEST_ASSERT_NULL(netif_default);
     TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_SR_IX] & TFW_H5_RNG_SR_SEIS);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST);
 
-    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_DRDY;
+    /* A latched clock error clears; a zero word still keeps it down. */
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_CEIS | TFW_H5_RNG_SR_DRDY;
     fake_rng[TFW_H5_RNG_DR_IX] = 0u;    /* a zero word is the seed-error output */
     run_for(1000u);
     TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_SR_IX] & TFW_H5_RNG_SR_CEIS);
+}
 
+/* RM0481: SEIS stays set after a transient seed error has passed until the
+ * driver writes 0 to it. Only the driver clears it here; the next retry
+ * recovers and brings the netif up with a key drawn after the recovery. */
+static void test_a_transient_rng_seed_error_recovers_on_the_next_retry(void)
+{
+    link_up_flag = 0u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SEIS | TFW_H5_RNG_SR_DRDY;
     fake_rng[TFW_H5_RNG_DR_IX] = RNG_WORD;
     run_for(1000u);
     TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_RNG_SR_DRDY, fake_rng[TFW_H5_RNG_SR_IX]);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST);
     TEST_ASSERT_TRUE((fake_rcc_cr & TFW_H5_RCC_CR_HSI48ON) != 0u);
     TEST_ASSERT_TRUE((fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN) != 0u);
     TEST_ASSERT_TRUE((fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN) != 0u);
@@ -254,6 +272,7 @@ int main(void)
 
     UNITY_BEGIN();
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
+    RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);

@@ -19,10 +19,42 @@ tfw_h5_rng_t tfw_h5_rng = {
 
 #define RNG_SR_ERRORS (TFW_H5_RNG_SR_CECS | TFW_H5_RNG_SR_SECS | \
                        TFW_H5_RNG_SR_CEIS | TFW_H5_RNG_SR_SEIS)
+#define RNG_SR_LATCHED (TFW_H5_RNG_SR_CEIS | TFW_H5_RNG_SR_SEIS)
+
+/*
+ * RM0481's RNG error recovery. CEIS and SEIS are rc_w0 and stay set after
+ * the error has passed, so a driver that only tests them fails forever.
+ * A seed error (SECS or SEIS) resets the conditioning logic with a CONDRST
+ * pulse, RNGEN left set, which discards the pipeline; both latched flags are
+ * then cleared by writing 0 to them (writing back the status as read keeps
+ * every other bit). The RNG is healthy again once CONDRST reads 0 and neither
+ * SECS nor CECS is set, within a bounded spin. 0, or -1 if the error stays.
+ */
+static int rng_recover(const tfw_h5_rng_t *r, uint32_t sr)
+{
+    if ((sr & (TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS)) != 0u) {
+        r->regs[TFW_H5_RNG_CR_IX] |= TFW_H5_RNG_CR_CONDRST;
+        r->regs[TFW_H5_RNG_CR_IX] &= ~TFW_H5_RNG_CR_CONDRST;
+    }
+    r->regs[TFW_H5_RNG_SR_IX] = sr & ~RNG_SR_LATCHED;
+    for (uint32_t spin = 0u; spin < TFW_H5_RNG_SPIN; spin++) {
+        uint32_t s = r->regs[TFW_H5_RNG_SR_IX];
+
+        if ((r->regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST) == 0u &&
+            (s & (TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_CECS)) == 0u) {
+            if ((s & RNG_SR_LATCHED) != 0u) {
+                r->regs[TFW_H5_RNG_SR_IX] = s & ~RNG_SR_LATCHED;
+            }
+            return 0;
+        }
+    }
+    return -1;
+}
 
 int tfw_h5_rng_init(const tfw_h5_rng_t *r)
 {
     uint32_t spin;
+    uint32_t sr;
 
     *r->rcc_cr |= TFW_H5_RCC_CR_HSI48ON;
     for (spin = 0u; spin < TFW_H5_RNG_SPIN; spin++) {
@@ -36,16 +68,28 @@ int tfw_h5_rng_init(const tfw_h5_rng_t *r)
     *r->rcc_ahb2enr |= TFW_H5_RCC_AHB2ENR_RNGEN;
     (void)*r->rcc_ahb2enr;                  /* the enable lands first */
     r->regs[TFW_H5_RNG_CR_IX] |= TFW_H5_RNG_CR_RNGEN;
+    sr = r->regs[TFW_H5_RNG_SR_IX];
+    if ((sr & RNG_SR_ERRORS) != 0u) {
+        return rng_recover(r, sr);          /* a flag left from an earlier try */
+    }
     return 0;
 }
 
 int tfw_h5_rng_read(const tfw_h5_rng_t *r, uint32_t *out)
 {
+    int recovered = 0;
+
     for (uint32_t spin = 0u; spin < TFW_H5_RNG_SPIN; spin++) {
         uint32_t sr = r->regs[TFW_H5_RNG_SR_IX];
 
         if ((sr & RNG_SR_ERRORS) != 0u) {
-            return -1;
+            /* One recovery per word: an error that comes straight back is
+             * reported, and the caller retries later. */
+            if (recovered || rng_recover(r, sr) != 0) {
+                return -1;
+            }
+            recovered = 1;
+            continue;
         }
         if ((sr & TFW_H5_RNG_SR_DRDY) != 0u) {
             uint32_t v = r->regs[TFW_H5_RNG_DR_IX];

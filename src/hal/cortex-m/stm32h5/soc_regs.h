@@ -55,6 +55,7 @@
 #define TFW_H5_RNG_SR_IX       1u             /* RNG_SR, offset 0x04 */
 #define TFW_H5_RNG_DR_IX       2u             /* RNG_DR, offset 0x08 */
 #define TFW_H5_RNG_CR_RNGEN    (0x1u << 2)
+#define TFW_H5_RNG_CR_CONDRST  (0x1u << 30)   /* conditioning soft reset */
 #define TFW_H5_RNG_SR_DRDY     (0x1u << 0)
 #define TFW_H5_RNG_SR_CECS     (0x1u << 1)    /* clock error now */
 #define TFW_H5_RNG_SR_SECS     (0x1u << 2)    /* seed error now */

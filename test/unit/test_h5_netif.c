@@ -8,8 +8,13 @@
  */
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "unity.h"
+#include "crc16.h"
+#include "tfw/eth.h"
 #include "tfw/hal.h"
 #include "hal_eth_mac.h"
 #include "hal_eth_mdio.h"
@@ -31,6 +36,7 @@ static uint16_t pscsr_val = 0x0018u;
 static uint8_t  pscsr_fail;
 static uint32_t mac_cr;
 static uint8_t  mac_running;
+static uint8_t  mac_seen[6];            /* the address the MAC was started with */
 static unsigned tx_frames;
 
 tfw_ms_t tfw_hal_millis(void) { return now_ms; }
@@ -76,7 +82,7 @@ static uint8_t  rx_frame[400];
 static size_t   rx_len;
 
 int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return 0; }
-void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; (void)mac; mac_cr = sp; }
+void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; memcpy(mac_seen, mac, 6); mac_cr = sp; }
 void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
 void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
 int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
@@ -117,12 +123,173 @@ int tfw_eth_mac_rx(tfw_eth_mac_t *m, void *out, size_t cap)
 }
 
 /* --- the wire: tested on its own in test_h5_eth_wire.c ------------------- */
-void tfw_h5_wire_listen(void) { }
+static unsigned dial_calls, say_polls;
+void tfw_h5_wire_dial_poll(void) { dial_calls++; }
 void tfw_h5_wire_say(const char *s) { (void)s; }
-void tfw_h5_wire_say_poll(void) { }
+void tfw_h5_wire_say_poll(void) { say_polls++; }
+
+/* --- the network block in EEPROM (#584, Codex round 4, ruling 989) -------- */
+static uint8_t eeprom_block[TFW_NETCFG_LEN];
+static uint8_t eeprom_fails;
+
+tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    if (eeprom_fails || addr != TFW_NETCFG_ADDR || len > sizeof eeprom_block) {
+        return TFW_ERR_NOT_PROVISIONED;
+    }
+    memcpy(buf, eeprom_block, len);
+    return TFW_OK;
+}
+
+/* The block's addresses: RFC 5737; its MACs: 02:00:00 test MACs. */
+static void put_block(uint8_t flags, const uint8_t mac[6])
+{
+    static const uint8_t addrs[18] = {
+        192u, 0u, 2u, 20u, 255u, 255u, 255u, 0u, 192u, 0u, 2u, 1u,
+        192u, 0u, 2u, 50u, 0x0Fu, 0xA0u,        /* endpoint, port 4000 */
+    };
+    uint16_t crc;
+
+    memcpy(eeprom_block, "TFNC", 4);
+    eeprom_block[4] = TFW_NETCFG_VERSION;
+    eeprom_block[5] = flags;
+    memcpy(eeprom_block + 6, mac, 6);
+    memcpy(eeprom_block + 12, addrs, sizeof addrs);
+    crc = tfw_crc16(eeprom_block, 30u);
+    eeprom_block[30] = (uint8_t)crc;
+    eeprom_block[31] = (uint8_t)(crc >> 8);
+}
+
+static const uint8_t no_mac[6];
 
 void setUp(void) { }
 void tearDown(void) { }
+
+/* Each netcfg case brings a fresh netif up: it runs in a child, before any
+ * test in the parent has brought its own netif up. */
+static int in_child(void (*fn)(void))
+{
+    pid_t pid;
+    int st = 0;
+
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) {
+        if (TEST_PROTECT()) {
+            fn();
+        }
+        fflush(stdout);
+        _exit(Unity.CurrentTestFailed ? 1 : 0);
+    }
+    TEST_ASSERT_TRUE(pid > 0);
+    TEST_ASSERT_EQUAL_INT(pid, waitpid(pid, &st, 0));
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 255;
+}
+
+static void run_for(tfw_ms_t ms);
+
+static void static_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u };
+    struct netif *n;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    run_for(5000u);
+    n = netif_default;
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_TRUE(mac_running);
+    TEST_ASSERT_EQUAL_HEX32(PP_HTONL(LWIP_MAKEU32(192u, 0u, 2u, 20u)), ip4_addr_get_u32(netif_ip4_addr(n)));
+    TEST_ASSERT_EQUAL_HEX32(PP_HTONL(LWIP_MAKEU32(255u, 255u, 255u, 0u)), ip4_addr_get_u32(netif_ip4_netmask(n)));
+    TEST_ASSERT_EQUAL_HEX32(PP_HTONL(LWIP_MAKEU32(192u, 0u, 2u, 1u)), ip4_addr_get_u32(netif_ip4_gw(n)));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, n->hwaddr, 6);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, mac_seen, 6);
+    TEST_ASSERT_NULL(netif_dhcp_data(n));               /* DHCP never started */
+    TEST_ASSERT_EQUAL_UINT(0u, dhcp_sent);
+    TEST_ASSERT_TRUE(dial_calls > 0u);                  /* the wire dials out */
+}
+
+static void test_a_static_block_sets_its_address_and_mac_and_no_dhcp(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(static_block));
+}
+
+static void dhcp_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x02u };
+
+    put_block(TFW_NETCFG_DHCP, mac);
+    link_up_flag = 1u;
+    run_for(5000u);
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DISCOVER)) != 0u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, netif_default->hwaddr, 6);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, mac_seen, 6);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);             /* no lease yet */
+}
+
+static void test_a_dhcp_block_starts_dhcp_with_the_block_mac(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(dhcp_block));
+}
+
+static void zero_mac_block(void)
+{
+    uint32_t uid[3];
+    uint8_t  want[6];
+
+    for (unsigned i = 0u; i < 3u; i++) {
+        uid[i] = 0x01020304u + (uint32_t)i;
+    }
+    tfw_eth_mac_from_uid(uid, want);
+    put_block(TFW_NETCFG_DHCP, no_mac);
+    link_up_flag = 1u;
+    run_for(5000u);
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, netif_default->hwaddr, 6);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, mac_seen, 6);
+}
+
+/* docs/SPEC.md (ethernet-transport) and the H5 Ethernet ADR: a locally
+ * administered address derived on the device until a MAC is supplied. */
+static void test_an_all_zero_block_mac_takes_the_uid_mac(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(zero_mac_block));
+}
+
+static void unprovisioned(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x03u };
+    tfw_netcfg_t cfg;
+
+    put_block(0u, mac);
+    eeprom_block[31] ^= 0xFFu;                          /* bad CRC */
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_load(&cfg));
+    link_up_flag = 1u;
+    say_polls = 0u;
+    run_for(30000u);
+    TEST_ASSERT_NULL(netif_default);                    /* off the network */
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);
+    TEST_ASSERT_EQUAL_UINT(300u, say_polls);            /* the UART is served */
+
+    eeprom_fails = 1u;                                  /* no block at all */
+    run_for(30000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+
+    eeprom_fails = 0u;                                  /* written later: */
+    put_block(0u, mac);                                 /* never cached */
+    run_for(30000u);
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_TRUE(dial_calls > 0u);
+}
+
+static void test_a_missing_or_bad_block_keeps_the_device_off_the_network(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unprovisioned));
+}
 
 static void run_for(tfw_ms_t ms)
 {
@@ -417,7 +584,13 @@ int main(void)
     tfw_h5_rng.rcc_ahb2enr = &fake_rcc_ahb2enr;
     fake_rcc_cr = TFW_H5_RCC_CR_HSI48RDY;
 
+    put_block(TFW_NETCFG_DHCP, no_mac);     /* the suite's own netif below */
+
     UNITY_BEGIN();
+    RUN_TEST(test_a_static_block_sets_its_address_and_mac_and_no_dhcp);
+    RUN_TEST(test_a_dhcp_block_starts_dhcp_with_the_block_mac);
+    RUN_TEST(test_an_all_zero_block_mac_takes_the_uid_mac);
+    RUN_TEST(test_a_missing_or_bad_block_keeps_the_device_off_the_network);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);

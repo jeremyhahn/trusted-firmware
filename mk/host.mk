@@ -174,7 +174,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
                             test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
                             test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
-                            test/unit/test_h5_wire_listener.c test/unit/test_h5_netif.c \
+                            test/unit/test_h5_wire_connect.c test/unit/test_h5_netif.c \
                             test/unit/test_h5_sign_yield.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
@@ -1559,7 +1559,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
                     $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
                     $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
-                    $(HOST_DIR)/test_h5_wire_listener $(HOST_DIR)/test_h5_netif \
+                    $(HOST_DIR)/test_h5_wire_connect $(HOST_DIR)/test_h5_netif \
                     $(HOST_DIR)/test_h5_sign_yield \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
@@ -3010,11 +3010,13 @@ $(HOST_DIR)/test_h5_wire_transport: test/unit/test_h5_wire_transport.c \
                         src/hal/cortex-m/stm32h5/hal_eth_wire.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The TCP listener (hal_eth_wire_tcp.c) on that link and transport, over a fake
-# of lwIP's raw TCP API built against the vendored lwIP headers: a request
-# that arrives with FIN is answered before the connection is closed (#584).
-$(HOST_DIR)/test_h5_wire_listener: test/unit/test_h5_wire_listener.c \
-                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+# The outbound TCP connection (hal_eth_wire_tcp.c) on that link and transport,
+# over a fake of lwIP's raw TCP API built against the vendored lwIP headers:
+# it dials the network block's endpoint and listens on nothing, redials after
+# a backoff on the block read again, and a request that arrives with FIN is
+# answered before the connection is closed (#584).
+$(HOST_DIR)/test_h5_wire_connect: test/unit/test_h5_wire_connect.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) src/net/netcfg.c \
                         src/hal/cortex-m/stm32h5/hal_eth_wire.c \
                         src/hal/cortex-m/stm32h5/hal_eth_wire_tcp.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
@@ -3045,6 +3047,7 @@ $(HOST_DIR)/test_h5_sign_yield: test/unit/test_h5_sign_yield.c \
 $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
                            src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
                            src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \
+                           src/net/netcfg.c src/proto/crc16.c \
                            $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
@@ -3057,9 +3060,11 @@ $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/ha
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.sha.o src/crypto/sha256.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.netcfg.o src/net/netcfg.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crc.o src/proto/crc16.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
-	  -o $@ $@.o $@.netif.o $@.rng.o $@.sha.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	  -o $@ $@.o $@.netif.o $@.rng.o $@.sha.o $@.netcfg.o $@.crc.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

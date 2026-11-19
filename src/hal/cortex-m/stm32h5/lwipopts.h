@@ -24,8 +24,11 @@
 #define LWIP_UDP                    1
 #define LWIP_TCP                    1
 #define LWIP_DHCP                   1
-#define LWIP_ACD                    0
-#define LWIP_DHCP_DOES_ACD_CHECK    0
+/* The offered address is probed with ARP before the client binds it; a
+ * conflicting reply declines it (RFC 2131 4.4.1, RFC 5227). The ACD timer is
+ * one of lwIP's cyclic timers, counted into MEMP_NUM_SYS_TIMEOUT. */
+#define LWIP_ACD                    1
+#define LWIP_DHCP_DOES_ACD_CHECK    1
 #define LWIP_AUTOIP                 0
 #define LWIP_DNS                    0
 #define LWIP_IGMP                   0

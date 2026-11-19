@@ -200,12 +200,17 @@ LWIP_DIR := third_party/lwip/src
 lwip-check: lwip-upstream-check
 	@python3 -B scripts/vendor_sums.py third_party/lwip
 
-## lwip-upstream-check: every vendored lwIP file (src/, COPYING, README) is byte-identical to a fresh fetch of upstream at LWIP_UPSTREAM_COMMIT
-# The fetched commit id must equal that hash. Fails on any difference; with no
-# network it prints SKIP and its reason, never PASS (#584). lwip-check runs it.
+## lwip-upstream-check: every vendored lwIP file (src/, COPYING, README) is byte-identical to the upstream release archive (SHA-256 checked) and to upstream git at LWIP_UPSTREAM_COMMIT
+# Archive mode downloads LWIP_ARCHIVE_URL, refuses it unless its SHA-256 is
+# LWIP_ARCHIVE_SHA256, then compares each file; git mode checks the fetched
+# commit id equals the hash. Fails on any difference; with no network it
+# prints SKIP and its reason, never PASS (#584). lwip-check runs it.
+LWIP_ARCHIVE_URL     ?= https://github.com/lwip-tcpip/lwip/archive/refs/tags/STABLE-2_2_1_RELEASE.tar.gz
+LWIP_ARCHIVE_SHA256  := ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539
 LWIP_UPSTREAM_URL    ?= https://github.com/lwip-tcpip/lwip
 LWIP_UPSTREAM_COMMIT := 77dcd25a72509eb83f72b033d219b1d40cd8eb95
 lwip-upstream-check:
+	@python3 -I -B scripts/lwip_upstream_check.py --archive third_party/lwip $(LWIP_ARCHIVE_URL) $(LWIP_ARCHIVE_SHA256)
 	@python3 -B scripts/lwip_upstream_check.py third_party/lwip $(LWIP_UPSTREAM_URL) $(LWIP_UPSTREAM_COMMIT)
 ifeq ($(ETH_MAC),1)
 ifeq ($(wildcard $(HAL_SOC_DIR)/hal_eth_netif.c),)

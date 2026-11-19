@@ -1,13 +1,16 @@
 """lwip_upstream_check.py against a local fake upstream: a match passes, one
 changed byte, a file upstream lacks, or a commit upstream lacks fails, and an
 unreachable upstream skips with its reason instead of passing."""
+import hashlib
 import io
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -86,6 +89,77 @@ class LwipUpstreamCheckTest(unittest.TestCase):
 
     def test_an_unreachable_upstream_skips_with_its_reason(self):
         rc, out = self.check(url="file://" + os.path.join(self.tmp, "nowhere"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("SKIP (no network:", out)
+        self.assertNotIn("PASS", out)
+
+    def archive(self, kind, crlf=False):
+        """Packs the upstream tree under one top directory, as a release
+        archive does; returns its file:// URL and SHA-256."""
+        out = os.path.join(self.tmp, "release." + kind)
+        top = "lwip-STABLE-9_9_9_RELEASE/"
+        names = []
+        for d, _, fs in os.walk(self.up):
+            if ".git" in d.split(os.sep):
+                continue
+            names += [os.path.join(d, f) for f in fs]
+        if kind == "zip":
+            with zipfile.ZipFile(out, "w") as z:
+                for n in names:
+                    with open(n, "rb") as f:
+                        data = f.read()
+                    z.writestr(top + os.path.relpath(n, self.up),
+                               data.replace(b"\n", b"\r\n") if crlf else data)
+        else:
+            with tarfile.open(out, "w:gz") as t:
+                for n in names:
+                    t.add(n, top + os.path.relpath(n, self.up))
+        with open(out, "rb") as f:
+            return "file://" + out, hashlib.sha256(f.read()).hexdigest()
+
+    def check_archive(self, url, sha):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = luc.main(["x", "--archive", self.vend, url, sha])
+        return rc, out.getvalue()
+
+    def test_a_byte_identical_release_tarball_passes_with_its_sha256(self):
+        url, sha = self.archive("tar.gz")
+        rc, out = self.check_archive(url, sha.upper())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASS: 4 vendored files", out)
+        self.assertIn(sha + ", matched", out)
+
+    def test_a_byte_identical_release_zip_passes(self):
+        url, sha = self.archive("zip")
+        rc, out = self.check_archive(url, sha)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASS: 4 vendored files", out)
+
+    def test_an_archive_with_another_sha256_fails_and_compares_nothing(self):
+        url, sha = self.archive("tar.gz")
+        rc, out = self.check_archive(url, "0" * 64)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("FAIL: %s has SHA-256 %s" % (url, sha), out)
+        self.assertNotIn("PASS", out)
+
+    def test_one_changed_byte_against_the_archive_fails_naming_the_file(self):
+        url, sha = self.archive("tar.gz")
+        write(os.path.join(self.vend, "src/core/a.c"), b"int b;\n")
+        rc, out = self.check_archive(url, sha)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("src/core/a.c: differs from the archive at byte 4\n", out)
+        self.assertIn("FAIL: 1 of 4", out)
+
+    def test_an_archive_with_crlf_line_endings_is_not_byte_identical(self):
+        url, sha = self.archive("zip", crlf=True)
+        rc, out = self.check_archive(url, sha)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("(line endings only)", out)
+        self.assertIn("FAIL: 4 of 4", out)
+
+    def test_an_unreachable_archive_skips_with_its_reason(self):
+        rc, out = self.check_archive("file://" + os.path.join(self.tmp, "nowhere.tar.gz"), "0" * 64)
         self.assertEqual(rc, 0, out)
         self.assertIn("SKIP (no network:", out)
         self.assertNotIn("PASS", out)

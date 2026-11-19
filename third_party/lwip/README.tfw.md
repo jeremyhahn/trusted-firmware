@@ -21,15 +21,43 @@ record. `make lwip-check` and `make lwip-upstream-check` verify those bytes.
   keyed from `hal_rng.c`), `hal_eth_wire_tcp.c`. Codex reviews our port and
   integration, not upstream's lines.
 
+## Release archive
+
+- Tag: `STABLE-2_2_1_RELEASE` (commit above).
+- Archive: upstream's tag archive on its GitHub repository,
+  https://github.com/lwip-tcpip/lwip/archive/refs/tags/STABLE-2_2_1_RELEASE.tar.gz
+- SHA-256: `ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539`
+  (`LWIP_ARCHIVE_SHA256` in `mk/firmware.mk`).
+- Why that archive: upstream's Savannah release zip,
+  https://download.savannah.nongnu.org/releases/lwip/lwip-2.2.1.zip (SHA-256
+  `7b622662dba2383d71f874f2e494b54ae948531559c17acbe75797966d646878`),
+  stores CRLF line endings. The archive check against it on 2026-11-19
+  found all 145 vendored files equal to it except for line endings, so it is
+  not byte-identical. The tag archive is, and is the one checked.
+
+## Local patches
+
+None. `third_party/lwip/patches/` does not exist. A future patch goes there
+as its own diff, listed here, and the upgrade rule below changes with it.
+
 ## Upstream check
 
-`make lwip-upstream-check` (`scripts/lwip_upstream_check.py`) fetches commit
-`77dcd25a72509eb83f72b033d219b1d40cd8eb95` from the upstream named in
-`VERSION` and compares every vendored file byte for byte. It names each file
-that differs or is missing; with no network it reports SKIP.
+`make lwip-upstream-check` (`scripts/lwip_upstream_check.py`) runs two modes:
+
+- Archive mode downloads the release archive above, refuses it unless its
+  SHA-256 matches, and compares every vendored file byte for byte with the
+  same path in the archive.
+- Git mode fetches commit `77dcd25a72509eb83f72b033d219b1d40cd8eb95` from
+  the upstream named in `VERSION`, checks the fetched id and compares every
+  vendored file byte for byte.
+
+Each mode names each file that differs or is missing. With no network it
+reports SKIP, never PASS.
 
 - 2026-11-19: PASS. All 145 vendored files are byte-identical to upstream at
   that commit.
+- 2026-11-19: PASS, archive mode. All 145 vendored files are byte-identical
+  to the tag archive above, and its SHA-256 matched.
 
 ## CVE tracking
 
@@ -60,5 +88,6 @@ day. The fix is then an upgrade, under the rule below.
 An upgrade replaces the vendored subset whole, from a fresh fetch of the new
 release tag: no cherry-picked files and no local patches. The same change
 updates `VERSION`, regenerates `SHA256SUMS`, updates
-`LWIP_UPSTREAM_COMMIT` in `mk/firmware.mk`, and updates this file's table.
+`LWIP_UPSTREAM_COMMIT`, `LWIP_ARCHIVE_URL` and `LWIP_ARCHIVE_SHA256` in
+`mk/firmware.mk`, and updates this file's archive section and table.
 `make lwip-check` and `make lwip-upstream-check` must both pass on it.

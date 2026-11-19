@@ -73,17 +73,21 @@ static void alias_seed_ref(uint8_t out[32])
 }
 
 /* The whole alias certificate for NONCE, signed with the alias key. */
-static uint16_t reference_cert(uint8_t *buf, uint16_t cap)
+static uint16_t reference_cert(uint8_t *buf, uint16_t cap, uint8_t digest[32],
+                               uint8_t sig[64])
 {
-    uint8_t pub[64], sig[64], digest[32], seed[32], got = 0u;
+    uint8_t pub[64], seed[32], dev[32], got = 0u;
     uint16_t total = 0u, off = 0u;
     tfw_alias_parts_t p = { NONCE, UEID, FW_HASH, pub, sig, TFW_CRYPTO_SOFTWARE };
 
+    /* The anchored chain: the alias key is the subject, the DeviceID key
+     * signs the TBS. */
     alias_seed_ref(seed);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_handoff_device_seed(dev));
     TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
-    memset(sig, 0, sizeof sig);
+    memset(sig, 0, 64u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(dev, digest, sig));
     do {
         TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cert(&p, off, buf + off, 200u, &total, &got));
         TEST_ASSERT_TRUE(total <= cap);
@@ -172,16 +176,46 @@ static void test_alias_pub_is_the_cdi_derived_key(void)
     TEST_ASSERT_NOT_EQUAL(0, memcmp(SEED_PUB, got, 64));
 }
 
-static void test_alias_cert_is_signed_by_the_alias_key(void)
+static void test_alias_cert_is_the_reference_chain(void)
 {
     static uint8_t ref[1024], got[1024];
-    uint16_t       n = reference_cert(ref, sizeof ref);
+    uint8_t        digest[32], sig[64];
+    uint16_t       n = reference_cert(ref, sizeof ref, digest, sig);
 
     TEST_ASSERT_EQUAL_UINT32(n, service_cert(got, sizeof got, 255u));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, got, n);
     memset(got, 0, sizeof got);
     TEST_ASSERT_EQUAL_UINT32(n, service_cert(got, sizeof got, 17u));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, got, n);
+}
+
+static void test_alias_cert_verifies_under_the_deviceid_pub_only(void)
+{
+    static uint8_t ref[1024], got[1024];
+    uint8_t        digest[32], sig[64], dev[64], alias[64];
+    uint16_t       n = reference_cert(ref, sizeof ref, digest, sig);
+
+    TEST_ASSERT_EQUAL_UINT32(n, service_cert(got, sizeof got, 255u));
+    TEST_ASSERT_TRUE(contains(got, n, sig));
+    TEST_ASSERT_TRUE(contains(got, n, sig + 32));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(dev, sizeof dev));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_pub(alias, sizeof alias));
+    TEST_ASSERT_TRUE(uECC_verify(dev, digest, 32u, sig, uECC_secp256r1()));
+    TEST_ASSERT_FALSE(uECC_verify(alias, digest, 32u, sig, uECC_secp256r1()));
+}
+
+static void test_alias_cert_subject_is_the_alias_pub(void)
+{
+    static uint8_t got[1024];
+    uint8_t        dev[64], alias[64];
+    uint32_t       n = service_cert(got, sizeof got, 255u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(dev, sizeof dev));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_pub(alias, sizeof alias));
+    TEST_ASSERT_TRUE(contains(got, n, alias));
+    TEST_ASSERT_TRUE(contains(got, n, alias + 32));
+    TEST_ASSERT_FALSE(contains(got, n, dev));
+    TEST_ASSERT_FALSE(contains(got, n, dev + 32));
 }
 
 static void test_alias_sign_is_the_alias_key_signature(void)
@@ -307,7 +341,9 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_deviceid_pub_is_the_non_secure_deviceid);
     RUN_TEST(test_alias_pub_is_the_cdi_derived_key);
-    RUN_TEST(test_alias_cert_is_signed_by_the_alias_key);
+    RUN_TEST(test_alias_cert_is_the_reference_chain);
+    RUN_TEST(test_alias_cert_verifies_under_the_deviceid_pub_only);
+    RUN_TEST(test_alias_cert_subject_is_the_alias_pub);
     RUN_TEST(test_alias_sign_is_the_alias_key_signature);
     RUN_TEST(test_alias_sign_verifies_under_the_alias_pub);
     RUN_TEST(test_alias_sign_does_not_verify_under_the_deviceid_pub);

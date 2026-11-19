@@ -169,14 +169,18 @@ TFW_NSC tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *req)
     p.pubkey  = pub;
     p.sig     = sig;
     p.tier    = s_tier;
-    /* The same two steps as alias.c's mint, with the alias key in place of
-     * the provider: the TBS digest, then its ES256 signature. */
+    /* The same two steps as alias.c's mint: the TBS digest, then its ES256
+     * signature. The subject key is the alias key and the signer is the
+     * DeviceID key (DICE layer 0 certifies layer 1), so the certificate
+     * chains to tfw_dice_deviceid_pub. The TBS is built here from secure
+     * state; the caller's nonce is one fixed field inside it, so the
+     * DeviceID key never signs a digest the caller chose. */
     memset(sig, 0, sizeof sig);
     st = tfw_alias_tbs_digest(&p, digest);
     if (st != TFW_OK) {
         return st;
     }
-    if (!tfw_deviceid_p256_sign(k, digest, sig)) {
+    if (!tfw_deviceid_p256_sign(s_seed, digest, sig)) {
         return TFW_ERR_CRYPTO;
     }
     st = tfw_alias_cert(&p, (uint16_t)r.off, page,

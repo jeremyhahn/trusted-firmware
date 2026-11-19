@@ -101,6 +101,7 @@ type Target struct {
 	// reset the board through its debug probe, for a board whose serial
 	// line carries DTR to no reset (the ST-LINK VCOM); empty for DTR or QMP.
 	ResetCmd string
+	Hook     string // the command that resets a TCP board (cmd:); empty for none
 }
 
 // Hardware reports whether the target is a real board.
@@ -109,8 +110,17 @@ func (t Target) Hardware() bool { return t.Port != "" }
 // Resets reports whether Start resets the peer, so it sends BOOT: the
 // simulator starts fresh, and a serial board is reset by DTR or QMP. A board
 // whose wire is TCP is found running, as it is, and sends no BOOT; a device
-// on it must not wait for one.
+// on it must not wait for one. StartBooted resets such a board through its
+// Hook.
 func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+
+// NoResetOnOpen is why StartBooted skips a row on a TCP board with no Hook.
+const NoResetOnOpen = "transport does not reset on open"
+
+// ResetCmdPrefix marks a ResetEnv that is a TCP board's reset hook: the
+// command, split on spaces, that resets the board (a relay, a probe's reset
+// line, a power switch), e.g. cmd:/usr/local/bin/bench-reset p4.
+const ResetCmdPrefix = "cmd:"
 
 // Listen returns the address the Ethernet rows listen on for the device to
 // dial: SimListen for the simulator; for a board, EthListenEnv's, or EthEnv's
@@ -190,24 +200,29 @@ func FromEnv() (Target, error) {
 	if err != nil {
 		return Target{}, err
 	}
-	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, ResetCmd: cmd}, nil
+	t := Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, ResetCmd: cmd}
+	if !t.Resets() {
+		t.Hook = cmd
+	}
+	return t, nil
 }
 
-// parseReset reads ResetEnv: empty for DTR, or the socket of "qmp:<socket>".
+// parseReset reads ResetEnv: empty for DTR, the socket of "qmp:<socket>", or
+// the hook of "cmd:<command>".
 // Anything else is refused rather than read as DTR, which would reset nothing
 // on the board the value was meant for.
 func parseReset(v string) (qmp, cmd string, err error) {
 	if v == "" {
 		return "", "", nil
 	}
-	if line, ok := strings.CutPrefix(v, "cmd:"); ok {
+	if line, ok := strings.CutPrefix(v, ResetCmdPrefix); ok {
 		if cmd = strings.Join(strings.Fields(line), " "); cmd != "" {
 			return "", cmd, nil
 		}
 	} else if sock, ok := strings.CutPrefix(v, "qmp:"); ok && sock != "" {
 		return sock, "", nil
 	}
-	return "", "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, cmd:<program and arguments that reset the board>, or unset to reset by DTR", ResetEnv, v)
+	return "", "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, %s<command> that resets the board, or unset to reset by DTR", ResetEnv, v, ResetCmdPrefix)
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is
@@ -686,3 +701,21 @@ func (s *started) Read(p []byte) (int, error) {
 
 func (s *started) Write(p []byte) (int, error) { return s.rwc.Write(p) }
 func (s *started) Close() error                { return s.rwc.Close() }
+
+// SetReadDeadline passes the Device's read bound through to the conn, so a
+// board that sends its BOOT and then stalls fails its read by the deadline
+// rather than at the test's timeout. A conn with no deadlines keeps none.
+func (s *started) SetReadDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return c.SetReadDeadline(t)
+	}
+	return nil
+}
+
+// SetDeadline passes a read and write bound through to the conn.
+func (s *started) SetDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetDeadline(time.Time) error }); ok {
+		return c.SetDeadline(t)
+	}
+	return s.SetReadDeadline(t)
+}

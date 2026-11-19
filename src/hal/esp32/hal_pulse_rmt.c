@@ -106,6 +106,9 @@ static tfw_status_t status_of(esp_err_t err)
 }
 
 /* 1 when this firmware drives the pin as an output: the LEDC tone's pin. */
+/* A pin whose pad output LEDC holds, a tone running or stopped: the capture
+ * after NOTONE then reads what the channel really drives, not a pad its own
+ * input configuration silenced (#561, Codex P1). */
 static bool driven_here(int gpio)
 {
 #if TFW_FEATURE_TONE

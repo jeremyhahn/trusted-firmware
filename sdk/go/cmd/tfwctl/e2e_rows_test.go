@@ -149,6 +149,9 @@ var boardImages = map[string]boardImage{
 	// (cryptoTier); no identity provisioned and no stager or application
 	// known to the rows. Its wire is TCP, which finds it running: the
 	// BOOT-event row resets it through HW_RESET=cmd:, or is skipped (#583).
+	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so the none
+	// tier and no identity (no UDS in eFuse); CAPS is the AVR peripheral set,
+	// 0x7ff.
 	"esp32p4-poe": {
 		caps:  avrPeripherals,
 		tier:  noneTier,
@@ -167,7 +170,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
-	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, tier: cryptoTier},
+	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM},
 	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
@@ -380,10 +383,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		{"esp32p4-poe", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareTone", "TestFirmwareI2C",
 			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
-			"TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
+			"TestFirmwareEEPROM", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
 			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		}, []string{
-			"TestFirmwareEEPROM",
 			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
 		}},
 	} {
@@ -401,11 +403,10 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 	}
 }
 
-// The ESP32-P4's bench image is CRYPTO=none (Codex P1 on #558): the rows that
-// hold facts only for the software and element tiers (EEPROM) are not in its
-// run, where they could only fail; the rows with no tier in them are, Caps and
-// I2CConfig among them now that they hold none-tier facts (#576), and the AVR
-// boards, on a tier, still run all three.
+// The ESP32-P4's bench image is CRYPTO=none (Codex P1 on #558, #559): the
+// rows with no tier in them are in its run, Caps, I2CConfig and EEPROM among
+// them now that they hold none-tier facts (#576), and the AVR boards, on a
+// tier, still run all three.
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	// The unprovisioned attest row stays: it holds the none tier's refusal.
 	if got := attestRefusal(tfw.CryptoNone); got != tfw.StatusErrUnsupported {
@@ -414,17 +415,12 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	if got := attestRefusal(tfw.CryptoSoftware); got != tfw.StatusErrNotProvisioned {
 		t.Errorf("attest refusal on the software tier = %v, want NOT_PROVISIONED", got)
 	}
-	tiered := []string{"TestFirmwareEEPROM"}
 	p4 := boardRun(t, "esp32p4-poe", false)
 	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C",
-		"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned"} {
+		"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareEEPROM",
+		"TestFirmwareAttestRefusedUnprovisioned"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
-		}
-	}
-	for _, r := range tiered {
-		if p4.MatchString(r) {
-			t.Errorf("esp32p4-poe: %s is run on a CRYPTO=none image", r)
 		}
 	}
 	for _, board := range []string{"atmega328p", "atmega2560"} {

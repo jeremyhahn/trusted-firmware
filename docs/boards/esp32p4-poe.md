@@ -127,7 +127,7 @@ difference.
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO2, LEDC0), `noLED` and no tick pin, but `PWM` only checks that setting duty on GPIO2 returns success and `Pin` checks descriptors: no output is observed, and LEDC channels 1, 2 and 3 are never driven, so a wrong pin route or a missing waveform passes too; needs duty and frequency measured on each LEDC channel's pin within tolerance; issue to file. The 2026-11-17 run of #547: row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin, and row `Pin` fails on `pin 11 flags = digital, want digital and led`; row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag) |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
-| esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
+| esp32-p4 | EEPROM (`tfw_eeprom`) | facts corrected, hardware re-run pending #561 | row `EEPROM` stopped at "crypto tier none: no reserved-read facts"; the row now expects the reserved read answered on the none tier, as `tfw_auth_gate` gives it (#575) |
 | esp32-p4 | CAPS, I2C_CONFIG | facts corrected, hardware re-run pending #561 | rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576). On the image the board runs, row `Caps` passes (2026-11-17, #539, "tfw-wire over TCP" above) |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
 | esp32-p4 | boot event on connect | not run | a `tcp:` connect resets nothing, so the rows that need a fresh boot (`PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, and `Sys`, which wants a power-on reset cause and zero sticky framing counters) are out of this board's row list until it has a reset over the wire; issue to file |
@@ -187,7 +187,8 @@ and tone pass on it (Feature matrix). Not met:
 PWM has no measured duty or frequency on any LEDC channel and ADC no result
 checked against a known input; SPI has no recorded bus transfer (#569); 1-Wire has no device answering
 presence and pulse-in no measured pulse; EEPROM has no passing row on
-this board and row `Pin` has corrected facts and waits on its hardware re-run (#561); the board-dials
+this board (its facts are corrected, the re-run waits on #561) and row `Pin`
+has corrected facts and waits on its hardware re-run (#561); the board-dials
 Ethernet rows have not run; OTA staging fails on the soft tier and trial,
 confirm and roll back cannot run without an operator session; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

@@ -127,11 +127,110 @@ static void test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new(void)
     TEST_ASSERT_FALSE(answered(5u));
 }
 
+static uint8_t uart_answered(uint8_t seq)
+{
+    uint8_t     out[512];
+    size_t      n = tfw_mock_drain_tx(out, sizeof out);
+    tfw_framer_t f;
+
+    tfw_framer_init(&f);
+    for (size_t i = 0u; i < n; i++) {
+        if (tfw_framer_push(&f, out[i]) == TFW_FRAME_READY && tfw_frame_seq(&f) == seq &&
+            tfw_frame_status(&f) == TFW_OK) {
+            return 1u;
+        }
+    }
+    return 0u;
+}
+
+static void feed_uart_request(uint8_t seq)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, seq, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_mock_feed_rx(wire, len);
+}
+
+/* Codex P1 on #584: a TCP peer sending a non-SOF byte every 100 ms must not
+ * hold the UART off. The framer discards each byte, so no frame starts and
+ * the hold never begins. */
+static void test_tcp_noise_does_not_hold_off_a_uart_request(void)
+{
+    static const uint8_t noise = 0x00u;
+    uint8_t answered_uart = 0u;
+
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_h5_wire_push(&noise, 1u));
+    tfw_transport_poll(&t);
+    TEST_ASSERT_FALSE(t.in_frame);
+    feed_uart_request(7u);
+
+    /* Within the 250 ms idle bound, noise arriving all along. */
+    for (unsigned i = 0u; i < 2u && !answered_uart; i++) {
+        tfw_mock_advance(100u);
+        TEST_ASSERT_EQUAL_UINT16(1u, tfw_h5_wire_push(&noise, 1u));
+        for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+        answered_uart = uart_answered(7u);
+    }
+    TEST_ASSERT_TRUE(answered_uart);
+}
+
+/* A TCP frame really in progress still holds the line: the UART request
+ * waits for it to complete, then is answered. */
+static void test_a_tcp_frame_in_progress_holds_until_it_completes(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(3u, tfw_h5_wire_push(wire, 3u));
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(t.in_frame);
+    feed_uart_request(7u);
+
+    tfw_mock_advance(200u);
+    for (unsigned k = 0u; k < 16u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_FALSE(uart_answered(7u));
+    TEST_ASSERT_TRUE(t.in_frame);
+
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(len - 3u), tfw_h5_wire_push(wire + 3u, (uint16_t)(len - 3u)));
+    for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(answered(2u));
+    TEST_ASSERT_TRUE(uart_answered(7u));
+}
+
+/* ... or until the 250 ms idle timeout abandons it. */
+static void test_a_stalled_tcp_frame_holds_until_the_idle_timeout(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(3u, tfw_h5_wire_push(wire, 3u));
+    tfw_transport_poll(&t);
+    feed_uart_request(7u);
+
+    tfw_mock_advance(TFW_FRAME_IDLE_MS);
+    for (unsigned k = 0u; k < 16u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_FALSE(uart_answered(7u));
+
+    tfw_mock_advance(1u);
+    for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(uart_answered(7u));
+    TEST_ASSERT_FALSE(answered(2u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_replacement_connection_is_not_read_as_the_old_frames_tail);
     RUN_TEST(test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new);
     RUN_TEST(test_a_reset_over_tcp_is_not_admitted);
+    RUN_TEST(test_tcp_noise_does_not_hold_off_a_uart_request);
+    RUN_TEST(test_a_tcp_frame_in_progress_holds_until_it_completes);
+    RUN_TEST(test_a_stalled_tcp_frame_holds_until_the_idle_timeout);
     return UNITY_END();
 }

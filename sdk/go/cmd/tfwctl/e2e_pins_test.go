@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
 )
 
 // peerBoard is what the scenarios have to know about the board they talk to:
@@ -18,7 +19,8 @@ type peerBoard struct {
 	// resetCause is what SYS_INFO reports after the connect. tfwsim starts
 	// from power-on. A real board was just reset through DTR, and its stock
 	// bootloader cleared MCUSR before the application could latch it, so the
-	// honest answer is unknown (src/hal/avr/hal_sys.c).
+	// honest answer is unknown (src/hal/avr/hal_sys.c). It holds only where
+	// Start resets the peer: see resetCauseHolds.
 	resetCause tfw.ResetCause
 	// heldCauses are what a board found running (a TCP wire, no reset) may
 	// report: the cause of its last boot, which the run did not choose. Nil
@@ -165,6 +167,31 @@ func TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne(t *testing.T) {
 	}
 	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePin") {
 		t.Error("esp32p4-poe: the Pin row is not run")
+	}
+}
+
+// resetCauseHolds reports whether the Sys row accepts got as board b's reset
+// cause on target. Start resets a simulator or a serial board, so the cause
+// is the board's resetCause; a TCP wire finds the board running after
+// whatever restart it last had, a software one among them, so there no one
+// cause is established (Codex P1 on #568).
+func resetCauseHolds(b peerBoard, target peer.Target, got tfw.ResetCause) bool {
+	return !target.Resets() || got == b.resetCause
+}
+
+func TestSysRowFixesTheResetCauseOnlyWhereStartResets(t *testing.T) {
+	p4 := peerBoards["esp32p4-poe"]
+	tcp := peer.Target{Board: "esp32p4-poe", Port: peer.TCPPrefix + "<board>:21574"}
+	if !resetCauseHolds(p4, tcp, tfw.ResetSoftware) {
+		t.Error("esp32p4-poe over TCP: a software restart fails the Sys row")
+	}
+	serial := peer.Target{Board: "atmega2560", Port: "serial"}
+	mega := peerBoards["atmega2560"]
+	if !resetCauseHolds(mega, serial, mega.resetCause) {
+		t.Errorf("atmega2560 reset by Start: its own cause %v fails the Sys row", mega.resetCause)
+	}
+	if resetCauseHolds(mega, serial, tfw.ResetSoftware) {
+		t.Error("atmega2560 reset by Start: a software restart passes the Sys row")
 	}
 }
 

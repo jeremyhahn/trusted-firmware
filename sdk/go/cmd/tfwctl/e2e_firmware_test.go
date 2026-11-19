@@ -178,6 +178,13 @@ func TestPingRowOnTheESP32OverTCPAsALaterHost(t *testing.T) {
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
+	if target.Resets() || target.Hook != "" {
+		// StartBooted, not Start: a TCP board is not reset by the connect, so
+		// it is reset through its TFW_HW_RESET cmd: hook first (#583).
+		assertBootEvent(t, peer.StartBooted(t, simproc.Software))
+		return
+	}
+	// #550: with no hook, a TCP board is reset by pulsing its reset port.
 	conn, skip := bootEventLink(t, target, os.Getenv(resetPortEnv))
 	if skip != "" {
 		t.Skip(skip)

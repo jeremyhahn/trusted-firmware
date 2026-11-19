@@ -260,7 +260,7 @@ var pulseReset = func(port string) error {
 // skips by name, never passes on a boot it did not see.
 func bootEventLink(t *testing.T, target peer.Target, resetPort string) (conn io.ReadWriteCloser, skip string) {
 	t.Helper()
-	if !strings.HasPrefix(target.Port, peer.TCPPrefix) {
+	if !peer.IsTCP(target.Port) {
 		return peer.Start(t, simproc.Software), ""
 	}
 	if resetPort == "" {

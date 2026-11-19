@@ -110,7 +110,7 @@ func (t Target) Hardware() bool { return t.Port != "" }
 // whose wire is TCP is found running, as it is, and sends no BOOT; a device
 // on it must not wait for one. StartBooted resets such a board through its
 // Hook.
-func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+func (t Target) Resets() bool { return !IsTCP(t.Port) }
 
 // NoResetOnOpen is why StartBooted skips a row on a TCP board with no Hook.
 const NoResetOnOpen = "transport does not reset on open"
@@ -261,7 +261,7 @@ func openTarget(t Target) (io.ReadWriteCloser, error) {
 		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 			return OpenCmd(port, strings.Fields(t.ResetCmd), bound)
 		}
-		if strings.HasPrefix(t.Port, TCPPrefix) && bound < TCPResetBound {
+		if IsTCP(t.Port) && bound < TCPResetBound {
 			bound = TCPResetBound
 		}
 	}
@@ -278,6 +278,11 @@ var openPort = serialport.Open
 // event is delivered exactly as tfwsim delivers it. Nothing is written before
 // then, so no request lands in the bootloader.
 func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+	if addr, ok := strings.CutPrefix(port, TCPListenPrefix); ok {
+		// A board that dials the host (the STM32H573I-DK's ETH_MAC=1
+		// image): found running, as it is, on its next dial.
+		return openListen(port, addr, nil, bound)
+	}
 	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
 		// A board whose wire is a TCP server (the ESP32 port, hal_uart.c):
 		// no DTR to reset it, so the rows find it running, as it is.
@@ -302,6 +307,70 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 // TCPPrefix marks a PortEnv that is a board's wire endpoint, host:port,
 // rather than a serial device: tcp:192.0.2.80:21574.
 const TCPPrefix = "tcp:"
+
+// TCPListenPrefix marks a PortEnv that is an address the host listens on for
+// a board that dials out: the STM32H573I-DK's ETH_MAC=1 image dials its
+// network block's endpoint and listens on nothing (#584), so its hw-test
+// runs with PORT=tcp-listen:<host-port> (every interface) or
+// tcp-listen:<host-address>:<host-port>, and each open takes the board's
+// next connection.
+const TCPListenPrefix = "tcp-listen:"
+
+// IsTCP reports whether port is a board's wire over TCP, dialled (tcp:) or
+// accepted (tcp-listen:): no DTR resets such a board.
+func IsTCP(port string) bool {
+	return strings.HasPrefix(port, TCPPrefix) || strings.HasPrefix(port, TCPListenPrefix)
+}
+
+// listenTCP binds the host's end of a tcp-listen: port. A bare port binds
+// every interface.
+func listenTCP(addr string) (*net.TCPListener, error) {
+	if !strings.Contains(addr, ":") {
+		addr = ":" + addr
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return l.(*net.TCPListener), nil
+}
+
+// acceptTCP takes the first connection the board opens on l before deadline
+// and closes l: the board's later dials are refused, and redialled, until the
+// next open listens again.
+func acceptTCP(l *net.TCPListener, deadline time.Time) (net.Conn, error) {
+	defer func() { _ = l.Close() }()
+	if err := l.SetDeadline(deadline); err != nil {
+		return nil, err
+	}
+	c, err := l.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("no connection from the board: %w", err)
+	}
+	return c, nil
+}
+
+// openListen listens on addr, runs reset (if any) once the host is
+// listening, so the rebooted board's first dial lands, and accepts the
+// board's connection, all within bound.
+func openListen(port, addr string, reset func() error, bound time.Duration) (io.ReadWriteCloser, error) {
+	deadline := time.Now().Add(bound)
+	l, err := listenTCP(addr)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", port, err)
+	}
+	if reset != nil {
+		if err := reset(); err != nil {
+			_ = l.Close()
+			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
+		}
+	}
+	c, err := acceptTCP(l, deadline)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", port, err)
+	}
+	return c, nil
+}
 
 // tcpDials bounds the dials openTCP makes to a board that closes each one.
 const tcpDials = 3
@@ -480,6 +549,9 @@ func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteClose
 	// The reset runs through runHook, which bounds it and kills the whole
 	// process group, so a hook whose child holds its output cannot hang it.
 	hook := strings.Join(argv, " ")
+	if addr, ok := strings.CutPrefix(port, TCPListenPrefix); ok {
+		return openListen(port, addr, func() error { return runHook(hook, bound) }, bound)
+	}
 	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
 		// A board whose wire is TCP (the STM32H573I-DK's ETH_MAC=1 image):
 		// the reset goes first, then the dial, which is redialled while the

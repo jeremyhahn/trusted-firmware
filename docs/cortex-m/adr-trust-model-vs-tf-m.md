@@ -13,6 +13,26 @@
 > 2026-11-14; the open questions it does not answer stay open.
 > This ADR changes no code, no wire vector and no SPEC row.
 
+## Amended by ruling 935 (owner queue 236)
+
+Ruling 935 sets one attestation path for every MCU: TCG DICE evidence through
+go-xkms device-attest-01, with the DICE layer and the DeviceID and alias keys
+in the secure world, which on the STM32H5 and the nRF54L is our own
+TrustZone-M firmware, "not ST Secure Manager, no PSA token verifier". The
+decision and its slices are in
+[`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md).
+For this ADR it means:
+
+- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, option (a),
+  our own secure world, is taken in place of (b1);
+- open question 2 (vendor secure worlds) is closed: no vendor secure world,
+  not ST's Secure Manager;
+- open question 4 (the PSA token) is closed: no PSA token is offered and no
+  PSA or EAT verifier is added.
+
+The passages below that offer the Secure Manager or a PSA token are kept as
+the analysis first recorded and are marked **not taken**.
+
 ## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
 
 The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
@@ -503,9 +523,10 @@ There are two shapes, and only one of them keeps the signing rule.
 
   go-quicbaas's Verifier would need IAK endorsements and PSA reference values
   (implementation ID, software component measurements and signer IDs) in its
-  store. The SPEC row `stm32h5` already assumes go-xkms's EAT path verifies a
-  PSA token, from ST's Secure Manager. Whether it does today is unknown here and
-  is reported, not checked by reading go-xkms.
+  store. The SPEC row `stm32h5` assumed go-xkms's EAT path verifies a
+  PSA token, from ST's Secure Manager. **Not taken** (ruling 935): no PSA
+  token or EAT verifier is added
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Licence.** Every component is permissive, so all of them are compatible
   with AGPL-3.0-or-later and with our commercial licence:
   - TF-M and tf-m-extras: BSD-3-Clause (`contributing/lic.html`).
@@ -664,8 +685,11 @@ board of the port).
   RP2350. Where a part ships a vendor secure world (ST's Secure Manager on the
   STM32H573I-DK, Nordic's TF-M on the nRF54L15), the same partition targets the
   vendor's PSA-compatible secure world if the licence allows; otherwise it
-  targets upstream TF-M. This is open question 2, and it is the `stm32h5` row's
-  open decision, which this ADR does not close.
+  targets upstream TF-M. This was open question 2 and the `stm32h5` row's
+  open decision; ruling 935 closed it: on the STM32H5 and the nRF54L15 the
+  secure world is our own TrustZone-M firmware, the vendor secure worlds are
+  **not taken**, and the PSA token is not offered
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Cortex-M7: (c), MPU-only** (decided 2026-11-14).
   - The template builders run privileged, behind an SVC gate.
   - Layer 0 is the SoC's where it has one (NXP's ROM, ELE and System Manager
@@ -723,9 +747,10 @@ extends without renumbering:
 Owner ruling 632 item 208 a (2026-11-14) closes question 1. It does not answer
 questions 2 to 13, which stay open:
 
-- 2, vendor secure worlds: open; the ruling names TF-M, not which build of it.
+- 2, vendor secure worlds: closed by ruling 935, none (our own TrustZone-M
+  firmware on the STM32H5 and nRF54L15; not ST's Secure Manager).
 - 3, the PSA interfaces: open; the ruling does not name them.
-- 4, the PSA token: open.
+- 4, the PSA token: closed by ruling 935, not offered, no PSA verifier.
 - 5, crypto tier values: open.
 - 6, the alias key: open.
 - 7, where the CoRIM check runs: open.

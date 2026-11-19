@@ -147,7 +147,7 @@ tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p2
 | | | Source |
 |---|---|---|
 | TrustZone-M | yes: Armv8-M with the Security Extension | ST product page *STM32H573II*; not confirmed against DS14053 |
-| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
+| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update. **Not taken** as this project's secure world (ruling 935, [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)) | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
 | Secure Manager access kit | X-CUBE-SEC-M-H5, distributed under export-control conditions | ST's STM32TRUSTEE-SM page |
 | Certification targets | PSA Certified Level 3 and SESIP 3 are the part's targets; the SESIP guidance is UM3238 | ST product page *STM32H573II*; UM3238, *STM32H573xx STM32TrusteeSM security guidance for SESIP 3 certification*, revision not confirmed |
 | Factory device certificate | **not confirmed** (the `stm32h5` row states one; no ST document was read that says so) | |
@@ -245,8 +245,11 @@ CA 583 forbids: option bytes or provisioning).
 - Cortex-M33 with TrustZone: owner (TZEN is an option byte; CA 583).
 - Hardware crypto: fails, CAPS offers the soft tier only (issue to file:
   PKA/HASH not ported).
-- ST Secure Manager: owner (provisioning writes; CA 583).
-- Factory device certificate: owner (provisioning writes; CA 583).
+- ST Secure Manager: not taken (ruling 935,
+  [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
+  the secure world is our own TrustZone-M firmware.
+- Factory device certificate: not the identity root under ruling 935; whether
+  the part carries one is a hardware fact, owner (provisioning writes; CA 583).
 - Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the
   `ETH_PROBE=1` image's boot line `eth: phy addr=0 id=0007:C131 link=up`
   (a LAN8742A at MDIO address 0, link up; #579).
@@ -330,9 +333,9 @@ CA 583 forbids: option bytes or provisioning).
 
 ## What this page bears on
 
-- **ADR #15 open question 2** (vendor secure worlds): the Secure Manager is
-  documented in UM3254, and its access kit is export-controlled. The licence
-  check that question asks for starts there.
+- **ADR #15 open question 2** (vendor secure worlds): closed by ruling 935;
+  the Secure Manager (UM3254, export-controlled access kit) is not taken
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **ADR #15 open question 1**: the upstream TF-M platform is this board, not
   the NUCLEO-H563ZI.
 - **The `stm32h5` row's "enrolling over Ethernet"**: this board has Ethernet on

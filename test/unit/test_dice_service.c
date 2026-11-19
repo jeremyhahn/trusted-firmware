@@ -11,6 +11,8 @@
  * test_soft_id_p256 pins for the same UDS.
  */
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "unity.h"
 #include "uECC.h"
@@ -264,6 +266,56 @@ static void test_no_answer_carries_a_secret(void)
     TEST_ASSERT_FALSE(contains(out, n, UDS));
 }
 
+/* ---- the vectors sdk/go's dice evidence test reads (docs/plans/590c.md) --- */
+
+static size_t vec_line(char *out, size_t at, const char *name, const uint8_t *b, size_t n)
+{
+    at += (size_t)sprintf(out + at, "%s ", name);
+    for (size_t i = 0u; i < n; i++) {
+        at += (size_t)sprintf(out + at, "%02x", b[i]);
+    }
+    out[at++] = '\n';
+    return at;
+}
+
+/* The service's answers for NONCE, as sdk/go/testdata/dice_service_vectors.txt
+ * holds them: the file must be what the service answers today, so a change to
+ * the service shows here and not as a stale Go test. TFW_DICE_VECTORS_WRITE=1
+ * rewrites it. */
+static void test_vectors_file_is_the_services_answers(void)
+{
+    static uint8_t cert[1024];
+    static char    want[4096], have[4096 + 1];
+    uint8_t        pub[64], sig[64], digest[32];
+    uint32_t       n = service_cert(cert, sizeof cert, 255u);
+    size_t         at = 0u, got;
+    FILE          *f;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(pub, sizeof pub));
+    tfw_sha256(NONCE, sizeof NONCE, digest);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_sign(digest, 32u, sig, sizeof sig));
+    at += (size_t)sprintf(want, "# test/unit/test_dice_service.c; TFW_DICE_VECTORS_WRITE=1 rewrites it\n");
+    at = vec_line(want, at, "nonce", NONCE, sizeof NONCE);
+    at = vec_line(want, at, "ueid", UEID, sizeof UEID);
+    at = vec_line(want, at, "fw_hash", FW_HASH, sizeof FW_HASH);
+    at = vec_line(want, at, "deviceid_pub", pub, sizeof pub);
+    at = vec_line(want, at, "alias_cert", cert, n);
+    at = vec_line(want, at, "alias_sig", sig, sizeof sig);
+
+    if (getenv("TFW_DICE_VECTORS_WRITE") != NULL) {
+        f = fopen(TFW_DICE_VECTORS, "wb");
+        TEST_ASSERT_NOT_NULL(f);
+        TEST_ASSERT_EQUAL_size_t(at, fwrite(want, 1u, at, f));
+        TEST_ASSERT_EQUAL(0, fclose(f));
+    }
+    f = fopen(TFW_DICE_VECTORS, "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, TFW_DICE_VECTORS);
+    got = fread(have, 1u, sizeof have, f);
+    (void)fclose(f);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(at, got, "stale vectors: TFW_DICE_VECTORS_WRITE=1 rewrites them");
+    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(want, have, at, "stale vectors: TFW_DICE_VECTORS_WRITE=1 rewrites them");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -275,5 +327,6 @@ int main(void)
     RUN_TEST(test_null_and_short_buffers_are_refused_untouched);
     RUN_TEST(test_before_init_is_not_provisioned_untouched);
     RUN_TEST(test_no_answer_carries_a_secret);
+    RUN_TEST(test_vectors_file_is_the_services_answers);
     return UNITY_END();
 }

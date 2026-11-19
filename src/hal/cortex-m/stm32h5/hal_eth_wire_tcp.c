@@ -142,6 +142,16 @@ void tfw_h5_wire_recved(uint16_t n)
     }
 }
 
+void tfw_h5_wire_abort(void)
+{
+    struct tcp_pcb *pcb = wire_pcb;
+
+    wire_forget();                      /* the link drops the peer at once */
+    if (pcb != NULL) {
+        tcp_abort(pcb);                 /* RST: the peer is not reading */
+    }
+}
+
 void tfw_h5_wire_finish(void)
 {
     struct tcp_pcb *pcb = wire_pcb;

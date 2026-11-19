@@ -36,6 +36,7 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 void tfw_h5_wire_recved(uint16_t n) { (void)n; }
 
 void tfw_h5_wire_finish(void) { tfw_h5_wire_drop(); }
+void tfw_h5_wire_abort(void) { tfw_h5_wire_drop(); }
 
 void setUp(void)
 {

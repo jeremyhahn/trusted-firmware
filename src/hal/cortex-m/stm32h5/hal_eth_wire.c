@@ -14,7 +14,9 @@
  *     as the transport reads them, so the ring never overflows;
  *   - reply bytes are batched and handed to TCP when the reply is complete
  *     (or the batch is full); a reply owed to a connection that has gone is
- *     taken and dropped, so a dead peer never holds the transport.
+ *     taken and dropped, so a dead peer never holds the transport; nor
+ *     does a live one that stops reading: a reply it takes none of for
+ *     TFW_H5_WIRE_TX_STALL_MS resets the connection and is dropped.
  */
 #include <stdint.h>
 #include <string.h>
@@ -38,6 +40,8 @@ static uint8_t  up;
 static uint8_t  cur = WIRE_SERIAL;
 static uint8_t  peer_changed;   /* for tfw_link_take_reset() */
 static uint8_t  peer_eof;       /* the peer sent FIN: finish, then close */
+static uint8_t  tx_stalled;     /* the last send took nothing ... */
+static tfw_ms_t tx_stall_since; /* ... and since when */
 
 /* Diagnostic text (tfw_h5_wire_say) waits here while a transport frame is
  * partly in the UART ring, and goes out only between frames (#584). */
@@ -65,6 +69,7 @@ static void wire_reset(void)
     rx_unacked = 0u;
     tx_len     = 0u;
     peer_eof   = 0u;
+    tx_stalled = 0u;
     /* The transport's half of the old peer -- a partly decoded frame, a
      * reply still owed -- goes too, but only when TCP is the current wire:
      * a UART frame in flight is not the TCP peer's to discard. */
@@ -113,14 +118,26 @@ static void wire_flush(void)
     while (tx_len > 0u) {
         uint16_t n = tfw_h5_wire_send(tx_buf, tx_len);
         if (n == 0u) {
-            return;                     /* send buffer full: next poll */
+            /* Send buffer full: the next poll retries, within a fixed bound.
+             * A peer that takes nothing for TFW_H5_WIRE_TX_STALL_MS is reset,
+             * and the reply owed to it is dropped. */
+            tfw_ms_t now = tfw_hal_millis();
+            if (!tx_stalled) {
+                tx_stalled     = 1u;
+                tx_stall_since = now;
+            } else if ((tfw_ms_t)(now - tx_stall_since) >= TFW_H5_WIRE_TX_STALL_MS) {
+                tfw_h5_wire_abort();
+            }
+            return;
         }
+        tx_stalled = 0u;
         if (n > tx_len) {
             n = tx_len;
         }
         memmove(tx_buf, tx_buf + n, (size_t)(tx_len - n));
         tx_len = (uint16_t)(tx_len - n);
     }
+    tx_stalled = 0u;
 }
 
 void tfw_link_poll(void)
@@ -189,6 +206,9 @@ uint8_t tfw_link_tx_try(uint8_t byte, uint8_t serial)
     }
     if (tx_len == TFW_H5_WIRE_TX_BUF) {
         wire_flush();
+        if (!up) {
+            return 1u;                  /* reset for stalling: drop the reply */
+        }
         if (tx_len == TFW_H5_WIRE_TX_BUF) {
             return 0u;
         }

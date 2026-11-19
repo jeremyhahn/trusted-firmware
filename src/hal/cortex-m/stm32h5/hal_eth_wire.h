@@ -25,6 +25,11 @@
 /* Reply bytes batched before they are handed to TCP. */
 #define TFW_H5_WIRE_TX_BUF 512u
 
+/* How long a reply may wait on a TCP peer that takes none of it (its send
+ * buffer full, the peer not reading) before the connection is reset, so a
+ * peer that stops reading never holds the transport and the UART (#584). */
+#define TFW_H5_WIRE_TX_STALL_MS 2000u
+
 /* --- diagnostics on the UART (hal_eth_netif.c) ----------------------------- */
 
 #ifndef TFW_H5_WIRE_SAY_BUF
@@ -65,6 +70,10 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len);
 
 /* The transport has read n bytes: reopen the receive window by n. */
 void     tfw_h5_wire_recved(uint16_t n);
+
+/* The peer has taken no reply bytes for TFW_H5_WIRE_TX_STALL_MS: reset the
+ * connection now (the link forgets it at once, as tfw_h5_wire_drop). */
+void     tfw_h5_wire_abort(void);
 
 /* A half-closed peer has nothing left to read or answer: close the
  * connection once its send queue has drained (a later poll retries). */

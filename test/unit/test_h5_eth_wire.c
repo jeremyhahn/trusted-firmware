@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "unity.h"
+#include "tfw/hal.h"
 #include "tfw/link.h"
 #include "tfw/protocol.h"
 #include "hal_eth_wire.h"
@@ -62,6 +63,17 @@ uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 void tfw_h5_wire_recved(uint16_t n) { recved_total += n; }
 
 static unsigned finish_calls;
+static unsigned abort_calls;
+static tfw_ms_t fake_ms;
+
+tfw_ms_t tfw_hal_millis(void) { return fake_ms; }
+
+/* As the listener does: reset the connection and forget the peer at once. */
+void tfw_h5_wire_abort(void)
+{
+    abort_calls++;
+    tfw_h5_wire_drop();
+}
 
 /* As the listener does once its send queue is empty: forget the peer. */
 void tfw_h5_wire_finish(void)
@@ -88,7 +100,8 @@ void setUp(void)
     uint8_t b;
 
     uart_in_len = uart_in_pos = uart_out_len = 0u;
-    sent_len = send_calls = recved_total = finish_calls = 0u;
+    sent_len = send_calls = recved_total = finish_calls = abort_calls = 0u;
+    fake_ms = 1000u;
     send_room = 0xFFFFu;
     tfw_h5_wire_drop();
     /* Leave the link on the UART, as a fresh boot is. */
@@ -199,6 +212,67 @@ static void test_a_full_batch_flushes_and_a_full_tcp_buffer_waits(void)
     tfw_link_tx_done(0u);
     TEST_ASSERT_EQUAL_UINT(TFW_H5_WIRE_TX_BUF + 1u, sent_len);
     TEST_ASSERT_EQUAL_HEX8(0xAA, sent[TFW_H5_WIRE_TX_BUF]);
+}
+
+/* A TCP peer that stops reading: its reply waits TFW_H5_WIRE_TX_STALL_MS at
+ * most, then the connection is reset, the reply dropped, and a command on the
+ * UART is read and answered as before (#584). */
+static void test_a_peer_that_stops_reading_is_reset_and_serial_is_answered(void)
+{
+    uint8_t b;
+
+    tfw_h5_wire_open();
+    (void)tcp_feed("a");
+    (void)tfw_link_rx(&b, 0u);
+    send_room = 0u;                                 /* the peer reads nothing */
+    for (unsigned i = 0u; i < TFW_H5_WIRE_TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try((uint8_t)i, 0u));
+    }
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_tx_try(0xAA, 0u));
+    fake_ms += TFW_H5_WIRE_TX_STALL_MS - 1u;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_tx_try(0xAA, 0u));
+    TEST_ASSERT_EQUAL_UINT(0, abort_calls);
+    fake_ms += 1u;                                  /* the bound is reached */
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try(0xAA, 0u));
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_take_reset());
+    for (unsigned i = 0u; i < 16u; i++) {           /* the rest is dropped */
+        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try(0x55, 0u));
+    }
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+
+    uart_feed("s");
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_HEX8('s', b);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try(0x7E, 0u));
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(1, uart_out_len);
+    TEST_ASSERT_EQUAL_HEX8(0x7E, uart_out[0]);
+}
+
+/* Progress, however slow, restarts the bound: a peer that reads a byte now
+ * and then is not reset. */
+static void test_a_slow_reader_is_not_reset(void)
+{
+    uint8_t b;
+
+    tfw_h5_wire_open();
+    (void)tcp_feed("a");
+    (void)tfw_link_rx(&b, 0u);
+    send_room = 0u;
+    for (unsigned i = 0u; i < TFW_H5_WIRE_TX_BUF; i++) {
+        (void)tfw_link_tx_try((uint8_t)i, 0u);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_tx_try(0xAA, 0u));   /* the stall starts */
+    for (unsigned i = 0u; i < 4u; i++) {
+        fake_ms += TFW_H5_WIRE_TX_STALL_MS - 1u;
+        send_room = 1u;                             /* one byte taken */
+        tfw_link_poll();
+    }
+    TEST_ASSERT_EQUAL_UINT(0, abort_calls);
+    TEST_ASSERT_EQUAL_UINT(4, sent_len);
 }
 
 static void test_a_partly_sent_reply_finishes_on_the_next_poll(void)
@@ -366,6 +440,8 @@ int main(void)
     RUN_TEST(test_the_window_reopens_only_as_bytes_are_read);
     RUN_TEST(test_the_ring_takes_no_more_than_it_has_room_for);
     RUN_TEST(test_a_full_batch_flushes_and_a_full_tcp_buffer_waits);
+    RUN_TEST(test_a_peer_that_stops_reading_is_reset_and_serial_is_answered);
+    RUN_TEST(test_a_slow_reader_is_not_reset);
     RUN_TEST(test_a_partly_sent_reply_finishes_on_the_next_poll);
     RUN_TEST(test_a_reply_owed_to_a_dropped_peer_is_discarded);
     RUN_TEST(test_a_new_connection_starts_clean);

@@ -200,8 +200,14 @@ int tfw_deviceid_p256_sign(const uint8_t seed[32], const uint8_t digest[32],
                            uint8_t sig[64])
 {
     uint8_t d[32];
-    int     ok = tfw_deviceid_p256_scalar(seed, d)
-                 && tfw_p256_sign_rfc6979(d, digest, sig);
+    int     ok;
+
+    /* #584: deriving d runs a full P-256 multiplication (the public key) as
+     * long as the sign's own, so the deadline-only hook covers both. */
+    uECC_set_yield(tfw_sign_yield);
+    ok = tfw_deviceid_p256_scalar(seed, d);
+    ok = ok && tfw_p256_sign_rfc6979(d, digest, sig);
+    uECC_set_yield(0);
 
     if (!ok) {
         memset(sig, 0x00, 64u);

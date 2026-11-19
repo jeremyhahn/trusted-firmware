@@ -140,6 +140,34 @@ static void test_a_scheduled_output_is_released_on_time_during_a_sign(void)
     TEST_ASSERT_EQUAL_MEMORY(quiet, sig, sizeof sig);
 }
 
+/* Codex round 2 P1: a sign first derives d from the seed, and that runs a full
+ * multiplication (the public key) before the signing one. With nothing cached,
+ * a deadline late in that derivation is released on time, in the first half of
+ * the sign's ladder steps, not only once signing starts. */
+#define DERIVE_ARM_MS (200u * STEP_MS)
+
+static void test_a_scheduled_output_is_released_on_time_during_derivation(void)
+{
+    uint8_t sig[64];
+
+    arm_high_for(DERIVE_ARM_MS);
+    TEST_ASSERT_TRUE(tfw_sched_active());
+
+    signing = 1;
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
+    signing = 0;
+
+    TEST_ASSERT_TRUE(released);
+    TEST_ASSERT_TRUE(released_in_sign);
+    TEST_ASSERT_EQUAL_UINT8(0u, released_level);
+    TEST_ASSERT_TRUE(released_ms >= DERIVE_ARM_MS);
+    TEST_ASSERT_TRUE(released_ms - DERIVE_ARM_MS <= STEP_MS);
+    /* Both multiplications yield, and the release fell in the first. */
+    TEST_ASSERT_TRUE(now_ms >= 500u * STEP_MS);
+    TEST_ASSERT_TRUE(2u * released_ms < now_ms);
+    TEST_ASSERT_FALSE(tfw_sched_active());
+}
+
 /* Nothing armed: the sweep runs on every step and writes no pin. */
 static void test_a_sign_with_nothing_armed_writes_no_pin(void)
 {
@@ -156,6 +184,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_scheduled_output_is_released_on_time_during_a_sign);
+    RUN_TEST(test_a_scheduled_output_is_released_on_time_during_derivation);
     RUN_TEST(test_a_sign_with_nothing_armed_writes_no_pin);
     return UNITY_END();
 }

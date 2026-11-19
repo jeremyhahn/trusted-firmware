@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -202,8 +203,28 @@ func TestOpenCmdTCPResetKeepsOneDeadline(t *testing.T) {
 	const bound = 400 * time.Millisecond
 	const slack = 150 * time.Millisecond
 	saved, pause := dialTCP, tcpRedialPause
-	t.Cleanup(func() { dialTCP, tcpRedialPause = saved, pause })
+	savedNow, savedSleep := now, sleep
+	t.Cleanup(func() {
+		dialTCP, tcpRedialPause = saved, pause
+		now, sleep = savedNow, savedSleep
+	})
 	tcpRedialPause = time.Millisecond
+
+	// A fake clock: a dial or a pause advances it by its duration, so the
+	// deadline arithmetic is exact and nothing waits on the wall clock.
+	var mu sync.Mutex
+	clock := time.Unix(0, 0)
+	advance := func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(d)
+	}
+	now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
+	sleep = advance
 
 	t.Run("a late connection is refused", func(t *testing.T) {
 		var bounds []time.Duration
@@ -211,16 +232,16 @@ func TestOpenCmdTCPResetKeepsOneDeadline(t *testing.T) {
 		dialTCP = func(_, _ string, b time.Duration) (io.ReadWriteCloser, error) {
 			bounds = append(bounds, b)
 			if len(bounds) < 3 {
-				time.Sleep(120 * time.Millisecond)
+				advance(120 * time.Millisecond)
 				return nil, errors.New("connection refused")
 			}
 			// A dial that takes all it was given, and a little more.
-			time.Sleep(b + 20*time.Millisecond)
+			advance(b + 20*time.Millisecond)
 			return lateWire{&closed}, nil
 		}
-		start := time.Now()
+		start := now()
 		c, err := OpenCmd(TCPPrefix+"board:21574", []string{"true"}, bound)
-		elapsed := time.Since(start)
+		elapsed := now().Sub(start)
 		if err == nil {
 			_ = c.Close()
 			t.Fatal("OpenCmd accepted a connection completed past the deadline")
@@ -251,12 +272,12 @@ func TestOpenCmdTCPResetKeepsOneDeadline(t *testing.T) {
 			if b <= 0 {
 				t.Errorf("dial %d started with bound %v", dials, b)
 			}
-			time.Sleep(min(b, 50*time.Millisecond))
+			advance(min(b, 50*time.Millisecond))
 			return nil, errors.New("connection refused")
 		}
-		start := time.Now()
+		start := now()
 		c, err := OpenCmd(TCPPrefix+"board:21574", []string{"true"}, bound)
-		elapsed := time.Since(start)
+		elapsed := now().Sub(start)
 		if err == nil {
 			_ = c.Close()
 			t.Fatal("OpenCmd succeeded with every dial refused")

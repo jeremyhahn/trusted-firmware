@@ -485,7 +485,7 @@ func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteClose
 		// the reset goes first, then the dial, which is redialled while the
 		// board boots and takes its lease. Hook and dials share one
 		// absolute deadline, so the whole sequence ends within the bound.
-		deadline := time.Now().Add(bound)
+		deadline := now().Add(bound)
 		if err := runHook(hook, bound); err != nil {
 			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
 		}
@@ -516,7 +516,7 @@ var tcpRedialPause = 500 * time.Millisecond
 func openTCPAfterReset(addr string, deadline time.Time) (io.ReadWriteCloser, error) {
 	var last error
 	within := func() (time.Duration, error) {
-		left := time.Until(deadline)
+		left := deadline.Sub(now())
 		if left <= 0 {
 			return 0, errTCPResetDeadline(last)
 		}
@@ -525,7 +525,7 @@ func openTCPAfterReset(addr string, deadline time.Time) (io.ReadWriteCloser, err
 	for {
 		c, err := openTCPWithin(addr, within)
 		if err == nil {
-			if time.Now().After(deadline) {
+			if now().After(deadline) {
 				// A connection completed past the deadline is not the
 				// board answering within the bound.
 				_ = c.Close()
@@ -534,13 +534,20 @@ func openTCPAfterReset(addr string, deadline time.Time) (io.ReadWriteCloser, err
 			return c, nil
 		}
 		last = err
-		left := time.Until(deadline)
+		left := deadline.Sub(now())
 		if left <= tcpRedialPause {
 			return nil, err
 		}
-		time.Sleep(tcpRedialPause)
+		sleep(tcpRedialPause)
 	}
 }
+
+// now and sleep are the clock the TCP reset deadline is kept on; tests
+// replace them with a fake clock.
+var (
+	now   = time.Now
+	sleep = time.Sleep
+)
 
 // errTCPResetDeadline is the error of a reset board not answering by the
 // deadline, carrying the last dial's error when there was one.

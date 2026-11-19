@@ -21,6 +21,16 @@ record. `make lwip-check` and `make lwip-upstream-check` verify those bytes.
   keyed from `hal_rng.c`), `hal_eth_wire_tcp.c`. Codex reviews our port and
   integration, not upstream's lines.
 
+## Upstream check
+
+`make lwip-upstream-check` (`scripts/lwip_upstream_check.py`) fetches commit
+`77dcd25a72509eb83f72b033d219b1d40cd8eb95` from the upstream named in
+`VERSION` and compares every vendored file byte for byte. It names each file
+that differs or is missing; with no network it reports SKIP.
+
+- 2026-11-19: PASS. All 145 vendored files are byte-identical to upstream at
+  that commit.
+
 ## CVE tracking
 
 Sources to watch:

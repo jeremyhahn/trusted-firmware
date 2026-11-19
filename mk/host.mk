@@ -1941,6 +1941,13 @@ test-verdict = fail=0; for t in $(1); do read -r rc < $$t.rc; \
 host-test: $(HOST_TEST_BINS) $(addsuffix .run,$(HOST_TEST_BINS))
 	@$(call test-verdict,$(HOST_TEST_BINS))
 
+# The TZ=1 QEMU case's fault-report parse (#591) over fixed CRLF and LF
+# reports: no QEMU, so host-test carries it.
+.PHONY: qemu-tz-parse-test
+qemu-tz-parse-test:
+	@test/integration/cortex-m/qemu_tz_test.sh --self-test
+host-test: qemu-tz-parse-test
+
 ## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is
 # where a memory bug will be, so it gets its own gate rather than riding along.

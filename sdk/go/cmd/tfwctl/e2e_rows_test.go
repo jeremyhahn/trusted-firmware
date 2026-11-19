@@ -85,7 +85,7 @@ type boardImage struct {
 	// reply; zero keeps suiteTimeout. Set from a measured signing time,
 	// with margin, on a board whose software signer is slow.
 	attestTimeout time.Duration
-	// tcpParts are the parts a run adds when its PORT is tcp:, a board
+	// tcpParts are the parts a run adds when its PORT is tcp: or tcp-listen:, a board
 	// whose image serves its wire on the UART or on TCP.
 	tcpParts imageParts
 }
@@ -222,7 +222,7 @@ var ethAllowListRows = map[string]bool{
 // runImage is the board's image as a run on port sees it: a tcp: port adds
 // the image's tcpParts.
 func runImage(img boardImage, port string) boardImage {
-	if strings.HasPrefix(port, peer.TCPPrefix) {
+	if peer.IsTCP(port) {
 		img.parts |= img.tcpParts
 	}
 	return img
@@ -635,7 +635,7 @@ func TestEveryBoardRunsTheBootEventRow(t *testing.T) {
 	}
 }
 
-// make hw-test BOARD=stm32h573i-dk PORT=tcp:<board>:21574: the run's image
+// make hw-test BOARD=stm32h573i-dk PORT=tcp-listen:<host-port>: the run's image
 // gains partTCP and the allow-list, so it selects the allow-list rows the
 // image serves and nothing else, not the BOOT-event or zero-counter rows a
 // reconnect cannot satisfy, nor a row whose PING or GPIO command the TCP
@@ -649,6 +649,11 @@ func TestTheDKOverTCPSelectsOnlyItsAllowListRows(t *testing.T) {
 	pattern, err := boardRunPatternOn(board, peer.TCPPrefix+"board:21574", false, rows)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The DK dials the host (#584): its hw-test listens, and that run
+	// selects the same rows as a tcp: one.
+	if lp, err := boardRunPatternOn(board, peer.TCPListenPrefix+"21574", false, rows); err != nil || lp != pattern {
+		t.Errorf("a tcp-listen: run of %s selects %q (%v), want the tcp: run's %q", board, lp, err, pattern)
 	}
 	tcp := regexp.MustCompile(pattern)
 	img := runImage(boardImages[board], peer.TCPPrefix+"board:21574")

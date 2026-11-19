@@ -109,7 +109,10 @@ set). The test tree's v1.1 copy was removed, so one owner holds the curve code.
 ONE LOCAL PATCH, recorded in `src/third_party/micro-ecc/README.md` "Local
 changes" and as `patches/0001-verify-shamir-doubling-and-infinity.patch`:
 `uECC_verify` accepts the two valid Wycheproof P-256 signatures upstream
-rejects. The `uECC.c` hash below therefore pins upstream plus that patch; every
+rejects; and `patches/0002-ladder-yield-hook.patch`: the scalar-multiplication
+ladder calls an optional hook after every step (`uECC_set_yield`, unset by
+default), so the STM32H5 ETH_MAC image keeps deadlines running through a
+software sign (#584). The `uECC.c` hash below therefore pins upstream plus those patches; every
 other file is upstream's bytes. Upstream's `LICENSE.txt` is committed as
 `LICENSE.micro-ecc.txt`, because `make verify-vendor` finds files by name and
 Unity already owns `LICENSE.txt`. Curve and word selection are made on the
@@ -119,7 +122,7 @@ Seven source files are vendored, the ones `uECC.c` includes on AVR and on the
 host. The ARM `asm_*.inc` files are not: no build here selects an ARM platform.
 `asm_avr_mult_square.inc` is not either: only `uECC_OPTIMIZATION_LEVEL` 3 reads it.
 
-    dcadc09f26e8cbf0a0771c1b25cf745729bf72395912c3b7496ffca86aafbbfb  uECC.c
+    f2a1cd70200c9e8e1e75ebb161ffeba32234ca9267de7802ca0be6b58fcd3f81  uECC.c
     9d480aa6920155f68503064bebefb815a82aab318ab305efdcf04674d2a9cba7  uECC.h
     a8ff7957855e6520674cad4bcaf8f3e752d40f6c3f7501915c3504c777be1e7a  uECC_vli.h
     61bd255c0dca4c69dfc779cc5c1fe1cbff47039d4bb7f37578a88f63b7fca466  types.h

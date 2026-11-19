@@ -175,6 +175,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
                             test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
                             test/unit/test_h5_wire_listener.c test/unit/test_h5_netif.c \
+                            test/unit/test_h5_sign_yield.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1545,6 +1546,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
                     $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
                     $(HOST_DIR)/test_h5_wire_listener $(HOST_DIR)/test_h5_netif \
+                    $(HOST_DIR)/test_h5_sign_yield \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -3015,6 +3017,17 @@ H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum
                  $(addprefix third_party/lwip/src/core/ipv4/,acd.c dhcp.c etharp.c icmp.c \
                    ip4.c ip4_addr.c ip4_frag.c) \
                  third_party/lwip/src/netif/ethernet.c
+# #584: the ETH_MAC image's tfw_sign_yield keeps the scheduler's deadlines
+# running through a software P-256 sign, on the real scheduler, signer and
+# micro-ecc (patches/0002's ladder hook).
+$(HOST_DIR)/test_h5_sign_yield: test/unit/test_h5_sign_yield.c \
+                                src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
+                                src/caps/sched.c src/core/reader.c src/core/writer.c \
+                                src/crypto/deviceid_p256.c src/crypto/sha256.c \
+                                src/core/secure_zero.c $(HOST_DIR)/uECC.o \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
                            src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
                            src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \

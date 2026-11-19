@@ -216,6 +216,7 @@ $(error ETH_MAC=1 and ETH=1 both name the image's link -- pick one)
 endif
 LINK_SRCS := $(HAL_SOC_DIR)/hal_eth_wire.c
 ETH_MAC_SRCS := $(HAL_SOC_DIR)/hal_eth_netif.c $(HAL_SOC_DIR)/hal_eth_wire_tcp.c \
+  $(HAL_SOC_DIR)/hal_eth_sign_yield.c \
   $(addprefix $(LWIP_DIR)/core/,init.c def.c inet_chksum.c ip.c mem.c memp.c netif.c \
     pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
   $(addprefix $(LWIP_DIR)/core/ipv4/,acd.c dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \
@@ -239,7 +240,8 @@ endif
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
                   $(d)/hsm_intake.c $(d)/hal_eeprom.c $(d)/hal_eth_netif.c \
-                  $(d)/hal_eth_wire.c $(d)/hal_eth_wire_tcp.c) $(ARCH_HAL_OPTIONAL) \
+                  $(d)/hal_eth_wire.c $(d)/hal_eth_wire_tcp.c \
+                  $(d)/hal_eth_sign_yield.c) $(ARCH_HAL_OPTIONAL) \
                 $(SOC_EEPROM_SRCS_$(SOC))
 
 # Provisioning commands are a JIG image, never a production one. The gate is

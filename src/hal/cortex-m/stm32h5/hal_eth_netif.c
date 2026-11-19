@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "tfw/eth.h"
 #include "tfw/hal.h"
 #include "hal_eth_mac.h"
 #include "hal_eth_mdio.h"
@@ -59,6 +60,8 @@ static uint8_t eth_phy;
 static uint8_t eth_link;
 static uint8_t eth_bound_said;
 static uint8_t eth_dhcp_on;
+static uint8_t eth_use_dhcp;            /* the network block's TFW_NETCFG_DHCP */
+static uint8_t eth_cfg_failed;          /* no block: bring-up waits RNG_RETRY_MS */
 static tfw_ms_t eth_link_ms;
 static uint32_t eth_rand_state = 1u;
 static uint8_t  eth_isn_key[16];        /* RFC 6528's secret, from the RNG */
@@ -187,9 +190,25 @@ static err_t eth_netif_init(struct netif *nif)
 
 static void eth_bring_up(void)
 {
+    static const uint8_t no_mac[6];
     tfw_phy_probe_t p;
+    tfw_netcfg_t cfg;
     uint32_t uid[3];
+    ip4_addr_t ip, mask, gw;
 
+    /* The network block gives the address, mask, gateway and MAC, or asks
+     * for DHCP (docs/SPEC.md, ethernet-transport). With none, or a bad one,
+     * the device stays off the network and the UART is still served; the
+     * block is read again RNG_RETRY_MS on, so one written later is taken. */
+    if (tfw_netcfg_load(&cfg) != TFW_OK) {
+        if (!eth_cfg_failed) {
+            eth_say("eth: not provisioned\r\n");
+        }
+        eth_cfg_failed = 1u;
+        eth_rng_failed_ms = tfw_hal_millis();
+        return;                         /* ETH_INIT: tried again later */
+    }
+    eth_cfg_failed = 0u;
     if (eth_draw_secrets() != 0) {
         if (!eth_rng_failed) {
             eth_say("eth: rng failed\r\n");
@@ -216,16 +235,29 @@ static void eth_bring_up(void)
         eth_state = ETH_FAILED;
         return;
     }
-    for (unsigned i = 0u; i < 3u; i++) {
-        uid[i] = TFW_H5_UID_WORD(i);
+    /* The block's MAC; the UID-derived, locally administered one only until
+     * a MAC is supplied (an all-zero field), as the SPEC allows. */
+    if (memcmp(cfg.mac, no_mac, sizeof no_mac) != 0) {
+        memcpy(eth_addr, cfg.mac, sizeof eth_addr);
+    } else {
+        for (unsigned i = 0u; i < 3u; i++) {
+            uid[i] = TFW_H5_UID_WORD(i);
+        }
+        tfw_eth_mac_from_uid(uid, eth_addr);
     }
-    tfw_eth_mac_from_uid(uid, eth_addr);
+    eth_use_dhcp = (cfg.flags & TFW_NETCFG_DHCP) != 0u;
 
     lwip_init();
-    (void)netif_add(&eth_netif, NULL, NULL, NULL, NULL, eth_netif_init, ethernet_input);
+    if (eth_use_dhcp) {
+        (void)netif_add(&eth_netif, NULL, NULL, NULL, NULL, eth_netif_init, ethernet_input);
+    } else {
+        IP4_ADDR(&ip, cfg.ip[0], cfg.ip[1], cfg.ip[2], cfg.ip[3]);
+        IP4_ADDR(&mask, cfg.mask[0], cfg.mask[1], cfg.mask[2], cfg.mask[3]);
+        IP4_ADDR(&gw, cfg.gateway[0], cfg.gateway[1], cfg.gateway[2], cfg.gateway[3]);
+        (void)netif_add(&eth_netif, &ip, &mask, &gw, NULL, eth_netif_init, ethernet_input);
+    }
     netif_set_default(&eth_netif);
     netif_set_up(&eth_netif);
-    tfw_h5_wire_listen();               /* tfw-wire over TCP (#582) */
     eth_link_ms = tfw_hal_millis();
     eth_state = ETH_WAIT_LINK;
 }
@@ -265,11 +297,13 @@ static void eth_watch_link(void)
         tfw_eth_mac_start(&eth);
         eth_link = 1u;
         netif_set_link_up(&eth_netif);
-        /* DHCP starts once, at the first link. After a flap,
-         * netif_set_link_up has already asked the server to confirm the
-         * lease, and the lease timers keep running: restarting here would
-         * zero them and leave an expired address in place. */
-        if (!eth_dhcp_on) {
+        /* DHCP starts once, at the first link, and only when the network
+         * block asks for it; a static block's address is the netif's from
+         * bring-up. After a flap, netif_set_link_up has already asked the
+         * server to confirm the lease, and the lease timers keep running:
+         * restarting here would zero them and leave an expired address in
+         * place. */
+        if (eth_use_dhcp && !eth_dhcp_on) {
             eth_dhcp_on = 1u;
             (void)dhcp_start(&eth_netif);
         }
@@ -361,7 +395,7 @@ void tfw_hal_eth_poll(void)
     tfw_h5_wire_say_poll();
     switch (eth_state) {
     case ETH_INIT:
-        if (eth_rng_failed &&
+        if ((eth_rng_failed || eth_cfg_failed) &&
             (tfw_ms_t)(tfw_hal_millis() - eth_rng_failed_ms) < RNG_RETRY_MS) {
             return;
         }
@@ -377,6 +411,9 @@ void tfw_hal_eth_poll(void)
         eth_watch_link();
         sys_check_timeouts();
         eth_drop_expired_address();
+        if (eth_link && !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif))) {
+            tfw_h5_wire_dial_poll();    /* the device opens the connection */
+        }
         if (!eth_bound_said && dhcp_supplied_address(&eth_netif)) {
             eth_bound_said = 1u;
             eth_say_bound();

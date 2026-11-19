@@ -9,6 +9,10 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
+#ifndef SSIZE_MAX                       /* lwIP's arch.h then keeps unistd.h's ssize_t */
+#define SSIZE_MAX LONG_MAX
+#endif
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -167,6 +171,8 @@ void tearDown(void) { }
 
 /* Each netcfg case brings a fresh netif up: it runs in a child, before any
  * test in the parent has brought its own netif up. */
+static void good_seed(void);
+
 static int in_child(void (*fn)(void))
 {
     pid_t pid;
@@ -175,6 +181,7 @@ static int in_child(void (*fn)(void))
     fflush(stdout);
     pid = fork();
     if (pid == 0) {
+        good_seed();
         if (TEST_PROTECT()) {
             fn();
         }
@@ -490,6 +497,12 @@ static volatile uint32_t fake_rng[3];
 static volatile uint32_t fake_rcc_cr;
 static volatile uint32_t fake_rcc_ahb2enr;
 #define RNG_WORD 0x5eed1234u
+
+static void good_seed(void)
+{
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_DRDY;
+    fake_rng[TFW_H5_RNG_DR_IX] = RNG_WORD;
+}
 
 static unsigned bits_set(uint32_t v)
 {

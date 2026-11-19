@@ -47,7 +47,7 @@ static uint16_t send_room;              /* what the fake TCP's buffer has left *
 static unsigned send_calls;
 static unsigned recved_total;
 
-void tfw_h5_wire_listen(void) { }
+void tfw_h5_wire_dial_poll(void) { }
 
 uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 {

@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The ETH_MAC=1 image's link (#582): tfw-wire on the UART and on one TCP
- * connection to the board, in place of link_serial.c. The listener is
+ * connection to the board, in place of link_serial.c. The connection is
  * hal_eth_wire_tcp.c (lwIP raw API, NO_SYS); this file is the part the
  * transport sees, as link_eth.c is for the W5x00:
  *

@@ -21,7 +21,7 @@ static tfw_framer_t    rxf;
 static uint8_t         sent[TFW_MAX_FRAME * 4u];
 static unsigned        sent_len;
 
-void tfw_h5_wire_listen(void) { }
+void tfw_h5_wire_dial_poll(void) { }
 
 uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)
 {

@@ -1,21 +1,43 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The tfw-wire TCP listener on the STM32H5's MAC (#582): lwIP's raw API under
- * NO_SYS, polled from the main loop with the interface (hal_eth_netif.c). One
- * connection at a time; a new one replaces the one held, so a host that went
- * away without closing never locks the board out. The link logic is
- * hal_eth_wire.c; this file only moves bytes between it and lwIP.
+ * The tfw-wire TCP connection on the STM32H5's MAC (#582, #584): lwIP's raw
+ * API under NO_SYS, polled from the main loop with the interface
+ * (hal_eth_netif.c). The device opens the one connection to the endpoint in
+ * its network block and listens on nothing (docs/SPEC.md, ethernet-transport;
+ * the H5 Ethernet ADR, "How the frames ride TCP"). A refused or dropped
+ * connection is dialled again after a backoff, the block read afresh each
+ * time (never cached, include/tfw/eth.h). The link logic is hal_eth_wire.c;
+ * this file only moves bytes between it and lwIP.
  */
 #include <stdint.h>
 
+#include "tfw/eth.h"
+#include "tfw/hal.h"
 #include "hal_eth_wire.h"
 
 #include "lwip/tcp.h"
 #include "lwip/pbuf.h"
+#include "lwip/ip_addr.h"
 
-static struct tcp_pcb *wire_listen_pcb;
-static struct tcp_pcb *wire_pcb;
+static struct tcp_pcb *wire_pcb;        /* the open connection */
+static struct tcp_pcb *wire_dial_pcb;   /* a connect not yet answered */
+static tfw_ms_t        wire_dial_ms;    /* when the wait began */
+static uint32_t        wire_wait_ms;    /* 0: dial at once */
+
+static void wire_backoff(uint32_t wait)
+{
+    wire_dial_ms = tfw_hal_millis();
+    wire_wait_ms = wait;
+}
+
+/* A dial refused: the wait doubles, up to TFW_H5_WIRE_REDIAL_MAX_MS. */
+static void wire_refused(void)
+{
+    wire_dial_pcb = NULL;
+    wire_backoff(wire_wait_ms >= TFW_H5_WIRE_REDIAL_MAX_MS / 2u ?
+                 TFW_H5_WIRE_REDIAL_MAX_MS : wire_wait_ms * 2u);
+}
 
 static void wire_forget(void)
 {
@@ -24,6 +46,7 @@ static void wire_forget(void)
         tcp_recv(wire_pcb, NULL);
         tcp_err(wire_pcb, NULL);
         wire_pcb = NULL;
+        wire_backoff(TFW_H5_WIRE_REDIAL_MS);
     }
     tfw_h5_wire_drop();
 }
@@ -32,7 +55,13 @@ static void wire_err(void *arg, err_t err)
 {
     (void)arg;
     (void)err;
-    wire_pcb = NULL;                    /* lwIP has freed it */
+    /* lwIP has freed the pcb: a refused connect, or the open one reset. */
+    if (wire_dial_pcb != NULL) {
+        wire_refused();
+        return;
+    }
+    wire_pcb = NULL;
+    wire_backoff(TFW_H5_WIRE_REDIAL_MS);
     tfw_h5_wire_drop();
 }
 
@@ -69,47 +98,60 @@ static err_t wire_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
     return ERR_OK;
 }
 
-static err_t wire_accept(void *arg, struct tcp_pcb *pcb, err_t err)
+static err_t wire_connected(void *arg, struct tcp_pcb *pcb, err_t err)
 {
     (void)arg;
-    if (err != ERR_OK || pcb == NULL) {
+    if (pcb != wire_dial_pcb) {
         return ERR_VAL;
     }
-    if (wire_pcb != NULL) {
-        struct tcp_pcb *old = wire_pcb;
-        wire_forget();
-        tcp_abort(old);
+    wire_dial_pcb = NULL;
+    if (err != ERR_OK) {
+        tcp_err(pcb, NULL);
+        tcp_abort(pcb);
+        wire_refused();
+        return ERR_ABRT;
     }
     wire_pcb = pcb;
-    tcp_arg(pcb, NULL);
+    wire_wait_ms = 0u;
     tcp_recv(pcb, wire_recv);
-    tcp_err(pcb, wire_err);
     tcp_nagle_disable(pcb);
     tfw_h5_wire_open();
     return ERR_OK;
 }
 
-void tfw_h5_wire_listen(void)
+void tfw_h5_wire_dial_poll(void)
 {
+    tfw_netcfg_t cfg;
+    ip_addr_t peer;
     struct tcp_pcb *pcb;
 
-    if (wire_listen_pcb != NULL) {
+    if (wire_pcb != NULL || wire_dial_pcb != NULL) {
         return;
+    }
+    if (wire_wait_ms != 0u &&
+        (tfw_ms_t)(tfw_hal_millis() - wire_dial_ms) < wire_wait_ms) {
+        return;
+    }
+    wire_dial_ms = tfw_hal_millis();        /* the next try waits at least */
+    if (wire_wait_ms == 0u) {
+        wire_wait_ms = TFW_H5_WIRE_REDIAL_MS;
+    }
+    if (tfw_netcfg_load(&cfg) != TFW_OK) {
+        return;                         /* not provisioned: nothing to dial */
     }
     pcb = tcp_new();
     if (pcb == NULL) {
         return;
     }
-    if (tcp_bind(pcb, IP_ADDR_ANY, TFW_H5_WIRE_PORT) != ERR_OK) {
-        (void)tcp_close(pcb);
-        return;
+    IP_ADDR4(&peer, cfg.peer[0], cfg.peer[1], cfg.peer[2], cfg.peer[3]);
+    tcp_arg(pcb, NULL);
+    tcp_err(pcb, wire_err);
+    wire_dial_pcb = pcb;
+    if (tcp_connect(pcb, &peer, cfg.port, wire_connected) != ERR_OK) {
+        tcp_err(pcb, NULL);
+        wire_refused();
+        tcp_abort(pcb);
     }
-    wire_listen_pcb = tcp_listen_with_backlog(pcb, 1);
-    if (wire_listen_pcb == NULL) {
-        (void)tcp_close(pcb);
-        return;
-    }
-    tcp_accept(wire_listen_pcb, wire_accept);
 }
 
 uint16_t tfw_h5_wire_send(const uint8_t *buf, uint16_t len)

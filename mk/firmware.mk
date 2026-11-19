@@ -189,7 +189,7 @@ endif
 # loop polls the interface; the console prints "eth: dhcp bound" on a lease.
 # Not ETH=1, which selects the W5x00 tfw-wire link above. The image's link is
 # the SoC's hal_eth_wire.c (#582) in place of link_serial.c: tfw-wire on the
-# UART and on a TCP listener (hal_eth_wire_tcp.c, port 21574). Off by default.
+# UART and on a TCP connection it dials (hal_eth_wire_tcp.c). Off by default.
 ETH_MAC ?= 0
 LWIP_DIR := third_party/lwip/src
 
@@ -216,7 +216,7 @@ $(error ETH_MAC=1 and ETH=1 both name the image's link -- pick one)
 endif
 LINK_SRCS := $(HAL_SOC_DIR)/hal_eth_wire.c
 ETH_MAC_SRCS := $(HAL_SOC_DIR)/hal_eth_netif.c $(HAL_SOC_DIR)/hal_eth_wire_tcp.c \
-  $(HAL_SOC_DIR)/hal_eth_sign_yield.c \
+  $(HAL_SOC_DIR)/hal_eth_sign_yield.c src/net/netcfg.c \
   $(addprefix $(LWIP_DIR)/core/,init.c def.c inet_chksum.c ip.c mem.c memp.c netif.c \
     pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
   $(addprefix $(LWIP_DIR)/core/ipv4/,acd.c dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \

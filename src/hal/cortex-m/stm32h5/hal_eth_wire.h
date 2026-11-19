@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * tfw-wire over TCP on the STM32H5's own MAC (#582, the ETH_MAC=1 image).
+ * tfw-wire over TCP on the STM32H5's own MAC (#582, the ETH_MAC=1 image); the device opens
+ * the connection (#584).
  *
  * hal_eth_wire.c is the image's tfw/link.h: the UART and one TCP connection
  * feed the one transport. It knows nothing of lwIP; hal_eth_wire_tcp.c is
- * the lwIP raw-API listener behind it and the seam between them is below, so
+ * the lwIP raw-API connection behind it and the seam between them is below, so
  * the link logic is host-tested over a fake (test/unit/test_h5_eth_wire.c).
  */
 #ifndef TFW_H5_ETH_WIRE_H
@@ -13,9 +14,13 @@
 
 #include <stdint.h>
 
-/* The port the board listens on: the ESP32 port's wire port, so one host
- * transport (tfwctl PORT=tcp:<addr>:21574) reaches both. */
-#define TFW_H5_WIRE_PORT 21574u
+/* The device opens the one connection to the endpoint in its network block
+ * (include/tfw/eth.h) and listens on nothing. A refused or dropped
+ * connection is dialled again after TFW_H5_WIRE_REDIAL_MS, the wait doubling
+ * on each refusal up to TFW_H5_WIRE_REDIAL_MAX_MS, the block read afresh
+ * before each dial. */
+#define TFW_H5_WIRE_REDIAL_MS     1000u
+#define TFW_H5_WIRE_REDIAL_MAX_MS 16000u
 
 /* Bytes the link holds from the connection before the transport reads them.
  * At least lwIP's TCP_WND: the window is reopened only as bytes are read, so
@@ -43,7 +48,7 @@ void     tfw_h5_wire_say(const char *s);
 /* Sends queued diagnostics when no frame is in flight; called each poll. */
 void     tfw_h5_wire_say_poll(void);
 
-/* --- called by the listener (hal_eth_wire_tcp.c) -------------------------- */
+/* --- called by the connection (hal_eth_wire_tcp.c) -------------------------- */
 
 /* A connection was accepted: whatever the last one left is discarded. */
 void     tfw_h5_wire_open(void);
@@ -59,10 +64,12 @@ uint16_t tfw_h5_wire_push(const uint8_t *buf, uint16_t len);
  * calls tfw_h5_wire_finish(). */
 void     tfw_h5_wire_eof(void);
 
-/* --- provided by the listener ------------------------------------------- */
+/* --- provided by the connection ------------------------------------------- */
 
-/* Starts listening on TFW_H5_WIRE_PORT; called once lwIP is up. */
-void     tfw_h5_wire_listen(void);
+/* Dials the network block's endpoint when no connection is open or being
+ * opened and the backoff has run; called each poll once the netif has an
+ * address. A missing or bad block dials nothing. */
+void     tfw_h5_wire_dial_poll(void);
 
 /* Queues and sends up to len bytes on the connection; returns how many were
  * taken (0 when its send buffer is full). */

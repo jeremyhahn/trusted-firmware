@@ -139,6 +139,8 @@ static void connect_answers(err_t err)
     }
 }
 
+static tfw_ms_t epoch;
+
 void setUp(void)
 {
     tfw_mock_reset();
@@ -150,12 +152,16 @@ void setUp(void)
     if (dialing) {
         connect_answers(ERR_ABRT);
     }
-    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MAX_MS);
+    /* tfw_mock_reset restarts the clock: each setUp moves it later than the
+     * last one did, past any backoff the test before began. */
+    epoch++;
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MAX_MS * 4u * epoch);
     new_calls = connect_calls = bind_calls = listen_calls = 0u;
     tfw_h5_wire_dial_poll();
     TEST_ASSERT_EQUAL_UINT(1, connect_calls);
     connect_answers(ERR_OK);
     TEST_ASSERT_NOT_NULL(recv_cb);
+    new_calls = connect_calls = 0u;     /* connect_ip and connect_port stay */
     sent_len = close_calls = abort_calls = sent_at_close = recved_total = 0u;
     (void)tfw_link_take_reset();
 }

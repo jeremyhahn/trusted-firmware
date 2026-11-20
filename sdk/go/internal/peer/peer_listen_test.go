@@ -90,7 +90,18 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 	addr := freeAddr(t)
 	stop := make(chan struct{})
 	defer close(stop)
-	board := dialUntil(addr, stop)
+	// The rebooted board dials once its reset is done: the hook runs for
+	// real, then the board starts dialling.
+	var board <-chan net.Conn
+	saved := runHook
+	t.Cleanup(func() { runHook = saved })
+	runHook = func(hook string, bound time.Duration) error {
+		if err := saved(hook, bound); err != nil {
+			return err
+		}
+		board = dialUntil(addr, stop)
+		return nil
+	}
 	c, err := OpenCmd(TCPListenPrefix+addr, []string{"true"}, 5*time.Second)
 	if err != nil {
 		t.Fatalf("OpenCmd: %v", err)
@@ -100,6 +111,58 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 	_ = c.Close()
 	if _, err := OpenCmd(TCPListenPrefix+addr, []string{"false"}, time.Second); err == nil {
 		t.Fatal("OpenCmd with a failing reset succeeded")
+	}
+}
+
+// TestOpenCmdDropsTheBoardsPreResetConnection: on a tcp-listen: port the
+// listener is up before the reset, so the board's pre-reset socket can be
+// queued on it. OpenCmd closes every connection that arrived before the
+// reset returned and takes the rebooted board's fresh dial (#584, Codex
+// round 7).
+func TestOpenCmdDropsTheBoardsPreResetConnection(t *testing.T) {
+	addr := freeAddr(t)
+	fresh := make(chan net.Conn, 1)
+	saved := runHook
+	t.Cleanup(func() { runHook = saved })
+	runHook = func(string, time.Duration) error {
+		// The board's socket from before the reset, already queued.
+		stale, err := net.DialTimeout("tcp", addr, time.Second)
+		if err != nil {
+			return err
+		}
+		_, _ = stale.Write([]byte("stale"))
+		// The reset drops it, and the rebooted board dials again.
+		_ = stale.Close()
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			c, err := net.DialTimeout("tcp", addr, time.Second)
+			if err != nil {
+				fresh <- nil
+				return
+			}
+			_, _ = c.Write([]byte("fresh"))
+			fresh <- c
+		}()
+		return nil
+	}
+	c, err := OpenCmd(TCPListenPrefix+addr, []string{"reset"}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("OpenCmd: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	b := <-fresh
+	if b == nil {
+		t.Fatal("the rebooted board's dial failed")
+	}
+	defer func() { _ = b.Close() }()
+	nc, ok := c.(net.Conn)
+	if !ok {
+		t.Fatalf("OpenCmd returned %T, want a net.Conn", c)
+	}
+	_ = nc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got := make([]byte, 5)
+	if _, err := io.ReadFull(nc, got); err != nil || string(got) != "fresh" {
+		t.Fatalf("OpenCmd's connection read %q (%v), want the rebooted board's \"fresh\"", got, err)
 	}
 }
 

@@ -22,6 +22,12 @@
  * the device out until TCP gave up on the dead one. A frame cut off by the
  * change is the case the framer's resync already handles.
  *
+ * A peer change ends any operator session and any pending challenge: every
+ * path that lets a host go -- replaced, hung up, a broken recv or send --
+ * passes through drop_peer(), which calls tfw_auth_session_init(), so the
+ * next host meets a closed gate and authenticates on its own (#607). A host
+ * refused at the door was never the peer and ends nothing.
+ *
  * Every path that closes a socket says why, at WARN. A refusal on the wire is
  * a status reply; a close is never one, and a close that leaves no trace is a
  * failure nobody can find.
@@ -36,6 +42,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "lwip/sockets.h"
+#include "core/auth_session.h"
 
 #include "tfw/hal.h"
 #include "hal_esp32.h"
@@ -75,6 +82,9 @@ static void drop_peer(void)
 {
     if (peer >= 0) {
         (void)close(peer);
+        /* The operator session was this host's: whoever connects next starts
+         * with the gate closed and no challenge of this one's to answer. */
+        tfw_auth_session_init();
     }
     peer    = -1;
     rx_head = 0u;

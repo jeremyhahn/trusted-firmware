@@ -26,7 +26,7 @@ them.
 
 | Requirement | Status | Implemented at | Pinned by | Left |
 |---|---|---|---|---|
-| The firmware core is a HAL port on ESP-IDF | partial | `src/hal/esp32/` (`hal_sys.c`, `hal_uart.c`, `hal_eth.c`, `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_bus.c`, `hal_pulse_rmt.c`, `hal_eeprom.c`, `hal_handoff.c`, `hal_board.c`, `hal_selfcheck.c`); `mk/arch/esp32.mk`, `mk/arch/esp32/` | `test_esp_wire`, `test_esp_ota`, `test_esp_pulse_rmt`, `test_esp_crypto_hmac_p256`, `test_esp_board`, `test_esp_sys` (the self-check runs only after a good board init), `test_esp_selfcheck` (the bench self-check's verdicts, over the real `hal_eeprom.c`: the whole 4 KB sector the EEPROM test writes in is saved first and put back after any failed step, a program failure after the erase included; the bus lines fail on an I2C ACK or timeout at the empty address, a failed SPI transfer, or a 1-Wire presence pulse or low line), `test_esp_hal_eeprom` (`hal_eeprom.c` over NOR partitions of `partitions.csv`'s sizes: a span past the end is `TFW_ERR_RANGE` and touches nothing, a write rewrites only the 4 KB sectors whose bytes change and reads back exactly, no partition is `TFW_ERR_UNSUPPORTED`, a refused read, erase or write is `TFW_ERR_INTERNAL`, a refused read or erase leaves the store as it was); CI's `esp32-build BOARD=esp32p4-poe` compiles the P4 image; `make esp32-qemu-test` runs it on the QEMU board; on silicon, bench HIL-0 on 2026-10-21 (`../development/bench/esp32-p4.md`, "Runs": boot, `hal_eth.c` and the wire, `CRYPTO=none`), again 2026-11-14 with a static address, and slice 1's first half: `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_pulse_rmt.c` and `hal_eeprom.c` pass the bench self-check on unconnected pins on 2026-11-15 ("Row 48: the HAL peripherals with no external wiring, 2026-11-15"; `CONFIG_TFW_PERIPH_SELFCHECK`, off by default) | `hal_bus.c` on the board: the self-check's bus lines, against no device, are on the host (`test_esp_selfcheck`) and wait for their bench run ("Remaining slices", slice 1); a crypto tier (HIL-1) |
+| The firmware core is a HAL port on ESP-IDF | partial | `src/hal/esp32/` (`hal_sys.c`, `hal_uart.c`, `hal_eth.c`, `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_bus.c`, `hal_pulse_rmt.c`, `hal_eeprom.c`, `hal_handoff.c`, `hal_board.c`, `hal_selfcheck.c`); `mk/arch/esp32.mk`, `mk/arch/esp32/` | `test_esp_wire`, `test_esp_ota`, `test_esp_pulse_rmt`, `test_esp_crypto_hmac_p256`, `test_esp_board`, `test_esp_sys` (the self-check runs only after a good board init), `test_esp_selfcheck` (the bench self-check's verdicts, over the real `hal_eeprom.c`: the whole 4 KB sector the EEPROM test writes in is saved first and put back after any failed step, a program failure after the erase included; the bus lines fail on an I2C ACK or timeout at the empty address, a failed SPI transfer, or a 1-Wire presence pulse or low line), `test_esp_hal_eeprom` (`hal_eeprom.c` over NOR partitions of `partitions.csv`'s sizes: a span past the end is `TFW_ERR_RANGE` and touches nothing, a write rewrites only the 4 KB sectors whose bytes change and reads back exactly, no partition is `TFW_ERR_UNSUPPORTED`, a refused read, erase or write is `TFW_ERR_INTERNAL`, a refused read or erase leaves the store as it was); CI's `esp32-build BOARD=esp32p4-poe` compiles the P4 image; `make esp32-qemu-test` runs it on the QEMU board; on silicon, bench HIL-0 on 2026-10-21 (`../development/bench/esp32-p4.md`, "Runs": boot, `hal_eth.c` and the wire, `CRYPTO=none`), again 2026-11-14 with a static address, and slice 1's first half: `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_pulse_rmt.c` and `hal_eeprom.c`'s 16-byte check pass the bench self-check on unconnected pins on 2026-11-15, with the C6 enable read at its pad ("Row 48: the HAL peripherals with no external wiring, 2026-11-15"; `CONFIG_TFW_PERIPH_SELFCHECK`, off by default); slice 1 stays open | Slice 1 ("Remaining slices", slice 1, partial): (1) the `hal_bus.c` self-check on the board: its bus lines against no device are pinned on the host only (`test_esp_selfcheck`) and have had no bench run, and a check of a bus against a device needs one wired to the header; (2) the bench re-run of the whole-sector EEPROM save and restore, pinned on the host only and held for the owner (bench writes; TA 1040, queue 174). Then a crypto tier (HIL-1) |
 | …and a boot-HAL port | done | `boot/hal/esp32/` (`boot_l0.c`, `boot_hal_esp32.c`, `measure_esp32.c`, `flash_span.c`) | `test_boot_measure_esp32`, `test_boot_measure_esp32_classic`, `test_boot_flash_span`, `test_boot_l0_esp32_sha`; `make esp32-qemu-test`; bench HIL-0 2026-10-21 step 4 (`../development/bench/esp32-p4.md`, "Runs": `tfw-l0: app at 0x20000 verified, measurement …`, then the app loaded), again on main's image 2026-11-13 ("HIL-0 on main's image") | — (the CDI on silicon is the CDI row's) |
 | Secure boot v2 (RSA) composed, never re-implemented | partial | `mk/arch/esp32-targets.mk` (key, `espsecure.py` re-sign after the seal); `boot_l0.c` calls `esp_image_verify` | `make esp32-qemu-test`: the ROM verifies the bootloader and the bootloader the app, a flipped image is refused | Burning the key digest on the P4: owner (HIL-2) |
 | Flash encryption composed | partial | `boards/esp32p4-poe/sdkconfig.defaults` (release mode) | CI's `esp32-build` builds with it | Enabling it on the P4: owner (HIL-3), and release vs development mode |
@@ -54,15 +54,20 @@ owner's written decision first, because an eFuse cannot be put back. Each run
 records `espefuse summary` before and after on
 `../development/bench/esp32-p4.md`.
 
-1. **The buses on silicon** (hardware, no eFuse): the rest of the pin
-   peripherals' slice. The self-check's bus lines (`hal_bus_i2c`, an address
-   probe nobody answers, NACK expected; `hal_bus_spi`, a two-byte transfer
-   with no peripheral selected; `hal_bus_1wire`, a reset on a free pulled-up
-   pin, no presence and an all-ones byte expected) are in
-   `src/hal/esp32/hal_selfcheck.c` and pinned on the host by
-   `test_esp_selfcheck`; they still need a bench run of the self-check image,
-   and the whole-sector EEPROM restore with them. It closes the HAL-port
-   line's `hal_bus.c` cell.
+1. **The pin peripherals on silicon, partial** (hardware, no eFuse). Done on
+   the board (bench page, 2026-11-15): GPIO, ADC, PWM, tone, pulse, the
+   16-byte EEPROM check and the C6 enable at its pad. Left:
+   1. the `hal_bus.c` self-check on the board. Its bus lines against no
+      device (`hal_bus_i2c`, an address probe nobody answers, NACK expected;
+      `hal_bus_spi`, a two-byte transfer with no peripheral selected;
+      `hal_bus_1wire`, a reset on a free pulled-up pin, no presence and an
+      all-ones byte expected) are in `src/hal/esp32/hal_selfcheck.c` and
+      pinned on the host only by `test_esp_selfcheck`; a check of a bus
+      against a device needs one wired to the header;
+   2. the bench re-run of the whole-sector EEPROM save and restore, pinned on
+      the host only and held for the owner (bench writes; TA 1040, queue 174).
+
+   Both close the HAL-port line's "Left" cell for slice 1.
 2. **HIL-1, the UDS burn** (owner, hardware): `src/hal/esp32/prov_uds.c`'s
    `PROVISION=1` image burns the `HMAC_UP` block, then a `CRYPTO=hmac-p256`
    build on the P4, proven by `wirecheck -deviceid` and ES256 `ATTEST` over

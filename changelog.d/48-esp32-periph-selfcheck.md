@@ -13,3 +13,6 @@
   first, writes all of it back after any failed step (an erase that is not
   followed by a good program included), compares all of it, and reports the
   restore on its own line (`test_esp_selfcheck`, over the real `hal_eeprom.c`).
+  On the board so far: GPIO, ADC, PWM, tone, pulse, the 16-byte EEPROM check
+  and the C6 enable. The bus lines and the whole-sector restore are pinned on
+  the host only and have had no bench run.

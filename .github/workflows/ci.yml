@@ -1158,10 +1158,14 @@ jobs:
           # pull_request run. That dispatch is the full tier (v1.41,
           # CI_FULL_TIER), so it is not refused. v1.42: scans.yml (which
           # replaces deps-bump.yml, ruling 742 (1)) dispatches it the same way.
-          if [ "$EVENT" = workflow_dispatch ] && [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/ci/deps-bump ]; then
+          # #613: the step's env always sets REF (github.ref, never empty on a
+          # dispatch) and HEAD_REF; run without them (scripts/
+          # test_schedule_guard.py), the ref checks do not apply and `set -u`
+          # does not trip.
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "${REF:-}" ] && [ "$REF" != refs/heads/main ] && [ "$REF" != refs/heads/ci/deps-bump ]; then
             verdict=refused
             echo "::error::workflow_dispatch on $REF: a dispatch runs on main and ci/deps-bump only (ci-template v1.30, v1.41); every job skips and CI Gate fails"
-          elif [ "$EVENT" = pull_request ] && [ "${HEAD_REF#lane-ckpt/}" != "$HEAD_REF" ]; then
+          elif [ "$EVENT" = pull_request ] && [[ ${HEAD_REF:-} == lane-ckpt/* ]]; then
             verdict=refused
             echo "::error::a pull request from checkpoint branch $HEAD_REF: a checkpoint branch never opens a PR (ci-template v1.30); every job skips and CI Gate fails"
           fi

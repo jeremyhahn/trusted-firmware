@@ -18,7 +18,7 @@
 | `boot/hal/cortex-m/boot_hal_cortex-m.c` | tfw-boot's core half of `boot/boot_hal.h` |
 | `boot/hal/cortex-m/boot_ota_store_cortex-m.c` | The store rows' memory image store |
 | `boot/hal/cortex-m/boot_factory.c`, `boot_factory_none.c` | The two-slot rows' factory copy; empty on one slot |
-| `boot/hal/cortex-m/recovery_halt.c` | The refusal on a row without OTA in boot: halt in WFI |
+| `boot/hal/cortex-m/recovery_halt.c` | The refusal on a row without OTA in boot: halt, naming the reason in an EVENT frame (#542) |
 | `boot/hal/cortex-m/mps2/boot_uart.c` | tfw-boot's polled UART |
 | `boards/mps2-an505/`, `boards/mps2-an500/` | `profile.mk` (map, budgets, tiers, rows), `board_profile.h` (id, features, regions), `board.c` (pin table) |
 | `test/integration/cortex-m/cm_image.c` | The signer and jig: provisions tfw-boot, signs the application three ways, writes the platform block and, per row, the staged images |
@@ -70,13 +70,24 @@ halves are by `test/unit/hal/test_avr_sys_mutate.c` and
 
 ## Remaining slices
 
-1. **MPU-only isolation on the M7** (ruling 632 item 208 a, #15 option (c);
-   it also answers open question 2 below): a `src/hal/cortex-m/hal_mpu.c` with
-   stack and null guard regions and a region that hides tfw-boot from the
-   application, armed from `hal_early.c` and `boot/hal/cortex-m/boot_hal_cortex-m.c`
-   on `mps2-an500`; proven by a host test `test/unit/test_cm_mpu.c` on the
-   region table and a QEMU wire row (`sdk/go/cmd/tfwctl`, a null read ends
-   in `PANIC`) in `make integration-test-cortex-m-wire`. No hardware.
+1. **MPU-only isolation on the M7**: Done (#482; ruling 632 item 208 a,
+   #15 option (c); it also answers open question 2 below).
+   `src/hal/cortex-m/hal_mpu.c` arms three no-access, execute-never PMSAv7
+   regions from `tfw_cm_reset` (`hal_early.c`) on `mps2-an500`
+   (`TFW_CM_MPU` in its `board_profile.h`): a 32-byte null guard at 0, a
+   2 KiB stack guard at the stack floor (`__heap_start`), and tfw-boot's
+   region, hidden from the application; tfw-boot disarms its own table in
+   `tfw_boot_jump_application` (`boot/hal/cortex-m/boot_hal_cortex-m.c`).
+   A violation escalates to HardFault and ends in `PANIC`. The guard holds
+   because every Cortex-M build refuses a frame over 1024 bytes, a VLA and
+   `alloca` (`mk/arch/cortex-m.mk` `CM_FRAME_CFLAGS`, on the LTO link too), so
+   no frame steps over it (the largest LTO-link frame today is tfw-boot's
+   `boot_policy.c`, 744 bytes); `make cm-frame-bound-check`, run by
+   `bootloader-check`, proves the refusal. Tests:
+   `test/unit/test_cm_mpu.c` (`make host-test`) on the region table, and
+   `TestQEMUMPUNullRead` (`sdk/go/cmd/tfwctl/mpu_qemu_test.go`), the
+   `mpu` cycle of `make integration-test-cortex-m-wire` on `mps2-an500`.
+   No hardware.
 2. **TF-M on the M33** (#15 option (b1) and follow-up F1): measure TF-M v2.3.1
    Profile Medium with BL2 and a stub partition from an STM32H573I-DK build and
    replace the estimates in `docs/cortex-m/adr-trust-model-vs-tf-m.md`; the

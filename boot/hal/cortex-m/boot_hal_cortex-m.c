@@ -22,6 +22,7 @@
 #include "boot_slots.h"     /* TFW_APP_WRITE_END on the A/B rows */
 #include "boot_soc.h"
 #include "cm_regs.h"
+#include "hal_mpu.h"
 #include "hal_early.h"   /* the latch, the reset and the watchdog: shared with the application */
 
 /* --------------------------------------------------------------- flash */
@@ -115,6 +116,9 @@ void tfw_boot_jump_application(void)
     uint32_t pc = vt[1];
 
     tfw_cm_boot_uart_off();
+    /* tfw-boot's own table is off before it leaves; the application's
+     * tfw_cm_reset arms the application's, with tfw-boot hidden. */
+    tfw_cm_mpu_off();
     tfw_cm_dsb();
     tfw_cm_isb();
     __asm__ volatile ("msr msp, %0\n\t"

@@ -42,6 +42,14 @@
  * once DEMCR.TRCENA and DWT_CTRL.CYCCNTENA are set. */
 #define TFW_CM_DEMCR              TFW_CM_REG(0xE000EDFCu)
 #define TFW_CM_DEMCR_TRCENA       (1u << 24)
+/* The PMSAv7 MPU (ARMv7-M; hal_mpu.c). */
+#define TFW_CM_MPU_CTRL            TFW_CM_REG(0xE000ED94u)
+#define TFW_CM_MPU_CTRL_ENABLE     0x1u
+#define TFW_CM_MPU_CTRL_PRIVDEFENA 0x4u
+#define TFW_CM_MPU_RNR             TFW_CM_REG(0xE000ED98u)
+#define TFW_CM_MPU_RBAR            TFW_CM_REG(0xE000ED9Cu)
+#define TFW_CM_MPU_RASR            TFW_CM_REG(0xE000EDA0u)
+
 #define TFW_CM_DWT_CTRL           TFW_CM_REG(0xE0001000u)
 #define TFW_CM_DWT_CTRL_CYCCNTENA 0x1u
 #define TFW_CM_DWT_CYCCNT         TFW_CM_REG(0xE0001004u)

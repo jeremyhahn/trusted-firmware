@@ -83,7 +83,9 @@ func TestNetConfigRefusesWhatTheDeviceWouldTreatAsAbsent(t *testing.T) {
 
 // The derivation is pinned by a literal, computed outside this package:
 // SHA-256("tfw-eth-mac-v1" || 00 01 .. 0f) begins 85 c4 10 37 0a 0a, and the
-// first octet becomes 0x86 once it is made local and unicast.
+// first octet becomes 0x86 once it is made local and unicast. The STM32H5
+// port derives its fallback MAC the same way, and test/unit/test_h5_netif.c
+// (zero_mac_block) checks this vector against the C derivation (#584).
 func TestDerivedMACIsPinned(t *testing.T) {
 	serial := make([]byte, SerialLen)
 	for i := range serial {

@@ -155,7 +155,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_mps2_pwm.c test/unit/test_mps2_tone.c test/unit/test_mps2_onewire.c test/unit/test_mps2_gpio_line.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c test/unit/test_stm32h5_eeprom.c test/unit/test_mcxn94x_eeprom.c test/unit/test_rp2350_eeprom.c \
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
-                            test/unit/test_mps2_soc.c \
+                            test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -172,6 +172,10 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
+                            test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
+                            test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
+                            test/unit/test_h5_wire_connect.c test/unit/test_h5_netif.c \
+                            test/unit/test_h5_sign_yield.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -192,7 +196,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
-                            test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c \
+                            test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c test/unit/test_dice_service.c \
                             test/unit/test_attest_root.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
@@ -1346,11 +1350,33 @@ $(HOST_DIR)/test_atecc_provider_mutate: test/unit/test_atecc_provider_mutate.c $
 $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The secure-world DICE service (#590 slice b, docs/plans/590b.md) beside the
+# non-secure path it must match byte for byte: the soft P-256 identity and
+# alias.c's certificate. The suite is its own provider and CDI handoff.
+$(HOST_DIR)/test_dice_service: test/unit/test_dice_service.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
+                               src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                               src/core/reader.c src/core/writer.c src/core/secure_zero.c \
+                               src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The tenant-key verify an HSM image links in place of the soft provider's
 # refusal (mk/firmware.mk HSM_SRCS), on the literal policy signature.
 $(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verify_p256.c \
                               src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_h5_pka  the STM32H5 PKA driver (#544) and its provider against a model
+#              answered by micro-ecc; the provider's software verify renamed as
+#              mk/firmware.mk renames it, its SoC registers the model's
+$(HOST_DIR)/h5_verify_p256.o: src/crypto/soft/verify_p256.c | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_p256 -c -o $@ $<
+$(HOST_DIR)/test_h5_pka: test/unit/test_h5_pka.c src/crypto/stm32h5/h5_pka.c src/crypto/stm32h5/provider.c \
+                         $(HOST_DIR)/h5_verify_p256.o $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_H5_REG_MODEL=1 -Itest/unit/h5_model -o $@ $^ $(EXTRA_LDFLAGS)
+# test_h5_crypto_provider  the provider's tfw_crypto_sha256 over the real HASH
+#              driver and the real software SHA-256 (#557 Codex P1)
+$(HOST_DIR)/test_h5_crypto_provider: test/unit/test_h5_crypto_provider.c src/crypto/stm32h5/h5_hash.c \
+                         src/crypto/stm32h5/provider.c src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_H5_REG_MODEL=1 -Itest/unit/h5_model -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The soft root's ATTEST frame pinned against the TCG DICE formula (row
 # dice-attestation) is the HMAC-SHA256 identity, mk/firmware.mk SOFT_ID=hmac:
@@ -1381,10 +1407,21 @@ HOST_ESP_LIB_SRCS := $(filter-out src/core/update_request.c,$(HOST_STAGE_LIB_SRC
                      src/core/update_request_arch.c
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
                      -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
-$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_ESP_LIB_SRCS) \
-                          src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
-                          test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
+# test_esp_ota includes src/core/ota_trial.c (the trial deadline, #492): its
+# link line drops that file under any spelling, as ccdeps.sh records it. It
+# builds against the esp32-qemu board (profile and board.c) in place of
+# HOST_BOARD's, so the deadline it tests is TFW_OTA_TRIAL_TIMEOUT_S as an ESP32
+# image has it (esp32p4-poe's is the same).
+HOST_ESP_OTA_CFLAGS = $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(HOST_CFLAGS))
+# The link line names its sources rather than taking $^: a build/host/
+# test_esp_ota.d from before this rule lists HOST_BOARD's board.c, Make
+# merges it into $^, and both boards' tfw_board_* would link (Codex on #501).
+HOST_ESP_OTA_SRCS = test/unit/test_esp_ota.c \
+                    $(subst boards/$(HOST_BOARD)/board.c,boards/esp32-qemu/board.c,$(HOST_ESP_LIB_SRCS)) \
+                    src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
+                    test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o
+$(HOST_DIR)/test_esp_ota: $(HOST_ESP_OTA_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$(HOST_ESP_OTA_SRCS)) $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
 $(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_ESP_LIB_SRCS) \
@@ -1494,6 +1531,14 @@ $(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_puls
                            src/hal/cortex-m/cm_cycles.h $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
+# test_tz_regions_<board> checks a TZ=1 board's SAU table (#590): the same
+# test and table source, with the board's map header, as its secure image.
+$(HOST_DIR)/test_tz_regions_%: test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c \
+                               src/hal/cortex-m/tz/tz_regions.h src/hal/cortex-m/tz/tz_map_%.h \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -include src/hal/cortex-m/tz/tz_map_$*.h -Isrc/hal/cortex-m/tz $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # test_rp2350_eeprom links the RP2350's flash EEPROM and tfw-boot's
 # read-modify-write and the Cortex-M millisecond clock over a NOR, TIMER0 and
 # SysTick model; the model's cm_regs.h comes ahead of src/hal/cortex-m/.
@@ -1511,6 +1556,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
+                    $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
@@ -1528,6 +1574,10 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
+                    $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
+                    $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
+                    $(HOST_DIR)/test_h5_wire_connect $(HOST_DIR)/test_h5_netif \
+                    $(HOST_DIR)/test_h5_sign_yield \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -1547,7 +1597,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_eth_socket_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small $(HOST_DIR)/test_sha256_small_mutate \
                     $(HOST_DIR)/test_board_lookup_mutate \
-                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
+                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence $(HOST_DIR)/test_dice_service \
                     $(HOST_DIR)/test_ota_trial_block_mutate $(HOST_DIR)/test_provision_atecc_mutate \
                     $(HOST_DIR)/test_suit_integrated \
                     $(HOST_DIR)/test_suit_integrated_mutate \
@@ -1643,6 +1693,14 @@ $(HOST_DIR)/test_esp_tone_mutate: test/unit/test_esp_tone_mutate.c src/hal/esp32
                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/tone -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mutate
+
+# #561: TONE, MODE on the same pin, then PULSE_CAPTURE: the three ESP32 units
+# linked together, so the capture sees the tone MODE ended.
+$(HOST_DIR)/test_esp_tone_mode_pulse: test/unit/test_esp_tone_mode_pulse.c src/hal/esp32/hal_tone.c \
+                                      src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse_rmt.c \
+                                      test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mode_pulse
 
 # The pulse timing over a stand-in gpio driver and esp_timer playing a
 # scripted waveform (#163).
@@ -1787,6 +1845,15 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The M7's MPU region table (src/hal/cortex-m/hal_mpu.c, row 482): the pure
+# table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu
+$(HOST_DIR)/test_cm_mpu: test/unit/test_cm_mpu.c src/hal/cortex-m/hal_mpu.c \
+                         src/hal/cortex-m/hal_mpu.h test/model/cortex-m/mpu_table_model.h \
+                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MPU_TABLE_ONLY -Isrc/hal/cortex-m -Itest/model/cortex-m \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tick_mutate
 $(HOST_DIR)/test_avr_tick_mutate: test/unit/hal/test_avr_tick_mutate.c src/hal/avr/hal_tick.c \
@@ -1906,6 +1973,13 @@ test-verdict = fail=0; for t in $(1); do read -r rc < $$t.rc; \
 
 host-test: $(HOST_TEST_BINS) $(addsuffix .run,$(HOST_TEST_BINS))
 	@$(call test-verdict,$(HOST_TEST_BINS))
+
+# The TZ=1 QEMU case's fault-report parse (#591) over fixed CRLF and LF
+# reports: no QEMU, so host-test carries it.
+.PHONY: qemu-tz-parse-test
+qemu-tz-parse-test:
+	@test/integration/cortex-m/qemu_tz_test.sh --self-test
+host-test: qemu-tz-parse-test
 
 ## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is
@@ -2176,7 +2250,9 @@ lint-grep-selftest:
 # by the prefixes the port includes them by (esp_, driver/, freertos/, lwip/,
 # bootloader_, soc/, rom/, hal/, sdkconfig.h), and the ESP-IDF names no portable
 # file has a reason to spell (esp_err_t, ESP_OK, IRAM_ATTR, portMAX_DELAY, ...),
-# matched with string literals blanked. Its sweep is src, boot, include, tools
+# matched with string literals blanked. Under src/hal/cortex-m/ lwip/ is not an
+# ESP-IDF prefix: the STM32H5 Ethernet port (#581) builds lwIP itself, so its
+# includes are the port's own stack (ARCH_LEAK_ESP_INC_CM). Its sweep is src, boot, include, tools
 # and every other board, bar src/third_party/; the test tree holds the HAL's
 # ESP-IDF stand-ins and is not swept. scripts/test_esp32_port.py
 # (EspIdfStaysBehindTheHal) plants a leak of each kind and runs this target.
@@ -2192,6 +2268,7 @@ ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
 ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Za-z0-9_])(tfw_cm_[a-z_]+|TFW_CM_(REG|VTOR|AIRCR[A-Z_]*|SYST_[A-Z_]+|NVIC_[A-Z]+)|SCB|NVIC|SysTick(_[A-Za-z]+)?|__(DSB|ISB|DMB|WFI|WFE)|__(disable|enable)_irq)([^A-Za-z0-9_]|$$)|"(dsb|isb|dmb|wfi|wfe|cpsi[de]|msr|mrs)[ \\"]
 ARCH_LEAK_ESP_DIRS := src boot include tools boards
 ARCH_LEAK_ESP_INC  := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|lwip/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
+ARCH_LEAK_ESP_INC_CM := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
 ARCH_LEAK_ESP_PAT  := (^|[^A-Za-z0-9_])(esp_err_t|ESP_OK|ESP_FAIL|ESP_ERR_[A-Za-z0-9_]+|IRAM_ATTR|DRAM_ATTR|RTC_NOINIT_ATTR|EXT_RAM_ATTR|CONFIG_IDF_[A-Za-z0-9_]+|portMAX_DELAY|xTaskCreate[A-Za-z0-9_]*|vTaskDelay[A-Za-z0-9_]*)([^A-Za-z0-9_]|$$)
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
@@ -2215,7 +2292,9 @@ lint-arch-leak:
 	      if grep -Eqs '^ARCH[[:space:]]*:?=[[:space:]]*esp32[[:space:]]*$$' boards/$$b/profile.mk; then continue; fi ;; esac; \
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
-	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_ESP_INC)' || true); \
+	  inc='$(ARCH_LEAK_ESP_INC)'; \
+  case $$f in src/hal/cortex-m/*) inc='$(ARCH_LEAK_ESP_INC_CM)' ;; esac; \
+  hits=$$(printf '%s\n' "$$code" | grep -En "$$inc" || true); \
 	  hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | sed -E 's/"([^"\\]|\\.)*"/""/g' | grep -En '$(ARCH_LEAK_ESP_PAT)' || true)"; \
 	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \
@@ -2941,6 +3020,96 @@ $(HOST_DIR)/test_stm32h5_tone: test/unit/test_stm32h5_tone.c src/hal/cortex-m/st
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/stm32h573i-dk \
 	  $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_tone.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 Ethernet PHY probe's pure decode (#579): hal_eth_mdio.h's PHYID,
+# BMSR, scan and boot-line helpers over a fake MDIO bus; no register touched.
+$(HOST_DIR)/test_h5_eth_mdio: test/unit/test_h5_eth_mdio.c src/hal/cortex-m/stm32h5/hal_eth_mdio.h \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_mdio.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 Ethernet MAC/DMA driver (#581) over a fake register block and
+# fake descriptor rings: ring wrap, the OWN hand-off and the tail pointers.
+$(HOST_DIR)/test_h5_eth_mac: test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h5/hal_eth_mac.c \
+                             src/hal/cortex-m/stm32h5/hal_eth_mac.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h5/hal_eth_mac.c \
+	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 tfw-wire TCP link (#582) over a fake listener seam and a fake
+# UART: wire choice and hold, the receive window, reply batching, a dropped peer.
+$(HOST_DIR)/test_h5_eth_wire: test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                              src/hal/cortex-m/stm32h5/hal_eth_wire.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/proto $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The same link under the real transport and framer, link_serial.c out: a
+# connection replaced mid-frame leaves nothing to the one that replaces it.
+$(HOST_DIR)/test_h5_wire_transport: test/unit/test_h5_wire_transport.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The outbound TCP connection (hal_eth_wire_tcp.c) on that link and transport,
+# over a fake of lwIP's raw TCP API built against the vendored lwIP headers:
+# it dials the network block's endpoint and listens on nothing, redials after
+# a backoff on the block read again, and a request that arrives with FIN is
+# answered before the connection is closed (#584).
+$(HOST_DIR)/test_h5_wire_connect: test/unit/test_h5_wire_connect.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) src/net/netcfg.c \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire_tcp.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) \
+	  -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The STM32H5 netif (hal_eth_netif.c) on the real vendored lwIP core, DHCP and
+# timers, with the PHY, MAC and wire faked: a link flap leaves the lease clock
+# running, so an expired lease clears the address (#584); the RNG (hal_rng.c)
+# over fake registers keys the RFC 6528 TCP ISNs. lwIP compiles with -w
+# as in the firmware build.
+H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum.c ip.c \
+                   mem.c memp.c netif.c pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
+                 $(addprefix third_party/lwip/src/core/ipv4/,acd.c dhcp.c etharp.c icmp.c \
+                   ip4.c ip4_addr.c ip4_frag.c) \
+                 third_party/lwip/src/netif/ethernet.c
+# #584: the ETH_MAC image's tfw_sign_yield keeps the scheduler's deadlines
+# running through a software P-256 sign, on the real scheduler, signer and
+# micro-ecc (patches/0002's ladder hook).
+$(HOST_DIR)/test_h5_sign_yield: test/unit/test_h5_sign_yield.c \
+                                src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
+                                src/caps/sched.c src/core/reader.c src/core/writer.c \
+                                src/crypto/deviceid_p256.c src/crypto/sha256.c \
+                                src/core/secure_zero.c $(HOST_DIR)/uECC.o \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
+                           src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
+                           src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
+                           src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \
+                           src/net/netcfg.c src/proto/crc16.c src/proto/crc16_update.c \
+                           $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -Isrc/hal/cortex-m \
+	  -c -o $@.o test/unit/test_h5_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -c -o $@.netif.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.yield.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.sha.o src/crypto/sha256.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.netcfg.o src/net/netcfg.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crc.o src/proto/crc16.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crcu.o src/proto/crc16_update.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
+	  -o $@ $@.o $@.netif.o $@.yield.o $@.rng.o $@.sha.o $@.netcfg.o $@.crc.o $@.crcu.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

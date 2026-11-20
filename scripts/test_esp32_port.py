@@ -356,6 +356,19 @@ class EspIdfStaysBehindTheHal(unittest.TestCase):
                 plant("src/core/plant.c", "int ok;\n" + leak + "\n")
                 self.assertEqual(arch_leak_files(tmp), (2, ["src/core/plant.c"]))
 
+    def test_cortex_m_lwip_is_its_own(self):
+        # The Cortex-M Ethernet ports build lwIP themselves: lwip/ there is
+        # not ESP-IDF, but every other ESP-IDF prefix still fails, and lwip/
+        # outside src/hal/cortex-m/ still fails.
+        tmp, plant = self.plant_tree()
+        plant("src/hal/cortex-m/stm32h5/net.c", '#include "lwip/tcp.h"\n')
+        plant("src/hal/cortex-m/stm32h5/bad.c", '#include "esp_log.h"\n')
+        plant("src/core/bad.c", '#include "lwip/tcp.h"\n')
+        self.assertEqual(arch_leak_files(tmp), (2, [
+            "src/core/bad.c",
+            "src/hal/cortex-m/stm32h5/bad.c",
+        ]))
+
 
 if __name__ == "__main__":
     unittest.main()

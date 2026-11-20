@@ -3052,11 +3052,11 @@ $(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/ha
                            $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	  -Isrc/hal/cortex-m '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' \
+	  -Isrc/hal/cortex-m \
 	  -c -o $@.o test/unit/test_h5_netif.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
 	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	  '-DTFW_H5_UID_WORD(i)=(0x01020304u + (uint32_t)(i))' -c -o $@.netif.o \
+	  -c -o $@.netif.o \
 	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c

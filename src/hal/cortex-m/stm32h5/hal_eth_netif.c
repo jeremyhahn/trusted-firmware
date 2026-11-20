@@ -12,7 +12,7 @@
  * and the leased address once, when DHCP binds.
  *
  * The rings and buffers are static SRAM, 32-byte aligned. The MAC address is
- * locally administered, from the device UID (tfw_eth_mac_from_uid).
+ * the network block's, or one derived from the DeviceID (eth_block_mac).
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -25,6 +25,7 @@
 #include "hal_eth_wire.h"
 #include "hal_rng.h"
 #include "../../../crypto/sha256.h"
+#include "../../../core/platform_id.h"
 
 #include "lwip/init.h"
 #include "lwip/netif.h"
@@ -36,10 +37,6 @@
 #include "netif/ethernet.h"
 
 #define ETH_REGS          ((volatile uint32_t *)(uintptr_t)0x40028000u)
-#define H5_UID_BASE       0x08FFF800u          /* RM0481: 96-bit unique ID */
-#ifndef TFW_H5_UID_WORD                         /* a host test supplies its own */
-#define TFW_H5_UID_WORD(i) (*(volatile const uint32_t *)(uintptr_t)(H5_UID_BASE + 4u * (i)))
-#endif
 #define ETH_RESET_SPIN    1000000u
 #define ETH_TX_SPIN       100000u
 #define LINK_POLL_MS      100u
@@ -188,21 +185,27 @@ static err_t eth_netif_init(struct netif *nif)
     return ERR_OK;
 }
 
-/* The block's MAC; the UID-derived, locally administered one only until a MAC
- * is supplied (an all-zero field), as the SPEC allows. */
+/* The block's MAC; until a MAC is supplied (an all-zero field), the locally
+ * administered one derived from the DeviceID as the SPEC requires: sdk/go's
+ * DerivedMAC, the first six bytes of SHA-256("tfw-eth-mac-v1" || id), bit 1
+ * of octet 0 set and bit 0 cleared. id is the DeviceID the ATTEST evidence
+ * carries (src/caps/attest.c): the 16-byte platform serial, read at boot. */
 static void eth_block_mac(const tfw_netcfg_t *cfg, uint8_t mac[6])
 {
+    static const char domain[] = "tfw-eth-mac-v1";
     static const uint8_t no_mac[6];
-    uint32_t uid[3];
+    uint8_t msg[sizeof domain - 1u + TFW_BOOT_SERIAL_LEN];
+    uint8_t h[32];
 
     if (memcmp(cfg->mac, no_mac, sizeof no_mac) != 0) {
         memcpy(mac, cfg->mac, sizeof no_mac);
         return;
     }
-    for (unsigned i = 0u; i < 3u; i++) {
-        uid[i] = TFW_H5_UID_WORD(i);
-    }
-    tfw_eth_mac_from_uid(uid, mac);
+    memcpy(msg, domain, sizeof domain - 1u);
+    memcpy(&msg[sizeof domain - 1u], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
+    tfw_sha256(msg, (uint16_t)sizeof msg, h);
+    memcpy(mac, h, sizeof no_mac);
+    mac[0] = (uint8_t)((mac[0] | 0x02u) & (uint8_t)~0x01u);
 }
 
 static void eth_bring_up(void)

@@ -204,20 +204,6 @@ static void test_phy_speed_decode(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_eth_phy_speed(TFW_PHY_BMSR_ANDONE, 0u, &cr));
 }
 
-static void test_mac_from_uid_is_local_unicast_and_stable(void)
-{
-    const uint32_t a[3] = { 0x00270041u, 0x35325116u, 0x31333430u };
-    const uint32_t b[3] = { 0x00270041u, 0x35325116u, 0x31333431u };
-    uint8_t ma[6], ma2[6], mb[6];
-
-    tfw_eth_mac_from_uid(a, ma);
-    tfw_eth_mac_from_uid(a, ma2);
-    tfw_eth_mac_from_uid(b, mb);
-    TEST_ASSERT_EQUAL_HEX8(0x02u, ma[0]);           /* local, unicast */
-    TEST_ASSERT_EQUAL_MEMORY(ma, ma2, 6);
-    TEST_ASSERT_TRUE(memcmp(ma, mb, 6) != 0);
-}
-
 int main(void)
 {
     UNITY_BEGIN();
@@ -233,6 +219,5 @@ int main(void)
     RUN_TEST(test_rx_copies_rearms_and_wraps);
     RUN_TEST(test_rx_drops_errors_splits_and_overlong);
     RUN_TEST(test_phy_speed_decode);
-    RUN_TEST(test_mac_from_uid_is_local_unicast_and_stable);
     return UNITY_END();
 }

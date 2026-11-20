@@ -109,22 +109,6 @@ static inline int tfw_eth_phy_speed(uint16_t bmsr, uint16_t pscsr, uint32_t *mac
     return 1;
 }
 
-/* A locally administered unicast address from the 96-bit device UID. */
-static inline void tfw_eth_mac_from_uid(const uint32_t uid[3], uint8_t mac[6])
-{
-    uint32_t h = 2166136261u;                      /* FNV-1a over the UID */
-
-    for (unsigned i = 0u; i < 12u; i++) {
-        h ^= (uid[i / 4u] >> ((i % 4u) * 8u)) & 0xFFu;
-        h *= 16777619u;
-    }
-    mac[0] = 0x02u;
-    mac[1] = (uint8_t)(uid[0] & 0xFFu);
-    mac[2] = (uint8_t)(h >> 24);
-    mac[3] = (uint8_t)(h >> 16);
-    mac[4] = (uint8_t)(h >> 8);
-    mac[5] = (uint8_t)h;
-}
 
 /* Software reset of the DMA and MAC: 0, or -1 when SWR never clears. */
 int  tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin);

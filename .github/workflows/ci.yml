@@ -1042,6 +1042,13 @@ jobs:
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=stm32h573i-dk CRYPTO=soft
 
+      # CUSTOMIZE (trusted-firmware): its hardware tier, the PKA and HASH
+      # provider (#544), so a missing include fails here and not on the bench
+      # (#566).
+      - name: make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5
+
       - name: make bootloader BOARD=stm32h573i-dk (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: >-

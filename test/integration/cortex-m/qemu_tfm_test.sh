@@ -37,20 +37,21 @@ fail() {
 [ -f "$dir/bl2.axf" ] || fail "$dir/bl2.axf is missing: run make tfm-image TFM_BOARD=an521"
 [ -f "$dir/load.txt" ] || fail "$dir/load.txt is missing: run make tfm-image TFM_BOARD=an521"
 
-loaders=()
+# The loader devices, as the positional parameters.
+set --
 while read -r file addr; do
     [ -n "$file" ] || continue
     case $addr in 0x[0-9a-fA-F]*) ;; *) fail "load.txt: '$file' has no address";; esac
     [ -f "$dir/$file" ] || fail "load.txt names $file, which is not in $dir"
-    loaders+=(-device "loader,file=$dir/$file,addr=$addr")
+    set -- "$@" -device "loader,file=$dir/$file,addr=$addr"
 done < "$dir/load.txt"
-[ ${#loaders[@]} -gt 0 ] || fail "load.txt names no image"
+[ $# -gt 0 ] || fail "load.txt names no image"
 
 rm -f "$log" "$qlog" "$dir/tfm.pid"
 "$qemu" -M mps2-an521 -display none -monitor none \
     -serial "file:$log" \
     -kernel "$dir/bl2.axf" \
-    "${loaders[@]}" \
+    "$@" \
     -d guest_errors,unimp -D "$qlog" \
     -daemonize -pidfile "$dir/tfm.pid"
 read -r pid < "$dir/tfm.pid"

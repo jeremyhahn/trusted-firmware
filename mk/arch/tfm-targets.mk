@@ -18,11 +18,11 @@ TFM_BOARD  ?= an521
 
 # Outside the checkout, as OPTEE_CACHE is: nothing TF-M builds enters the tree.
 TFM_WORK ?= $(HOME)/.cache/trusted-firmware/tfm
-TFM_OUT   = $(TFM_WORK)/out/$(TFM_BOARD)
 
 # The first line tf-m-extras' example non-secure application prints, at the
-# pinned tf-m-extras commit (examples/tf-m-example-ns-app/main.c).
-TFM_QEMU_NS_MARKER ?= Non-Secure system starting
+# pinned tf-m-extras commit (examples/tf-m-example-ns-app/main.c, read at
+# 2ac90aff).
+TFM_QEMU_NS_MARKER ?= Non-Secure system starting...
 
 ## tfm-image: build TF-M v2.3.1 (BL2, secure, example non-secure; signed) for TFM_BOARD=an521|stm32h573i-dk, out of tree in TFM_WORK
 tfm-image:

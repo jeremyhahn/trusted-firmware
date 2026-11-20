@@ -26,7 +26,7 @@ them.
 
 | Requirement | Status | Implemented at | Pinned by | Left |
 |---|---|---|---|---|
-| The firmware core is a HAL port on ESP-IDF | partial | `src/hal/esp32/` (`hal_sys.c`, `hal_uart.c`, `hal_eth.c`, `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_bus.c`, `hal_pulse_rmt.c`, `hal_eeprom.c`, `hal_handoff.c`, `hal_board.c`, `hal_selfcheck.c`); `mk/arch/esp32.mk`, `mk/arch/esp32/` | `test_esp_wire`, `test_esp_ota`, `test_esp_pulse_rmt`, `test_esp_crypto_hmac_p256`, `test_esp_board`, `test_esp_sys` (the self-check runs only after a good board init), `test_esp_selfcheck` (the bench self-check's verdicts, over the real `hal_eeprom.c`: the whole 4 KB sector the EEPROM test writes in is saved first and put back after any failed step, a program failure after the erase included), `test_esp_hal_eeprom` (`hal_eeprom.c` over NOR partitions of `partitions.csv`'s sizes: a span past the end is `TFW_ERR_RANGE` and touches nothing, a write rewrites only the 4 KB sectors whose bytes change and reads back exactly, no partition is `TFW_ERR_UNSUPPORTED`, a refused read, erase or write is `TFW_ERR_INTERNAL`, a refused read or erase leaves the store as it was); CI's `esp32-build BOARD=esp32p4-poe` compiles the P4 image; `make esp32-qemu-test` runs it on the QEMU board; on silicon, bench HIL-0 on 2026-10-21 (`../development/bench/esp32-p4.md`, "Runs": boot, `hal_eth.c` and the wire, `CRYPTO=none`), again 2026-11-14 with a static address, and slice 1 done: `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_pulse_rmt.c` and `hal_eeprom.c` pass the bench self-check on unconnected pins on 2026-11-15 ("Row 48: the HAL peripherals with no external wiring, 2026-11-15"; `CONFIG_TFW_PERIPH_SELFCHECK`, off by default) | `hal_bus.c` on the board (needs a device wired to the header; out of this row's scope) and a crypto tier (HIL-1) |
+| The firmware core is a HAL port on ESP-IDF | partial | `src/hal/esp32/` (`hal_sys.c`, `hal_uart.c`, `hal_eth.c`, `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_bus.c`, `hal_pulse_rmt.c`, `hal_eeprom.c`, `hal_handoff.c`, `hal_board.c`, `hal_selfcheck.c`); `mk/arch/esp32.mk`, `mk/arch/esp32/` | `test_esp_wire`, `test_esp_ota`, `test_esp_pulse_rmt`, `test_esp_crypto_hmac_p256`, `test_esp_board`, `test_esp_sys` (the self-check runs only after a good board init), `test_esp_selfcheck` (the bench self-check's verdicts, over the real `hal_eeprom.c`: the whole 4 KB sector the EEPROM test writes in is saved first and put back after any failed step, a program failure after the erase included; the bus lines fail on an I2C ACK or timeout at the empty address, a failed SPI transfer, or a 1-Wire presence pulse or low line), `test_esp_hal_eeprom` (`hal_eeprom.c` over NOR partitions of `partitions.csv`'s sizes: a span past the end is `TFW_ERR_RANGE` and touches nothing, a write rewrites only the 4 KB sectors whose bytes change and reads back exactly, no partition is `TFW_ERR_UNSUPPORTED`, a refused read, erase or write is `TFW_ERR_INTERNAL`, a refused read or erase leaves the store as it was); CI's `esp32-build BOARD=esp32p4-poe` compiles the P4 image; `make esp32-qemu-test` runs it on the QEMU board; on silicon, bench HIL-0 on 2026-10-21 (`../development/bench/esp32-p4.md`, "Runs": boot, `hal_eth.c` and the wire, `CRYPTO=none`), again 2026-11-14 with a static address, and slice 1's first half: `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`, `hal_tone.c`, `hal_pulse_rmt.c` and `hal_eeprom.c` pass the bench self-check on unconnected pins on 2026-11-15 ("Row 48: the HAL peripherals with no external wiring, 2026-11-15"; `CONFIG_TFW_PERIPH_SELFCHECK`, off by default) | `hal_bus.c` on the board: the self-check's bus lines, against no device, are on the host (`test_esp_selfcheck`) and wait for their bench run ("Remaining slices", slice 1); a crypto tier (HIL-1) |
 | …and a boot-HAL port | done | `boot/hal/esp32/` (`boot_l0.c`, `boot_hal_esp32.c`, `measure_esp32.c`, `flash_span.c`) | `test_boot_measure_esp32`, `test_boot_measure_esp32_classic`, `test_boot_flash_span`, `test_boot_l0_esp32_sha`; `make esp32-qemu-test`; bench HIL-0 2026-10-21 step 4 (`../development/bench/esp32-p4.md`, "Runs": `tfw-l0: app at 0x20000 verified, measurement …`, then the app loaded), again on main's image 2026-11-13 ("HIL-0 on main's image") | — (the CDI on silicon is the CDI row's) |
 | Secure boot v2 (RSA) composed, never re-implemented | partial | `mk/arch/esp32-targets.mk` (key, `espsecure.py` re-sign after the seal); `boot_l0.c` calls `esp_image_verify` | `make esp32-qemu-test`: the ROM verifies the bootloader and the bootloader the app, a flipped image is refused | Burning the key digest on the P4: owner (HIL-2) |
 | Flash encryption composed | partial | `boards/esp32p4-poe/sdkconfig.defaults` (release mode) | CI's `esp32-build` builds with it | Enabling it on the P4: owner (HIL-3), and release vs development mode |
@@ -38,7 +38,7 @@ them.
 | The DS peripheral is not used; no RSA DeviceID | done | No DS source; `crypto_hmac_p256.c` | `test_board_esp32p4-poe` (`test_attest_is_on_with_the_p256_deviceid`) | — |
 | No key leaves the part in the clear | done | `src/hal/esp32/prov_uds.c` burns the UDS read- and write-protected; the scalar is zeroed after each use (`crypto_hmac_p256.c`, `deviceid_p256.c`) | `test_provision_uds`; `test_deviceid_p256` (`test_signing_zeroes_the_scalar_and_the_rfc_state`); `make esp32-qemu-test` step 11 | The burn on the P4: owner (HIL-1) |
 | The wire protocol over Ethernet | done | `src/hal/esp32/hal_eth.c` (EMAC and IP101, DHCP or a static address), `hal_uart.c` (TCP on port 21574) | `test_esp_wire`; `make esp32-qemu-test` (`wirecheck` over the emulated Ethernet); bench HIL-0 2026-10-21 step 4 (`../development/bench/esp32-p4.md`, "Runs": IP101 link up, `wirecheck: ok` over tcp/21574); again 2026-11-14 on the development VLAN at a static address ("Row 48: the wire over Ethernet on VLAN 101": PING, CAPS, SYS_INFO, ATTEST refused on the none tier) | — (ES256 `ATTEST` over the wire on the P4 waits on HIL-1) |
-| The C6 stays off, its radio never enabled | done | `src/hal/esp32/hal_board.c` holds the C6 enable low | `test_board_esp32p4-poe` (`test_the_coprocessor_enable_is_gpio_54`); `test_esp_board` (against the P4's profile: driven low before it is an output, pulled down, held, never driven high; a refused step is `TFW_ERR_INTERNAL` and nothing after it runs); `test_esp_selfcheck` (a high pad fails the check, the enable is left low and held); on silicon, slice 1 done: GPIO 54's pad, read with its input buffer on and the output held low, reads 0 on the board after `hal_board.c` (`../development/bench/esp32-p4.md`, "Row 48: the HAL peripherals with no external wiring, 2026-11-15") | — (the C6's own `CHIP_PU` is not probed) |
+| The C6 stays off, its radio never enabled | done | `src/hal/esp32/hal_board.c` holds the C6 enable low | `test_board_esp32p4-poe` (`test_the_coprocessor_enable_is_gpio_54`); `test_esp_board` (against the P4's profile: driven low before it is an output, pulled down, held, never driven high; a refused step is `TFW_ERR_INTERNAL` and nothing after it runs); `test_esp_selfcheck` (a high pad fails the check, the enable is left low and held); on silicon: GPIO 54's pad, read with its input buffer on and the output held low, reads 0 on the board after `hal_board.c` (`../development/bench/esp32-p4.md`, "Row 48: the HAL peripherals with no external wiring, 2026-11-15") | — (the C6's own `CHIP_PU` is not probed) |
 | Per-architecture code only behind the HAL, the boot HAL and the board profiles | done | `src/hal/esp32/`, `boot/hal/esp32/`, `boards/esp32p4-poe/` | `make lint-conditionals` | — |
 | Board id `0x80`, the first in the ESP32 range | done | `boards/esp32p4-poe/board_profile.h` | `test_board_esp32p4-poe` (`test_the_board_is_the_first_esp32_id`); `sdk/go/boardid_test.go` | — |
 
@@ -49,35 +49,45 @@ other ESP32 parts, `../esp32/engineering.md`).
 
 ## Remaining slices
 
-Slices 1 to 5 need the bench P4 and the owner's written decision first,
-because an eFuse cannot be put back. Each run records `espefuse summary`
-before and after on `../development/bench/esp32-p4.md`.
+Every slice below but 7 needs the bench P4; slices 2 to 6 also need the
+owner's written decision first, because an eFuse cannot be put back. Each run
+records `espefuse summary` before and after on
+`../development/bench/esp32-p4.md`.
 
-1. **HIL-1, the UDS burn** (owner, hardware): `src/hal/esp32/prov_uds.c`'s
+1. **The buses on silicon** (hardware, no eFuse): the rest of the pin
+   peripherals' slice. The self-check's bus lines (`hal_bus_i2c`, an address
+   probe nobody answers, NACK expected; `hal_bus_spi`, a two-byte transfer
+   with no peripheral selected; `hal_bus_1wire`, a reset on a free pulled-up
+   pin, no presence and an all-ones byte expected) are in
+   `src/hal/esp32/hal_selfcheck.c` and pinned on the host by
+   `test_esp_selfcheck`; they still need a bench run of the self-check image,
+   and the whole-sector EEPROM restore with them. It closes the HAL-port
+   line's `hal_bus.c` cell.
+2. **HIL-1, the UDS burn** (owner, hardware): `src/hal/esp32/prov_uds.c`'s
    `PROVISION=1` image burns the `HMAC_UP` block, then a `CRYPTO=hmac-p256`
    build on the P4, proven by `wirecheck -deviceid` and ES256 `ATTEST` over
    the wire with the DeviceID stable across reboots, recorded on the bench
    page; it closes the CDI, DeviceID and no-key-in-the-clear lines.
-2. **HIL-2, the secure-boot key digest** (owner, hardware):
+3. **HIL-2, the secure-boot key digest** (owner, hardware):
    `mk/arch/esp32-targets.mk`'s signing key burned and
    `boards/esp32p4-poe/sdkconfig.defaults`' secure boot on, proven on the
    bench by the P4 refusing a flipped image as `make esp32-qemu-test` does.
-3. **HIL-3, flash encryption** (owner, hardware): release or development
+4. **HIL-3, flash encryption** (owner, hardware): release or development
    mode in `boards/esp32p4-poe/sdkconfig.defaults`, proven on the bench by
    `SPI_BOOT_CRYPT_CNT` set and layer 0 still `verified` after the reflash.
-4. **HIL-4, the eFuse floor** (owner, hardware): advancing `SECURE_VERSION`
+5. **HIL-4, the eFuse floor** (owner, hardware): advancing `SECURE_VERSION`
    through `src/hal/esp32/hal_ota.c`, proven on the bench by an image below
    the floor refused as `test_esp_ota` and `make esp32-qemu-test` steps 7–10
    pin on the host and in QEMU.
-5. **HIL-5, download mode and JTAG** (owner, hardware): whether to burn
+6. **HIL-5, download mode and JTAG** (owner, hardware): whether to burn
    `DIS_DOWNLOAD_MODE`, `ENABLE_SECURITY_DOWNLOAD`, `DIS_PAD_JTAG` and
    `DIS_USB_JTAG` (design section 4); no file of this repository changes, the
    bench page records the summary. It may end all reflashing of the board.
-6. **The root type for an on-die eFuse UDS** (another project): go-xkms item
+7. **The root type for an on-die eFuse UDS** (another project): go-xkms item
    76, a root-type value in the DICE chain, done in go-xkms first; this
    repository then carries it in the alias certificate's evidence
    (`src/caps/alias.c`), proven by `test_alias` and go-xkms's verdict no
    longer `RootTypeUnreported` (row `dice-attestation`).
 
-When slices 1 to 5 are run, the owner can mark the SPEC row shipped; slice 6
+When slices 1 to 6 are run, the owner can mark the SPEC row shipped; slice 7
 is shared with row `dice-attestation`.

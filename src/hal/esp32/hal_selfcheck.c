@@ -9,8 +9,11 @@
  * sets CONFIG_TFW_PERIPH_SELFCHECK (mk/arch/esp32/main/Kconfig.projbuild)
  * runs them here, once, from tfw_hal_init(), before the wire starts. Each
  * check prints one "tfw-selfcheck: <name> PASS|FAIL ..." line on the console.
- * Only pins the board leaves unconnected are used, and nothing needs wiring;
- * the buses (hal_bus.c) do, so they are not here.
+ * Only pins the board leaves unconnected are used, and nothing needs wiring:
+ * the buses (hal_bus.c) are checked against no device -- an I2C address
+ * nothing on the board answers, an SPI transfer with no peripheral selected,
+ * a 1-Wire reset on a free pin -- so what runs is the HAL's own path on
+ * silicon, not a peripheral's answer.
  *
  * Off -- the default, and main's image -- the function is empty.
  */
@@ -38,6 +41,11 @@ static const char *TAG = "tfw-selfcheck";
 #define SC_PWM_PIN     0u   /* GPIO2, LEDC channel 0 */
 #define SC_PULSE_PIN  12u   /* GPIO33 */
 #define SC_EEPROM_AT  (TFW_EEPROM_SIZE - 16u)  /* the store's last 16 bytes */
+#define SC_SPI_CS_PIN SC_GPIO_PIN  /* no peripheral behind it */
+#define SC_OW_PIN     SC_PULSE_PIN /* pulled up, nothing on it */
+/* 0x08, the first address past the reserved ones: none of the devices on the
+ * board's I2C (the ES8311 codec, the camera and display connectors) uses it. */
+#define SC_I2C_ADDR   0x08u
 
 /* One console line per check: name, PASS or FAIL, and two numbers named by
  * the labels, so a FAIL says what was read. */
@@ -157,6 +165,50 @@ static void check_eeprom(void)
            "status", (int)rst, "sector restored", restored);
 }
 
+/* An address probe nobody answers: the driver comes up on the board's pins and
+ * the bus returns a NACK. A timeout is a bus held low; an ACK is a device at an
+ * address the check takes to be empty. Both fail. */
+static void check_i2c(void)
+{
+    tfw_status_t st = tfw_hal_i2c_init(TFW_I2C_DEFAULT_HZ);
+
+    if (st == TFW_OK) st = tfw_hal_i2c_xfer(SC_I2C_ADDR, NULL, 0u, NULL, 0u);
+    report("hal_bus_i2c", st == TFW_ERR_NACK,
+           "probe status (NACK expected)", (int)st, "address", SC_I2C_ADDR);
+}
+
+/* A two-byte transfer with the chip select on a free pin: the bus comes up and
+ * the transfer completes. MISO is floating, so what it reads is not checked. */
+static void check_spi(void)
+{
+    static const uint8_t wr[2] = { 0xa5u, 0x5au };
+    uint8_t rd[2];
+    tfw_pinref_t cs;
+    tfw_status_t pin = tfw_board_pin(SC_SPI_CS_PIN, &cs);
+    tfw_status_t st = pin;
+
+    if (st == TFW_OK) st = tfw_hal_gpio_mode(&cs, TFW_PIN_OUTPUT);
+    if (st == TFW_OK) st = tfw_hal_gpio_write(&cs, 1u);
+    if (st == TFW_OK) st = tfw_hal_spi_init(0u, 1u, 0u);
+    if (st == TFW_OK) st = tfw_hal_spi_xfer(&cs, wr, rd, sizeof wr);
+    if (pin == TFW_OK) (void)tfw_hal_gpio_mode(&cs, TFW_PIN_INPUT);
+    report("hal_bus_spi", st == TFW_OK, "status", (int)st, "bytes", (int)sizeof wr);
+}
+
+/* A reset on a pulled-up pin with nothing on it: no presence pulse, and a
+ * byte read is all ones, the idle line. */
+static void check_ow(void)
+{
+    tfw_pinref_t p;
+    uint8_t presence = 0xffu, b = 0u;
+    tfw_status_t st = tfw_board_pin(SC_OW_PIN, &p);
+
+    if (st == TFW_OK) st = tfw_hal_ow_reset(&p, &presence);
+    if (st == TFW_OK) st = tfw_hal_ow_read(&p, &b, 1u);
+    report("hal_bus_1wire", st == TFW_OK && presence == 0u && b == 0xffu,
+           "presence (0 expected)", presence, "byte read", b);
+}
+
 /* tfw_esp_board_init() drives the enable low as an output and holds it, which
  * leaves the pad's input buffer off, and gpio_get_level() then reads 0
  * whatever the pin's level. The check releases the hold, turns the pad to
@@ -188,7 +240,9 @@ void tfw_esp_selfcheck(void)
     check_tone();
     check_pulse();
     check_eeprom();
-    ESP_LOGI(TAG, "hal_bus NOT RUN wiring needed");
+    check_i2c();
+    check_spi();
+    check_ow();
     ESP_LOGI(TAG, "done");
 }
 

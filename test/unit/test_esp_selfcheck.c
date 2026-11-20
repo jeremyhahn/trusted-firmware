@@ -182,6 +182,19 @@ esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *
 /* --------------------------------------------------- the other HAL calls */
 
 static uint8_t g_gpio_level;
+static tfw_pin_mode_t g_gpio_mode;
+
+/* The buses as the bench leaves them -- no device on any -- unless a test says
+ * otherwise: what the I2C probe returns, the SPI transfer's status, the
+ * 1-Wire presence and the byte the line reads; and what the check asked for. */
+static tfw_status_t g_i2c_st;
+static tfw_status_t g_spi_st;
+static uint8_t g_ow_presence;
+static uint8_t g_ow_byte;
+static int g_i2c_addr;
+static int g_i2c_probe;
+static int g_spi_cs_at_xfer;
+static int g_spi_xfers;
 
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
@@ -207,7 +220,7 @@ tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
     (void)p;
-    (void)mode;
+    g_gpio_mode = mode;
     return TFW_OK;
 }
 
@@ -268,6 +281,53 @@ tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
 
 void tfw_hal_delay_us(uint16_t us) { (void)us; }
 
+tfw_status_t tfw_hal_i2c_init(uint32_t hz)
+{
+    (void)hz;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+                             uint8_t *rd, uint8_t rlen)
+{
+    g_i2c_addr = addr7;
+    g_i2c_probe = wr == NULL && wlen == 0u && rd == NULL && rlen == 0u;
+    return g_i2c_st;
+}
+
+tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
+{
+    (void)mode;
+    (void)clkdiv;
+    (void)lsb_first;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
+                             uint8_t *rd, uint8_t len)
+{
+    (void)cs;
+    (void)wr;
+    memset(rd, 0xff, len);
+    g_spi_cs_at_xfer = g_gpio_mode == TFW_PIN_OUTPUT && g_gpio_level == 1u;
+    g_spi_xfers++;
+    return g_spi_st;
+}
+
+tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
+{
+    (void)p;
+    *out_presence = g_ow_presence;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
+{
+    (void)p;
+    memset(buf, g_ow_byte, len);
+    return TFW_OK;
+}
+
 /* ------------------------------------------------------------------ tests */
 
 static uint8_t g_before[PART_SIZE];
@@ -283,6 +343,14 @@ void setUp(void)
     g_pad_out = 0u;
     g_reads = g_erases = g_programs = 0u;
     g_fail_read_at = g_fail_erase_at = g_fail_program_at = g_stuck_program_at = 0u;
+    g_i2c_st = TFW_ERR_NACK;
+    g_spi_st = TFW_OK;
+    g_ow_presence = 0u;
+    g_ow_byte = 0xffu;
+    g_i2c_addr = -1;
+    g_i2c_probe = 0;
+    g_spi_cs_at_xfer = 0;
+    g_spi_xfers = 0;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
     memcpy(g_before, g_flash, sizeof g_before);
 }
@@ -300,8 +368,61 @@ static void test_every_check_passes_on_a_good_board(void)
     TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
     TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "PASS"));
     TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "PASS"));
-    TEST_ASSERT_TRUE(verdict_is("hal_bus", "NOT RUN"));
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "PASS"));
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
+static void test_the_i2c_check_probes_the_empty_address(void)
+{
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(g_i2c_probe);
+    TEST_ASSERT_EQUAL_INT(0x08, g_i2c_addr);
+}
+
+static void test_an_i2c_ack_at_the_empty_address_fails(void)
+{
+    g_i2c_st = TFW_OK;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
+}
+
+static void test_an_i2c_bus_held_low_fails(void)
+{
+    g_i2c_st = TFW_ERR_TIMEOUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
+}
+
+static void test_the_spi_transfer_runs_with_the_chip_select_high_then_released(void)
+{
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_INT(1, g_spi_xfers);
+    TEST_ASSERT_TRUE(g_spi_cs_at_xfer);
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+}
+
+static void test_a_failed_spi_transfer_fails_and_still_releases_the_chip_select(void)
+{
+    g_spi_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+}
+
+static void test_a_presence_pulse_on_the_free_pin_fails(void)
+{
+    g_ow_presence = 1u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+}
+
+static void test_a_1wire_line_that_reads_low_fails(void)
+{
+    g_ow_byte = 0x00u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
 }
 
 static void test_a_high_c6_enable_fails_though_the_held_output_reads_zero(void)
@@ -398,5 +519,12 @@ int main(void)
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
     RUN_TEST(test_an_unreadable_sector_is_never_written);
+    RUN_TEST(test_the_i2c_check_probes_the_empty_address);
+    RUN_TEST(test_an_i2c_ack_at_the_empty_address_fails);
+    RUN_TEST(test_an_i2c_bus_held_low_fails);
+    RUN_TEST(test_the_spi_transfer_runs_with_the_chip_select_high_then_released);
+    RUN_TEST(test_a_failed_spi_transfer_fails_and_still_releases_the_chip_select);
+    RUN_TEST(test_a_presence_pulse_on_the_free_pin_fails);
+    RUN_TEST(test_a_1wire_line_that_reads_low_fails);
     return UNITY_END();
 }

@@ -730,7 +730,7 @@ is wired to the board.
 | `hal_pulse_rmt.c` | a pulse measurement on a free pin, nothing driving it | returns the no-pulse (timeout) result, not an error |
 | `hal_eeprom.c` | the whole 4 KB sector of `tfw_eeprom` saved; a pattern written at a test offset in it, read back; the whole sector written back whatever that test's status | the read equals the pattern, the whole sector reads back equal to the saved one |
 | C6 enable | GPIO 54's level after `hal_board.c` | low |
-| `hal_bus.c` | — | **NOT RUN, wiring needed** (no I2C/SPI/1-Wire device on the board) |
+| `hal_bus.c` | added after these runs, no bench run yet: an I2C probe of address 0x08, which no device on the board's bus uses; a two-byte SPI transfer with the chip select on a free pin; a 1-Wire reset and one byte read on a free pulled-up pin | NACK; the transfer returns OK; no presence pulse and the byte reads 0xff |
 
 Steps, each over the by-id port, no break:
 
@@ -796,7 +796,7 @@ tfw-selfcheck: done
 | `hal_tone.c` | **PASS**: 1 kHz on GPIO6 started and stopped, both OK (nothing measured the frequency) |
 | `hal_pulse_rmt.c` | **PASS**: GPIO33 pulled up, no pulse in 50 ms is `TFW_ERR_TIMEOUT` (9) |
 | `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written and read back equal; the old bytes, written back whatever that test's status, read back equal (`hal_eeprom_restore`, its own line). Review then widened the save and restore to the whole 4 KB sector the test writes in (the table above); that change is pinned on the host by `test_esp_selfcheck` and has not run on the board |
-| `hal_bus.c` | **NOT RUN, wiring needed**: no I2C, SPI or 1-Wire device on the header |
+| `hal_bus.c` | **NOT RUN** in these images. Review asked for it: the bus lines in the table above, which need no wiring, are in the self-check since, pinned on the host by `test_esp_selfcheck`, and wait for the next bench run of the self-check image |
 
 **The board is left on this branch's tip built with the static overlay and no
 self-check** (main's configuration plus the address), up at its static

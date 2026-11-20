@@ -346,6 +346,20 @@ CA 583 forbids: option bytes or provisioning).
     bound` with a dev-VLAN lease about 16 s after a debugger reset. The
     image prints no PHY, link or dial line, so those are not seen on the
     UART in this run.
+  - tfw-wire over TCP, outbound (#582, #584 fix-584k): failed 2026-11-20,
+    `make hw-test BOARD=stm32h573i-dk PORT=tcp-listen:7020
+    HW_RESET='cmd:pyocd reset -t stm32h573iikx'`: each selected row
+    (`Caps`, `AppIsAnUnknownCommandWithoutAnApplication`,
+    `AttestCSRReportsADeviceThatCannotIssueOne`,
+    `SoftwareTierStillCannotIssueACertificate`,
+    `RefusesAttestCSRItsCapsLacks`) fails with `no connection from the
+    board: accept ... i/o timeout`, while the board resets and re-leases
+    (`eth: dhcp bound` after each row's reset). Cause: the lane container's
+    only interface is on the Docker bridge, with no published port and no
+    dev-VLAN address, so the network block names no endpoint the board
+    can reach. Not a firmware result; host networking was not changed. The
+    issue naming the gap is for the coordinator to file (the lane's `gh`
+    has no login). To re-run from a listener on the dev VLAN.
 - Enrolling over Ethernet: CAPS and the attestation refusals verified over
   TCP 2026-11-17 (above); attestation itself is owner (provisioning; CA 583).
 

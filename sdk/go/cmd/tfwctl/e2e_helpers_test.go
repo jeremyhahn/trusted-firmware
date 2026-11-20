@@ -55,7 +55,7 @@ func cliStatus(t *testing.T, dev *tfw.Device, verb string, args ...string) tfw.S
 }
 
 // cliJSON runs one verb with --json and decodes what it printed into v.
-func cliJSON(t *testing.T, dev *tfw.Device, v any, verb string, args ...string) {
+func cliJSON(t testing.TB, dev *tfw.Device, v any, verb string, args ...string) {
 	t.Helper()
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), dev, verb, args, true, &out), "%s %v", verb, args)

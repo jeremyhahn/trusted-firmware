@@ -85,3 +85,47 @@ BOOT_BUDGET    := 32768
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is
 # the enclave, and this slice does not touch it.
 BOARD_TIERS    := soft
+
+# PWM on the M7's TPM (src/hal/cortex-m/imx95/hal_pwm.c), off by default: the
+# TPM instance the System Manager gives the M7 is open (imx95-design.md question
+# 17), so TFW_IMX95_TPM_BASE is zero and every PWM call answers unsupported.
+# It stays unsupported with the TPM known until a stopped channel can hand its
+# pad back to RGPIO, which needs the System Manager (TFW_IMX95_PWM_PAD_HANDOFF).
+# PWM=1 turns TFW_FEATURE_PWM on (TFW_CM_PWM in board_profile.h) and links the
+# TPM driver; the soft:PWM=1 row builds it. Host-tested on a register model
+# (test/unit/test_imx95_tpm.c), not run on the board.
+PWM               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(PWM)),-DTFW_CM_PWM=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(PWM)),PWM)
+BOARD_ROWS        += soft:PWM=1
+
+# The SAR ADC (src/hal/cortex-m/imx95/hal_adc.c), off by default: its base is
+# TO CONFIRM (TFW_IMX95_ADC_BASE in board_profile.h, zero until a pinned source
+# gives it) and nothing has run it on the board. ADC=1 turns TFW_FEATURE_ANALOG
+# on (TFW_CM_ADC in board_profile.h), appends the analog pins and links the
+# driver; the soft:ADC=1 row builds that image, as mps2-an505's soft:I2C=1 does.
+ADC               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(ADC)),-DTFW_CM_ADC=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(ADC)),ANALOG)
+BOARD_ROWS        += soft:ADC=1
+
+# I2C over one LPI2C as a polled master (src/hal/cortex-m/imx95/hal_bus.c), off
+# by default. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and
+# links the bus; soft:I2C=1 builds that row. Built and host-tested, not run (QEMU
+# has no i.MX 95), and the M7's instance is open (TFW_IMX95_LPI2C_BASE is zero),
+# so the bus answers TFW_ERR_UNSUPPORTED until it is known.
+I2C               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        += soft:I2C=1
+
+# Tone on a GPT output compare (src/hal/cortex-m/imx95/hal_tone.c, #22), off
+# by default: the timer's base is TO CONFIRM (docs/multi-arch/imx95-design.md
+# question 17), so every call answers TFW_ERR_UNSUPPORTED until it is known.
+# TONE=1 turns TFW_FEATURE_TONE on (TFW_CM_TONE in board_profile.h) and links
+# it; the soft:TONE=1 row builds it and size-check measures it. Built and
+# host-tested, not run: QEMU has no i.MX 95.
+TONE              ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(TONE)),TONE)
+BOARD_ROWS        += soft:TONE=1

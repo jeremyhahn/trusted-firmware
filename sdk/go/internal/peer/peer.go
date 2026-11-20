@@ -27,6 +27,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,10 +77,26 @@ type Target struct {
 	Eth       string // where the board dials; empty for the simulator and a serial-only run
 	EthListen string // where the suite listens for it, when not Eth; empty for Eth
 	QMP       string // the QMP socket that resets the board; empty resets it by DTR
+	Hook      string // the command that resets a TCP board (cmd:); empty for none
 }
 
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
+
+// Resets reports whether Start resets the peer, so it sends BOOT: the
+// simulator starts fresh, and a serial board is reset by DTR or QMP. A board
+// whose wire is TCP is found running, as it is, and sends no BOOT; a device
+// on it must not wait for one. StartBooted resets such a board through its
+// Hook.
+func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+
+// NoResetOnOpen is why StartBooted skips a row on a TCP board with no Hook.
+const NoResetOnOpen = "transport does not reset on open"
+
+// ResetCmdPrefix marks a ResetEnv that is a TCP board's reset hook: the
+// command, split on spaces, that resets the board (a relay, a probe's reset
+// line, a power switch), e.g. cmd:/usr/local/bin/bench-reset p4.
+const ResetCmdPrefix = "cmd:"
 
 // Listen returns the address the Ethernet rows listen on for the device to
 // dial: SimListen for the simulator; for a board, EthListenEnv's, or EthEnv's
@@ -155,25 +172,33 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	qmp, err := parseReset(reset)
+	qmp, hook, err := parseReset(reset)
 	if err != nil {
 		return Target{}, err
 	}
-	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp}, nil
+	t := Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, Hook: hook}
+	if hook != "" && t.Resets() {
+		return Target{}, fmt.Errorf("%s=%s: a reset command is for a board whose wire is TCP (%s=%s<host:port>); %s=%s is reset by DTR", ResetEnv, reset, PortEnv, TCPPrefix, PortEnv, port)
+	}
+	return t, nil
 }
 
-// parseReset reads ResetEnv: empty for DTR, or the socket of "qmp:<socket>".
+// parseReset reads ResetEnv: empty for DTR, the socket of "qmp:<socket>", or
+// the hook of "cmd:<command>".
 // Anything else is refused rather than read as DTR, which would reset nothing
 // on the board the value was meant for.
-func parseReset(v string) (string, error) {
+func parseReset(v string) (qmp, hook string, err error) {
 	if v == "" {
-		return "", nil
+		return "", "", nil
+	}
+	if cmd, ok := strings.CutPrefix(v, ResetCmdPrefix); ok && strings.TrimSpace(cmd) != "" {
+		return "", strings.TrimSpace(cmd), nil
 	}
 	sock, ok := strings.CutPrefix(v, "qmp:")
 	if !ok || sock == "" {
-		return "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, or unset to reset by DTR", ResetEnv, v)
+		return "", "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, %s<command> for a TCP board, or unset to reset by DTR", ResetEnv, v, ResetCmdPrefix)
 	}
-	return sock, nil
+	return sock, "", nil
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is
@@ -214,6 +239,15 @@ var openPort = serialport.Open
 // event is delivered exactly as tfwsim delivers it. Nothing is written before
 // then, so no request lands in the bootloader.
 func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
+		// A board whose wire is a TCP server (the ESP32 port, hal_uart.c):
+		// no DTR to reset it, so the rows find it running, as it is.
+		c, err := openTCP(addr, bound)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", port, err)
+		}
+		return c, nil
+	}
 	p, err := openPort(port, 0)
 	if err != nil {
 		return nil, err
@@ -224,6 +258,126 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// TCPPrefix marks a PortEnv that is a board's wire endpoint, host:port,
+// rather than a serial device: tcp:192.0.2.80:21574.
+const TCPPrefix = "tcp:"
+
+// tcpDials bounds the dials openTCP makes to a board that closes each one.
+const tcpDials = 3
+
+// tcpSettle is how long openTCP waits for a board to close a connection it
+// refused. The board speaks only when asked, so a silent wire is a kept one.
+const tcpSettle = 100 * time.Millisecond
+
+// openTCP dials addr and returns the connection the board kept. A second
+// guard behind hal_uart.c's handoff: a board that still holds the last row's
+// socket closes the next one at once, after the dial has succeeded, so a
+// connection the board closes inside tcpSettle is dialled again.
+func openTCP(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	var err error
+	for range tcpDials {
+		var c io.ReadWriteCloser
+		c, err = dialTCP("tcp", addr, bound)
+		if err != nil {
+			return nil, err
+		}
+		nc, ok := c.(net.Conn)
+		if !ok {
+			return c, nil
+		}
+		if err = nc.SetReadDeadline(time.Now().Add(tcpSettle)); err != nil {
+			_ = nc.Close()
+			return nil, err
+		}
+		var b [1]byte
+		n, rerr := nc.Read(b[:])
+		if n > 0 {
+			_ = nc.SetReadDeadline(time.Time{})
+			return &primed{Conn: nc, first: b[:1]}, nil
+		}
+		var ne net.Error
+		if errors.As(rerr, &ne) && ne.Timeout() {
+			if err = nc.SetReadDeadline(time.Time{}); err != nil {
+				_ = nc.Close()
+				return nil, err
+			}
+			return nc, nil
+		}
+		_ = nc.Close()
+		err = fmt.Errorf("the board closed the connection: %w", rerr)
+	}
+	return nil, err
+}
+
+// primed is a connection whose first byte openTCP read while it waited.
+type primed struct {
+	net.Conn
+	first []byte
+}
+
+func (p *primed) Read(b []byte) (int, error) {
+	if len(p.first) > 0 && len(b) > 0 {
+		n := copy(b, p.first)
+		p.first = p.first[n:]
+		return n, nil
+	}
+	return p.Conn.Read(b)
+}
+
+// dialTCP is net.DialTimeout, a variable so a test can see the address. The
+// conn keeps a read floor (floorConn), as serialport.Open's does.
+var dialTCP = func(network, addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	c, err := net.DialTimeout(network, addr, bound)
+	if err != nil {
+		return nil, err
+	}
+	return &floorConn{Conn: c, floor: tcpReadFloor}, nil
+}
+
+// tcpReadFloor bounds every Read on a tcp: conn, the floor serialport.Open's
+// 200ms read timeout gives a serial PORT.
+const tcpReadFloor = 200 * time.Millisecond
+
+// floorConn is a TCP conn whose every Read returns within floor, or by the
+// caller's own read deadline if that is sooner, with the timeout error tfw's
+// read loop treats as "no bytes yet". tfw bounds a read only through
+// SetReadDeadline or such a floor, and a row that wraps the conn as a plain
+// io.ReadWriter (the CAPS row's meddler) hides SetReadDeadline: on a tcp:
+// board, found running with no BOOT event to come, the read then blocked
+// until the test binary's timeout (#551).
+type floorConn struct {
+	net.Conn
+	floor time.Duration
+
+	mu       sync.Mutex
+	deadline time.Time // the caller's read deadline; zero is none
+}
+
+func (c *floorConn) Read(p []byte) (int, error) {
+	c.mu.Lock()
+	at := time.Now().Add(c.floor)
+	if !c.deadline.IsZero() && c.deadline.Before(at) {
+		at = c.deadline
+	}
+	c.mu.Unlock()
+	if err := c.Conn.SetReadDeadline(at); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+func (c *floorConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *floorConn) SetDeadline(t time.Time) error {
+	_ = c.SetReadDeadline(t)
+	return c.SetWriteDeadline(t)
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket
@@ -375,6 +529,32 @@ func start(p io.ReadWriteCloser, bound time.Duration) (io.ReadWriteCloser, error
 	return awaitStart(r, bound)
 }
 
+// ModemLines is what ESPReset needs of the reset port.
+type ModemLines interface {
+	SetDTR(bool) error
+	SetRTS(bool) error
+}
+
+// ESPReset is esptool's classic reset on the ESP32 auto-reset circuit
+// (docs/plans/550.md): RTS drives EN and DTR drives GPIO0, each asserted
+// line pulling its pin low, and both asserted together pull neither. DTR is
+// released first so GPIO0 is high when EN rises (a normal boot, not the ROM
+// download mode); RTS then holds EN low for ResetPulse and releases it.
+// Pulsing DTR alone never moves EN, so it does not reset a running board.
+func ESPReset(r ModemLines) error {
+	if err := r.SetDTR(false); err != nil {
+		return fmt.Errorf("releasing DTR (GPIO0 high): %w", err)
+	}
+	if err := r.SetRTS(true); err != nil {
+		return fmt.Errorf("asserting RTS (EN low): %w", err)
+	}
+	time.Sleep(ResetPulse)
+	if err := r.SetRTS(false); err != nil {
+		return fmt.Errorf("releasing RTS (EN high): %w", err)
+	}
+	return nil
+}
+
 // awaitStart reads until rwc yields its first bytes or bound passes. rwc must
 // return from Read within a bounded time even when nothing arrives, as
 // serialport.Open's read timeout makes it.
@@ -414,3 +594,21 @@ func (s *started) Read(p []byte) (int, error) {
 
 func (s *started) Write(p []byte) (int, error) { return s.rwc.Write(p) }
 func (s *started) Close() error                { return s.rwc.Close() }
+
+// SetReadDeadline passes the Device's read bound through to the conn, so a
+// board that sends its BOOT and then stalls fails its read by the deadline
+// rather than at the test's timeout. A conn with no deadlines keeps none.
+func (s *started) SetReadDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return c.SetReadDeadline(t)
+	}
+	return nil
+}
+
+// SetDeadline passes a read and write bound through to the conn.
+func (s *started) SetDeadline(t time.Time) error {
+	if c, ok := s.rwc.(interface{ SetDeadline(time.Time) error }); ok {
+		return c.SetDeadline(t)
+	}
+	return s.SetReadDeadline(t)
+}

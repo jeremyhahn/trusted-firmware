@@ -53,6 +53,11 @@ static uint16_t rx_head;
 static uint16_t rx_len;
 static uint8_t tx_buf[TX_BUF];
 static uint16_t tx_len;
+/* Until the first host is accepted after boot, what the firmware sends waits in
+ * tx_buf for it: the boot event goes out before the loop that accepts a host
+ * runs, and would otherwise go nowhere (#550). Bounded by TX_BUF: past it the
+ * held bytes are discarded whole, never sent cut. */
+static uint8_t holding = 1u;
 
 static void nonblocking(int fd)
 {
@@ -107,7 +112,8 @@ static void accept_peer(void)
     nonblocking(fd);
     /* A response is one small frame the host is waiting on: send it now. */
     (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-    peer = fd;
+    peer    = fd;
+    holding = 0u;               /* what was held goes to this host */
     heard();
 }
 
@@ -163,37 +169,60 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
         return TFW_ERR_INTERNAL;
     }
     nonblocking(listener);
+    if (peer < 0) {
+        holding = 1u;           /* init is boot: hold for the first host */
+        tx_len  = 0u;
+    }
     return TFW_OK;
+}
+
+/* One recv into an empty buffer: bytes are heard, EOF or a broken socket
+ * drops the host, EAGAIN keeps it quietly. */
+static void fill_rx(void)
+{
+    ssize_t n;
+
+    if (peer < 0 || rx_len != 0u) {
+        return;
+    }
+    n = recv(peer, rx_buf, sizeof rx_buf, MSG_DONTWAIT);
+    if (n == 0) {
+        ESP_LOGW(TAG, "the host closed the connection");
+        drop_peer();
+        return;
+    }
+    if (n < 0) {
+        int err = errno;
+
+        if (err != EAGAIN && err != EWOULDBLOCK) {
+            ESP_LOGW(TAG, "dropped the host: recv failed, errno %d", err);
+            drop_peer();
+        }
+        return;
+    }
+    rx_head = 0u;
+    rx_len  = (uint16_t)n;
+    heard();
 }
 
 uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
+    int before;
+
     /* The reply first: a command that ran past TFW_ESP_WIRE_IDLE_MS has its
      * host waiting on these bytes, and sending them is what makes it heard. */
     flush_tx();
+    /* The current host's hangup before a pending connection is weighed: a
+     * host that closed and redialled at once is handed the wire, not refused
+     * as a second host by its own closed socket. */
+    fill_rx();
+    before = peer;
     accept_peer();
-    if (peer < 0) {
-        return 0u;
+    if (peer != before) {
+        fill_rx();
     }
-    if (rx_len == 0u) {
-        ssize_t n = recv(peer, rx_buf, sizeof rx_buf, MSG_DONTWAIT);
-        if (n == 0) {
-            ESP_LOGW(TAG, "the host closed the connection");
-            drop_peer();
-            return 0u;
-        }
-        if (n < 0) {
-            int err = errno;
-
-            if (err != EAGAIN && err != EWOULDBLOCK) {
-                ESP_LOGW(TAG, "dropped the host: recv failed, errno %d", err);
-                drop_peer();
-            }
-            return 0u;
-        }
-        rx_head = 0u;
-        rx_len  = (uint16_t)n;
-        heard();
+    if (peer < 0 || rx_len == 0u) {
+        return 0u;
     }
     *out = rx_buf[rx_head++];
     rx_len--;
@@ -203,7 +232,13 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
     if (peer < 0) {
-        return 1u;              /* nobody listening: the byte goes nowhere */
+        if (holding && tx_len < TX_BUF) {
+            tx_buf[tx_len++] = byte;    /* for the first host */
+        } else {
+            holding = 0u;       /* nobody listening: the byte goes nowhere */
+            tx_len  = 0u;
+        }
+        return 1u;
     }
     if (tx_len == TX_BUF) {
         flush_tx();
@@ -221,5 +256,5 @@ uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 uint8_t tfw_hal_uart_tx_idle(void)
 {
     flush_tx();
-    return (uint8_t)(tx_len == 0u);
+    return (uint8_t)(peer < 0 || tx_len == 0u);     /* held bytes wait on no reply */
 }

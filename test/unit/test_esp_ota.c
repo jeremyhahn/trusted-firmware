@@ -22,6 +22,12 @@
 #include "ota_trial.h"
 #include "dispatch.h"
 #include "sys.h"
+#include "hal_mock.h"
+
+/* The application's half of the trial, whose deadline resets an unconfirmed
+ * ESP32 image into ESP-IDF's rollback: compiled in here, as this link carries
+ * no ota_trial.c of its own. */
+#include "../../src/core/ota_trial.c"
 
 #define CHUNK    60u      /* TFW_MAX_PAYLOAD less the offset */
 #define INFO_LEN 44u
@@ -962,6 +968,62 @@ static void test_a_failing_confirm_leaves_the_trial_on(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
 }
 
+/* The trial deadline (src/core/ota_trial.c) on the ESP32 trial: the boards'
+ * TFW_OTA_TRIAL_TIMEOUT_S, written out as 60 s so a changed constant fails. */
+#define TRIAL_DEADLINE_MS 60000u
+
+static void test_a_confirm_before_the_deadline_keeps_the_image(void)
+{
+    unsigned resets;
+
+    stage_signed(4u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    boot_the_trial();
+    tfw_mock_set_millis(500u);
+    tfw_ota_trial_start();
+    resets = tfw_mock_reset_count();
+
+    tfw_mock_advance(TRIAL_DEADLINE_MS - 1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(resets, tfw_mock_reset_count());
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_confirm());
+    TEST_ASSERT_EQUAL(ESP_OTA_IMG_VALID, mock_esp.state[1]);
+
+    tfw_mock_advance(1u);                     /* the deadline: confirmed, so no reset */
+    tfw_ota_trial_poll();
+    tfw_mock_advance(TRIAL_DEADLINE_MS);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(resets, tfw_mock_reset_count());
+    TEST_ASSERT_EQUAL(ESP_OTA_IMG_VALID, mock_esp.state[1]);
+    TEST_ASSERT_EQUAL_UINT8(1u, mock_esp.running);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_ota_trial_on());
+}
+
+static void test_no_confirm_at_the_deadline_resets_into_the_rollback(void)
+{
+    unsigned resets;
+
+    stage_signed(4u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    boot_the_trial();
+    tfw_mock_set_millis(500u);
+    tfw_ota_trial_start();
+    resets = tfw_mock_reset_count();
+
+    tfw_mock_advance(TRIAL_DEADLINE_MS - 1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(resets, tfw_mock_reset_count());
+
+    tfw_mock_advance(1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(resets + 1u, tfw_mock_reset_count());
+    /* Still unconfirmed at the reset: ESP-IDF's bootloader aborts it and boots
+     * slot 0 again. */
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.marks);
+    TEST_ASSERT_EQUAL(ESP_OTA_IMG_PENDING_VERIFY, mock_esp.state[1]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
+}
+
 /* A trial layer 0 refused at its one boot is still PENDING_VERIFY while the
  * old image runs again; ESP-IDF marks it ABORTED at the next reset. */
 static void test_info_reports_a_refused_trial_as_a_fall_back(void)
@@ -1063,6 +1125,8 @@ int main(void)
     RUN_TEST(test_confirm_needs_an_ota_auth_just_before);
     RUN_TEST(test_confirm_off_trial_is_bad_state);
     RUN_TEST(test_a_failing_confirm_leaves_the_trial_on);
+    RUN_TEST(test_a_confirm_before_the_deadline_keeps_the_image);
+    RUN_TEST(test_no_confirm_at_the_deadline_resets_into_the_rollback);
     RUN_TEST(test_info_reports_a_refused_trial_as_a_fall_back);
     RUN_TEST(test_auth_activate_and_confirm_are_on_the_wire);
     RUN_TEST(test_the_session_is_on_the_wire);

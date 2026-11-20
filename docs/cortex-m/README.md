@@ -14,8 +14,8 @@ then hardware in the SPEC row's order.
 | [`api.md`](api.md) | the HAL functions the port implements, those it leaves to a later slice, and tfw-boot's hardware layer |
 | [`user.md`](user.md) | building for QEMU `mps2-an505` and `mps2-an500`, and running `make integration-test-cortex-m` and `make integration-test-cortex-m-wire` |
 | [`engineering.md`](engineering.md) | files, invariants, the toolchain, `lint-arch-leak`, the `progmem.h` far reads, the tests, and the open owner questions |
-| [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) | **PROPOSED** (#14): the i.MX 95 Cortex-M7 as the reference part, checked against the STM32H573I-DK and the nRF54L15-DK; QEMU `mps2-an505` as the CI target; the HAL mapping, toolchain, budgets and boot chain |
-| [`adr-trust-model-vs-tf-m.md`](adr-trust-model-vs-tf-m.md) | **PROPOSED** (#15): the trust model and its relation to TF-M — TF-M Profile Medium with our attestation partition on the M33, MPU-only isolation on the M7, where the DICE root lives on each part, and the owner's open questions |
+| [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) | **ACCEPTED** (#14, owner ruling 632 item 208 a, 2026-11-14): the i.MX 95 Cortex-M7 as the reference part, checked against the STM32H573I-DK and the nRF54L15-DK; QEMU `mps2-an505` as the CI target; the HAL mapping, toolchain, budgets and boot chain |
+| [`adr-trust-model-vs-tf-m.md`](adr-trust-model-vs-tf-m.md) | **ACCEPTED** (#15, owner ruling 632 item 208 a, 2026-11-14): the trust model and its relation to TF-M — TF-M Profile Medium with our attestation partition on the M33, MPU-only isolation on the M7, where the DICE root lives on each part, and the owner's remaining open questions |
 
 ## What is built (#161, then the M7 on QEMU)
 
@@ -142,7 +142,7 @@ have. The start wait after the reset is the same. `peerBoards` in
 `e2e_firmware_test.go` has a row for each MPS2 board (two LEDs, outputs only,
 and the SPI select as pin 2).
 A row whose family the board lacks would fail, naming it (#7), so the script
-leaves it out of the board's run by name. That covers ADC, PWM, EEPROM, I2C,
+leaves it out of the board's run by name. That covers ADC, PWM, I2C,
 SPI, 1-Wire and pulse, and the alias certificate, operator session and CSR,
 and the OTA and app rows the image has no stager or application for. Every wait is
 bounded, and the script's trap kills QEMU on every exit.
@@ -282,7 +282,7 @@ because they boot the same tier.
 | `Ping`, `PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, `Caps`, `Sys`, `Pin`, `Write`, `Timer` | runs | runs |
 | `Analog` | left out: CAPS lacks bit 2 (Analog) | left out: CAPS lacks bit 2 (Analog) |
 | `PWM` | left out: CAPS lacks bit 3 (PWM) | left out: CAPS lacks bit 3 (PWM) |
-| `EEPROM` | left out: CAPS lacks bit 6 (EEPROM) | left out: CAPS lacks bit 6 (EEPROM) |
+| `EEPROM` | runs (bit 6, EEPROM): the platform window, a write and read-back past tfw-boot's span | runs (bit 6, EEPROM) |
 | `I2C`, `I2CConfig` | left out: CAPS lacks bit 7 (I2C) | left out: CAPS lacks bit 7 (I2C) |
 | `SPIConfig` | left out: CAPS lacks bit 8 (SPI) | left out: CAPS lacks bit 8 (SPI) |
 | `OneWireAndPulseIn` | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) |
@@ -297,7 +297,7 @@ because they boot the same tier.
 | `OTAActivate`, `OTAConfirm` | base image: left out: CAPS lacks bit 14 (AuthSession), and no stager | the same |
 | `AppReportsItsApplication` | left out: no application (APP_INFO `ERR_UNKNOWN_CMD`) | left out: same |
 | `AppIsAnUnknownCommandWithoutAnApplication` | runs | runs |
-| `Refuses{Analog,PWM,Pulse,EEPROM,I2C,SPI,OneWire,TheAuthSession,AttestCSR}ItsCapsLacks` | runs: each family's command `ERR_UNKNOWN_CMD` | runs |
+| `Refuses{Analog,PWM,Pulse,I2C,SPI,OneWire,TheAuthSession,AttestCSR}ItsCapsLacks` | runs: each family's command `ERR_UNKNOWN_CMD` | runs |
 | `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` | staging image: runs (`ERR_AUTH_REQUIRED`) | the same |
 
 **The staging image's OTA rows.** On both boards the wire run boots a
@@ -500,7 +500,9 @@ board id `0x46` (allocated in
 its own CI step. tfw-boot builds for it too, as the row
 `frdm-mcxn947:soft:soft:p256-soft:0:0` in `bootloader-check`: P-256 verify, a
 polled LPUART4 and a flash writer through the boot ROM's flash driver in
-`boot/hal/cortex-m/mcxn94x/`. Its fit in the 32 KB region is not yet measured.
+`boot/hal/cortex-m/mcxn94x/`. Its fit in the 32 KB region is measured: flash
+8492 of 32768 bytes (24276 bytes of headroom) and RAM 8516 of 319488 bytes, at
+commit `48d85486` with arm-none-eabi-gcc 14.2.1 20241119.
 pyOCD writes either image (below). QEMU models no MCX part, so no test runs
 either image, and no board has run one. The host tests cover the board table
 (`board-sweep`), the LPUART's baud arithmetic (`test_mcxn_lpuart`), and the

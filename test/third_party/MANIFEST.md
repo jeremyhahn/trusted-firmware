@@ -23,6 +23,20 @@ Vendored files, sha256 of each as committed:
     c4220e36bc7c66f81a0f0b026e694865f3f33e6c8b48113dedd8db1d50ce0716  unity_internals.h
     865b12a0747d1e8973612a04ea978767aa8fa8aab1466c662807b54bfe517d2c  LICENSE.txt
 
+## lwIP 2.2.1 (third_party/lwip)
+
+lwIP, BSD-3-Clause (COPYING kept verbatim), for the STM32H5 ETH_MAC=1 image
+(#581). Pinned by tag and commit; the vendored subset (core, IPv4,
+netif/ethernet and the headers) and its tree hash are in
+`third_party/lwip/VERSION`, with the command that recomputes it. It sits
+outside `src/third_party/` because lwIP repeats basenames across its include
+directories (`lwip/ip4.h`, `lwip/prot/ip4.h`), which the per-basename check
+below cannot tell apart.
+
+    tag             STABLE-2_2_1_RELEASE
+    commit          77dcd25a72509eb83f72b033d219b1d40cd8eb95
+    upstream        https://github.com/lwip-tcpip/lwip
+
 ## ed25519-donna 8757bd4
 
 floodyberry/ed25519-donna, **public domain** -- declared per file in each
@@ -95,7 +109,10 @@ set). The test tree's v1.1 copy was removed, so one owner holds the curve code.
 ONE LOCAL PATCH, recorded in `src/third_party/micro-ecc/README.md` "Local
 changes" and as `patches/0001-verify-shamir-doubling-and-infinity.patch`:
 `uECC_verify` accepts the two valid Wycheproof P-256 signatures upstream
-rejects. The `uECC.c` hash below therefore pins upstream plus that patch; every
+rejects; and `patches/0002-ladder-yield-hook.patch`: the scalar-multiplication
+ladder calls an optional hook after every step (`uECC_set_yield`, unset by
+default), so the STM32H5 ETH_MAC image keeps deadlines running through a
+software sign (#584). The `uECC.c` hash below therefore pins upstream plus those patches; every
 other file is upstream's bytes. Upstream's `LICENSE.txt` is committed as
 `LICENSE.micro-ecc.txt`, because `make verify-vendor` finds files by name and
 Unity already owns `LICENSE.txt`. Curve and word selection are made on the
@@ -105,7 +122,7 @@ Seven source files are vendored, the ones `uECC.c` includes on AVR and on the
 host. The ARM `asm_*.inc` files are not: no build here selects an ARM platform.
 `asm_avr_mult_square.inc` is not either: only `uECC_OPTIMIZATION_LEVEL` 3 reads it.
 
-    dcadc09f26e8cbf0a0771c1b25cf745729bf72395912c3b7496ffca86aafbbfb  uECC.c
+    f2a1cd70200c9e8e1e75ebb161ffeba32234ca9267de7802ca0be6b58fcd3f81  uECC.c
     9d480aa6920155f68503064bebefb815a82aab318ab305efdcf04674d2a9cba7  uECC.h
     a8ff7957855e6520674cad4bcaf8f3e752d40f6c3f7501915c3504c777be1e7a  uECC_vli.h
     61bd255c0dca4c69dfc779cc5c1fe1cbff47039d4bb7f37578a88f63b7fca466  types.h

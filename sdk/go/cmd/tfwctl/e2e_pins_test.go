@@ -33,6 +33,7 @@ type peerBoard struct {
 	adcPin     uint8          // the ADC pin the descriptor scenario reads
 	adcChannel uint8          // adcPin's channel
 	adcPort    bool           // whether adcPin has a digital port
+	adcAnalog  bool           // adcPin has a port but is flagged analog only, not digital
 	adcOnly    int            // how many pins are ADC inputs with no digital port
 	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where no PWM pin is spent on it
 	noPWMPin   uint8          // a digital pin with no compare unit at all
@@ -41,6 +42,7 @@ type peerBoard struct {
 	noLED      bool           // the board has no LED: ledPin is a plain digital pin, TFW_PIN_DIGITAL alone
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
+	pulsePin   uint8          // a digital pin nothing drives, so pulse-in times out
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
 }
 
@@ -54,7 +56,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 5, noPWMPin: 13, // OC0B
 		pwmPin: 9, // OC1A
 		ledPin: 13, txPin: 1, timerPin: 2,
-		tonePin: 11, // OC2A, PB3
+		pulsePin: 9, tonePin: 11, // OC2A, PB3
 	},
 	"atmega2560": {
 		resetCause: tfw.ResetUnknown,
@@ -65,7 +67,22 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 4, noPWMPin: 22, // OC0B; PA0
 		pwmPin: 9, // OC2B
 		ledPin: 13, txPin: 1, timerPin: 2,
-		tonePin: 10, // OC2A, PB4: not the 328P's 11
+		pulsePin: 9, tonePin: 10, // OC2A, PB4: not the 328P's 11
+	},
+	// The STM32H573I-DK's 13-pin table as #535 ran it (row 543): LD1 to LD4
+	// (pins 0-3, lit low), D6 and D5 on TIM5 (4, 5), A0-A5 (6-11) analog
+	// only, D3 the tone (12, TIM3, no PWM). SYS reports the last reset as
+	// unknown, after a debugger reset too. The tick is SysTick, so no compare
+	// pin is spent on it; USART1 is outside the pin table.
+	"stm32h573i-dk": {
+		resetCause: tfw.ResetUnknown,
+		ledPort:    1, ledBit: 9, ledPWM: tfw.PWMNone, // LD1, PI9
+		analog: 6,                                                // A0, PB0
+		adcPin: 6, adcChannel: 9, adcPort: true, adcAnalog: true, // INP9
+		adcOnly: 0,
+		pwmPin:  4, tickPin: -1, noPWMPin: 12, // D6 TIM5_CH1; D3
+		ledPin: 0, txPin: -1, timerPin: 1, // LD2
+		pulsePin: 5, tonePin: 12, // D5, idle; D3 TIM3
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
 	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
@@ -104,7 +121,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: -1, noPWMPin: 11, // GPIO32
 		pwmPin: 0,                                        // GPIO2, LEDC0
 		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
-		tonePin: 4, // GPIO6, the first pin with no LEDC channel
+		pulsePin: 9, tonePin: 4, // GPIO22, idle; GPIO6, the first pin with no LEDC channel
 	},
 }
 
@@ -112,9 +129,9 @@ var peerBoards = map[string]peerBoard{
 // every board whose row list runs either row has facts, and its PWM pin is
 // none of the pins those rows expect to refuse a duty or to be an ADC input.
 // The AVR boards keep pin 9; the ESP32-P4's pin 9 is an ADC input, so its
-// row drives LEDC0.
+// row drives LEDC0; the STM32H573I-DK's pin 9 is analog only, so D6 on TIM5.
 func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
-	want := map[string]uint8{"atmega328p": 9, "atmega2560": 9, "esp32p4-poe": 0}
+	want := map[string]uint8{"atmega328p": 9, "atmega2560": 9, "esp32p4-poe": 0, "stm32h573i-dk": 4}
 	for board := range boardImages {
 		run := boardRun(t, board, false)
 		if !run.MatchString("TestFirmwarePWM") && !run.MatchString("TestFirmwarePin") {
@@ -199,7 +216,7 @@ func TestSysRowFixesTheResetCauseOnlyWhereStartResets(t *testing.T) {
 // TFW_TONE_PIN in its pin facts (boards/<board>/board_profile.h), and that pin
 // is not the PWM pin the row expects TONE to refuse.
 func TestToneRowUsesTheBoardsTonePin(t *testing.T) {
-	want := map[string]uint8{"atmega328p": 11, "atmega2560": 10, "esp32p4-poe": 4}
+	want := map[string]uint8{"atmega328p": 11, "atmega2560": 10, "esp32p4-poe": 4, "stm32h573i-dk": 12}
 	for board := range boardImages {
 		if !boardRun(t, board, false).MatchString("TestFirmwareTone") {
 			continue

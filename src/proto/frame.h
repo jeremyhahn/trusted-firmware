@@ -71,6 +71,11 @@ void tfw_framer_abort(tfw_framer_t *f);
 
 tfw_frame_event_t tfw_framer_push(tfw_framer_t *f, uint8_t byte);
 
+/* 1 while a frame is partly received (an SOF was accepted and the frame has
+ * not yet completed or failed); 0 while hunting for SOF. Bytes the framer
+ * discards before an SOF leave it 0, so line noise holds nothing. */
+uint8_t tfw_framer_in_frame(const tfw_framer_t *f);
+
 /* Valid only immediately after TFW_FRAME_READY.
  *
  * A request body is [SEQ][OP][payload...]; a response or event body is

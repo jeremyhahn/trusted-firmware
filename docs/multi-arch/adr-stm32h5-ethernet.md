@@ -68,13 +68,25 @@
 
 | | Value | Status |
 |---|---|---|
-| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its register layout: **to confirm** against RM0481 |
-| MII or RMII | RMII | **to confirm on the board** and against UM3143 |
-| PHY part | a Microchip LAN8742A, the PHY on ST's other boards with an on-chip MAC | **to confirm on the board** (read PHYID1/PHYID2 over MDIO) and against UM3143 |
-| PHY address on MDIO | 0 | **to confirm on the board**: slice 2's driver scans addresses 0–31 and logs the one that answers, so the value is never assumed |
-| RMII pins | REF_CLK, MDIO, MDC, CRS_DV, RXD0, RXD1, TX_EN, TXD0, TXD1, each on alternate function 11. ST's usual H5 assignment is PA1, PA2, PC1, PA7, PC4, PC5, PG11, PG13 and a TXD1 on PG12 or PB15 | **to confirm on the board** and against UM3143; none is taken from a document read in this lane. Slice 2 reads them from UM3143 or from ST's board-support source at a pinned commit, as the board page does for the console |
+| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its MAC, MTL and DMA registers and descriptors as RM0481 gives them: **verified on the board 2026-11-17** (#581), frames sent and received |
+| MII or RMII | RMII | **verified on the board 2026-11-17** (#579): the PHY answers over MDIO with SBS PMCR set to RMII; ST's pin data for the kit, `ETH.MediaInterface=HAL_ETH_RMII_MODE` |
+| PHY part | a Microchip LAN8742A: PHYID1 `0x0007`, PHYID2 `0xC131` (model `0x13`, revision 1) | **verified on the board 2026-11-17** (#579), read over MDIO; board page "Ethernet PHY" |
+| PHY address on MDIO | 0 | **verified on the board 2026-11-17** (#579): the scan of 0–31 found it at 0; the driver keeps scanning, so the value is never assumed |
+| RMII pins | REF_CLK PA1, MDIO PA2, CRS_DV PA7, MDC PC1, RXD0 PC4, RXD1 PC5, TX_EN PG11, TXD1 PG12, TXD0 PG13, each on alternate function 11 | ST's pin data for the kit (`STM32_open_pin_data` at the commit the board page pins, the kit's board file); MDIO and MDC **verified on the board 2026-11-17** (#579); the data pins **verified on the board 2026-11-17** (#581), a DHCP exchange through them |
 | Reference clock | 50 MHz to REF_CLK, from the PHY or a crystal on the board | **to confirm** against UM3143 |
-| Connector | an RJ45 on the board | **to confirm on the board** |
+| Connector | an RJ45 on the board | **verified on the board 2026-11-17** (#579): cabled, the PHY reports link up |
+| IP stack | lwIP 2.2.1 (`STABLE-2_2_1_RELEASE`), `NO_SYS`, raw API, over our MAC and descriptor driver (option (a)); vendored unmodified under `third_party/lwip`, built with `ETH_MAC=1` | **verified on the board 2026-11-17** (#581): a DHCP lease, the console line `eth: dhcp bound`; the `ETH_MAC=1` application measured 35 816 bytes of flash and 45 004 bytes of RAM (lwIP's heap 8 KiB, 8 pool buffers) |
+
+**Provenance of the vendored lwIP.** `third_party/lwip` is pinned to upstream
+lwIP `STABLE-2_2_1_RELEASE`, commit `77dcd25a72509eb83f72b033d219b1d40cd8eb95`
+(`third_party/lwip/VERSION`). `third_party/lwip/SHA256SUMS` lists every
+vendored file with its SHA-256, summed from a fresh fetch of that commit;
+`make lwip-check` (and `scripts-test`, through `scripts/test_vendor_sums.py`)
+fails on a changed byte, a missing file or a file the list does not name. The
+subset is therefore upstream's bytes and needs no line review here; the review
+falls on our port files: `src/hal/cortex-m/stm32h5/lwipopts.h`,
+`src/hal/cortex-m/stm32h5/lwip-port/arch/cc.h`, `hal_eth_netif.c` (the netif
+glue) and `hal_eth_wire_tcp.c` (the raw-API outbound connection).
 
 ## Options
 
@@ -172,6 +184,21 @@ Exactly as on the `ethernet-transport` row; nothing on the wire changes.
 - The device opens the one TCP connection to the endpoint in its network
   block; it listens on nothing. The frames, command ids and wire vectors are
   unchanged.
+- The `ETH_MAC=1` image built today (`hal_eth_wire.c` in place of
+  `link_serial.c`) does the same since #584's fix-584k: `hal_eth_wire_tcp.c`
+  dials the block's peer and port once the netif has an address, redials a
+  refused or dropped connection after 1 s (doubling per refusal up to 16 s,
+  the block read again each time), and binds no port; the inbound listener on
+  21574 is gone. `hal_eth_netif.c` takes the address, mask, gateway and MAC
+  from the block (`src/net/netcfg.c`), starts lwIP's DHCP client only when the
+  block's DHCP flag is set, and with no valid block keeps the device off the
+  network while the UART is served, reading the block again later. Before
+  each dial the netif is reconciled with the block just read
+  (`tfw_h5_eth_reconcile`): a changed static address is set, a switch to or
+  from DHCP starts or stops the client, and a changed MAC is reprogrammed with
+  the link brought up again; no dial runs until the netif is up on that block.
+  The sign yield runs lwIP's timers and the lease-expiry check while ATTEST
+  computes a signature (`tfw_h5_eth_service_deadlines`, #584).
 - The Ethernet link admits the attestation and enrolment commands only; serial
   (the ST-LINK Virtual COM port) keeps provisioning and every other command.
 - The MAC address follows the row: the network block's, or a locally
@@ -179,7 +206,12 @@ Exactly as on the `ethernet-transport` row; nothing on the wire changes.
   No address, host name or MAC is written in `src/` or in this repository.
 - On the bench the host end is `sdk/go`'s `tfw.Listen`, which accepts the
   device's connection; in the field it is go-trusted-platform's device-facing
-  endpoint.
+  endpoint. The hw-test rows take the same direction: `make hw-test
+  BOARD=stm32h573i-dk PORT=tcp-listen:<host-port>` listens on the host
+  (`sdk/go/internal/peer`, `TCPListenPrefix`) and accepts the board's dial,
+  one listener per row, opened before any `HW_RESET` so the rebooted board's
+  first dial is accepted. `PORT=tcp:<board>:<port>` still dials a board that
+  listens (the P4, the earlier DK image).
 
 ## Slices
 

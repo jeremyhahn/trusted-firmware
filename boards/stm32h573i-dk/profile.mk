@@ -25,8 +25,9 @@ MCU            := stm32h573iik3q
 #                               the reset; the application slot after it,
 #                               128 KiB of code; the platform block in the
 #                               bank's last 8 KiB sector
-#   0x08100000  flash bank 2,   not used yet
-#               1 MiB
+#   0x08100000  flash bank 2,   the application's EEPROM in the bank's last
+#               1 MiB           8 KiB sector (board_profile.h), erased while
+#                               the code runs from bank 1
 #   0x20000000  SRAM1, 256 KiB  .data, .bss, the stack, the reset marker and
 #                               the handoff block at the top (RAM_END)
 #
@@ -34,7 +35,12 @@ MCU            := stm32h573iik3q
 # write. tfw-boot's writes to the slot and the platform block need the flash
 # controller, which this slice does not drive (docs/boards/stm32h573i-dk.md).
 FLASH_BUDGET   := 131072
+# ETH_MAC=1 (#581) adds the MAC's rings (12 KiB of 1536-byte buffers) and
+# lwIP's heap and pbuf pool: 64 KiB of the 256 KiB bank.
 RAM_BUDGET     := 32768
+ifeq ($(ETH_MAC),1)
+  RAM_BUDGET   := 65536
+endif
 FLASH_TOTAL    := 2097152
 RAM_TOTAL      := 262144
 
@@ -59,9 +65,46 @@ BOOT_SECTION   := 32768
 BOOT_BASE      := 0x08000000
 BOOT_BUDGET    := 32768
 
-# The soft root only, as on mps2-an505: no element on the kit, and P-256 in
+# The soft root, as on mps2-an505: no element on the kit, and P-256 in
 # software for the image signature (mk/boot.mk's BOOT_SUPPORTED row).
-BOARD_TIERS    := soft
+# CRYPTO=stm32h5 is the same root with the part's HASH and PKA under it (#544):
+# src/crypto/stm32h5/provider.c wraps the soft provider, renamed as auto's is,
+# and falls back to it wherever the hardware does not answer. Recursive, as
+# SOFT_ID_SRCS is set after this file is read. Soft stays the default until
+# the board slice confirms the register facts (docs/plans/544.md). The PKA's
+# software fallback is verify_p256.c on micro-ecc, linked whatever SOFT_ID is.
+BOARD_TIERS    := soft stm32h5
+ARCH_CRYPTO_TIERS      := stm32h5
+ARCH_CRYPTO_WRAPS_SOFT := stm32h5
+ARCH_CRYPTO_SRCS_stm32h5 = src/crypto/sha256.c src/crypto/soft/provider.c \
+                           src/crypto/soft/uds_flash.c \
+                           $(filter-out src/third_party/micro-ecc/uECC.c,$(SOFT_ID_SRCS)) \
+                           src/crypto/soft/verify_p256.c src/third_party/micro-ecc/uECC.c \
+                           src/crypto/stm32h5/h5_hash.c src/crypto/stm32h5/h5_pka.c \
+                           src/crypto/stm32h5/provider.c
+
+# I2C4 on the kit's PB8 SCL and PB9 SDA, the instance ST's BSP drives
+# (src/hal/cortex-m/stm32h5/hal_bus.c), off by default: no element is fitted.
+# I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
+# bus; the soft:I2C=1 row builds that image and size-check measures it. Built
+# and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
+# run on the kit. The soft:ETH_MAC=1 row likewise builds and size-checks the
+# Ethernet image (mk/firmware.mk's ETH_MAC: hal_eth_netif.c, the TCP listener
+# hal_eth_wire_tcp.c and lwIP), which the default image does not link.
+I2C               ?= 0
+# ETH_PROBE=1 prints one console line at boot, "eth: phy addr=N
+# id=XXXX:XXXX link=up|down", from an MDIO scan of the kit's Ethernet PHY
+# (src/hal/cortex-m/stm32h5/hal_eth_mdio.c, #579). Off by default: the default
+# image does not touch the MAC.
+ETH_PROBE         ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
+                     $(if $(filter 1,$(ETH_PROBE)),-DTFW_CM_ETH_PROBE=1)
+# Each -D above names the image directory too (mk/firmware.mk's
+# ROW_FEATURE_SUFFIX: -i2c, -eth_probe), so switching ETH_PROBE without a
+# clean rebuilds hal_uart.o and the objects that test the -D.
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) \
+                     $(if $(filter 1,$(ETH_PROBE)),ETH_PROBE)
+BOARD_ROWS        := soft:I2C=1 soft:ETH_MAC=1
 
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI
 # (UM2237), which reads and writes the STM32H5's flash and prints its option

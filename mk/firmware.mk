@@ -82,7 +82,36 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
 STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
-PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c)
+
+# The EEPROM HAL, one file on every board, as it was when the wildcard below
+# linked the architecture's copy unconditionally: hal_src picks the SoC's copy
+# where the family is on and the SoC has one, else the architecture's.
+# OTA_CONFIRM's request reaches tfw-boot through it whether or not the board
+# has the family, so a board with it off keeps the architecture's file. A
+# SoC's copy may need more sources, named by SOC_EEPROM_SRCS_<soc> and linked
+# with it (and kept out of the HAL wildcard by HAL_OPTIONAL): the STM32H5's
+# writes its own sector through ee_flash.c, the application's one flash write,
+# confined to that sector, over h5_flash.c's programming sequence. tfw-boot's
+# flash-interface driver, boot_flash.c, is boot-only and not linked here (SPEC
+# row stm32h5).
+# The MCXN94x's writes its own flash sector through tfw-boot's flash helper,
+# mcxn_flash.c, linked here as STAGE_SRCS links boot/boot_image.c (SPEC row
+# mcxn947). The RP2350's writes its sector through tfw-boot's flash helper,
+# tfw_rp_flash_update; with the feature off (its default row, TFW_EEPROM_SIZE 0)
+# the architecture's copy is linked and the helper is left out.
+SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
+                           boot/hal/cortex-m/stm32h5/h5_flash.c
+SOC_EEPROM_SRCS_mcxn94x := boot/hal/cortex-m/mcxn94x/mcxn_flash.c
+SOC_EEPROM_SRCS_rp2350  := boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/rp_flash_rom.c \
+                           boot/hal/cortex-m/rp2350/rp_rom_lookup.c
+EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
+                     $(wildcard $(call hal_src,hal_eeprom.c)) \
+                     $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
+# The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
+# the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
+# mk/arch/esp32.mk), so a file the arch lists is left to the arch.
+PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c \
+                  $(filter-out $(ARCH_HAL_OPTIONAL),$(wildcard $(call hal_src,hal_pulse.c))))
 
 # The three buses, gated as ONE unit because they are one translation unit.
 #
@@ -154,13 +183,71 @@ else ifeq ($(ETH),1)
 LINK_SRCS += src/net/dhcp_none.c
 endif
 
+# The SoC's own Ethernet MAC under lwIP NO_SYS (#581, the STM32H5 Ethernet
+# ADR): ETH_MAC=1 links the SoC's hal_eth_netif.c and lwIP's core, IPv4 and
+# Ethernet sources (third_party/lwip, pinned in its VERSION), and the main
+# loop polls the interface; the console prints "eth: dhcp bound" on a lease.
+# Not ETH=1, which selects the W5x00 tfw-wire link above. The image's link is
+# the SoC's hal_eth_wire.c (#582) in place of link_serial.c: tfw-wire on the
+# UART and on a TCP connection it dials (hal_eth_wire_tcp.c). Off by default.
+ETH_MAC ?= 0
+LWIP_DIR := third_party/lwip/src
+
+## lwip-check: the vendored lwIP is byte-identical to upstream at its VERSION's commit (third_party/lwip/SHA256SUMS)
+# Fails on a changed byte, a missing file or a file the sums do not list;
+# scripts-test runs the same check (scripts/test_vendor_sums.py).
+.PHONY: lwip-check lwip-upstream-check
+lwip-check: lwip-upstream-check
+	@python3 -B scripts/vendor_sums.py third_party/lwip
+
+## lwip-upstream-check: every vendored lwIP file (src/, COPYING, README) is byte-identical to the upstream release archive (SHA-256 checked) and to upstream git at LWIP_UPSTREAM_COMMIT
+# Archive mode downloads LWIP_ARCHIVE_URL, refuses it unless its SHA-256 is
+# LWIP_ARCHIVE_SHA256, then compares each file; git mode checks the fetched
+# commit id equals the hash. Fails on any difference; with no network it
+# prints SKIP and its reason, never PASS (#584). lwip-check runs it.
+LWIP_ARCHIVE_URL     ?= https://github.com/lwip-tcpip/lwip/archive/refs/tags/STABLE-2_2_1_RELEASE.tar.gz
+LWIP_ARCHIVE_SHA256  := ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539
+LWIP_UPSTREAM_URL    ?= https://github.com/lwip-tcpip/lwip
+LWIP_UPSTREAM_COMMIT := 77dcd25a72509eb83f72b033d219b1d40cd8eb95
+lwip-upstream-check:
+	@python3 -I -B scripts/lwip_upstream_check.py --archive third_party/lwip $(LWIP_ARCHIVE_URL) $(LWIP_ARCHIVE_SHA256)
+	@python3 -B scripts/lwip_upstream_check.py third_party/lwip $(LWIP_UPSTREAM_URL) $(LWIP_UPSTREAM_COMMIT)
+ifeq ($(ETH_MAC),1)
+ifeq ($(wildcard $(HAL_SOC_DIR)/hal_eth_netif.c),)
+$(error ETH_MAC=1 but $(HAL_SOC_DIR) has no hal_eth_netif.c -- this SoC has no MAC driver)
+endif
+ifeq ($(ETH),1)
+$(error ETH_MAC=1 and ETH=1 both name the image's link -- pick one)
+endif
+LINK_SRCS := $(HAL_SOC_DIR)/hal_eth_wire.c
+ETH_MAC_SRCS := $(HAL_SOC_DIR)/hal_eth_netif.c $(HAL_SOC_DIR)/hal_eth_wire_tcp.c \
+  $(HAL_SOC_DIR)/hal_eth_sign_yield.c src/net/netcfg.c \
+  $(addprefix $(LWIP_DIR)/core/,init.c def.c inet_chksum.c ip.c mem.c memp.c netif.c \
+    pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
+  $(addprefix $(LWIP_DIR)/core/ipv4/,acd.c dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \
+  $(LWIP_DIR)/netif/ethernet.c
+ETH_MAC_INC  := -I$(LWIP_DIR)/include -I$(HAL_SOC_DIR) -I$(HAL_SOC_DIR)/lwip-port
+ETH_MAC_DEFS := -DTFW_CM_ETH_MAC=1
+else
+ETH_MAC_SRCS :=
+ETH_MAC_DEFS :=
+endif
+
+# hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
+# window is RRAM, which a plain store does not program). Every copy is in
+# HAL_OPTIONAL and EEPROM_HAL_SRCS (above) links exactly one, so no board
+# links two.
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
-HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
+HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c $(d)/hal_eth_netif.c \
+                  $(d)/hal_eth_wire.c $(d)/hal_eth_wire_tcp.c \
+                  $(d)/hal_eth_sign_yield.c) $(ARCH_HAL_OPTIONAL) \
+                $(SOC_EEPROM_SRCS_$(SOC))
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -388,8 +475,11 @@ endif
 OTA_STAGE ?= $(if $(ARCH_OTA_SRCS),1,$(if $(OTA_STORE),$(ETH),0))
 ifneq ($(and $(filter 1,$(OTA_STAGE)),$(ARCH_OTA_SRCS)),)
 STAGE_SRCS := $(ARCH_OTA_SRCS) src/core/ota_auth.c boot/boot_image.c
+# That file also answers tfw_update_slots(), the update path an application's
+# ota_slots is checked against (src/core/update_request.h); the architecture
+# links update_request_arch.c (ARCH_UPDATE_REQUEST := arch), which leaves it out.
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 -DTFW_FEATURE_OTA_ACTIVATE=1 \
-              -DTFW_FEATURE_OTA_CTL=1
+              -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
 else ifeq ($(OTA_STAGE),1)
 ifeq ($(OTA_STORE),)
 $(error OTA_STAGE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
@@ -413,7 +503,7 @@ endif
 ifneq ($(filter 1,$(BOOT_AB) $(OTA_NO_PREV)),)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
-STAGE_SRCS += src/core/ota_prev.c $(wildcard $(HAL_DIR)/hal_eeprom.c)
+STAGE_SRCS += src/core/ota_prev.c $(EEPROM_HAL_SRCS)
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
@@ -441,12 +531,14 @@ ID_SUFFIX := $(if $(filter $(SOFT_ID_SRCS),$(CRYPTO_SRCS)),$(if $(filter-out $(S
 AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
 # And a bus a board turns on only for a named row (BOARD_FEATURES_ON in
 # profile.mk: the MPS2 boards' soft:I2C=1 and soft:SPI=1), as -i2c and -spi.
-ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),$(foreach f,$(shell printf '%s' \
-                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z),-$(f)))
+# Several features join with no space between (the RP2350's PERIPH=1 row,
+# -analog-pwm-tone-eeprom): FW_DIR is one word in every target and recipe.
+ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),-$(subst $() ,-,$(shell printf '%s' \
+                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z)))
 
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(if $(filter 1,$(ETH_MAC)),-ethmac,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The row, for the bench images that compile with FW_CFLAGS in a directory of
@@ -455,7 +547,7 @@ TARGET     := $(FW_DIR)/trusted-firmware
 # FW_ROW_SUFFIX names the row only where a row flag is given rather than taken
 # from the makefiles, so a bench image built with no flags keeps its path.
 FW_ROW        := $(notdir $(FW_DIR))
-FW_ROW_FLAGS  := CRYPTO PROVISION ETH ETH_CHIP DHCP OTA_STAGE MEASURE_SOFT_CSR SOFT_ID UECC_OPT APP_DIR SPI
+FW_ROW_FLAGS  := CRYPTO PROVISION ETH ETH_CHIP DHCP ETH_MAC OTA_STAGE MEASURE_SOFT_CSR SOFT_ID UECC_OPT APP_DIR SPI
 FW_ROW_SUFFIX := $(if $(filter command environment override,$(foreach v,$(FW_ROW_FLAGS),$(firstword $(origin $(v))))),-$(FW_ROW))
 
 # The toolchain binaries and the flags that name a machine, an optimisation
@@ -479,7 +571,7 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -ffile-prefix-map=$(CURDIR)=. \
              $(FW_INCLUDES) \
              -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
-             $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS) $(BOARD_DEFS)
+             $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS) $(BOARD_DEFS) $(ETH_MAC_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
 # ARCH_FW_PLACEMENT_LDFLAGS, which is empty on a board with no RAM_END.
@@ -535,9 +627,12 @@ FW_CFLAGS   += -DTFW_FEATURE_OTA_CTL=1
 else
 OTACTL_SRCS :=
 endif
-ifeq ($(ARCH_UPDATE_REQUEST),none)
+# ARCH_UPDATE_REQUEST := arch is the same refusal with tfw_update_slots() left
+# to the architecture's OTA file (update_request_arch.c), by file, not by a
+# conditional in the core file.
+ifneq ($(filter none arch,$(ARCH_UPDATE_REQUEST)),)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
-                 src/core/update_request_none.c
+                 src/core/update_request_$(ARCH_UPDATE_REQUEST).c
 endif
 # One update path per image on the A/B part (#52, question 6, decided
 # 2026-10-26), by FILE SELECTION. An image with the stager is the store's: its
@@ -601,13 +696,20 @@ FW_SRCS := $(sort \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
   $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
-  src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
+  src/caps/analog.c $(STORAGE_SRCS) $(EEPROM_HAL_SRCS) src/caps/attest.c \
   $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(BUS_HELD_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
   $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) $(HSM_SRCS) \
-  $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \
+  $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) $(ETH_MAC_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/*.c))))
 
 FW_OBJS := $(patsubst %.c,$(FW_DIR)/%.o,$(FW_SRCS))
+
+# lwIP is third-party code under its own warnings; the glue is ours and keeps
+# the project's. Both find lwipopts.h and arch/cc.h in the SoC directory.
+ifeq ($(ETH_MAC),1)
+$(FW_DIR)/$(HAL_SOC_DIR)/hal_eth_netif.o $(FW_DIR)/$(HAL_SOC_DIR)/hal_eth_wire_tcp.o: FW_CFLAGS += $(ETH_MAC_INC)
+$(FW_DIR)/$(LWIP_DIR)/%.o: FW_CFLAGS += $(ETH_MAC_INC) -w
+endif
 
 # CRYPTO=auto links two providers that define the same eleven tfw_crypto_*
 # names. Each is compiled with its names renamed, so neither source changes;
@@ -644,6 +746,21 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# An architecture tier whose provider wraps the soft one (the board profile's
+# ARCH_CRYPTO_WRAPS_SOFT; the STM32H5's, #544) links it renamed, as auto does.
+ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_WRAPS_SOFT)),)
+$(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,soft)
+# The soft provider refuses verify_operator (issue #4), so the wrapper falls
+# back to src/crypto/soft/verify_p256.c's micro-ecc verify, linked renamed.
+$(FW_DIR)/src/crypto/soft/verify_p256.o: FW_CFLAGS += -Isrc/third_party/micro-ecc \
+                                         -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_p256
+endif
+# The STM32H5 provider turns the HASH, RNG and PKA clocks on through the SoC's
+# RCC, named in the SoC's soc_regs.h, which it includes by its own name.
+$(FW_DIR)/src/crypto/stm32h5/provider.o: FW_CFLAGS += -I$(HAL_DIR)/stm32h5
+# The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
+# the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
+$(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -794,6 +911,12 @@ firmware-matrix:
 .PHONY: firmware-matrix
 
 ## firmware: build the firmware for BOARD (default atmega328p)
+# TZ=1 (#590): a TrustZone-M board's secure and non-secure images instead,
+# checked by their own size-check (mk/arch/cortex-m-targets.mk).
+ifeq ($(TZ),1)
+firmware: tz-firmware
+size-check: tz-size-check
+else
 firmware: $(TARGET).hex size-check
 	@echo "built $(TARGET).hex"
 
@@ -812,6 +935,7 @@ size-check: $(TARGET).elf
 	 if [ "$$flash" -gt "$(FLASH_BUDGET)" ]; then echo "FLASH BUDGET EXCEEDED for $(BOARD)"; fail=1; fi; \
 	 if [ "$$ram"   -gt "$(RAM_BUDGET)"   ]; then echo "RAM BUDGET EXCEEDED for $(BOARD)";   fail=1; fi; \
 	 exit $$fail
+endif
 
 ## reproducible-check: build twice from clean copies of HEAD and diff the image
 # Without this the platform's attestation verdict can never be better than
@@ -821,9 +945,15 @@ size-check: $(TARGET).elf
 # Each copy is `git archive HEAD` (scripts/repro_build.py): no build/, no
 # untracked file, so an image a previous build left cannot satisfy it, and
 # SOURCE_DATE_EPOCH is the commit time.
+#
+# With APP_DIR, the image is the application's ($(TARGET) carries its name):
+# an application in this tree is the committed one in each copy, one outside
+# it the same directory for both (repro_build.py --app-dir). The build stage
+# runs it with APP_DIR=test/app/example.
 reproducible-check:
 	@python3 scripts/repro_build.py --make "$(MAKE)" --image $(TARGET).hex \
-	   --dir /tmp/agrepro-a --dir /tmp/agrepro-b -- \
+	   --dir /tmp/agrepro-a$(APP_SUFFIX) --dir /tmp/agrepro-b$(APP_SUFFIX) \
+	   $(if $(strip $(APP_DIR)),--app-dir "$(APP_DIR)") -- \
 	   BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex
 
 ## flash: write the firmware to a connected board

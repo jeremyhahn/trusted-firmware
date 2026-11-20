@@ -39,7 +39,7 @@ Cross-cutting material that belongs to no single feature:
 | [`security/threat-model.md`](security/threat-model.md) | attacker classes, what each profile defends against, the named residual gaps |
 | [`security/fuses-and-lockbits.md`](security/fuses-and-lockbits.md) | the fuse and lock-bit reference the provisioning procedure applies |
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |
-| [`boards/`](boards/adding-a-board.md) | what a board is, the [board-id registry](boards/board-id-registry.md), the dev-complete [`atmega2560.md`](boards/atmega2560.md) and [`atmega328p.md`](boards/atmega328p.md), and [`attiny85.md`](boards/attiny85.md), the part that broke five assumptions; profiles of the Cortex-M boards on the bench: [`stm32h573i-dk.md`](boards/stm32h573i-dk.md), built on the Cortex-M port, and [`rp2350-pico2w.md`](boards/rp2350-pico2w.md) and [`nrf54l15-dk.md`](boards/nrf54l15-dk.md), with no port yet; the ESP32 row, built on ESP-IDF and not in `make ci`: [`esp32-qemu.md`](boards/esp32-qemu.md), the emulated test target, and [`esp32p4-poe.md`](boards/esp32p4-poe.md), the PoE board on the bench |
+| [`boards/`](boards/adding-a-board.md) | what a board is, the [board-id registry](boards/board-id-registry.md), the dev-complete [`atmega2560.md`](boards/atmega2560.md) and [`atmega328p.md`](boards/atmega328p.md), and [`attiny85.md`](boards/attiny85.md), the part that broke five assumptions; profiles of the Cortex-M boards on the bench: [`stm32h573i-dk.md`](boards/stm32h573i-dk.md), built on the Cortex-M port, and [`rp2350-pico2w.md`](boards/rp2350-pico2w.md) and [`nrf54l15-dk.md`](boards/nrf54l15-dk.md), with no port yet; the ESP32 row, built on ESP-IDF and not in `make ci`: [`esp32-qemu.md`](boards/esp32-qemu.md), the emulated test target, and [`esp32p4-poe.md`](boards/esp32p4-poe.md), the PoE board on the bench, and its [provisioning procedure](boards/esp32p4-provisioning.md) |
 | [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds, [releasing](development/releasing.md) (`make release-alpha`), [public releasability](development/releasability.md) |
 
 ## Where the hard decisions are written down
@@ -67,11 +67,13 @@ it will read them.
   no signing oracle, and what the 32U4 cannot afford.
 - **Which Cortex-M part comes first, and what CI emulates** —
   [`cortex-m/adr-reference-part-and-emulation.md`](cortex-m/adr-reference-part-and-emulation.md).
-  **PROPOSED** (issue #14): the i.MX 95 Cortex-M7 and QEMU `mps2-an500`.
+  **ACCEPTED** (issue #14, owner ruling 632 item 208 a, 2026-11-14): the
+  i.MX 95 Cortex-M7 and QEMU `mps2-an505`.
 - **Whose secure world runs on Cortex-M, ours or TF-M's** —
   [`cortex-m/adr-trust-model-vs-tf-m.md`](cortex-m/adr-trust-model-vs-tf-m.md).
-  **PROPOSED** (issue #15): TF-M with our attestation partition on
-  the M33, MPU-only isolation on the M7, and the owner's open questions.
+  **ACCEPTED** (issue #15, owner ruling 632 item 208 a, 2026-11-14): TF-M
+  Profile Medium with our attestation partition on the M33, MPU-only isolation
+  on the M7, and the owner's remaining open questions.
 - **How an OTA image is signed, verified and rolled back** —
   [`ota/adr-ota-image-format-and-trust.md`](ota/adr-ota-image-format-and-trust.md).
   **ACCEPTED** for the decisions it marks so, **PROPOSED** for the rest

@@ -1,7 +1,7 @@
 # HSM self-defence: engineering
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Scope:
-> trusted-firmware · Last verified: 2026-10-22
+> trusted-firmware · Last verified: 2026-11-16
 >
 > The implementation contract and the test plan. Slices 1, 2 and 4 are built
 > and their tables met (marked **Met**); nothing here names an identifier that
@@ -210,6 +210,85 @@ M7 logical machine exist.
   configuration is the owner's decision; nothing is fused by a lane.
 - End to end: a stand-in detector on the A55 sends the heartbeat, the verdict
   and the selection.
+
+## Requirements
+
+The SPEC row's text (`docs/SPEC.md`, row `hsm-self-defence`), one requirement
+per line, against main (audit #520, 2026-11-16). "Host" means the unit build
+under the mock HAL (`make host-test`) and, for the i.MX 95 port, the register
+model `test/model/imx95_model.c`; nothing in this table has run on the board.
+Signals S1–S6 and actions A1–A6 are architecture.md §2 and §3.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| 1 | The M7 application of row `imx95`, on the `cortex-m` port, enforces the tamper response | **Partial.** The engine, `hsm_cmd.c` and the loop link into an HSM image on the soft tier (`HSM_SRCS`, `mk/firmware.mk`) and run on QEMU `mps2-an505`; the i.MX 95 port exists, but the engine is not yet in the board's object list (O2: `tfw_hsm_load` needs the M7's verifier) | `src/core/hsm_loop.c`, `src/hal/cortex-m/mps2/hsm_port.c`, `src/hal/cortex-m/imx95/hsm_port.c`, `mk/firmware.mk` | `test/unit/test_hsm_loop.c`; `make integration-test-cortex-m` (`test/integration/cortex-m/qemu_test.sh`, `hsm_sets.c`) |
+| 2 | A compromised A55 cannot suppress the response | **Partial.** Lockdown is latched (R6) and silence locks down (R5); H2, the M7 closed to the A55, is trusted-imx95's (m7-design.md §1, O1) | `src/core/hsm_engine.c` | `test_r6_lockdown_then_any_input_is_still_locked_down`, `test_r5_silence_past_the_heartbeat_period_locks_down` (`test/unit/test_hsm_engine.c`) |
+| 3 | Input S1, the EdgeLock tamper pins | **Partial: host.** Taken as the System Manager's SCMI notification (Q2 (b)); the receiver, the NOTIFY subscription and S1's ids are open (IMX95SRM) | `src/hal/cortex-m/imx95/hsm_intake.c` | `test_s1_notification_raises_the_tamper_signal_once` (`test/unit/test_imx95_hsm_intake.c`) |
+| 4 | Input S2, AHAB failures | **Partial: host.** Polled through hsm_get_event (Q6 (a)); its message and event code are open, unconfirmed until the bench | `src/hal/cortex-m/imx95/hsm_intake.c` | `test_s2_event_raises_the_ahab_signal_on_one_session` (`test/unit/test_imx95_hsm_intake.c`) |
+| 5 | Input S3, measurement failures | **Partial: host.** Device attestation and GET_INFO compared with the set's expected values; the message id, layouts and S3 keys are zero placeholders (ADR Q9 (a)); the report's signature is not verified (architecture Q17) | `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c`, `src/core/hsm_engine.c` | `test_s3_attest_opens_attests_closes_and_compares` (`test/unit/test_imx95_hsm_port.c`), `test_s3_a_mismatch_or_failed_measurement_raises_s3` (`test_hsm_engine.c`) |
+| 6 | Input S4, IMA violations (A55-reported) | **Met** on the channel: HSM_REPORT takes S4 | `src/core/hsm_cmd.c` | `test/unit/test_hsm_cmd.c`; `TestSimHSMReportTakesS4AndS5AndRefusesAnyOtherSignal` (`sdk/go/cmd/tfwctl/e2e_hsm_test.go`) |
+| 7 | Input S5, hotplug events | **Partial.** A55-reported S5 is met on the channel; the M7 pin (Q1 (a), Q11 (c)) is host only, its pad and interrupt open (board schematic) | `src/core/hsm_cmd.c`, `src/hal/cortex-m/imx95/hsm_intake.c` | `test_s5_pin_raises_the_hotplug_signal_once` (`test_imx95_hsm_intake.c`); `TestSimHSMReportTakesS4AndS5AndRefusesAnyOtherSignal` |
+| 8 | Input S6, loss of the A55 detector's heartbeat | **Met** (host, QEMU) | `src/core/hsm_engine.c`, `src/core/hsm_loop.c` | `test_row_heartbeat_loss_locks_down_and_never_wipes` (`test_hsm_engine.c`); `TestSimHSMHeartbeatAnswersTheEngineState`; the `hsm-*` cases of `make integration-test-cortex-m` |
+| 9 | Action through the System Manager: power domains (A2) | **Partial: host.** Power-domain off and LMM_SHUTDOWN are coded; the ids and channel are zero in `board_profile.h` (imx95 Q21, architecture Q7) | `src/hal/cortex-m/imx95/hsm_port.c`, `scmi.c`, `boards/frdm-imx95-m7/board_profile.h` | `test_a2_switches_the_a55_domain_off` (`test_imx95_hsm_port.c`); `test/unit/test_imx95_scmi.c` |
+| 10 | Action: PHYs (A1) | **Partial: host.** Reset then power-off; which domain holds the PHYs is open (architecture Q10, Q7) | `src/hal/cortex-m/imx95/hsm_port.c` | `test_a1_resets_then_powers_off_on_the_next_token` (`test_imx95_hsm_port.c`) |
+| 11 | Action through the enclave: key zeroisation (A4) | **Partial: host.** Per-key strict delete, done only on acknowledgement; key-group delete and whole-store wipe open (Q5); whether the M7 reaches go-xkms's store open (Q4); A3 is A2 (O5) | `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c` | `test_a4_acknowledged_deletes_every_key_strictly_and_closes` (`test_imx95_hsm_port.c`); `test_a_good_delete_is_strict_and_acknowledged` (`test/unit/test_imx95_ele_mu.c`) |
+| 12 | Action: shutdown (A5) | **Partial: host.** SYSTEM_POWER_STATE_SET forceful; permission open (Q7), id zero | `src/hal/cortex-m/imx95/hsm_port.c`, `scmi.c` | `test_a5_asks_a_forceful_shutdown` (`test_imx95_hsm_port.c`) |
+| 13 | A tenant-signed response policy decides which action follows which signal | **Met** (host): integrated SUIT payload under the tenant key; the payload reader; the floor | `src/core/suit_integrated.c`, `src/core/hsm_payload.c`, `src/core/hsm_engine.c` | `test/unit/test_suit_integrated.c`, `test/unit/test_hsm_payload.c`; `test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection` (`test_hsm_engine.c`) |
+| 14 | A custom response script is a signed artefact too | **Met** (host): its own class id and kind, held under its SHA-256 | `src/core/hsm_payload.c`, `src/core/hsm_engine.c`, `include/tfw/config.h` (`TFW_SUIT_SCRIPT_CLASS_ID`) | `test_scripts_are_held_while_named_and_bounded`, `test_a_script_the_engine_does_not_hold_locks_down` (`test_hsm_engine.c`) |
+| 15 | The M7 accepts only a policy or script whose tenant signature verifies; the image key never verifies a policy | **Met** (host, QEMU) | `src/core/suit_integrated.c`, `src/crypto/soft/verify_p256.c` | `test_the_board_key_is_refused_for_a_policy_envelope`, `test_the_policy_key_does_not_verify_an_image` (`test_suit_integrated.c`); `test/unit/test_verify_p256.c`; `TestSimHSMLoadOfAnUnsignedEnvelopeIsRefused` |
+| 16 | The NPU model selects among signed policies and never acts on its own | **Met** (host): HSM_SELECT picks an index; a verdict alone acts on nothing (R4) | `src/core/hsm_cmd.c`, `src/core/hsm_engine.c` | `test_a_selection_out_of_range_is_refused_and_unchanged`, `test_r4_a_verdict_alone_acts_on_nothing` (`test_hsm_engine.c`) |
+| 17 | The default response is lockdown | **Met** (host, QEMU) | `src/core/hsm_engine.c` | `test_row_any_signal_with_no_policy_locks_down` (`test_hsm_engine.c`); `hsm-*` no-set case of `make integration-test-cortex-m` |
+| 18 | Keys are wiped only when a deterministic signal corroborates the model's verdict; never on heartbeat loss | **Met** (host, QEMU) | `src/core/hsm_engine.c` | `test_r3_a_wipe_needs_a_compromised_verdict_inside_w`, `test_row_heartbeat_loss_locks_down_and_never_wipes` (`test_hsm_engine.c`) |
+| 19 | The channel to the A55 is the wire protocol's `0x76`–`0x7A`, also run in tfwsim-atecc608a (`make sdk-test`) | **Met**; the record read `0x7C` extends it (slice 11b-1) | `src/core/hsm_cmd.c`, `tools/tfwsim/hsm_port.c`, `sdk/go/hsm.go` | `test/unit/test_hsm_cmd.c`; `sdk/go/hsm_test.go`, `sdk/go/hsm_record_tfwsim_test.go`, `sdk/go/cmd/tfwctl/e2e_hsm_test.go` |
+| 20 | Seam to go-xkms: the keys locked or wiped are go-xkms's, and its SPEC names the seam | **Open** on the M7's reach to go-xkms's store (architecture Q4, Q5); the seam's text on this side is architecture.md §6 | — (docs: `docs/hsm-self-defence/architecture.md`) | — |
+| 21 | Seam to go-trusted-platform: policies and scripts arrive through its control plane (`hsm-device-lifecycle`); A6 is read back after recovery | **Partial.** The record and its read are met over a RAM store; the durable store is open (ADR `adr-a6-durable-store.md`, PROPOSED, option (c)) | `src/core/hsm_record.c`, `src/core/hsm_store.h`, `src/core/hsm_store_ram.c` | `test/unit/test_hsm_record.c`, `test/unit/test_hsm_record_fail.c`; `TestSimHSMRecordKeepsTheSignalTheDecisionAndTheActions` (`sdk/go/hsm_record_tfwsim_test.go`) |
+| 22 | The A55 detector, the NPU model, the IMA log and the System Manager are outside; the model work starts only after the HSM node runs | **Met** by omission: no code of ours for them | — | — |
+
+### Remaining slices
+
+Numbered for this audit; the m7-design.md §7 slice each continues is named.
+
+1. **The engine in the i.MX 95 object list** (m7-design slice 5, O2). Files:
+   `mk/firmware.mk` (the board's HSM selection), `boards/frdm-imx95-m7/`,
+   the M7's verifier for `tfw_hsm_load` (`src/crypto/soft/verify_p256.c` or
+   the enclave's verify). Test: the `cortex-m` build of the board in CI with
+   `TFW_FEATURE_HSM`, and `test/unit/test_hsm_loop.c`. Needs an **owner
+   decision** (O2: software verify or the enclave's), no hardware.
+2. **The SCMI ids and channel for A1, A2, A5** (slice 5). Files:
+   `boards/frdm-imx95-m7/board_profile.h` (`TFW_IMX95_HSM_PHY_RESET`,
+   `TFW_IMX95_HSM_PHY_POWER`, `TFW_IMX95_HSM_SHUTDOWN`, the A55 domain).
+   Test: `test/unit/test_imx95_hsm_port.c` with the ids set. Needs **another
+   project** (trusted-imx95's System Manager configuration; imx95 Q21,
+   architecture Q7, Q10) and then the **board**.
+3. **A4's key-group delete and whole-store wipe; A3** (slice 8). Files:
+   `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c`. Test:
+   `test/unit/test_imx95_ele_mu.c`, `test_imx95_hsm_port.c`. Needs an
+   **owner decision** with **go-xkms** (architecture Q4, Q5: whether the M7's
+   domain may touch go-xkms's store) and NXP documentation (RM00284
+   §3.2.6.7, §3.22.5.3).
+4. **S3's ids, layouts and report signature** (slice 9). Files:
+   `boards/frdm-imx95-m7/board_profile.h`, `src/hal/cortex-m/imx95/ele_mu.c`.
+   Test: `test/unit/test_imx95_ele_mu.c`, `test_imx95_hsm_port.c`. Needs NXP
+   documentation (ADR Q9, architecture Q17) and imx95 Q3 (a), the M7's
+   messaging unit: **owner decision / another project**.
+5. **S1, S2, S5 on silicon** (slice 10). Files:
+   `src/hal/cortex-m/imx95/hsm_intake.c`, `boards/frdm-imx95-m7/`
+   (S1's ids, S5's pad and vector, S2's event code). Test:
+   `test/unit/test_imx95_hsm_intake.c`, then the board. Needs the **board**
+   (schematic, IMX95SRM) and the System Manager's NOTIFY subscription
+   (**trusted-imx95**).
+6. **The A6 durable store** (slice 11b-3). Files: a new store behind
+   `src/core/hsm_store.h`; `docs/hsm-self-defence/adr-a6-durable-store.md`
+   moved from PROPOSED. Test: a store test against its model beside
+   `test/unit/test_hsm_record.c`. Needs the **owner** to accept the ADR;
+   no hardware for the host level.
+7. **Bench, level 3** (slice 12). Files: the board page under
+   `docs/development/bench/`. Test: end to end with a stand-in A55 detector
+   and throwaway keys. Needs the **board**, slices 1–5 above,
+   **trusted-imx95**'s M7 logical machine and question O1 (H2).
+
+The go-xkms and go-trusted-platform seams (rows 20, 21) need no slice here
+beyond 3 and 6: their SPECs own the other side.
 
 ## Slices
 

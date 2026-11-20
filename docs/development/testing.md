@@ -156,6 +156,7 @@ The first signs the application three ways with
 | genuine | signed with the provisioned key | CAPS reports the board's id and tier 1, across a soft reset; QEMU is still up |
 | tampered | one bit flipped after signing | tfw-boot refuses it: no PING is answered for the whole window, and QEMU is still up |
 | otherkey | signed with another key | the same as tampered |
+| unprovisioned | the genuine image, no platform block | tfw-boot refuses and says why: no PING is answered, an EVENT carries `TFW_ERR_NOT_PROVISIONED` (`wirecheck -refusal`), and QEMU is still up (#542) |
 
 The second boots the signed image with its UART on a pty and runs the tfwctl
 wire suite (`make hw-test`) against it, resetting the guest with QMP

@@ -1,6 +1,6 @@
 # Device onboarding — engineering
 
-> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-10-19
+> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-11-16
 >
 > The tests that pin this repository's side of the onboarding seam, and the gaps
 > that remain with their owners.
@@ -18,10 +18,13 @@ and pin the adapter alone.
 |---|---|---|---|
 | the record joins the baked serial to the element's key (steps 2–4) | `TestE2ERecordJoinsTheBakedSerialToTheElementsPoint`, `sdk/go/cmd/tfwprov/e2e_record_test.go` | `make sdk-test` | `tfwsim-prov`, the element tier linked as a provisioning image |
 | the network block points the device at its endpoint (step 6) | `TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint`, `sdk/go/cmd/tfwctl/e2e_netcfg_test.go` | `make sdk-test` | `tfwsim-atecc608a`, `--eth` |
-| the Ethernet link and its allow-list (steps 7, 8, 11, 13) | `TestEthernet*`, `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` | `make sdk-test` | `tfwsim-atecc608a`, serial and TCP side by side |
+| the network block's DHCP flag round-trips (step 6) | `TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice`, `sdk/go/cmd/tfwctl/e2e_netcfg_test.go` | `make sdk-test` | `tfwsim-atecc608a` |
+| the Ethernet link and its allow-list, the OTA ids among it (steps 7, 8, 11, 13) | `TestEthernet*` (`TestEthernetDeviceAdmitsTheOTAIdsOverTCP` for `0x68`–`0x6B`), `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` | `make sdk-test` | `tfwsim-atecc608a`, serial and TCP side by side |
+| the possession signature, `ATTEST_CSR` (step 13) | `TestFirmwareAttestCSR*`, `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go` | `make sdk-test` | `tfwsim-atecc608a` |
 | the adapter registers and constructs from a `*tfw.Device` (step 9) | `xkms/registration/registration_test.go`, `xkms/backends_avr_test.go`, `xkms/avr/factory_test.go` | `make xkms-test` | a scripted device |
 | evidence and possession (steps 11, 13) | `xkms/avr/attestation_test.go`, `xkms/avr/possession_test.go` | `make xkms-test` | a scripted device |
 | device-attest-01 and its refusals (steps 10–13) | `TestDeviceAttest*`, `TestPossessionSigner*`, `xkms/avr/device_attest_test.go` | `make xkms-test` | recorded `tfwsim` frames |
+| enrolment end to end on the soft root (steps 9–13) | `TestSoftRootEnrollsThroughDeviceAttest01`, `xkms/e2e/soft_enroll_test.go`; `TestHardwareEnrollmentAdmitsASoftRootWhenAsked`, `TestEnrollTargetsTransportFromDevice`, `xkms/e2e/hw_enroll_test.go` | `make xkms-e2e-soft` | `tfwsim-auto`, no element on the bus |
 
 What the tfwprov E2E checks, in order:
 
@@ -60,5 +63,5 @@ board on the bench, over serial or TCP
 |---|---|---|
 | T3 — the ATmega328P cannot enrol: element-tier Ethernet image over budget, `ATTEST_CSR` off | the owner | choice pending ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)) |
 | T4 — the ATECC608C slot map for the pre-provisioned part | the owner | ruling pending ([slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md)) |
-| T5 — application measurements beside the firmware's in the evidence | this repo, the `application-sdk` row | shipped: a running application's 32 bytes are claim 273 in the alias certificate and in `ATTEST_CSR`, in place of the firmware hash (go-xkms's claim holds one value), pinned by `TFWV_APPEV_WITH_UCCS` (`src/caps/attest.h`, `test/unit/test_uccs.c`; [application-sdk](../application-sdk/architecture.md)) |
+| T5 — application measurements beside the firmware's in the evidence | go-xkms (question 3); this repo's part, the `application-sdk` row, is done; matching the profile from claim 273 is go-trusted-platform's | blocked on go-xkms question 3: claim 273 in the alias certificate and in `ATTEST_CSR` carries the application's 32-byte measurement where one runs, and the firmware's then stays in `ATTEST`'s `FWHash` (`src/caps/attest.c`), outside the DICE evidence, so SPEC requirement 5 (both measurements) is unmet; pinned by `TFWV_APPEV_WITH_UCCS` (`src/caps/attest.h`, `test/unit/test_uccs.c`; [application-sdk](../application-sdk/architecture.md), [architecture.md](architecture.md#this-repositorys-own-open-items)) |
 | R4 — a DICE device seam for go-xkms's ACME client; today `diceElement` test glue in `xkms/e2e` | go-xkms | requirement ([architecture.md](architecture.md#requirements-on-other-repositories)) |

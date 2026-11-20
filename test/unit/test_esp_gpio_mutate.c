@@ -49,6 +49,14 @@ esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
     return reset_err;
 }
 
+/* hal_tone.c's, which this test does not link: MODE's release of a tone. */
+static int released = -2;
+
+void tfw_esp_tone_release(int gpio)
+{
+    released = gpio;
+}
+
 esp_err_t gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode)
 {
     log_call(DIR, gpio_num, (int)mode);
@@ -81,6 +89,7 @@ void setUp(void)
     ncalls    = 0u;
     reset_err = dir_err = pull_err = set_err = ESP_OK;
     level_in  = 0;
+    released  = -2;
 }
 
 void tearDown(void) {}
@@ -165,6 +174,16 @@ static void test_a_mode_it_does_not_know_is_out_of_range(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_gpio_mode(&p, (tfw_pin_mode_t)3));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_gpio_mode(&p, (tfw_pin_mode_t)99));
     TEST_ASSERT_EQUAL_UINT(0u, ncalls);   /* a refusal touches nothing */
+    TEST_ASSERT_EQUAL_INT(-2, released);  /* nor the tone */
+}
+
+/* #561: the reset takes the pin off LEDC, so a tone on it is ended first. */
+static void test_a_mode_releases_the_tone_on_its_pin(void)
+{
+    tfw_pinref_t p = { 5u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_INT(5, released);
 }
 
 static void test_a_write_is_0_or_1(void)
@@ -222,6 +241,7 @@ int main(void)
     RUN_TEST(test_each_mode_is_its_reset_direction_and_pull);
     RUN_TEST(test_any_failed_call_fails_the_mode_the_rest_still_made);
     RUN_TEST(test_a_mode_it_does_not_know_is_out_of_range);
+    RUN_TEST(test_a_mode_releases_the_tone_on_its_pin);
     RUN_TEST(test_a_write_is_0_or_1);
     RUN_TEST(test_a_failed_write_is_a_bad_pin);
     RUN_TEST(test_a_read_is_0_or_1);

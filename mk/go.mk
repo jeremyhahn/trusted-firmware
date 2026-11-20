@@ -48,10 +48,12 @@ sdk-build:
 # tfwsim-auto the Mega's default tier, which picks one of those two at startup;
 # tfwsim-prov the element tier as a jig image, the only one tfwprov --commit
 # provisions over the wire; tfwsim-otaboot the 2560 image without the stager,
-# the only one whose RESET(1) reaches a session (#52).
+# the only one whose RESET(1) reaches a session (#52); tfwsim-manifest the
+# element tier with OTA_ACTIVATE's manifest gate, the only one that refuses an
+# image without a matching SUIT manifest (#52).
 # Every test that starts a simulator carries the tfwsim build tag (#163), so
 # this is the one target that compiles them in.
-sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot tfwsim-manifest
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
 ## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor
@@ -76,7 +78,8 @@ sdk-coverage:
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
 # that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
 # does not exist and a board that does not answer all fail; none of them is a
-# skip. Flash the image first (`make flash`); the scenarios do not. -p 1 because
+# skip. PORT=tcp:<ip:port> dials a board whose wire is a TCP server (the
+# ESP32 port) instead, with no reset. Flash the image first (`make flash`); the scenarios do not. -p 1 because
 # every scenario opens, and so resets, the one board. Every TestFirmware*
 # scenario reaches its peer through that seam; a test that starts a simulator
 # itself is named otherwise, so none needs a host binary here. They live in
@@ -110,24 +113,60 @@ sdk-coverage:
 # CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
 # for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
 # OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
-# provisioned to trust.
+# provisioned to trust. ESP_TARGET (TFW_HW_ESP_TARGET) is the machine an
+# esp32-qemu run emulates, whose chip id the staged image carries.
 #
 # HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
 # system_reset, which is how integration-test-cortex-m-wire runs the rows on a
-# QEMU board (mk/arch/cortex-m-targets.mk).
+# QEMU board (mk/arch/cortex-m-targets.mk); cmd:<program and arguments> runs
+# that command, the probe tool's reset, after purging the port and then waits
+# for the board's BOOT bytes, as after a DTR pulse. HW_RESET_<board> is a
+# board's default when HW_RESET is unset.
+#
+# The boards with a row list and pin facts: atmega328p, atmega2560 and
+# stm32h573i-dk (peerBoards in e2e_firmware_test.go). The STM32H573I-DK's
+# rows are the default image's this checkout builds: GPIO, the timer, and the
+# analog, PWM, pulse, EEPROM, I2C, SPI and 1-Wire refusals; the #535 bench
+# image's and the I2C=1 image's rows run by name, HW_TEST_RUN='TestFirmwarePWM'
+# and so on. TestFirmwareAttestRefusedUnprovisioned is held out of its list
+# until #570 (boardImage.held). Its ST-LINK VCOM carries
+# DTR to no reset line, so the DTR pulse would not reset it: its rows reset it
+# through the ST-LINK with STM32CubeProgrammer (HW_RESET_stm32h573i-dk), so each
+# row starts from the BOOT event and clean framer counters. PORT names only the
+# VCOM, not the ST-LINK the programmer resets, so that reset names the probe,
+# CM_PROBE_SERIAL (mk/arch/cortex-m.mk), and hw-test refuses it with none: with
+# two ST-LINKs attached, an unnamed reset could reset the other board.
+# PORT=tcp:<board>:21574 (the ETH_MAC=1 image's wire) takes no default reset
+# and so no CM_PROBE_SERIAL: the rows dial the board as it runs and select
+# the TCP rows of its Ethernet allow-list; an HW_RESET given runs before the dial.
+# PORT=tcp-listen:<host-port> (the board dials the host) is treated the same.
+# A PORT=tcp: board has no DTR line:
+# RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
+# DTR on to reset it, and only that row resets; unset, that row skips, naming
+# RESET_PORT (#550, docs/plans/550.md).
 HW_TEST_RUN ?=
+HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
+hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:% tcp-listen:%,$(PORT)),,$(HW_RESET_$(BOARD)))
+hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_DEFAULT))
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
-	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
+	@if [ -n "$(HW_RESET_DEFAULT)" ]; then case "$(CM_PROBE_SERIAL)" in \
+	    '') echo "hw-test: REFUSED. $(BOARD) resets through its probe: name it, make hw-test BOARD=$(BOARD) PORT=$(PORT) CM_PROBE_SERIAL=<serial>" >&2; exit 1;; \
+	    *[!A-Za-z0-9_-]*) echo "hw-test: REFUSED. CM_PROBE_SERIAL '$(CM_PROBE_SERIAL)' is not letters, digits, - and _" >&2; exit 1;; esac; fi
+	@if [ -z "$(filter tcp:% tcp-listen:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ESP_TARGET='$(ESP_TARGET)' TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_RESET_PORT='$(RESET_PORT)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
-## sdk-lint: gofmt and vet the Go SDK
+## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go
+api-doc-check:
+	@python3 -B scripts/api-doc-check.py $(CURDIR)
+
+## sdk-lint: gofmt and vet the Go SDK, and check its API page
 # vet compiles the tests, so it downloads their modules. That download goes
 # first, through deps-check.py's bounded retry: a proxy that is down for a
 # moment is asked again, a module that is wrong or missing fails at once, and
 # gofmt and vet then run once, from the cache, so a real finding fails first time.
-sdk-lint:
+sdk-lint: api-doc-check
 	@python3 scripts/deps-check.py download $(SDK_DIR)
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
 	  if [ -n "$$out" ]; then echo "gofmt rewrote:"; echo "$$out"; exit 1; fi
@@ -246,5 +285,5 @@ go-tags-bridge-prereqs:
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-e2e-soft xkms-coverage hw-enroll \
+.PHONY: sdk-build sdk-test sdk-coverage hw-test api-doc-check sdk-lint sdk-verify verify-vectors xkms-test xkms-e2e-soft xkms-coverage hw-enroll \
         go-tags-selftest go-tags-bridge-prereqs

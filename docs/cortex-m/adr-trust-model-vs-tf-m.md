@@ -13,6 +13,30 @@
 > 2026-11-14; the open questions it does not answer stay open.
 > This ADR changes no code, no wire vector and no SPEC row.
 
+## Amended by ruling 1024 (owner, 2026-11-20)
+
+The owner decided on 2026-11-20 (Tenant Agent ruling 1024 (a), row #608),
+verbatim:
+
+> "the TrustZone-M secure world is built on Trusted Firmware-M with our DICE
+> layer on top, not a secure monitor written from scratch."
+
+For this ADR it means:
+
+- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, (b1), TF-M
+  Profile Medium with our DICE layer as an Application RoT partition, is taken
+  in place of ruling 935's option (a), our own secure world. Option (a) goes
+  back to reserve, as ruling 632 left it;
+- ruling 935's other two points stand: no vendor secure world (not ST's Secure
+  Manager, and upstream TF-M rather than a vendor's build of it), and no PSA
+  token. TF-M is built without its Initial Attestation partition, or with it
+  present but not exposed to the non-secure side; the only evidence offered
+  is the DICE evidence through go-xkms device-attest-01.
+
+The TF-M pin is the one `scripts/tfm-measure.sh` measures, v2.3.1. Which of
+our boards that release has a platform port for is in
+[`../plans/608.md`](../plans/608.md).
+
 ## Amended by ruling 935 (owner queue 236)
 
 Ruling 935 sets one attestation path for every MCU: TCG DICE evidence through
@@ -23,8 +47,9 @@ decision and its slices are in
 [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md).
 For this ADR it means:
 
-- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, option (a),
-  our own secure world, is taken in place of (b1);
+- *superseded by ruling 1024*: on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK)
+  and the nRF54L15, option (a), our own secure world, is taken in place of
+  (b1);
 - open question 2 (vendor secure worlds) is closed: no vendor secure world,
   not ST's Secure Manager;
 - open question 4 (the PSA token) is closed: no PSA token is offered and no

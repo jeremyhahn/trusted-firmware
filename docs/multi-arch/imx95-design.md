@@ -65,6 +65,18 @@ the M7 firmware and its board profile, with a board id in the Cortex-M range
 | The SoC files `src/hal/cortex-m/imx95/` on the shared core `src/hal/cortex-m/` (#161) | Signing the container (SRK keys, through go-xkms's custody) | The AHAB format |
 | The enclave crypto provider (section 4) and our trailer and SUIT check (section 5) | Staging the container on the boot device | |
 
+**Ruling 771.** Owner ruling 771 (2026-11-17) fixes who owns the rest of the
+SoC. The Cortex-A55 secure world is upstream Arm Trusted Firmware-A and OP-TEE
+from NXP's BSP, not code of this project. go-trusted-platform and go-xkms run
+in Linux and reach TrustZone through OP-TEE: the firmware TPM trusted
+application through the kernel's TPM resource-manager device, the PKCS#11
+trusted application through go-xkms's PKCS#11 backend, and the kernel's TEE
+device for any custom trusted application. The M33's System Manager stays NXP
+firmware, and the EdgeLock Enclave is the hardware root. trusted-firmware
+stays the Cortex-M product, and on the i.MX 95 that is the M7. The board page
+is [`../boards/frdm-imx95-m7.md`](../boards/frdm-imx95-m7.md); hardware work on
+the board is queued after #535 and #536 (ruling 768).
+
 **Non-goals.** No tfw-boot: L0 is NXP's ROM, ELE and System Manager (ref ADR
 decisions 1 and 8). No code on the M33, which runs the System Manager (IMX95CEC
 §4.1.5.1). No DICE ASN.1, certificate profile or verification (go-xkms's), no
@@ -1072,7 +1084,7 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
 | The board in the board sweeps: its part, its registry row, its Go name | done | `scripts/board-check.py` (`mimx9596-m7`), `../boards/board-id-registry.md`, `sdk/go/boardid.go` | `scripts/test_board_check.py`, `sdk/go/boardid_test.go`, `make board-sweep` |
 | The boot: tfw-boot on the M7, or AHAB alone | open, the owner's (question 19) | — | — |
-| The SCMI client (slice 2 of section 7) | met (host, register model); not called until question 21 is answered | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_scmi.c` (each command's bytes, every status, `test_a_wrong_token_is_refused`, `test_a_wrong_protocol_is_refused`); `test/unit/test_imx95_scmi_mu.c` (`test_a_channel_left_busy_after_the_send_times_out`, `test_a_reply_longer_than_the_channel_is_refused`) |
+| The SCMI client (slice 2 of section 7) | met (host, register model); not called until question 21 is answered | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_scmi.c` (each command's bytes, every status: `test_every_status_code_reads_back_as_numbered`, `test_a_wrong_message_or_type_is_refused`); `test/unit/test_imx95_scmi_mu.c` (`test_a_wrong_token_is_refused`, `test_a_wrong_protocol_is_refused`, `test_a_channel_left_busy_after_the_send_times_out`, `test_a_reply_longer_than_the_channel_is_refused`) |
 | Tier value 5 (slice 4) | not started | `include/tfw/types.h`, `testdata/vectors.h`, the Go mirror | the literal vector |
 | The enclave's message layer and GET_INFO (the first piece of slice 5, section 9.7) | met (host, register model); not called until question 3 is answered | `src/hal/cortex-m/imx95/ele_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_ele_mu.c` (`test_get_info_is_four_words_through_tr0_to_tr3`, `test_a_wrong_tag_is_refused`, `test_a_wrong_version_is_refused`, `test_a_wrong_size_is_refused_unread`, `test_a_failure_status_is_refused_with_its_word`, `test_a_response_that_never_comes_times_out`, `test_the_information_buffer_parses`) |
 | The enclave session, open and close (the second piece of slice 5, section 9.8) | met (host, register model); not called until question 3 is answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_open_returns_the_handle`, `test_a_good_close_sends_the_handle`, `test_the_handle_the_open_returns_is_the_one_closed`, `test_a_refused_open_leaves_the_handle`, `test_a_close_the_enclave_refuses_is_a_handle_error`, `test_an_open_answered_short_is_refused_unread`, `test_a_close_answered_long_is_refused_unread`, `test_an_open_answered_as_a_close_is_refused`, `test_a_close_answered_as_an_open_is_refused`, `test_an_open_never_answered_times_out`, `test_a_close_never_answered_times_out`) |
@@ -1094,3 +1106,71 @@ DTCM, and the OTA gate is slice 6's install-time check. *tfw-boot on the M7*:
 the board gets a `mk/boot.mk` row in the reserved region, as `mps2-an505` has,
 and tfw-boot's trailer, SUIT and soft-root code runs on it unchanged. If
 remoteproc is ruled out as a loader, the resource table and its `.ld` lines go.
+
+### 10.1 The SPEC row, requirement by requirement (audit, #487)
+
+The table above follows section 7's slices. This one follows the SPEC row's
+own text (`docs/SPEC.md`, `imx95`), one line per requirement, audited against
+main on 2026-11-16. "Done" means built and proven on the host; nothing runs
+on the M7, because QEMU has no i.MX 95 and no slice has reached the bench.
+
+| # | Requirement (SPEC row) | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | A board of the `cortex-m` port, our firmware core on the M7 | done (built, not run) | `boards/frdm-imx95-m7/profile.mk` (`ARCH := cortex-m`, `CPU := cortex-m7`), `mk/arch/cortex-m.mk` | `make build`'s `firmware-matrix` (`mk/stages.mk`, `mk/firmware.mk`), every `BOARD_TIERS` and `BOARD_ROWS` row of the board |
+| R2 | The board as data, `boards/frdm-imx95-m7`, id `0x41` in the Cortex-M range `0x40`–`0x7F`, provisional | done; the id stays provisional until the owner allocates it (question 20) | `boards/frdm-imx95-m7/board_profile.h` (`TFW_BOARD_ID`), `board.c`, `sdk/go/boardid.go` (`BoardFRDMIMX95M7`), `docs/boards/board-id-registry.md` | `test/unit/test_board_frdm-imx95-m7.c`: `test_the_board_is_the_next_provisional_cortex_m_id`; `sdk/go/boardid_test.go`: `TestBoardIDsAreThePublishedValues`, `TestBoardIDEveryValue`; `scripts/test_board_check.py`: `test_id_outside_its_family_range_fails` |
+| R3 | The M7's TCM map and the addresses the A55 loads it at | partial: linked and asserted at the M7's addresses; the A55's aliases are a comment in `profile.mk`, and both are TO CONFIRM (question 1, section 9.4) | `boards/frdm-imx95-m7/profile.mk`, `mk/arch/cortex-m/imx95.ld`, `src/hal/cortex-m/imx95/rsc_table.c` | `imx95.ld`'s `ASSERT`s (512-byte vector alignment, the resource table's size and alignment) under `firmware-matrix`; `test/unit/test_imx95_rsc_table.c`: `test_linux_takes_the_images_table` |
+| R4 | LPUART3, RGPIO and WDOG5 under `src/hal/cortex-m/imx95/` | done on the host against the register model; not run | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`, `soc_calc.c`, `soc_regs.h`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_programs_the_divisor_and_enables`, `test_gpio_output_drives_psor_and_pcor`, `test_arm_marks_and_sets_eight_seconds`; `test/unit/test_imx95_soc_calc.c`: `test_9600_is_exact`, `test_the_gpio_banks` |
+| R5 | The soft root, until the enclave tier | partial: the board builds at `soft` with `TFW_FEATURE_ATTEST`, but its UDS sits in tfw-boot's region and its CDI is handed over by tfw-boot, which this board does not build (question 19), so nothing derives it on the M7 | `boards/frdm-imx95-m7/profile.mk` (`BOARD_TIERS := soft`), `board_profile.h` (`TFW_FEATURE_ATTEST`, `TFW_BOOT_REGION_*`) | `firmware-matrix`'s `frdm-imx95-m7 soft` row; the soft path itself runs only on `mps2-an505`, under `make integration-test-cortex-m` (`mk/arch/cortex-m-targets.mk`) |
+| R6 | Built in CI but not run | done | `mk/stages.mk` (`build: ... firmware-matrix`), `mk/firmware.mk` (`firmware-matrix`, `firmware-matrix-list`) | `make build` in CI; the host tests under `make host-test` (`mk/host.mk`'s `test_imx95_*` and `test_board_frdm-imx95-m7` binaries) |
+| R7 | Every SoC fact confirmed against NXP IMX95RM | partial: IMX95RM is not held. The board read (section 9.4.1) confirms the LPUART3, GPIO1–GPIO5 and TPM bases; WDOG5's base, the M7's interrupt lines, the clocks, the ITCM alias and the pads stay TO CONFIRM | the "TO CONFIRM" marks in `boards/frdm-imx95-m7/` and `src/hal/cortex-m/imx95/soc_regs.h` | none: a document check, sections 9.4 and 9.4.1; the register model pins the layouts as stated, not as the silicon has them |
+| R8 | The key tier is the EdgeLock enclave: the DICE root and keys held there, no key leaves it in the clear | partial: the M7's half of the enclave's messaging and one P-256 key's life (generate, sign, export the public half, verify) are built on the host; the tier value 5, the provider behind `crypto.h` and the DICE root in the enclave are not started | `src/hal/cortex-m/imx95/ele_mu.c`, `ele_mu.h` | `test/unit/test_imx95_ele_mu.c`: `test_get_info_is_four_words_through_tr0_to_tr3`, `test_a_generated_key_signs_exports_and_verifies` |
+| R9 | AHAB secure boot verifies the M7 image as a signed container before it runs | not started here, and not ours to build: the container and its signing are trusted-imx95's (section 6). Whether our gate adds a verify is question 19 (and 6, 12); the bench board's SRK hashes are not fused (bench record) | none in this repository | none |
+| R10 | Clocks, power and resources through SCMI to NXP's System Manager on the M33 | partial: the client and its MU transport are built on the host; not called, because the M7 agent's channel and ids are open (question 21) | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c` | `test/unit/test_imx95_scmi.c`: `test_clock_rate_get_is_the_clock_id`, `test_power_state_set_is_flags_domain_state`; `test/unit/test_imx95_scmi_mu.c`: `test_a_wrong_token_is_refused` |
+| R11 | The M33 runs code of ours only where the System Manager leaves room | not started: no code of ours targets the M33, which meets the row today; any M33 code is the owner's and trusted-imx95's call | none | none |
+| R12 | The row owns only the M7 firmware and its board profile; trusted-imx95 owns the platform image, its boot container and the System Manager configuration | done, a boundary: no container, platform image or System Manager configuration is in this repository; every value they own is zero in `board_profile.h` until trusted-imx95 gives it | `boards/frdm-imx95-m7/board_profile.h` (`TFW_IMX95_SCMI_*`, `TFW_IMX95_ELE_MU_*` at zero); section 6 | none: a boundary |
+
+### 10.2 Remaining slices
+
+1. **Tier value 5.** Add `TFW_CRYPTO_SOC_ENCLAVE` (5) to `include/tfw/types.h`,
+   its literal vector to `testdata/vectors.h` and the Go mirror in `sdk/go/`;
+   proven by the literal vector test and an older host reading 5 as
+   unrecognised. No board, no other project; waits on #7 unless the owner lifts
+   it.
+2. **The enclave provider.** `src/crypto/ele/` behind `include/tfw/crypto.h`,
+   on `ele_mu.c`'s key store and P-256 calls, with a `ele` tier row in
+   `boards/frdm-imx95-m7/profile.mk`; proven by a host unit test against
+   `test/model/imx95_model.c` that signs and verifies through the provider.
+   Running it needs the board and answers to questions 3, 4 and 16.
+3. **The DICE root in the enclave.** The CDI and DeviceID derived inside the
+   enclave rather than from the soft UDS, in the provider of slice 2; proven
+   by a host unit test of the derivation's messages. Needs question 5 answered
+   from IMX95SRM, and the boot choice (question 19, the owner's).
+4. **The boot choice.** Remove tfw-boot's reserved region from
+   `boards/frdm-imx95-m7/profile.mk`, `board_profile.h` and
+   `scripts/board-check.py` (AHAB alone), or add the board's `mk/boot.mk` row
+   (tfw-boot on the M7); proven by `firmware-matrix` and, for tfw-boot, the
+   boot size check. Needs the owner's ruling on question 19.
+5. **SCMI on the board.** Fill `TFW_IMX95_SCMI_*` in `board_profile.h` and
+   enable LPUART3's clock through `scmi.c` at start-up; proven by
+   `test/unit/test_imx95_scmi.c` with the board's ids, then the console on the
+   bench. Needs trusted-imx95's System Manager configuration (question 21).
+6. **SoC facts on silicon.** Confirm WDOG5, the M7's interrupt lines, the
+   clocks and the ITCM alias, correcting `soc_regs.h`, `board_profile.h` and
+   `profile.mk` and their tests where they differ; proven by
+   `test/unit/test_imx95_hal.c` and the register model. Needs IMX95RM or a
+   read on the bench board (questions 1, 13, 17).
+7. **Our OTA gate on the M7.** The receive path calling `boot/boot_image.c`
+   and `src/core/suit.c`; proven by a host unit test where a good image passes
+   and another board's, a lower version, a bad SUIT and a bad authorization
+   are refused. Needs slice 2 and questions 8 to 12 (the owner's and
+   trusted-imx95's).
+8. **Ethernet.** The M7's controller behind `include/tfw/eth.h`; proven by a
+   host unit test, then the CLI end to end over TCP on the bench. Needs
+   question 14 (the owner, for the driver's licence).
+9. **The bench.** The image loaded into the M7 on the bench FRDM-IMX95-PRO and
+   the protocol run end to end over the console, recorded in
+   `docs/development/bench/frdm-imx95.md`; needs the board, slices 4 to 6 and
+   trusted-imx95's container. Any fuse write is the owner's.
+
+R9 (AHAB) and R11 (the M33) need no slice of ours. R12 is met by keeping the
+boundary.

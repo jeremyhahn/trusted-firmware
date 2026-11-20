@@ -1,6 +1,89 @@
 # Ethernet transport — engineering
 
-> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-20
+> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-11-16
+
+## Requirements
+
+One line per requirement of the row in [`docs/SPEC.md`](../SPEC.md)
+(`ethernet-transport`) and of this file's invariants (marked *inv*), audited on
+main d1282f61 (#457) and audited again on main fa31d30e (#515). On fa31d30e
+every file named was found with `git ls-files`, and every test function and
+make variable named was found in that file with one search each. No source,
+profile or makefile the table names has changed since d1282f61, so every status
+and every slice below is unchanged.
+The clause table in [the test matrix](test-matrix.md#acceptance-clauses-row-ethernet-transport-431)
+says the same with the bench runs beside it.
+
+| Requirement | Status | Code | Test |
+|---|---|---|---|
+| A device reaches the network, enrols (device-attest-01, through go-trusted-platform) and attests without a serial host | partial: done on `tfwsim` over TCP; no board has enrolled over Ethernet | `src/proto/link_eth.c`, `src/net/w5x00.c` | `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` `TestEthernetDeviceAttestsOverTCP`, `TestEthernetDeviceSignsTheCSRDigestOverTCP`; the board run: slices 1 and 2 |
+| The controller's TCP/IP stack carries the existing frames unchanged over a TCP connection the device opens | done | `src/proto/link_eth.c`, `src/net/w5x00.c` | `test/unit/test_link_eth.c` `test_a_frame_over_ethernet_is_answered_over_ethernet`; `e2e_ethernet_test.go` `TestEthernetDeviceAnswersCapsOverTCP` |
+| Frames, command ids and wire vectors do not change | done | `src/proto/frame.c`, `src/proto/transport.c` (one framer for both links) | `e2e_ethernet_test.go` `TestEthernetAndSerialAreAnsweredSideBySide` |
+| The Ethernet link accepts only attestation and enrolment, and 0x68–0x6B (item 48) | done | the allow-list table in `src/proto/link_eth.c` | `test_link_eth.c` `test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else`, `test_every_id_off_the_list_is_answered_unknown_over_ethernet`; `e2e_ethernet_test.go` `TestEthernetDeviceRefusesWhatIsNotOnTheAllowList`, `TestEthernetDeviceRefusesAuthAndOTAActivateOverTCP` |
+| Provisioning and the capabilities stay on serial, which the host SDK keeps | done | `src/proto/link_eth.c` | `test_link_eth.c` `test_serial_admits_every_command`, `test_events_go_to_serial_only`; `e2e_ethernet_test.go` `TestEthernetNetworkBlockReadsBackOverSerial` |
+| One driver file per controller, chosen by the board profile, over the HAL's SPI | done | `src/net/w5100.c`, `src/net/w5500.c`; `ETH_CHIP` in `boards/atmega2560/profile.mk` and `boards/atmega328p/profile.mk`, checked by `mk/firmware.mk` | `test/unit/test_w5x00.c` `test_start_refuses_the_other_chip_and_never_writes_to_it` (built as `test_w5100` and `test_w5500`) |
+| No IP stack, TLS or ACME client of ours on the device | done (an absence: the Ethernet objects are `LINK_SRCS` in `mk/firmware.mk`, the controller's sockets only) | `include/tfw/eth.h`, `src/net/w5x00.c` | `test_w5x00.c` `test_send_puts_each_reply_on_the_wire` |
+| The device's evidence is signed and nonce-bound end to end | done | `src/caps/attest.c`, `src/caps/csr.c` | `e2e_ethernet_test.go` `TestEthernetDeviceAttestsOverTCP`, `TestEthernetDeviceSignsTheCSRDigestOverTCP` |
+| Address, MAC and endpoint are configuration, never hardcoded in `src/` | done | `src/net/netcfg.c`, `sdk/go/netcfg.go` | `test_link_eth.c` `test_every_field_the_controller_is_given_comes_from_the_block`, `test_the_block_from_eeprom_is_what_the_controller_is_given`; `sdk/go/cmd/tfwctl/e2e_netcfg_test.go` `TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint` |
+| Static addresses until DHCP; a DHCP block is leased by the RFC 2131 client linked with `DHCP=1`, off by default | done | `src/net/dhcp_none.c`, `src/net/dhcp.c`; `DHCP ?= 0` in `mk/firmware.mk` | `test_link_eth.c` `test_a_block_asking_for_dhcp_stays_down_without_the_client` |
+| The client probes the offered address | done | `src/net/dhcp.c` | `test/unit/test_dhcp.c` `test_an_ack_probes_the_address_from_no_address_before_taking_it`, `test_an_address_in_use_is_declined_and_asked_for_again_after_10_s` |
+| It renews at T1 and T2 beside the connection | done | `src/net/dhcp.c`, `src/proto/link_eth.c` | `test_dhcp.c` `test_at_t1_the_lease_is_renewed_beside_the_connection`, `test_at_t2_any_server_may_rebind_the_lease`; `test/unit/test_link_dhcp.c` `test_at_t1_the_link_renews_beside_its_connection_and_keeps_its_address` |
+| `tfwctl netcfg set --dhcp` writes a DHCP block and refuses `--ip`, `--mask`, `--gateway` beside it | done | `sdk/go/cmd/tfwctl/netcfg.go` | `sdk/go/cmd/tfwctl/netcfg_test.go` `TestNetcfgSetDHCPWritesTheFlagAndNoAddress`, `TestNetcfgSetDHCPRefusesAStaticAddressBesideIt`; `e2e_netcfg_test.go` `TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice` |
+| `tfwprov --bake-netblock --dhcp` does the same | done | `sdk/go/cmd/tfwprov/netblock.go` | `sdk/go/cmd/tfwprov/netblock_test.go` `TestNetblockDHCPIsTheFlagAndNoAddress`, `TestNetblockDHCPRefusesAStaticAddressBesideIt` |
+| Until the shields' MACs are supplied, a locally administered MAC derived from the DeviceID | partial: the derived MAC is done; the shields' values are the owner's (slice 4) | `sdk/go/netcfg.go` `DerivedMAC` | `sdk/go/netcfg_test.go` `TestDerivedMACIsPinned`, `TestDerivedAndStickerMACsAreAccepted` |
+| Reference boards: the Nano (ATmega328P) with a W5100 shield, the Mega 2560 with the Arduino Ethernet shield | partial: both profiles name the W5100; the Mega has run over serial only, and no Nano image builds Ethernet (slices 1 and 3) | `ETH_CHIP ?= w5100` in both boards' `profile.mk` | `test_w5x00.c` `test_the_sd_card_is_parked_and_the_chip_select_is_d10` |
+| The Mega enrols on the soft DICE root when no element answers; the Nano only with an element | partial: the tier choice is done; the enrolment run is open (slice 1) | `src/crypto/auto/provider.c`; `BOARD_TIERS` and `BOARD_REFUSED_TIERS` in both boards' `profile.mk` | `test/unit/test_crypto_auto.c` `test_no_element_runs_the_soft_root`; `scripts/test_board_rows.py` `test_the_nanos_one_tier_is_the_element`, `test_crypto_soft_on_the_nano_is_refused` |
+| The ATECC608C element tier runs once the owner wires it | not started: the owner's wiring; nothing waits on it (slice 5) | `src/crypto/atecc608a/provider.c` | `test_crypto_auto.c` `test_an_element_that_answers_is_chosen` (host only) |
+| `ETH=1` is the ATmega2560 default; the shieldless bench Mega is an explicit `ETH=0` row | done | `ETH ?= 1` and `BOARD_ROWS` in `boards/atmega2560/profile.mk` | `scripts/test_board_rows.py` `test_the_mega_keeps_its_soft_and_auto_tiers`; every row built by `make firmware-matrix` |
+| The soft-crypto 328P Ethernet node is withdrawn; no 328P row builds Ethernet | done | `boards/atmega328p/profile.mk` (no `BOARD_ROWS`, `BOARD_REFUSED_TIERS := soft`); the refusal in `mk/firmware.mk` | `scripts/test_board_rows.py` `test_the_matrix_builds_no_soft_nano`, `test_crypto_soft_on_the_nano_is_refused` |
+| The 328P element image is over its flash budget with `ETH=1` (W5100) | done, but the row's figure is stale (slice 6) | `size-check` in `mk/firmware.mk` | [Flash and RAM](#flash-and-ram) below: 21 612 / 16 384 bytes and 1 121 / 1 024 of RAM; the row still says 18 036 and 1 652 over |
+| `sdk/go` gains a TCP transport beside serial | done | `sdk/go/tcp.go` | `sdk/go/tcp_test.go` `TestAcceptReturnsAWorkingDeviceWithoutWaitingForBoot`; `sdk/go/tfwsim/fake_test.go` `TestStartElementEthernetAcceptsTheConnectionTheDeviceOpens` |
+| Serial or network chosen at build time by object list, never `#if` in logic | done | `LINK_SRCS` in `mk/firmware.mk` (`link_eth.c` or `link_serial.c`); `TFW_PIN_ETH` in `include/tfw/board.h` uses the flag as a value | `lint-conditionals` in `mk/host.mk` |
+| Seam: go-trusted-platform's device-facing endpoint accepts these connections | not started here: that repository's side (slice 2) | none in this repository | none in this repository |
+| *inv* One transport, one framer, one response buffer; a reply goes back on the link that delivered its first byte | done | `src/proto/transport.c`, `src/proto/link_eth.c` | `test_link_eth.c` `test_a_frame_over_serial_is_answered_over_serial_while_ethernet_is_up`; `test/unit/test_link_eth_mutate.c` `test_the_end_of_a_serial_reply_never_sends_on_ethernet` |
+| *inv* The allow-list is checked before dispatch and only for Ethernet frames; a test pins all 128 ids | done | `src/proto/link_eth.c` | `test_link_eth.c` `test_every_id_off_the_list_is_answered_unknown_over_ethernet`, `test_serial_admits_every_command` |
+| *inv* The driver sets SPI mode 0 before every access | done | `src/net/w5x00.c` | `test_w5x00.c` `test_every_transaction_reapplies_mode_0_msb_first` |
+| *inv* Every wait is bounded; chip command completion is polled a bounded number of times | done | `src/net/w5x00.c`, `src/net/w5100.c`, `src/net/w5500.c` | `test_w5x00.c` `test_a_command_the_chip_never_takes_is_given_up`, `test_a_connect_the_chip_never_takes_is_given_up`; `test/unit/test_w5100_spi_mutate.c` `test_init_accepts_rst_clearing_on_the_last_poll` |
+| *inv* A failure in the Ethernet path keeps that link down and never blocks serial | done | `src/proto/link_eth.c` | `test_link_eth.c` `test_a_blank_block_never_starts_the_controller_and_serial_still_answers`, `test_a_reply_to_a_dropped_connection_is_abandoned_and_serial_carries_on`, `test_reconnect_backs_off_from_1_s_to_64_s_and_resets_once_up`; `test_link_eth_mutate.c` `test_a_hostile_socket_never_wedges_the_link_and_caps_answers_after` |
+
+### Remaining slices
+
+No requirement is open that a host build or host test can close: every slice
+left needs a board, another project or an owner decision.
+
+1. **Hardware.** The Mega 2560 with its Ethernet shield answers on the bench
+   network block and enrols over TCP through `make hw-enroll` against
+   go-trusted-platform's device-facing endpoint. It needs the board on that
+   segment (#171), a published port to the harness, and a soft-tier DeviceID
+   handed off by `tfw-boot`. It is recorded in `test-matrix.md` and proved by
+   `sdk/go/cmd/tfwctl/e2e_ethernet_test.go`'s `TestEthernet*` rows under
+   `make hw-test HW_ETH=… HW_ETH_LISTEN=…` and by `xkms/e2e/hw_enroll_test.go`
+   `TestHardwareEnrollment`.
+2. **Another project.** go-trusted-platform's device-facing endpoint accepts
+   these connections and its SPEC names the seam. That is its repository's
+   work, and it is proved there; slice 1 then proves it end to end.
+3. **Owner decision.** The row names the Nano with a W5100 shield as a
+   reference board, but its one tier with `ETH=1` is 5 228 bytes of flash and
+   97 of RAM over budget, so no Nano Ethernet image can be built. The owner
+   either drops the Nano as an Ethernet reference board or names the image
+   that fits (the #52 ADR's image choice). A ruling to drop it changes
+   `docs/SPEC.md` only. A ruling to fit it touches `boards/atmega328p/profile.mk`
+   and the sources it links, proved by `make firmware-matrix`.
+4. **Owner input.** The shields' MAC values. They go in through
+   `tfwctl netcfg set` or `tfwprov --bake-netblock` and never in `src/`, so no
+   code changes; `sdk/go/netcfg_test.go` `TestDerivedAndStickerMACsAreAccepted`
+   already covers a sticker MAC.
+5. **Owner's wiring.** The ATECC608C (MIKROE-6774) element tier on the Mega
+   over Ethernet, run as `test-matrix.md`'s "The day the ATECC608C arrives"
+   says and recorded there. Nothing waits on it.
+6. **Coordinator or owner, docs only.** The row's 328P figure in
+   `docs/SPEC.md` (18 036 / 16 384 bytes, 1 652 over) predates the measurement
+   in [Flash and RAM](#flash-and-ram) (21 612 / 16 384 bytes, 5 228 over, and
+   97 bytes over in RAM). One sentence of `docs/SPEC.md`, docs only, with no
+   test to add. The lane's policy guards that file.
+
+When slices 1 and 2 close, and 3 to 5 are ruled on or run, the row's status
+change to `shipped` is the owner's.
 
 ## Files
 

@@ -795,7 +795,7 @@ tfw-selfcheck: done
 | `hal_pwm.c` | **PASS**: LEDC channel 0 (GPIO2) duty 128 then 0 read back, `tfw_hal_pwm_stop` OK |
 | `hal_tone.c` | **PASS**: 1 kHz on GPIO6 started and stopped, both OK (nothing measured the frequency) |
 | `hal_pulse_rmt.c` | **PASS**: GPIO33 pulled up, no pulse in 50 ms is `TFW_ERR_TIMEOUT` (9) |
-| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written and read back equal; the old bytes, written back whatever that test's status, read back equal (`hal_eeprom_restore`, its own line) |
+| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written and read back equal; the old bytes, written back whatever that test's status, read back equal (`hal_eeprom_restore`, its own line). Review then widened the save and restore to the whole 4 KB sector the test writes in (the table above); that change is pinned on the host by `test_esp_selfcheck` and has not run on the board |
 | `hal_bus.c` | **NOT RUN, wiring needed**: no I2C, SPI or 1-Wire device on the header |
 
 **The board is left on this branch's tip built with the static overlay and no

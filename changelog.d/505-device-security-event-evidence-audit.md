@@ -1,0 +1,1 @@
+- docs(device-security-event-evidence): the SPEC row `device-security-event-evidence` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/xkms-adapter/engineering.md`, "Requirements: device-security-event-evidence") (Refs #505).

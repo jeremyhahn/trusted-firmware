@@ -46,13 +46,20 @@ endef
 # image's flash ceiling. header-deps-check is here because it is about what
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
 # itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
-# app-firmware-check builds for the ATmega2560 whatever BOARD is: the example
-# application does not fit the 328P, element-only since owner ruling 2026-10-17
-# (m522), and applications target boards with room.
+# app-firmware-check builds for the ATmega2560 and one Cortex-M board, QEMU's
+# mps2-an505, whatever BOARD is: the example application does not fit the 328P,
+# element-only since owner ruling 2026-10-17 (m522), and applications target
+# boards with room. Its ESP32 run (BOARD=esp32-qemu) needs ESP-IDF, which the CI
+# image does not carry (mk/arch/esp32-targets.mk), so it is not here. For the
+# same reason as the 328P the
+# example's reproducible-check, its image built twice from clean copies, is
+# for the ATmega2560.
 build: build-tools firmware-matrix bootloader-check sdk-build tfwsim tfwsim-atecc608a \
        tfwsim-app-example reproducible-check bootloader-reproducible-check provenance \
        platform-bake-no-link-check platform-bake-build-check header-deps-check
 	@$(MAKE) --no-print-directory app-firmware-check BOARD=atmega2560
+	@$(MAKE) --no-print-directory app-firmware-check BOARD=mps2-an505
+	@$(MAKE) --no-print-directory reproducible-check APP_DIR=test/app/example BOARD=atmega2560
 	@echo "stage build: green"
 
 build-tools:
@@ -115,7 +122,7 @@ test-tools:
 	$(call require-tools,gcc gcovr python3)
 
 ## scripts-test: the unit tests of the Python scripts (scripts/test_*.py), no network
-scripts-test:
+scripts-test: cm-dk-pack-test
 	@python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 # -------------------------------------------------------- integration-test
@@ -162,6 +169,13 @@ integration-test-tools:
 #      go-mod-verify), and sdk/go's Layer 0 invariant.
 #   Both: trivy fs --scanners secret over the tree (secrets-scan).
 #
+# security is security-novuln and vuln (ci-template v1.42, owner ruling 742
+# (1)). security-novuln is every gate that reads only the tree, and is what
+# ci.yml's Security job runs on a pull request and on main. vuln is
+# govulncheck for GO_MODULES and xkms/: it reads the vulnerability database,
+# whose answer changes with no change to the tree, so it runs in scans.yml
+# on main, never in the CI Gate. A developer's `make security` runs both.
+#
 # Where a §8 tool does not apply to the C firmware, and why:
 #   gosec, govulncheck, golangci-lint, go vet  read Go only. cppcheck stands in
 #        for vet and the linters; clang-tidy is installed but not yet a gate.
@@ -173,9 +187,17 @@ integration-test-tools:
 #        alpha (nightly.yml), so it is not here.
 #   trivy image  needs a docker daemon and a built image: `make trivy-image`,
 #        run where the integration image is built.
-security: security-tools lint lint-arch-leak-selftest lint-grep-selftest go-tags-selftest esp32-overlay-selftest verify-vendor releasability releasability-test \
-          sdk-lint sdk-verify go-vet go-mod-verify go-gosec go-govulncheck go-golangci xkms-security secrets-scan
+security: security-novuln vuln
 	@echo "stage security: green"
+
+## security-novuln: the tree-only security gates, the CI Gate's Security job (ruling 742 (1))
+security-novuln: security-tools lint lint-arch-leak-selftest lint-grep-selftest go-tags-selftest esp32-overlay-selftest verify-vendor releasability releasability-test \
+          sdk-lint sdk-verify go-vet go-mod-verify go-gosec go-golangci xkms-security secrets-scan
+	@echo "stage security-novuln: green"
+
+## vuln: govulncheck for every Go module and xkms/; reads the vulnerability database (scans.yml)
+vuln: security-tools go-govulncheck xkms-vuln
+	@echo "stage vuln: green"
 
 security-tools:
 	$(call require-tools,cppcheck $(GO) gosec govulncheck golangci-lint trivy git)
@@ -222,14 +244,28 @@ TRIVY_IMAGE_FLAGS := --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICA
 trivy-image: docker-build-it
 	@trivy image $(TRIVY_IMAGE_FLAGS) $(IT_IMAGE)
 
-## xkms-security: the security stage's Go gates for xkms/ (needs go-xkms)
+## xkms-security: the tree-only security gates for xkms/ (needs go-xkms)
+# go mod verify, then the module consistency check that keeps a change to
+# xkms/go.mod or xkms/go.sum honest on the PR gate (dept-software #981, kept
+# hermetic by ruling 742 (1)): every package xkms/ and its tests import
+# resolves from go.mod and go.sum alone, read-only, with no module proxy
+# (GOPROXY=off), so a missing requirement or go.sum entry fails here. It reads
+# the module cache the image baked (DEPS_SEED_GOMODCACHE: /opt/go/mod in the
+# toolchain image, else the host's GOMODCACHE), not the writable cache volume
+# a bridge stage mounts, which a cold runner starts empty. Then gosec and
+# golangci-lint.
 xkms-security:
-	$(call require-tools,$(GO) gosec govulncheck golangci-lint)
+	$(call require-tools,$(GO) gosec golangci-lint)
 	@cd $(XKMS_DIR) && $(GO) mod verify
+	@cd $(XKMS_DIR) && GOFLAGS=-mod=readonly GOPROXY=off GOMODCACHE=$(DEPS_SEED_GOMODCACHE) $(GO) list -deps -test$(call go-tags,-tags,$(XKMS_TAGS)) ./... >/dev/null
 	@cd $(XKMS_DIR) && gosec -quiet$(call go-tags,-tags,$(XKMS_TAGS)) ./...
+	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,$(XKMS_TAGS)) ./...
+
+## xkms-vuln: govulncheck for xkms/ (needs go-xkms); reads the vulnerability database
+xkms-vuln:
+	$(call require-tools,$(GO) govulncheck python3)
 	@cd $(XKMS_DIR) && out=$$(govulncheck$(call go-tags,-tags,$(XKMS_TAGS)) -format json ./...) && \
 	  printf '%s\n' "$$out" | python3 $(CURDIR)/scripts/govulncheck-gate.py xkms
-	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,$(XKMS_TAGS)) ./...
 
 # -------------------------------------------------------------- deps-check
 ## deps-check: stage 5 -- fail when a pin is behind its latest release without a reason
@@ -263,6 +299,6 @@ deps-check-tools:
 	$(call require-tools,python3 git $(GO) dpkg-query)
 
 .PHONY: build build-tools test test-tools integration-test integration-test-host integration-test-tools \
-        security security-tools go-vet go-mod-verify go-gosec go-govulncheck go-golangci \
-        secrets-scan trivy-image xkms-security deps-check xkms-deps-check deps-check-tools scripts-test \
+        security security-novuln vuln security-tools go-vet go-mod-verify go-gosec go-govulncheck go-golangci \
+        secrets-scan trivy-image xkms-security xkms-vuln deps-check xkms-deps-check deps-check-tools scripts-test \
         test-shards-list

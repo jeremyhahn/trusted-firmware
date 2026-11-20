@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"testing"
 	"time"
 
@@ -72,6 +73,10 @@ func capsReadPin(t *testing.T, dev *tfw.Device, pin string) bool {
 	return got.High
 }
 
+// simTonePin is tfwsim's tone pin: the simulator is a 328P, so it is that
+// board's TFW_TONE_PIN from its pin facts, not a literal beside each row.
+var simTonePin = strconv.Itoa(int(peerBoards["atmega328p"].tonePin))
+
 func TestCapsRefusalsReachTheCLIAsTheDocumentedStatus(t *testing.T) {
 	dev := capsStart(t)
 	for _, c := range []struct {
@@ -92,7 +97,7 @@ func TestCapsRefusalsReachTheCLIAsTheDocumentedStatus(t *testing.T) {
 		{"PWM_WRITE on a UART pin", []string{"pwm", "1", "100"}, tfw.StatusErrReservedPin},
 		{"PWM_WRITE pin beyond the board", []string{"pwm", "99", "100"}, tfw.StatusErrBadPin},
 		{"TONE off the tone pin", []string{"tone", "3", "10000"}, tfw.StatusErrUnsupported},
-		{"TONE below the reachable range", []string{"tone", "11", "100"}, tfw.StatusErrRange},
+		{"TONE below the reachable range", []string{"tone", simTonePin, "100"}, tfw.StatusErrRange},
 		{"PULSE_IN timeout past the cap", []string{"pulse-in", "2", "1", "5s"}, tfw.StatusErrRange},
 		{"PULSE_IN zero timeout", []string{"pulse-in", "2", "1", "0s"}, tfw.StatusErrRange},
 		{"PULSE_CAPTURE more edges than a reply carries", []string{"pulse-capture", "9", "1", "200", "50ms"}, tfw.StatusErrRange},
@@ -135,8 +140,8 @@ func TestCapsRepliesFromTheFirmwareThroughTheCLI(t *testing.T) {
 	t.Run("pwm and tone accept their pins", func(t *testing.T) {
 		capsRun(t, dev, "pwm", "9", "128")
 		capsRun(t, dev, "pwm", "9", "0")
-		capsRun(t, dev, "tone", "11", "1000")
-		capsRun(t, dev, "notone", "11")
+		capsRun(t, dev, "tone", simTonePin, "1000")
+		capsRun(t, dev, "notone", simTonePin)
 	})
 
 	t.Run("eeprom above the boot region round-trips", func(t *testing.T) {

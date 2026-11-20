@@ -15,9 +15,14 @@
 
 #include <stdint.h>
 
+/* A host suite may define its own, pointing the registers at a model. */
+#ifndef TFW_CM_REG
 #define TFW_CM_REG(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
+#endif
 
 /* System Control Block. */
+#define TFW_CM_ICSR  TFW_CM_REG(0xE000ED04u)
+#define TFW_CM_ICSR_PENDSTSET    0x04000000u
 #define TFW_CM_VTOR  TFW_CM_REG(0xE000ED08u)
 #define TFW_CM_AIRCR TFW_CM_REG(0xE000ED0Cu)
 #define TFW_CM_AIRCR_VECTKEY     0x05FA0000u
@@ -31,6 +36,23 @@
 #define TFW_CM_SYST_CSR_TICKINT   0x2u
 #define TFW_CM_SYST_CSR_CLKSOURCE 0x4u
 #define TFW_CM_SYST_RVR_MAX       0x00FFFFFFu
+
+/* DWT's free-running cycle counter, on the processor clock as SysTick is
+ * (ARMv7-M and ARMv8-M Mainline only: not on a Cortex-M0/M0+/M23). Counts
+ * once DEMCR.TRCENA and DWT_CTRL.CYCCNTENA are set. */
+#define TFW_CM_DEMCR              TFW_CM_REG(0xE000EDFCu)
+#define TFW_CM_DEMCR_TRCENA       (1u << 24)
+/* The PMSAv7 MPU (ARMv7-M; hal_mpu.c). */
+#define TFW_CM_MPU_CTRL            TFW_CM_REG(0xE000ED94u)
+#define TFW_CM_MPU_CTRL_ENABLE     0x1u
+#define TFW_CM_MPU_CTRL_PRIVDEFENA 0x4u
+#define TFW_CM_MPU_RNR             TFW_CM_REG(0xE000ED98u)
+#define TFW_CM_MPU_RBAR            TFW_CM_REG(0xE000ED9Cu)
+#define TFW_CM_MPU_RASR            TFW_CM_REG(0xE000EDA0u)
+
+#define TFW_CM_DWT_CTRL           TFW_CM_REG(0xE0001000u)
+#define TFW_CM_DWT_CTRL_CYCCNTENA 0x1u
+#define TFW_CM_DWT_CYCCNT         TFW_CM_REG(0xE0001004u)
 
 /* NVIC: one bit per external interrupt, thirty-two to a register. */
 #define TFW_CM_NVIC_ISER(n) TFW_CM_REG(0xE000E100u + 4u * (n))
@@ -56,7 +78,10 @@ static inline void tfw_cm_irq_on(void)  { __asm__ volatile ("cpsie i" ::: "memor
 static inline void tfw_cm_irq_off(void) { __asm__ volatile ("cpsid i" ::: "memory"); }
 
 /* PRIMASK saved and interrupts masked; restored by tfw_cm_irq_restore. The
- * one critical section the UART's transmit start needs. */
+ * critical section of the UART's transmit start and of the MPS2 LED word's
+ * read-modify-write. A host model defining TFW_CM_IRQ_SAVE_MODEL ahead of
+ * this file brings its own pair (test/model/cortex-m/mps2_tone_model.h). */
+#ifndef TFW_CM_IRQ_SAVE_MODEL
 static inline uint32_t tfw_cm_irq_save(void)
 {
     uint32_t primask;
@@ -69,6 +94,7 @@ static inline void tfw_cm_irq_restore(uint32_t primask)
 {
     __asm__ volatile ("msr primask, %0" :: "r" (primask) : "memory");
 }
+#endif
 
 /* A function that runs from SRAM while the flash it would otherwise run from
  * is unreadable: in its own .ramfunc section, which the SoC's linker script

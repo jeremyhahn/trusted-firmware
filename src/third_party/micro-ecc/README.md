@@ -35,3 +35,11 @@ it.
   Upstream: open issues https://github.com/kmackay/micro-ecc/issues/141 and
   https://github.com/kmackay/micro-ecc/issues/196; no fix in its history up to
   541b3a7 (checked 2026-10-17).
+- `patches/0002-ladder-yield-hook.patch`, in `uECC.c` `EccPoint_mult`
+  (#584). A software P-256 sign takes about 26 s at 64 MHz and holds a
+  single-threaded main loop for all of it. The Montgomery ladder now calls a
+  hook set by `uECC_set_yield` after every step; the call sits at the same
+  place on every step whatever the scalar's bits, and NULL (the default, and
+  every build but the signer's) is upstream's loop. `src/crypto/deviceid_p256.c`
+  sets it to `tfw_sign_yield` for the length of a sign; the STM32H5 ETH_MAC
+  image runs the scheduler's deadline sweep there.

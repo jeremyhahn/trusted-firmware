@@ -5,40 +5,80 @@
 > are in [architecture.md](architecture.md); the decisions in the
 > [ADR](adr-ota-image-format-and-trust.md).
 
-## The row on main
+## Requirements (the row on main)
 
-The requirements of SPEC row `ota`, as met or unmet by the code on main, and
-the file that meets each. The AVR rows first; the composed platforms after.
+Audited 2026-11-16 (#479) against SPEC row `ota` (`docs/SPEC.md`), one line per
+requirement of the row's text. A C test is `file: function`, a Go test
+`file: TestName`; a make target stands in where the requirement is about what
+CI runs. "none" means this audit found no test that proves it.
 
-| Requirement | On main | Where |
-|---|---|---|
-| Every image carries trailer v1 with its board id; tfw-boot refuses another board's | met | `boot/boot_image.c` (parse, `tfw_boot_binding_permit`), `boot/boot_policy.c` |
-| The build writes the trailer: the signed span with byte 6, then the sealed image | met | `tools/image-seal/`, `make image-tbs` and `make image-seal` (`mk/suit.mk`) |
-| ES256 verification of the trailer on every tfw-boot row, soft and element | met | `boot/verify/`, `boot/boot_policy.c` |
-| One trial boot within the per-board timeout, the 8 s watchdog armed before the jump | met | `boot/boot_trial.c`, `src/core/ota_trial.c`; through `boot/boot_main.c` in `test/unit/boot/test_boot_main.c` |
-| A failed trial rolls back by itself; recovery is another OTA round | met | `boot/boot_trial.c`, `boot/boot_prev.c`, `boot/boot_swap.c` (2560); through `boot/boot_main.c`, with a reset before each write, in `test/unit/boot/test_boot_main.c` |
-| An anti-rollback floor, advanced at confirm | met | `boot/boot_image.c` (`tfw_boot_rollback_permit`), `boot/boot_trial.c`, `src/core/ota_floor_*.c`; under the floor refused and the floor never lowered, in `test/unit/boot/test_boot_main.c` |
-| A status code for the wrong OTA state | met | `include/tfw/status.h` (`TFW_ERR_BAD_STATE`, 19) |
-| `OTA_INFO`, `OTA_ACTIVATE`, `OTA_CONFIRM` (0x6C to 0x6E) over serial, the last two behind `OTA_AUTH` | met | `src/core/ota_ctl.c`, `src/core/ota_activate.c`, `src/core/ota_auth.c`, `sdk/go/cmd/tfwctl/e2e_ota_test.go` |
-| tfw-boot checks the `OTA_ACTIVATE` authorization at reset (#137) | met | `boot/boot_cose.c`, `boot/boot_trial.c` |
-| On the 2560 tfw-boot confirms from the confirm request and advances the floor | met | `boot/boot_request.c`, `boot/boot_trial.c` |
-| The application stages into the external store; tfw-boot checks it again and copies it | met | `src/core/ota_stage.c`, `boot/boot_stage.c` |
-| The serial stage path end to end under simavr | met | `test/integration/simavr/boot_harness.c`, `sdk/go/cmd/tfwctl/ota_stage_simavr_test.go` |
-| The network leg (W5100) end to end under simavr | met | `src/proto/link_eth.c`, `test/integration/simavr/boot_harness.c` |
-| The 2560's A/B slots by swap-move | met | `boot/boot_swap.c` |
-| The A/B on the generic Cortex-M port (`mps2-an505`, `mps2-an500`), the same swap-move | met | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_factory.c`; under QEMU in `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go` (CI) |
-| Its slot geometry as boot-HAL data (ADR, "Cortex-M `tfw-boot` ports") | met | `boot/hal/cortex-m/boot_slots.h` derives the secondary and the write end from the primary, the application's link base (`APP_BASE` in `profile.mk`, `TFW_BOOT_APP_BASE`); `boot/hal/avr/boot_slots.h` names the 2560's values unchanged. `boot/boot_swap.c` and `boot_factory.c` read the slots only there; pinned by `test/unit/boot/test_boot_slots_mps2.c`, every `tfw-boot.hex` byte-identical |
-| The store MARK cleared at fallback (item 56) | met | `boot/boot_stage.c` |
-| The ATmega32U4 restore from the store, on a board or under simavr (the ATmega328P has none: owner queue 176, option (a), no boot-time rollback, a failed activation is recovered by reflash) | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below. The row's boot image does not fit: 1 724 bytes over the 4 096-byte section, measured with `make bootloader-candidate` on the CI image, avr-gcc 14.2.0, at `9a338a82`. Whether the 32U4 keeps a restore goes to the owner (#52) |
-| The SUIT-subset manifest checked before activation (ruling 3, amended by ruling 121): the ATmega2560 application, element tier | met | `src/core/ota_manifest.c` at `OTA_ACTIVATE`, before the authorization is written, through `tfw_suit_gate` (`src/core/suit.c`); `test/unit/test_ota_manifest.c`. The reader and the check cost 3 772 B (rec., against the ADR's 3 086 B estimate): app 28 802 of 65 536 with the check, 25 030 without ([README.md](README.md), "Measurements") |
-| The build writes the envelope where `OTA_ACTIVATE` reads it: after the image, a u16 length then the envelope (ruling 109, 2026-10-22) | met | `tools/image-seal/` (`make image-seal` takes `make suit-envelope`'s `.suit` and refuses to run without it on a board that checks); `test/unit/test_image_seal.c` |
-| The same, ATmega328P | unmet | the reader and the check cost 3 772 B on the ATmega2560 (rec., README.md "Measurements"; the ADR estimated 3 086 B); the reader alone puts the app at 22 153 against the 16 384 policy line (rec., ADR 6.3); the 328P stays trailer-only (ruling 3). Ruled off, not pending (owner queue 176, option (a)): `make` refuses `OTA_MANIFEST=1` on it (`mk/firmware.mk`; `scripts/test_manifest_refused.py`) |
-| The same, ATmega32U4 | unmet | as the 328P: 3 772 B as measured on the ATmega2560 against a 14 336 budget the stager alone has not been measured under (the W5100 is named in `boards/atmega32u4/profile.mk`; the `ETH=1` image is not measured). Ruled off, not pending (owner queue 176, option (a)): `make` refuses `OTA_MANIFEST=1` on it |
-| The same, soft tier (every board) | unmet | no stored key verifies the manifest's ES256 on the soft tier; it keeps the full trailer gate in tfw-boot (ruling 121). The reader and the check would add about 3 772 B (rec. on the ATmega2560 element tier, README.md "Measurements") besides a key home |
-| `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP | unmet | serial only; not on the Ethernet allow-list until a ruling admits them (owner item 48). The session scope is decided: a TCP session's authorization ends with its connection (ADR open question 8, settled under ruling 109, 2026-10-26), pinned by `test/unit/test_ota_hold_link.c` and `TestE2EOTAAuthSessionEndsWithItsConnection`. Open question below |
-| tfw-boot checks the `OTA_CONFIRM` authorization at reset | met on the 2560 | `boot/boot_cose.c`, `boot/boot_request.c`: the 75-byte confirm request at EEPROM `0x0EA`–`0x134` (#231) |
-| Every board reflashed with an image that carries its board id | unmet | unmet until all three are done. The ATmega2560: done, reflashed with a board-id trailer image ([`docs/development/bench/mega2560.md`](../development/bench/mega2560.md); the record is on a sibling branch in the same train). The ESP32-P4: flashed, trailer `TFIM` v1 with board id `0x80` verified by layer 0, no eFuse burned; the wire check (`caps`) waits on the board's bench address (the record is on a sibling branch in the same train). The Nano: not reflashed; no factory record and no answering serial bootloader ([`docs/development/bench/nano.md`](../development/bench/nano.md)), and the ISP read waits on the owner's cabling question ([`docs/development/isp-route.md`](../development/isp-route.md)) |
-| ESP32: session, activate authorization at the trial boot, rollback at 60 s | met | `src/hal/esp32/hal_ota.c`, `boot/hal/esp32/boot_l0.c` |
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| 1 | Signed update of the whole image, firmware and application together | done | `tools/image-seal/`, `boot/boot_image.c` | `test/unit/test_image_seal.c: test_a_sealed_region_boots_under_tfw_boot` |
+| 2 | Over serial | done | `src/core/ota_stage.c`, `boot/boot_stage.c` | `sdk/go/cmd/tfwctl/ota_stage_simavr_test.go: TestOTAStageThroughTfwBoot` |
+| 3 | Over TCP through the W5100 | done | `src/proto/link_eth.c`, `src/core/ota_stage.c` | `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestEthernetStagesAnImage`; `make integration-test-boot` (W5100 model) |
+| 4 | Over TCP through the W5500 | partial | `src/proto/link_eth.c` | none: bench only (slice 14) |
+| 5 | One update path per image, chosen by object list, never `#if` (item 20) | done | `mk/firmware.mk`, `mk/boot.mk` (`make bootloader` refuses `BOOT_OTA=1 BOOT_STORE=1` on the 2560) | `scripts/test_boot_onepath.py: BootOnePath.test_both_paths_are_refused_with_the_two_choices` |
+| 6 | AVR: the application stages into the external SPI store; tfw-boot verifies and copies | done | `src/core/ota_stage.c`, `boot/boot_stage.c` | `test/unit/boot/test_boot_stage.c: test_a_valid_image_copies_and_enters_its_trial` |
+| 7 | ATmega2560: A/B slots by swap-move | done | `boot/boot_swap.c` | `test/unit/boot/test_boot_swap.c: test_an_image_refused_in_the_secondary_is_never_swapped`; `test/unit/boot/test_boot_swap.c: test_a_cut_at_any_page_resumes` |
+| 8 | ATmega328P: one internal slot, the backup in the store (row limit: no restore, owner queue 176 (a)) | partial | `boot/boot_swap_none.c`, `boards/atmega328p/profile.mk` (`BOOT_PREV`) | none: the store row overflows its boot section by 1498 B and is not in `BOOT_SUPPORTED` (slice 1) |
+| 9 | ATmega32U4: one internal slot with the restore from the store | not started | `boot/boot_prev.c` (written, on no supported row) | none on a supported row (slice 2) |
+| 10 | ATtiny85: no OTA (ruling 109, 2026-10-26) | done | nothing linked | none: a decision |
+| 11 | Cortex-M33: MCUboot, TF-M and PSA Firmware Update composed | not started | none | none (slice 9) |
+| 12 | Generic Cortex-M port: the same swap-move as boot-HAL data | done | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_slots.h` | `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go: TestQEMUABRollback`; `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go: TestQEMUABFloor` |
+| 13 | ESP32-P4: ESP-IDF's OTA composed (#48) | done | `src/hal/esp32/hal_ota.c` | `test/unit/test_esp_ota.c: test_info_reports_the_running_slot_and_the_session`; `test/unit/test_esp_ota.c: test_auth_activate_and_confirm_are_on_the_wire` |
+| 14 | i.MX 95 M7: AHAB composed (#15) | not started | none | none (slice 10) |
+| 15 | Trailer v1 with the board id; tfw-boot refuses another board's image | done | `boot/boot_image.c`, `boot/boot_policy.c` | `test/unit/boot/test_boot_policy.c: test_a_signed_image_for_another_board_is_refused`; `test/unit/boot/test_boot_policy.c: test_a_relabelled_board_id_is_refused` |
+| 16 | ESP32-P4: the trailer inside the signed image (item 23) | done | `boot/hal/esp32/boot_l0.c` | `test/unit/boot/test_boot_l0_esp32.c: test_another_boards_image_is_refused` |
+| 17 | Composed platforms: the trailer beside the vendor's signature | not started | none | none (slices 9, 10) |
+| 18 | SUIT-subset manifest (ES256, SHA-256) checked before activation: ATmega2560 element tier, in the application at `OTA_ACTIVATE` (ruling 121) | done | `src/core/ota_manifest.c`, `src/core/suit.c` (`tfw_suit_gate`) | `test/unit/test_ota_manifest.c: test_a_good_manifest_activates`; `test/unit/test_ota_manifest.c: test_another_boards_class_id_is_refused`; `sdk/go/cmd/tfwctl/e2e_ota_manifest_test.go: TestE2EOTAManifestAcceptsAnImageItNames` |
+| 19 | The same, ESP32 layer 0 | done | `boot/hal/esp32/boot_l0.c` | `test/unit/boot/test_boot_l0_esp32.c: test_a_manifest_sequence_below_the_floor_is_refused` |
+| 20 | The same, soft tier | not started | none: no stored key (owner question 5) | none (slice 4) |
+| 21 | The 4 KB parts (328P, 32U4) trailer-only; `make` refuses `OTA_MANIFEST=1` there | done | `mk/firmware.mk`, `src/core/ota_manifest_none.c` | `scripts/test_manifest_refused.py` |
+| 22 | The envelope travels after the image, a u16 length first, counted in `OTA_BEGIN`'s total | done | `tools/image-seal/` | `test/unit/test_image_seal.c: test_the_envelope_follows_the_image_with_its_length`; `test/unit/test_image_seal.c: test_an_envelope_counts_in_the_stream_length` |
+| 23 | A sequence below the rollback floor refused at `OTA_ACTIVATE` | done | `src/core/ota_manifest.c` | `test/unit/test_ota_manifest.c: test_a_sequence_below_the_floor_is_refused` |
+| 24 | tfw-boot checks the `OTA_ACTIVATE` authorization at reset (#137) | done | `boot/boot_cose.c`, `boot/boot_stage.c`, `boot/boot_trial.c` | `test/unit/boot/test_boot_stage.c: test_an_authorized_image_is_taken_over_the_sig_structure`; `test/unit/boot/test_boot_stage.c: test_a_missing_authorization_clears_the_mark` |
+| 25 | ATmega2560: tfw-boot checks `OTA_CONFIRM` from the request at EEPROM `0x0EA` (#231) | done | `boot/boot_request.c`, `boot/boot_trial.c` | `test/unit/boot/test_boot_request.c: test_take_honours_a_request_and_clears_it`; `test/unit/boot/boot_main/test_boot_main.c: test_a_confirmed_trial_settles_its_version_and_checks_the_new_floor` |
+| 26 | The authorization: COSE_Sign1 ES256 over a detached payload naming action, measurement and version, on every tier | partial: the ESP32's `OTA_CONFIRM` ends the trial with `esp_ota_mark_app_valid_cancel_rollback` and never verifies the held signature (`src/hal/esp32/hal_ota.c:364-382`; [api.md](api.md), "ESP32") (slice 6) | `boot/boot_cose.c` | `sdk/go/cmd/tfwctl/ota_activate_sig_test.go: TestActivateSigStructureMatchesTheVector`; `sdk/go/cmd/tfwctl/ota_activate_sig_test.go: TestConfirmSigStructureIsTfwBoots`; `sdk/go/cmd/tfwctl/e2e_ota_round_test.go: TestE2EOTARoundActivateSignedForAnotherMeasurementIsRefused` |
+| 27 | `OTA_AUTH` (0x6F) before the command; without it `TFW_ERR_AUTH_REQUIRED` (17) | done | `src/core/ota_auth.c` | `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestFirmwareOTAAuthLetsTheCommandPastTheGate`; `test/unit/test_esp_ota.c: test_confirm_needs_an_ota_auth_just_before` |
+| 28 | The element tier keeps its operator session and adds the check | partial | `src/core/ota_auth.c` | none named by this audit (slice 7) |
+| 29 | One trial boot within the per-board timeout; the 8 s watchdog armed before the jump, re-armed and petted in the application | done | `boot/boot_trial.c`, `src/core/ota_trial.c` | `test/unit/boot/test_boot_main.c: test_a_new_image_boots_on_trial_armed_before_the_watchdog_and_the_jump`; `test/unit/test_ota_trial.c: test_a_trial_boot_rearms_and_pets`; `test/unit/test_ota_trial.c: test_the_deadline_resets_and_not_before` |
+| 30 | The control plane confirms after attestation | partial | `src/core/ota_ctl.c` (device side); the control plane is go-trusted-platform's | `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestE2EOTAConfirmsARunningTrial` (device side only) |
+| 31 | A failed trial rolls back by itself; recovery is another OTA round | done | `boot/boot_trial.c`, `boot/boot_swap.c` | `test/unit/boot/test_boot_main.c: test_an_unconfirmed_trial_ends_at_the_next_reset_and_never_runs_again`; `test/unit/boot/test_boot_swap.c: test_a_failed_trial_swaps_back_and_boots_a`; `test/unit/boot/test_boot_swap.c: test_an_image_refused_after_the_swap_swaps_back` |
+| 32 | An anti-rollback floor, advanced at confirm, never lowered | done | `boot/boot_image.c` (`tfw_boot_rollback_permit`), `boot/boot_trial.c` | `test/unit/boot/test_boot_trial.c: test_settle_advances_the_floor_to_the_confirmed_version`; `test/unit/boot/test_boot_trial.c: test_settle_never_lowers_the_floor`; `test/unit/boot/test_boot_main.c: test_an_image_under_the_floor_is_refused` |
+| 33 | A status code for the wrong OTA state | done | `include/tfw/status.h` (`TFW_ERR_BAD_STATE`) | `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestE2EOTARefusesAnUnsettledConfirm`; `test/unit/test_esp_ota.c: test_confirm_off_trial_is_bad_state` |
+| 34 | `OTA_INFO`, `OTA_ACTIVATE`, `OTA_CONFIRM` are 0x6C to 0x6E, serial only | done | `src/core/ota_ctl.c`, `src/core/ota_activate.c` | `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestFirmwareOTAInfo`; `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestFirmwareOTAActivate`; `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestFirmwareOTAConfirm`; `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestE2EOTAControlIsSerialOnly` |
+| 35 | A block that cannot be verified fails closed | done | `boot/boot_stage.c`, `src/core/ota_stage.c` | `test/unit/boot/test_boot_stage.c: test_a_bad_hash_copies_nothing`; `test/unit/boot/test_boot_stage.c: test_a_wrong_board_id_copies_nothing` |
+| 36 | The store `MARK` cleared at fallback (item 56) | done | `boot/boot_stage.c` | `test/unit/boot/test_boot_stage.c: test_a_fallback_clears_the_mark_and_the_next_reset_takes_nothing`; `test/unit/boot/test_boot_swap.c: test_a_failed_trial_that_falls_back_forgets_its_mark` |
+| 37 | ATmega2560 store and soft rows shed OTA before verification (item 79) | partial | `mk/boot.mk` | none named by this audit (slice 7) |
+| 38 | `tfwctl ota-stage` over `(*Device).StageImage`, and `tfwctl ota-status` | done | `sdk/go/ota.go` | `sdk/go/cmd/tfwctl/ota_stage_test.go: TestOTAStageSendsTheImageInChunksAndPrintsTheFinalState`; `sdk/go/cmd/tfwctl/ota_stage_test.go: TestOTAStatusPrintsEachState`; `sdk/go/cmd/tfwctl/e2e_ota_resume_test.go: TestE2EOTAStageResumesAfterALostFrame` |
+| 39 | This project and `sdk/go` hold no private key; the host sends the signature it is given | done | `sdk/go/ota.go` | `sdk/go/cmd/tfwctl/ota_stage_test.go: TestOTAActivateAndConfirmSendTheAuthorizationFirst` |
+| 40 | `make image-tbs` and `make image-seal` seal an AVR image for its board | done | `tools/image-seal/` | `test/unit/test_image_seal.c: test_the_span_is_the_wire_vector_for_this_board` |
+| 41 | `tfwsim --boot-key` runs the real tfw-boot through the round (#52) | done | `boot/boot_trial.c`, `boot/boot_stage.c` | `sdk/go/cmd/tfwctl/e2e_ota_round_test.go: TestE2EOTARoundBootsTheActivatedImageOnTrial`; `sdk/go/cmd/tfwctl/e2e_ota_round_test.go: TestE2EOTARoundUnconfirmedTrialEndsAtTheNextReset`; `sdk/go/cmd/tfwctl/e2e_ota_round_test.go: TestE2EOTARoundImageBelowTheFloorIsNotTaken` |
+| 42 | A TCP session's authorization ends with its connection | done | `src/proto/link_eth.c`, `src/core/ota_auth.c` | `test/unit/test_ota_hold_link.c: test_an_ota_auth_over_ethernet_holds_nothing_past_its_connection`; `sdk/go/cmd/tfwctl/e2e_ota_test.go: TestE2EOTAAuthSessionEndsWithItsConnection` |
+| 43 | `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP | not started | `src/proto/link_eth.c` keeps them off the allow-list (owner item 48) | `test/unit/test_link_eth.c: test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else` pins today's refusal (slice 5) |
+| 44 | ESP32: layer 0 verifies the activate authorization at the trial boot and boots the previous slot when refused | done | `boot/hal/esp32/boot_l0.c` | `test/unit/boot/test_boot_l0_esp32_mutate.c: test_a_trial_not_authorized_falls_back`; `test/unit/boot/test_boot_l0_esp32_mutate.c: test_a_trial_slot_with_its_authorization_is_loaded` |
+| 45 | ESP32: an unconfirmed trial rolls back at 60 s | partial | `src/hal/esp32/hal_ota.c` | none named by this audit (slice 8) |
+| 46 | ESP32: ESP-IDF's anti-rollback; which releases advance the eFuse floor | partial | esp32c3 QEMU only; the release policy is the owner's (question 9) | `make esp32-qemu-test` (slice 11) |
+| 47 | Every board reflashed with an image that carries its board id | partial | the 2560 and the ESP32-P4 done; the Nano not | none: bench records (slice 12) |
+| 48 | Seams: go-trusted-platform `device-ota`, go-quicbaas reference values, qrdb `ota.activate`/`ota.confirm`, go-xkms signer and provisioning row | not started | other projects ([README.md](README.md), "Seams") | none in this repository (slice 13) |
+
+### Remaining slices
+
+1. ATmega328P store row: make it fit its 4 KB boot section or take the owner's ruling (#52); touches `boot/`, `boards/atmega328p/profile.mk`; proved by `make bootloader-check`; owner decision.
+2. ATmega32U4 restore from `PREV` on a supported row and under simavr; touches `boot/boot_prev.c`, `test/integration/simavr/boot_harness_prev.c`; proved by `make integration-test-boot`; needs the core to shrink by 1 724 B or an owner ruling.
+3. ATmega32U4 `ETH=1` stager measured against its 14 336 B budget; touches `boards/atmega32u4/profile.mk`; proved by the coordinator's size check.
+4. Manifest check on the soft tier with a key home; touches `src/core/ota_manifest.c`, `mk/firmware.mk`; proved by a soft-row case in `test/unit/test_ota_manifest.c`; owner question 5 first.
+5. `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP; touches `src/proto/link_eth.c`; proved by `test/unit/test_link_eth.c` and `TestE2EOTAControlIsSerialOnly` turned to admit them; owner item 48 first.
+6. ESP32 confirm verifies the signature: `OTA_CONFIRM` checks the held COSE_Sign1 confirm signature over the running image's measurement and version with the image key before it calls `esp_ota_mark_app_valid_cancel_rollback`; touches `src/hal/esp32/hal_ota.c`; proved by a case in `test/unit/test_esp_ota.c` that an invalid signature answers a refusal, leaves the trial running and never calls the mock's `esp_ota_mark_app_valid_cancel_rollback`; no hardware.
+7. Name or add tests for rows 28 and 37 (the element tier's operator session with `OTA_AUTH`; item 79's shed-before-verification), in `test/unit/test_ota_auth_mutate.c` and `test/unit/boot/`; no hardware.
+8. Name or add a test for the ESP32's 60 s trial deadline in `test/unit/test_esp_ota.c`; no hardware.
+9. Cortex-M33 under TF-M: `0x68`–`0x6E` mapped onto PSA Firmware Update, the trailer beside MCUboot's signature; owner question 8 first.
+10. i.MX 95 M7 under AHAB, the trailer beside the container signature; with #15 and trusted-imx95.
+11. ESP32-P4 eFuse anti-rollback on the board; hardware, and owner question 9.
+12. Bench reflash of every board with a board-id image (the Nano waits on the ISP cabling question); hardware.
+13. The seams in go-trusted-platform, go-quicbaas, qrdb and go-xkms, and `tfwprov` placing go-xkms's key once its row lands; other projects.
+14. The W5500 on a real network; hardware.
 
 ### Open question: `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP
 

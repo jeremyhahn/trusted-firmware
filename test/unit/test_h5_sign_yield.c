@@ -52,6 +52,11 @@ void tfw_h5_eth_service_deadlines(void)
     deadline_sweeps++;
 }
 
+/* The rx drain is exercised on real lwIP in test_h5_netif.c. */
+void tfw_h5_eth_service_rx_nodispatch(void)
+{
+}
+
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
     (void)out;

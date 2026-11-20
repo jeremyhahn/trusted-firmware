@@ -407,6 +407,14 @@ void tfw_h5_eth_service_deadlines(void)
     eth_drop_expired_address();
 }
 
+void tfw_h5_eth_service_rx_nodispatch(void)
+{
+    if (eth_state != ETH_RUNNING) {
+        return;                         /* MAC not started: no ring to read */
+    }
+    eth_rx_all();                       /* into lwIP; the wire's recv only buffers */
+}
+
 /* Stops DHCP and forgets the address it gave, if it runs. */
 static void eth_stop_dhcp(void)
 {

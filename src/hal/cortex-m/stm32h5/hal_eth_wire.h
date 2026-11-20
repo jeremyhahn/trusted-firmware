@@ -70,6 +70,12 @@ int      tfw_h5_eth_reconcile(const tfw_netcfg_t *cfg);
  * else: no frame is read and no request is dispatched. Called each poll, and
  * from tfw_sign_yield() so a long software signature keeps them on time. */
 void     tfw_h5_eth_service_deadlines(void);
+/* Reads the received frames into lwIP, as each poll does, and nothing else:
+ * TCP segments (a keepalive answer, an ACK) are processed, and data is only
+ * buffered by the wire's receive callback, never dispatched. Called from
+ * tfw_sign_yield() so a peer answering keepalive during a long software
+ * signature is not found dead. */
+void     tfw_h5_eth_service_rx_nodispatch(void);
 
 /* --- called by the connection (hal_eth_wire_tcp.c) -------------------------- */
 

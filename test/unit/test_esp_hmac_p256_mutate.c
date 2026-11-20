@@ -30,6 +30,8 @@
 #include "esp_efuse.h"
 #include "esp_hmac.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "uECC.h"
 #include "tfw/crypto.h"
 #include "tfw/protocol.h"
@@ -147,6 +149,13 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message, size_t m
     seed_of((unsigned)key_id, hmac);
     return ESP_OK;
 }
+
+/* The entropy source's lock and switch around tfw_crypto_random (#607); its
+ * order and busy path are test_esp_crypto_hmac_p256's. */
+esp_err_t adc_lock_try_acquire(adc_unit_t adc_unit) { (void)adc_unit; return ESP_OK; }
+esp_err_t adc_lock_release(adc_unit_t adc_unit) { (void)adc_unit; return ESP_OK; }
+void bootloader_random_enable(void) {}
+void bootloader_random_disable(void) {}
 
 void esp_fill_random(void *buf, size_t len)
 {

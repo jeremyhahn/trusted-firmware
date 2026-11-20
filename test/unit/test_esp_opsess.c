@@ -16,6 +16,8 @@
 #include "esp_efuse.h"
 #include "esp_hmac.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "auth_session.h"
 #include "boot_platform.h"
 #include "platform_id.h"
@@ -62,12 +64,34 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message,
     return ESP_OK;
 }
 
+/* The ADC lock the entropy source shares (#607): held elsewhere when
+ * adc_held, and then no nonce may be drawn. */
+static int      adc_held;
+static int      entropy_on;
+static unsigned plain_draws;
+
+esp_err_t adc_lock_try_acquire(adc_unit_t adc_unit)
+{
+    (void)adc_unit;
+    return adc_held ? ESP_FAIL : ESP_OK;
+}
+
+esp_err_t adc_lock_release(adc_unit_t adc_unit)
+{
+    (void)adc_unit;
+    return ESP_OK;
+}
+
+void bootloader_random_enable(void)  { entropy_on = 1; }
+void bootloader_random_disable(void) { entropy_on = 0; }
+
 void esp_fill_random(void *buf, size_t len)
 {
     static uint8_t ctr;
     uint8_t       *p = buf;
     size_t         i;
 
+    if (!entropy_on) { plain_draws++; }
     for (i = 0u; i < len; i++) { p[i] = (uint8_t)(0x5Au ^ ctr++); }
 }
 
@@ -185,6 +209,8 @@ void setUp(void)
     uds_burned = 1;
     uds_block  = EFUSE_BLK_KEY3;
     hmac_calls = 0u;
+    adc_held   = 0;
+    entropy_on = 0;
     memset(test_handoff, 0, sizeof test_handoff);
     tfw_boot_handoff_init();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
@@ -271,6 +297,29 @@ static void test_no_uds_means_no_session(void)
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
+/* #607: no entropy source, no challenge -- never a nonce drawn with the
+ * source off, and the gate stays shut. */
+static void test_a_busy_entropy_source_refuses_the_challenge(void)
+{
+    uint8_t nonce[TFW_AUTH_NONCE_LEN];
+
+    adc_held    = 1;
+    plain_draws = 0u;
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, challenge(nonce));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, authenticate_with(operator_priv));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+    TEST_ASSERT_EQUAL_UINT(0u, plain_draws);
+}
+
+/* Every operator nonce is drawn with the entropy source on. */
+static void test_the_challenge_is_drawn_with_the_entropy_source_on(void)
+{
+    plain_draws = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
+    TEST_ASSERT_EQUAL_UINT(0u, plain_draws);
+    TEST_ASSERT_FALSE(entropy_on);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -282,5 +331,7 @@ int main(void)
     RUN_TEST(test_a_tag_moved_to_another_key_is_refused);
     RUN_TEST(test_another_parts_tag_is_refused);
     RUN_TEST(test_no_uds_means_no_session);
+    RUN_TEST(test_a_busy_entropy_source_refuses_the_challenge);
+    RUN_TEST(test_the_challenge_is_drawn_with_the_entropy_source_on);
     return UNITY_END();
 }

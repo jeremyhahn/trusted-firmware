@@ -1,4 +1,4 @@
-# nightly-template: v1.12 — the known-red and long-horizon jobs, off the push path.
+# nightly-template: v1.12 (customized) — the known-red and long-horizon jobs, off the push path.
 # v1.12 (2026-11-13): a timeout-minutes on the trivy job (ruling 580), so a hung run ends itself.
 # v1.11 (2026-11-08, Tenant Agent m2226 item 2, ci-template v1.34.1): the
 # GO_BUILD_PROXY chain has no trailing `direct` (dependency-resolution.md,
@@ -73,6 +73,9 @@
 # CUSTOMIZE per repo: the fips job needs the repo's build deps; trivy needs
 # the repo's .trivyignore and skip-dirs. Both jobs are copied verbatim from
 # ci-template v1.8 (they are unchanged by the move).
+# trusted-firmware (#611): fips builds and tests the xkms/ and sdk/go
+# modules through ci.yml's Unit-job make targets; trivy keeps the shipped
+# skip-dirs and the root .trivyignore (see each job's CUSTOMIZE note).
 
 name: Nightly
 
@@ -129,8 +132,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      # CUSTOMIZE (trusted-firmware, #611): there is no root Go module, so a
+      # bare `go build ./...` builds nothing; build the two Go modules, xkms/
+      # with its codec_json tag, as ci.yml's image job does.
       - name: Build all packages (FIPS mode)
-        run: go build ./...
+        run: |
+          (cd xkms && go build -tags codec_json ./...)
+          (cd sdk/go && go build ./...)
+
 
       # CUSTOMIZE (v1.4.1): this MUST mirror the repo's own unit-test
       # invocation — same build tags, same package scope, same dark-suite
@@ -139,8 +148,11 @@ jobs:
       # suites, and deliberately-dark timing tests that the Test job
       # excludes, and fails for reasons that have nothing to do with FIPS
       # (seen 2026-08-17 on go-frost/go-objstore/go-signal).
+      # CUSTOMIZE (trusted-firmware, #611): the Go gates of ci.yml's Unit job
+      # (TEST_GATES in mk/stages.mk), same make targets, tags and package scope
+      # (xkms/ without its e2e suite); only GOFIPS140 and GODEBUG differ.
       - name: Unit tests (FIPS mode)
-        run: go test -count=1 -timeout=900s ./...
+        run: make xkms-coverage sdk-coverage GO_BUILD_TAGS=codec_json
 
 
   # v1.9: the repository's lint sweeps (whole-tree, slow lint passes beside
@@ -148,6 +160,9 @@ jobs:
   lint-sweeps:
     name: Lint sweeps [toolchain image]
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE (trusted-firmware, #611): the Makefile has no lint-sweeps
+    # target, so the probe below skips every step and no p95 exists; the
+    # template's value stands until a sweep target lands.
     timeout-minutes: 131      # CUSTOMIZE: ceil(1.5 x this job's 72-hour p95); go-qrdb's 87-minute sweep
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -203,7 +218,7 @@ jobs:
       - name: make lint-sweeps
         if: ${{ !cancelled() && steps.probe.outputs.has_target == 'true' && env.TOOLCHAIN_IMAGE != '' }}
         env:
-          IN_IMAGE_NETWORK: none   # CUSTOMIZE: bridge when a sweep needs the module proxy
+          IN_IMAGE_NETWORK: none   # CUSTOMIZE: bridge when a sweep needs the module proxy (trusted-firmware: no sweep target yet, none)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make -k lint-sweeps"
 
       - name: Tear down
@@ -237,6 +252,9 @@ jobs:
 
       # CUSTOMIZE: skip-dirs — benchmark harnesses, examples, vendored
       # adapters; nothing that ships in a release may be skipped.
+      # trusted-firmware (#611): test,examples as shipped; test/ holds the
+      # suites only, there is no examples/, and third_party/ ships in the
+      # firmware, so it is scanned. .trivyignore is at the repo root.
       #
       # trivy-action is PINNED TO A FULL COMMIT SHA (v1.4). Through v1.3 this
       # template shipped `@master`: a mutable ref on a third-party action means

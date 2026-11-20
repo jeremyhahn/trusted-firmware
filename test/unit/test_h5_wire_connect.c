@@ -354,6 +354,32 @@ static void test_no_dial_while_the_netif_is_not_ready_on_the_block(void)
     connect_answers(ERR_OK);
 }
 
+/* A peer that loses its TCP state without FIN or RST, with nothing queued to
+ * it: the connection probes the peer with bounded keepalives, and when they
+ * go unanswered lwIP's slow timer frees the pcb and reports ERR_ABRT, so the
+ * device drops the stale connection and dials again (#584, Codex round 7). */
+static void test_a_silent_peer_is_found_dead_by_keepalive_and_redialled(void)
+{
+#if LWIP_TCP_KEEPALIVE
+    uint32_t dead = conn.keep_idle + conn.keep_intvl * conn.keep_cnt;
+
+    TEST_ASSERT_TRUE(ip_get_option(&conn, SOF_KEEPALIVE) != 0);
+    TEST_ASSERT_TRUE(conn.keep_idle > 0u);
+    TEST_ASSERT_TRUE(conn.keep_intvl > 0u);
+    TEST_ASSERT_TRUE(conn.keep_cnt > 0u);
+    TEST_ASSERT_TRUE(dead <= 60000u);   /* a dead peer is found within a minute */
+#else
+    TEST_FAIL_MESSAGE("LWIP_TCP_KEEPALIVE is off: a silent peer is never found dead");
+#endif
+    err_cb(cb_arg, ERR_ABRT);           /* the probes went unanswered */
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(0, connect_calls);
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    connect_answers(ERR_OK);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -365,5 +391,6 @@ int main(void)
     RUN_TEST(test_an_error_closes_at_once);
     RUN_TEST(test_a_redial_reconciles_the_netif_with_the_block_it_dials);
     RUN_TEST(test_no_dial_while_the_netif_is_not_ready_on_the_block);
+    RUN_TEST(test_a_silent_peer_is_found_dead_by_keepalive_and_redialled);
     return UNITY_END();
 }

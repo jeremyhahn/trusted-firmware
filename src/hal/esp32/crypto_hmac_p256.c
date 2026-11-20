@@ -34,6 +34,8 @@
 #include "esp_hmac.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "uECC.h"
 
 #include "tfw/crypto.h"
@@ -168,10 +170,22 @@ uint16_t tfw_crypto_algorithms(void)
                       (have_cdi ? TFW_ALGBIT_HMAC_SHA256 : 0u));
 }
 
-/* The part's hardware RNG. */
+/* The operator nonce (#607). ESP-IDF v5.5.5 switches the SAR ADC noise
+ * source off before the application and this board runs no radio, so
+ * esp_fill_random alone is not fresh entropy here: the source goes on around
+ * the draw, under the ADC unit lock it shares, and with the lock held
+ * elsewhere the draw is refused (fail closed: auth_session refuses the
+ * challenge). The same five steps as tfw_prov_uds_random in prov_uds.c,
+ * duplicated rather than shared to keep this file free of a new header. */
 tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
 {
+    if (adc_lock_try_acquire(ADC_UNIT_1) != ESP_OK) {
+        return TFW_ERR_BUSY;
+    }
+    bootloader_random_enable();
     esp_fill_random(out, len);
+    bootloader_random_disable();
+    (void)adc_lock_release(ADC_UNIT_1);
     return TFW_OK;
 }
 
@@ -242,7 +256,6 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
     uint8_t      stored[TFW_BOOT_OPERATOR_BIND_LEN];
     uint8_t      tag[TFW_BOOT_OPERATOR_BIND_LEN];
     uint8_t      diff = 0u;
-    uint8_t      i;
     tfw_status_t st   = TFW_ERR_CRYPTO;
 
     /* The key is the operator's only if this part's UDS bound it (row #606,
@@ -257,7 +270,7 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
         return TFW_ERR_CRYPTO;
     }
     if (operator_bind(pubkey, tag)) {
-        for (i = 0u; i < (uint8_t)sizeof tag; i++) {
+        for (uint8_t i = 0u; i < (uint8_t)sizeof tag; i++) {
             diff = (uint8_t)(diff | (tag[i] ^ stored[i]));
         }
         if (diff == 0u && uECC_verify(pubkey, digest, 32u, sig, uECC_secp256r1())) {

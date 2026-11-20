@@ -470,6 +470,21 @@ that row passing in the whole-list run, 385 s, every row from a probe reset.
   run the row by name. On that boot
   `attest` answers "no provisioned identity" in the 2.0 s a `caps` takes.
   The board was left on the same set's `boot.bin` (provisioned).
+  - 2026-11-20, ruling 1021, full three-image flash (lane hw-570): one
+    `make BOARD=stm32h573i-dk cortex-m-dk-image` build at 17d109c9 (SHA-256
+    in docs/plans/570.md), `boot-unprovisioned.bin`, `app.bin` and
+    `platform.bin` written with `pyocd load -t stm32h573iikx -e sector` at
+    the `addrs.env` addresses (`stm32h573iikx` after `pyocd pack install`),
+    then `pyocd reset`. The console sent the BOOT event (status 0) and no
+    other bytes in 45 s. `caps` sent at the reset gets no reply in 60 s (the
+    board does not read the UART before its boot frame); after the boot
+    frame `caps` answers in 2.0 s, root of trust software, `attest` in its
+    features. `attest` with a zero nonce: refused in 2.0 s, "device has no
+    provisioned identity", far inside the 45 s board timeout; that refusal
+    is the provisioning state read back (no platform identity: no UDS, so
+    no CDI). The row, run alone with `TFW_HW_RESET=cmd:pyocd reset`:
+    **PASS** in 16.1 s from the probe reset. No code change. The board was
+    left on this build's unprovisioned set.
 - `TestFirmwareRefusesI2CItsCapsLacks`: **verified** 2026-11-17 on the
   default image (below), run alone, 16 s from the probe reset. On the `I2C=1`
   build it fails by design (`this row needs a peer without CAPS feature i2c`).

@@ -458,13 +458,15 @@ static void test_no_connection_touches_nothing(void)
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
     TEST_ASSERT_EQUAL_UINT(0u, k.warns);
-    /* Bytes with no host go nowhere, and are not kept for the next one. */
-    send_str("lost");
+    /* Bytes sent before the first host are kept for it, and do not hold up
+     * the loop (#550); test_esp_wire.c covers what is dropped after it. */
+    send_str("boot");
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, k.fd[3].sends);
 }
 
 static void take(int fd)
@@ -519,6 +521,29 @@ static void test_a_host_quiet_for_the_window_is_replaced(void)
         TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
         TEST_ASSERT_EQUAL_UINT8('N', b);
     }
+}
+
+/* A hw-test row hangs up and the next row dials at once: the old host's EOF
+ * and the new connection are both pending before one poll. The hangup is
+ * read first, so the new host is taken, not refused as a second one. */
+static void test_a_hangup_and_a_new_host_in_one_poll_hand_the_wire_over(void)
+{
+    take(3);
+    now += 1u;
+    k.fd[3].hung = 1;
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].closes);
+    TEST_ASSERT_EQUAL_HEX(OTHER_FL | O_NONBLOCK, k.fd[4].fl);
+    TEST_ASSERT_EQUAL_INT(1, k.fd[4].nodelay);
+    feed(4, (const uint8_t *)"N", 1u);
+    {
+        uint8_t b = 0u;
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_UINT8('N', b);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].closes);
 }
 
 static void test_the_window_holds_across_a_clock_wrap(void)
@@ -758,6 +783,7 @@ int main(void)
     RUN_TEST(test_no_connection_touches_nothing);
     RUN_TEST(test_a_second_host_inside_the_window_is_refused);
     RUN_TEST(test_a_host_quiet_for_the_window_is_replaced);
+    RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_hand_the_wire_over);
     RUN_TEST(test_the_window_holds_across_a_clock_wrap);
     RUN_TEST(test_a_host_just_taken_is_heard);
     RUN_TEST(test_a_byte_received_is_heard);

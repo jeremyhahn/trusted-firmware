@@ -77,4 +77,9 @@
  * bootloader falls back. 60 s, as each AVR board with a boot section. */
 #define TFW_OTA_TRIAL_TIMEOUT_S 60u
 
+/* ESP-IDF's two OTA slots, ota_0 and ota_1 of partitions.csv: an A/B
+ * application (TFW_APP_OTA_AB) passes its static check here, and the runner
+ * checks it against src/hal/esp32/hal_ota.c's tfw_update_slots(). */
+#define TFW_OTA_SLOTS 2u
+
 #endif /* TFW_BOARD_ESP32_QEMU_H */

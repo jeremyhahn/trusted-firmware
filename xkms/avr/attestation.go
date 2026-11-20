@@ -98,6 +98,14 @@ type Attestation struct {
 	// exactly what the device said. go-xkms reads 273 itself, at finalize.
 	Claims *dice.ClaimsSet
 
+	// ApplicationEvidence is the 32-byte value claim 273 carries for its one
+	// file, "app": the application's evidence, or the firmware's measurement
+	// where no application supplies any. It is decoded by sdk/go
+	// (tfw.AliasUCCS, tfw.ApplicationEvidence), the owner of the claim format,
+	// so the adapter and every other sdk/go reader agree on what the device
+	// said. A claim 273 sdk/go refuses refuses the attestation.
+	ApplicationEvidence [tfw.ApplicationEvidenceLen]byte
+
 	// Ueid is the device's unique identifier, type byte included, read by
 	// dice.DeviceUeid. The AVR profile states it as CWT claim 256 inside the
 	// evidence extension rather than as a tcg-dice-Ueid extension; Claims.Other
@@ -253,6 +261,18 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 		return nil, err
 	}
 
+	// Claim 273 is read by sdk/go, which owns its format, and not decoded a
+	// second time here. dice.Verify keeps it verbatim in Claims.Other; this is
+	// the same extension it read, so the two cannot describe different bytes.
+	uccs, err := tfw.AliasUCCS(der)
+	if err != nil {
+		return nil, err
+	}
+	measurement, err := tfw.ApplicationEvidence(uccs)
+	if err != nil {
+		return nil, err
+	}
+
 	// Not fatal, and deliberately so -- see the identical fail-safe-to-
 	// unattested comment where AttestLevel is first read in NewBackend. The
 	// DICE chain above has already proved this evidence is genuine; a crypto
@@ -269,15 +289,16 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 	copy(echoed, nonce)
 
 	return &Attestation{
-		Format:         FormatDICE,
-		Certificate:    leaf,
-		CertificateDER: der,
-		Chain:          chainDER(der, b.intermediateCerts),
-		Claims:         evidence.Claims,
-		Ueid:           evidence.Ueid,
-		Nonce:          echoed,
-		AttestLevel:    level,
-		CryptoTier:     b.caps.CryptoTier,
+		Format:              FormatDICE,
+		Certificate:         leaf,
+		CertificateDER:      der,
+		Chain:               chainDER(der, b.intermediateCerts),
+		Claims:              evidence.Claims,
+		ApplicationEvidence: measurement,
+		Ueid:                evidence.Ueid,
+		Nonce:               echoed,
+		AttestLevel:         level,
+		CryptoTier:          b.caps.CryptoTier,
 		// Whether anchoring RAN, never conflated with whether it passed: a
 		// chain from an unknown issuer with roots configured is refused above,
 		// not reported here with Anchored false.

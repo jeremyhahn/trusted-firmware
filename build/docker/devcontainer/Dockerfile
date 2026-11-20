@@ -5,7 +5,7 @@
 # base (handbook devcontainer.md §1), in the fleet template's shape (ci-template
 # v1.18, go-quicraft 0cf97cd).
 #
-#   tools        build-only: the pinned Go analysis tools and trivy, built or
+#   tools        build-only: the pinned Go analysis tools, trivy and gh, built or
 #                downloaded into /out
 #   modules      build-only: the module cache of every Go module here, fetched
 #                with the forge credentials (xkms/ needs the private go-xkms)
@@ -15,7 +15,10 @@
 #                `make security` and `make deps-check` run here, in CI too.
 #   integration  base + the source. `make integration-test` runs it under the
 #                hardened compose service (compose.yaml beside this file).
-#   esp32        Espressif's ESP-IDF image + its QEMU, Go and the module cache:
+#   esp32-build  build-only: Espressif's ESP-IDF image, its tools narrowed to
+#                the chips the boards build and its git history dropped
+#   esp32        Ubuntu (the ESP-IDF image's own OS) + what esp32-build
+#                settled in /opt/esp, its QEMU, Go and the module cache:
 #                `make esp32-build` and `make esp32-qemu-test`. Not FROM base:
 #                ESP-IDF's toolchains and Python environment are Espressif's
 #                (L2), and avr-gcc is Debian's; neither image can host the other
@@ -44,6 +47,11 @@ ARG BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600
 # version in step with ESP_IDF_VERSION in tool-pins.sh and mk/arch/esp32.mk.
 ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5
 ARG ESP_IDF_DIGEST=sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+# The esp32 image's own base: the Ubuntu release the ESP-IDF image is built on,
+# by the digest of its multi-architecture index, so the IDF Python environment
+# copied out of it finds the python3 it was made with. Move it with ESP_IDF_*.
+ARG ESP_BASE_IMAGE=ubuntu:24.04
+ARG ESP_BASE_DIGEST=sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 # Build-time module and tool downloads go through this proxy (devcontainer.md
 # §4). The caller's environment supplies another; no tracked file does.
 ARG GO_BUILD_PROXY=https://proxy.golang.org
@@ -78,7 +86,18 @@ RUN set -eu; \
     echo "${sum}  /tmp/${f}" > /tmp/trivy.sha256; \
     sha256sum -c /tmp/trivy.sha256; \
     tar -xzf "/tmp/${f}" -C /out trivy; \
-    rm -f "/tmp/${f}"
+    rm -f "/tmp/${f}"; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) sum="${GH_SHA256_LINUX_AMD64}" ;; \
+      arm64) sum="${GH_SHA256_LINUX_ARM64}" ;; \
+      *) echo "no gh pin for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    d="gh_${GH_VERSION#v}_linux_${TARGETARCH:-amd64}"; \
+    curl -fsSL -o "/tmp/${d}.tar.gz" "https://github.com/cli/cli/releases/download/${GH_VERSION}/${d}.tar.gz"; \
+    echo "${sum}  /tmp/${d}.tar.gz" > /tmp/gh.sha256; \
+    sha256sum -c /tmp/gh.sha256; \
+    tar -xzf "/tmp/${d}.tar.gz" -C /out --strip-components=2 "${d}/bin/gh"; \
+    rm -f "/tmp/${d}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # github.com/jeremyhahn/* modules resolve from the forge through git, so this
@@ -191,6 +210,7 @@ RUN { echo "# trusted-firmware devcontainer (toolchain)"; \
         go version -m "$(command -v "$t")" | awk -v t="$t" '$1=="mod"{print t, $3; exit}'; \
       done; \
       trivy --version | head -1; \
+      gh --version | head -1; \
     } > /etc/ci-toolchain.txt
 
 USER 10001:10001
@@ -212,51 +232,97 @@ RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
 ENV TFW_IMAGE_STAGE=integration
 USER 10001:10001
 
+# --- esp32-build --------------------------------------------------------------
+# Build-only (#470): Espressif's image carries every chip's tools, the full git
+# history of ESP-IDF and its submodules, and a compiler suite, which made the
+# esp32 image 18 GB. This stage only settles what the esp32 stage copies out:
+# /opt/esp, holding the ESP-IDF tree, the tools and the IDF Python environment.
+FROM ${ESP_IDF_IMAGE}@${ESP_IDF_DIGEST} AS esp32-build
+# No pipefail: `qemu --version | head -n 1` may take SIGPIPE once head is done.
+SHELL ["/bin/bash", "-c"]
+
+# What the ADR pins, installed by ESP-IDF's own idf_tools.py. Its tools.json at
+# the v5.5.5 tag names the version and the checksum of each archive, so the pin
+# is ESP-IDF's, not ours. The base image carries the tools already; naming them
+# again makes the build fail here, not in the job, if it does not.
+#   Espressif QEMU   esp_develop_9.2.2_20260417  (qemu-riscv32, qemu-xtensa)
+#   CMake / Ninja    3.30.2 / 1.12.1
+# ESP_CHIPS are the chips the boards build: ESP_TARGETS of boards/esp32-qemu
+# (esp32c3, esp32) and ESP_TARGET of boards/esp32p4-poe. idf-env.json is
+# started again so it records these, not the base image's "all": export.sh
+# then exports, and checks, only their tools, and a tool directory nothing
+# exports is dropped. Every idf_tools.py call names --targets: its default is
+# all. The git history goes too, with version.txt kept in its place, which
+# ESP-IDF's CMake and idf.py read when there is no .git.
+# Keep the QEMU version in step with ESP_QEMU_VERSION in mk/arch/esp32.mk.
+ARG ESP_IDF_IMAGE
+ARG ESP_CHIPS=esp32,esp32c3,esp32p4
+ARG ESP_QEMU_VERSION=esp_develop_9.2.2_20260417
+RUN rm -f "$IDF_TOOLS_PATH/idf-env.json" \
+    && python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install --targets="${ESP_CHIPS}" required \
+    && python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install --targets="${ESP_CHIPS}" \
+         cmake ninja qemu-riscv32 qemu-xtensa \
+    && python3 "$IDF_PATH/tools/idf_tools.py" export --format key-value > /tmp/idf-export \
+    && . "$IDF_PATH/export.sh" >/dev/null \
+    && qemu-system-riscv32 --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}" \
+    && qemu-system-xtensa --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}" \
+    && for d in "$IDF_TOOLS_PATH"/tools/*/; do \
+         grep -qF "$d" /tmp/idf-export || { echo "esp32-build: dropping $d"; rm -rf "$d"; }; \
+       done \
+    && git -C "$IDF_PATH" describe --tags > "$IDF_PATH/version.txt" \
+    && [ "$(cat "$IDF_PATH/version.txt")" = "${ESP_IDF_IMAGE##*:}" ] \
+    && find "$IDF_PATH" -name .git -prune -exec rm -rf {} + \
+    && rm -rf "$IDF_PATH/docs" "$IDF_TOOLS_PATH/dist" /root/.cache /tmp/idf-export
+
 # --- esp32 --------------------------------------------------------------------
-FROM ${ESP_IDF_IMAGE}@${ESP_IDF_DIGEST} AS esp32
+# The image `make esp32-build` and `make esp32-qemu-test` run in: the OS the
+# ESP-IDF image is built on (Ubuntu 24.04, its python3 the 3.12 the IDF Python
+# environment was made with, so the environment runs where it is copied), the
+# runtime packages, and what esp32-build settled. Go and the verified module
+# cache are base's, the same pin and the same read-only cache.
+FROM ${ESP_BASE_IMAGE}@${ESP_BASE_DIGEST} AS esp32
 
 ENV DEBIAN_FRONTEND=noninteractive
 # `export.sh` puts the toolchains and ESP-IDF's Python environment on PATH. The
-# base image's entrypoint sources it for `docker run` and for the container
+# entrypoint, ESP-IDF's own, sources it for `docker run` and for the container
 # scripts/in-toolchain-image.sh starts; a RUN step has no entrypoint, so each
 # one that needs a tool sources it itself.
 SHELL ["/bin/bash", "-c"]
 
-# make drives the targets. The rest is QEMU's runtime: idf_tools.py removes a
-# QEMU it cannot run, so a missing library shows up as a missing binary.
+# make drives the targets, git names the build's version, python3 runs the IDF
+# Python environment, ccache is what idf.py turns on when it finds it, binutils
+# is the host objcopy platform-bake calls, and gcc the cgo compiler the ESP-IDF
+# image had. The rest is the runtime of the tools: QEMU's, and libusb for
+# openocd-esp32, which export.sh checks by running it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      make git ca-certificates curl xz-utils \
-      libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+      make git ca-certificates python3 python3-venv ccache binutils gcc libc6-dev \
+      libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 libusb-1.0-0 libbsd0 \
     && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
     && git config --system --add safe.directory '*'
 
-# Go, for the `wirecheck` host of the QEMU test: the version and checksum base
-# installs, from the same pin file.
+COPY --from=esp32-build /opt/esp /opt/esp
+ENV IDF_PATH=/opt/esp/idf \
+    IDF_TOOLS_PATH=/opt/esp \
+    IDF_GITHUB_ASSETS="" \
+    IDF_PYTHON_CHECK_CONSTRAINTS=no \
+    IDF_CCACHE_ENABLE=1
+ENTRYPOINT ["/opt/esp/entrypoint.sh"]
+CMD ["/bin/bash"]
+
+# Go, for the `wirecheck` host of the QEMU test and the Go tools esp32-build
+# builds: base's install, from the same pin file, and base's module cache.
 COPY scripts/tool-pins.sh /etc/tfw/tool-pins.sh
-RUN . /etc/tfw/tool-pins.sh \
-    && curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
-    && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
-    && tar -C /usr/local -xzf /tmp/go.tgz \
-    && rm /tmp/go.tgz
+COPY --from=base /usr/local/go /usr/local/go
+COPY --from=base /opt/go /opt/go
 ENV PATH="/usr/local/go/bin:${PATH}" \
     GOTOOLCHAIN=local \
-    GOMODCACHE=/opt/go/mod
-COPY --from=modules /gomodcache /opt/go/mod
-RUN chmod -R a+rX /opt/go
-ENV GOPROXY=off
+    GOMODCACHE=/opt/go/mod \
+    GOPROXY=off
 
-# What the ADR pins, installed by ESP-IDF's own idf_tools.py. Its tools.json at
-# the v5.5.5 tag names the version and the checksum of each archive, so the pin
-# is ESP-IDF's, not ours. The base image carries the toolchains already; naming
-# the targets again makes the build fail here, not in the job, if it does not.
-#   Espressif QEMU   esp_develop_9.2.2_20260417  (qemu-riscv32, qemu-xtensa)
-#   CMake / Ninja    3.30.2 / 1.12.1
-# Keep the QEMU version in step with ESP_QEMU_VERSION in mk/arch/esp32.mk.
+# The QEMUs again, now on this image's libraries.
 ARG ESP_QEMU_VERSION=esp_develop_9.2.2_20260417
 RUN . "$IDF_PATH/export.sh" >/dev/null \
-    && python "$IDF_PATH/tools/idf_tools.py" install \
-         cmake ninja qemu-riscv32 qemu-xtensa \
-    && . "$IDF_PATH/export.sh" >/dev/null \
     && qemu-system-riscv32 --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}" \
     && qemu-system-xtensa --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}"
 
@@ -299,15 +365,20 @@ ENV HOME=/tmp \
 WORKDIR /src
 USER 10001:10001
 
-# The proof, as the user: export.sh and an ESP-IDF example built for one target
-# the way esp32-build builds, so a write that still needs root fails the image
+# The proof, as the user: export.sh and an ESP-IDF example built the way
+# esp32-build builds, once on each toolchain (esp32c3 RISC-V, esp32 Xtensa), so
+# a write that still needs root, or a tool esp32-build dropped, fails the image
 # build here rather than the job. The output and the caches are removed after.
 RUN mkdir /src/.probe && rmdir /src/.probe \
     && . "$IDF_PATH/export.sh" >/dev/null \
-    && cp -r "$IDF_PATH/examples/get-started/hello_world" /tmp/esp32-probe \
-    && { idf.py -C /tmp/esp32-probe -B /tmp/esp32-probe/build -DIDF_TARGET=esp32c3 build \
-           >/tmp/esp32-probe.log 2>&1 \
-         || { tail -n 40 /tmp/esp32-probe.log; exit 1; }; } \
+    && for t in esp32c3 esp32; do \
+         rm -rf /tmp/esp32-probe \
+         && cp -r "$IDF_PATH/examples/get-started/hello_world" /tmp/esp32-probe \
+         && { idf.py -C /tmp/esp32-probe -B /tmp/esp32-probe/build -DIDF_TARGET="$t" build \
+                >/tmp/esp32-probe.log 2>&1 \
+              || { tail -n 40 /tmp/esp32-probe.log; exit 1; }; } \
+         || exit 1; \
+       done \
     && rm -rf /tmp/esp32-probe /tmp/esp32-probe.log /tmp/.cache /tmp/.gocache
 
 # --- optee --------------------------------------------------------------------

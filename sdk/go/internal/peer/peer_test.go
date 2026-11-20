@@ -43,6 +43,49 @@ func TestFromEnvNamesTheBoardOnThePort(t *testing.T) {
 	}
 }
 
+// A board whose serial line resets nothing (the ST-LINK VCOM) is reset by its
+// probe: TFW_HW_RESET=cmd:<program and arguments>.
+func TestFromEnvTakesAProbeResetCommand(t *testing.T) {
+	t.Setenv(PortEnv, "vcom")
+	t.Setenv(BoardEnv, "stm32h573i-dk")
+	t.Setenv(EthEnv, "")
+	t.Setenv(EthListenEnv, "")
+	t.Setenv(ResetEnv, "cmd:probe-tool -c port=SWD -rst")
+	got, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "probe-tool -c port=SWD -rst"
+	if got.QMP != "" || got.ResetCmd != want {
+		t.Fatalf("target = %+v, want reset command %q and no QMP socket", got, want)
+	}
+}
+
+func TestBoundWaitsOutTheDKsSignatureCheck(t *testing.T) {
+	// The DK's first byte comes about 16 s after its reset starts.
+	if got := (Target{Port: "vcom", Board: "stm32h573i-dk"}).Bound(); got < 20*time.Second {
+		t.Fatalf("stm32h573i-dk bound = %s, want at least 20s", got)
+	}
+	for _, board := range []string{SimBoard, "atmega2560", "mps2-an505"} {
+		if got := (Target{Port: "vcom", Board: board}).Bound(); got != StartBound {
+			t.Fatalf("%s bound = %s, want StartBound %s", board, got, StartBound)
+		}
+	}
+}
+
+func TestFromEnvRefusesAnEmptyResetCommand(t *testing.T) {
+	t.Setenv(PortEnv, "vcom")
+	t.Setenv(BoardEnv, "stm32h573i-dk")
+	t.Setenv(EthEnv, "")
+	t.Setenv(EthListenEnv, "")
+	for _, v := range []string{"cmd:", "cmd:   ", "probe:x"} {
+		t.Setenv(ResetEnv, v)
+		if _, err := FromEnv(); err == nil {
+			t.Fatalf("%s=%q: want an error", ResetEnv, v)
+		}
+	}
+}
+
 func TestFromEnvRefusesHalfATarget(t *testing.T) {
 	for _, c := range []struct{ port, board, eth, want string }{
 		{"/dev/ttyACM0", "", "", BoardEnv + " names no board"},
@@ -332,6 +375,37 @@ func TestStartResetsTheBoardThenWaitsForItsFirstTransmission(t *testing.T) {
 	}
 	if len(r.written.Bytes()) != 0 {
 		t.Fatalf("wrote %x before the board had started", r.written.Bytes())
+	}
+}
+
+// The probe reset purges what the running application sent, runs the
+// command, and keeps the new application's first bytes; DTR is not touched.
+func TestStartCmdPurgesThenResetsThenKeepsTheBoot(t *testing.T) {
+	r := &resettablePort{fakePort: fakePort{data: []byte("stale")}}
+	reset := func() error {
+		r.calls = append(r.calls, "cmd")
+		r.data = []byte{0xA5, 0x01}
+		return nil
+	}
+	c, err := startCmd(r, reset, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(r.calls, ",") != "purge,cmd" {
+		t.Fatalf("port calls = %v, want purge then the command", r.calls)
+	}
+	got := make([]byte, 8)
+	n, err := c.Read(got)
+	if err != nil || !bytes.Equal(got[:n], []byte{0xA5, 0x01}) {
+		t.Fatalf("first read = %x, %v; want the new application's a501", got[:n], err)
+	}
+}
+
+func TestStartCmdReportsAFailedReset(t *testing.T) {
+	r := &resettablePort{}
+	failed := errors.New("no probe")
+	if _, err := startCmd(r, func() error { return failed }, time.Second); !errors.Is(err, failed) {
+		t.Fatalf("err = %v, want the command's failure", err)
 	}
 }
 

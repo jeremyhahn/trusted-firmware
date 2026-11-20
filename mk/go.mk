@@ -48,10 +48,12 @@ sdk-build:
 # tfwsim-auto the Mega's default tier, which picks one of those two at startup;
 # tfwsim-prov the element tier as a jig image, the only one tfwprov --commit
 # provisions over the wire; tfwsim-otaboot the 2560 image without the stager,
-# the only one whose RESET(1) reaches a session (#52).
+# the only one whose RESET(1) reaches a session (#52); tfwsim-manifest the
+# element tier with OTA_ACTIVATE's manifest gate, the only one that refuses an
+# image without a matching SUIT manifest (#52).
 # Every test that starts a simulator carries the tfwsim build tag (#163), so
 # this is the one target that compiles them in.
-sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot tfwsim-manifest
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
 ## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor
@@ -76,7 +78,8 @@ sdk-coverage:
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
 # that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
 # does not exist and a board that does not answer all fail; none of them is a
-# skip. Flash the image first (`make flash`); the scenarios do not. -p 1 because
+# skip. PORT=tcp:<ip:port> dials a board whose wire is a TCP server (the
+# ESP32 port) instead, with no reset. Flash the image first (`make flash`); the scenarios do not. -p 1 because
 # every scenario opens, and so resets, the one board. Every TestFirmware*
 # scenario reaches its peer through that seam; a test that starts a simulator
 # itself is named otherwise, so none needs a host binary here. They live in
@@ -110,17 +113,21 @@ sdk-coverage:
 # CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
 # for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
 # OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
-# provisioned to trust.
+# provisioned to trust. ESP_TARGET (TFW_HW_ESP_TARGET) is the machine an
+# esp32-qemu run emulates, whose chip id the staged image carries.
 #
 # HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
 # system_reset, which is how integration-test-cortex-m-wire runs the rows on a
-# QEMU board (mk/arch/cortex-m-targets.mk).
+# QEMU board (mk/arch/cortex-m-targets.mk). A PORT=tcp: board has neither:
+# RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
+# DTR on to reset it, and only that row resets; unset, that row skips, naming
+# RESET_PORT (#550, docs/plans/550.md).
 HW_TEST_RUN ?=
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
-	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
+	@if [ -z "$(filter tcp:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ESP_TARGET='$(ESP_TARGET)' TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_RESET_PORT='$(RESET_PORT)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go
 api-doc-check:

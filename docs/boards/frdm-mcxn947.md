@@ -2,7 +2,7 @@
 
 > **Status: INFORMATIVE** · SPEC row: `mcxn947` (in progress) · Scope:
 > `boards/frdm-mcxn947/`, `src/hal/cortex-m/mcxn94x/`, `boot/hal/cortex-m/mcxn94x/`
-> · Last verified: 2026-10-21
+> · Last verified: 2026-11-16
 >
 > The board as data and the SoC half of the generic Cortex-M port
 > ([`../cortex-m/README.md`](../cortex-m/README.md)). The application and
@@ -14,6 +14,66 @@ the lane, its home page included. Every value below comes from NXP's
 MCUXpresso SDK, pinned by commit and SHA-256 in
 [`../reference/README.md`](../reference/README.md), "Board sources". A value
 that no pinned file states is written **not confirmed**.
+
+## Requirements
+
+The SPEC row (`docs/SPEC.md`, row `mcxn947`) and this page, audited against
+main on 2026-11-16 (#459). Every test is a `RUN_TEST` in the file named;
+"done" means built and host-tested, since no board has run an image.
+
+| Requirement | Status | Code | Test |
+|---|---|---|---|
+| Board as data: id `0x46`, soft tier only, pin table | done | `boards/frdm-mcxn947/board.c`, `board_profile.h`, `profile.mk` | `test/unit/test_board_frdm-mcxn947.c`: `test_the_board_is_the_registered_mcxn947_id`, `test_the_pins_are_the_rgb_led_the_switches_and_the_tone_pin` |
+| MCXN94x clock (FRO12M), pin banks, RAM ECC off | done | `src/hal/cortex-m/mcxn94x/hal_soc.c` | `test/unit/test_mcxn_soc.c`: `test_early_runs_the_core_from_fro12m`, `test_early_clocks_and_releases_the_five_pin_banks` |
+| Watchdog (WWDT0) | done | `src/hal/cortex-m/mcxn94x/hal_soc.c` | `test/unit/test_mcxn_soc.c`: `test_arm_loads_tc_and_mod_then_feeds`, `test_pet_is_the_feed_alone` |
+| Reset cause | done | `src/hal/cortex-m/mcxn94x/soc_reset.c` | `test/unit/test_mcxn94x_reset.c`: `test_each_source_with_a_value_maps_to_it` |
+| LPUART4 link, interrupt-driven | done | `src/hal/cortex-m/mcxn94x/hal_uart.c` | `test/unit/test_mcxn94x_uart.c`: `test_init_baud_is_osr_sbr_for_115200`, `test_rx_reads_data_with_rdrf_set` |
+| LPUART baud arithmetic | done | `src/hal/cortex-m/mcxn94x/lpuart_baud.c` | `test/unit/test_mcxn_lpuart.c`: `test_115200_from_fro12m_is_ratio_26_sbr_4` |
+| GPIO | done | `src/hal/cortex-m/mcxn94x/hal_gpio.c` | `test/unit/test_mcxn94x_gpio.c`: `test_output_sets_only_its_pddr_bit`, `test_read_is_the_pins_pdir_bit` |
+| PWM on the red LED (CTIMER0) | done | `src/hal/cortex-m/mcxn94x/ctimer_pwm.c`, `hal_pwm.c` | `test/unit/test_mcxn_ctimer_pwm.c`: `test_1khz_from_fro12m_is_pr_46_mr3_254`; `test/unit/test_mcxn_pwm_cmd.c`: `test_zero_returns_the_pin_to_gpio_and_a_write_takes_it_back` |
+| Tone on P3_19 (CTIMER2) | done | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h` | `test/unit/test_mcxn94x_tone.c`: `test_first_start_clocks_then_programs_held_in_reset` |
+| Analog read on LPADC0 | done | `src/hal/cortex-m/mcxn94x/hal_adc.c` | `test/unit/test_mcxn94x_adc.c`: `test_one_read_per_header_channel`, `test_only_the_vcc_reference_is_supported` |
+| Pulse in and capture | done (generic port) | `src/hal/cortex-m/hal_pulse.c` | `test/unit/test_cm_pulse.c`: `test_pulse_in_high_100us` |
+| I2C master on LPI2C2 (`I2C=1` row) | done | `src/hal/cortex-m/mcxn94x/hal_bus.c`, `lpi2c_timing.c` | `test/unit/test_mcxn_lpi2c.c`: `test_100k_from_fro12m`, `test_a_write_is_start_bytes_and_stop` |
+| EEPROM over the user flash sector | done | `src/hal/cortex-m/mcxn94x/hal_eeprom.c` | `test/unit/test_mcxn94x_eeprom.c`: `test_a_second_write_keeps_the_rest_of_the_sector` |
+| Application builds, in `firmware-matrix` and its own CI step | done | `boards/frdm-mcxn947/profile.mk`, `.github/workflows/ci.yml` step `make firmware BOARD=frdm-mcxn947` | build only: no host test runs the image (QEMU models no MCX part) |
+| tfw-boot row `frdm-mcxn947:soft:soft:p256-soft:0:0` | done | `mk/boot.mk` `BOOT_SUPPORTED` | `bootloader-check` builds it; no test runs the image |
+| tfw-boot polled LPUART4 | done | `boot/hal/cortex-m/mcxn94x/boot_uart.c`, `mcxn_uart.c` | `boot/hal/cortex-m/mcxn94x/test/test_mcxn_uart.c`: `test_start_sets_the_unit_up_as_a_polled_lpuart` |
+| tfw-boot flash writer through the boot ROM driver | done | `boot/hal/cortex-m/mcxn94x/boot_flash.c`, `mcxn_flash.c` | `boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash.c`: `test_a_platform_write_erases_and_programs_one_sector`, `test_the_rom_interface_is_pinned` |
+| tfw-boot fit in the 32 KB region | done (measured, "tfw-boot" below); the SPEC row still says "not yet measured" | `mk/boot.mk` `boot-size-check` | `make bootloader` size line, no unit test |
+| DICE evidence, soft root | done (generic) | `boards/frdm-mcxn947/profile.mk` `BOARD_TIERS := soft` | `test/unit/test_dice_evidence.c`: `test_the_soft_root_evidence_frame_matches_the_literal` |
+| DICE evidence on the EdgeLock secure subsystem | not started | none: nothing under `src/hal/cortex-m/mcxn94x/` drives EdgeLock (`hal_soc.c` header) | none |
+| Enrollment through go-xkms into go-trusted-platform | not started on this board | the generic enrollment path only | none on this board: needs an image run on a board |
+| Writing the part over the MCU-Link (pyOCD), record first | partial: recipes written, never run | `boards/frdm-mcxn947/profile.mk` `CM_FLASH_TOOL`, `mk/arch/cortex-m.mk` | none: needs the board |
+| OTA_CONFIRM's request reaches flash | partial: a plain store into the platform window, which does not program flash ("Not confirmed", "OTA_CONFIRM's request") | `src/hal/cortex-m/mcxn94x/hal_eeprom.c`, storing as `src/hal/cortex-m/hal_eeprom.c` does | `test/unit/test_mcxn94x_eeprom.c`: `test_the_confirm_request_keeps_the_store_path_and_erases_nothing` |
+| Values the SDK does not settle ("Not confirmed" below) | partial | — | none: need the reference manual or UM12018 |
+
+### Remaining slices
+
+1. **OTA_CONFIRM through the ROM flash driver**: route the confirm request in
+   `src/hal/cortex-m/mcxn94x/hal_eeprom.c` through
+   `boot/hal/cortex-m/mcxn94x/mcxn_flash.c` into the platform sector, proved
+   by a new case in `test/unit/test_mcxn94x_eeprom.c`; host-only, but it
+   touches tfw-boot's platform block, so the design is the owner's call.
+2. **EdgeLock DICE tier**: a driver for the EdgeLock secure subsystem under
+   `src/hal/cortex-m/mcxn94x/` (and the boot side under
+   `boot/hal/cortex-m/mcxn94x/`), a new tier in `profile.mk` `BOARD_TIERS`,
+   proved by a new `test/unit/test_mcxn94x_els.c` against a model; needs the
+   NXP reference manual (nxp.com refused the lane), so an owner decision on
+   the source first, then a board run.
+3. **First run on the board**: `make board-record`, `make boot-flash` and
+   `make flash` on a FRDM-MCXN947 over the MCU-Link, the link answering on
+   LPUART4; needs hardware: the board is at the bench, "Arrived", not yet
+   worked on ([inventory](../development/bench/inventory.md)).
+4. **Enrollment end to end**: the board's soft-tier evidence enrolled through
+   go-xkms into go-trusted-platform; needs slice 3 and the other two projects.
+5. **Close the "Not confirmed" items** below (pins, clock steps, WWDT
+   prescaler, RAM ECC marker, ROM entry, erased-flash reads, I2C header, ADC
+   reference, clock, alignment and pin mux), each by a citation on this page
+   or a board measurement; needs the reference manual or UM12018, or hardware.
+6. **SPEC row text**: `docs/SPEC.md` line 49 still says the tfw-boot fit "is
+   not yet measured" while this page and `docs/cortex-m/README.md` give the
+   measurement; the SPEC edit is the owner's.
 
 ## The board
 
@@ -29,7 +89,58 @@ that no pinned file states is written **not confirmed**.
 | LEDs | red P0_10, green P0_27, blue P1_2 | SDK `board.h` (`BOARD_LED_*`) |
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
 | I2C bus | LPI2C2 on LP_FLEXCOMM2, FRO12M; P4_0 = SDA (FC2_P0), P4_1 = SCL (FC2_P1), pin function 2, open drain, pull-up, input buffer on; PORT4 clocked first. Which board header carries them is **not confirmed** | SDK `lpi2c/polling_b2b/master` `pin_mux.c` lines 136, 147-159, 170-182; device header |
+| Analog pins | A2 P0_14 = ADC0_B14, A3 P0_22 = ADC0_A14, A4 P0_15 = ADC0_B15, A5 P0_23 = ADC0_A15 (SW2's pin); no source for A0 or A1, so neither is in the table | [`../reference/README.md`](../reference/README.md), the `frdm_mcxn947` rows |
 | PWM | Pin 0, the red LED's P0_10, as CT0_MAT0 (pin function 4, `kPORT_MuxAlt4`): CTIMER0 in PWM mode, match 3 the period (reset on MR3, 255 counts), match 0 the duty as `255 - duty`, PR 46 from FRO12M (clock select 4, divide 1): 8-bit duty at 1001 Hz. The match output is low until the match, so duty 0 (MR0 255, past MR3) never matches and is low, duty 255 (MR0 0) is high all cycle. The LED is active low: a high duty is a dim LED. Configured on first write; a stop returns the pin to a GPIO output at 0 and stops the timer. **Built and host-tested on a register model, not run on the board** | SDK `simple_pwm` `pin_mux.c` lines 51, 82-83, 90-91; device header (`CTIMER_Type`, `CTIMER0_BASE`, `SYSCON` `CTIMERCLKSEL`, `CTIMERCLKDIV`, `CTIMERGLOBALSTARTEN`, `AHBCLKCTRL1`/`PRESETCTRL1` `TIMER0`); `fsl_clock.h` (`kFRO12M_to_CTIMER0`); `fsl_ctimer.c` (`CTIMER_Init`, `CTIMER_SetupPwmPeriod`) |
+| Pulse | `PULSE_IN` and `PULSE_CAPTURE` on any digital pin of the board table: `src/hal/cortex-m/hal_pulse.c` polls the pin's level through `tfw_hal_gpio_read` (the bit in its GPIO bank's `PDIR`) and times the edges on SysTick, which counts the processor clock, `TFW_CM_CPU_HZ`, 12 MHz from FRO12M: the timer's resolution is 1/12 us, and the widths and timeouts are reported in whole microseconds. No pin is reserved for it and no peripheral is claimed. **Built, not yet run on the board** | `src/hal/cortex-m/hal_tick.c` (SysTick `CLKSOURCE`, the processor clock); `src/hal/cortex-m/mcxn94x/hal_soc.c` (FRO12M, `TFW_CM_CPU_HZ` 12 MHz); `src/hal/cortex-m/mcxn94x/hal_gpio.c` (`tfw_hal_gpio_read`) |
+
+## Analog read
+
+`ANALOG_READ` and `ADC_REF` run on LPADC0 (`src/hal/cortex-m/mcxn94x/hal_adc.c`):
+**built and tested against a register model on the host
+(`test/unit/test_mcxn94x_adc.c`), not run on the board.** The pin table's
+`adc_ch` is the converter input, the channel number plus 32 for side B, so
+`TFW_ADC_COUNT` is 64. Each read is one 12-bit single-ended conversion,
+command 1 on software trigger 0, sample time 131.5 ADC clocks, popped from
+FIFO 0 with a bounded wait and returned as the 12 raw bits. A read past the
+wait answers `TFW_ERR_TIMEOUT`, unmaps the trigger and resets FIFO 0, and
+every read after it answers `TFW_ERR_UNSUPPORTED` until init runs again, so
+a conversion that finishes late is never taken for another channel's.
+Side B is `CMDL.CTYPE` at 1 (device header lines 1380-1384). Init ungates and releases ADC0 in SYSCON0, clocks it from
+FRO12M undivided, resets the converter and both FIFOs, powers it on, and
+runs the offset and the gain calibration of both sides, each wait bounded;
+a calibration that does not finish leaves every read `TFW_ERR_UNSUPPORTED`.
+`ADC_REF` accepts VCC (reference option 1) and refuses the others. ADC1 is
+not driven. The steps are fsl_lpadc's (`LPADC_Init`, the offset and the
+auto calibration, one `CAL_REQ` waiting on both sides' `GCC`), each field's
+place the device header's, both pinned in
+[`../reference/README.md`](../reference/README.md); items 7 to 10 below are what the
+pinned files do not settle.
+
+**Verification.** Ran green in the lane container: `make host-test`, which
+runs `test_mcxn94x_adc`; `make board-sweep`, which runs
+`test_board_frdm-mcxn947` (host-test leaves the `test_board_*` suites to
+board-sweep by design, `mk/host.mk`); `make lint`; `make lint-arch-leak`. Did
+not run there: `make firmware-matrix` and with it `make ci`, because the lane
+container has no arm-none-eabi-gcc (nor avr-gcc or qemu-system-arm). The ARM
+build, link and size check of this board are left to CI.
+
+## Tone
+
+`TFW_FEATURE_TONE` is on: board pin 8, P3_19, the mikroBUS socket's PWM
+pin, carries the tone.
+
+| | | Source |
+|---|---|---|
+| Header pin | P3_19 is the mikroBUS socket's PWM pin (`MIKROBUS_PWM`, `&gpio3 19`). P3_2, the pin the SDK's `simple_match_interrupt` example takes CT4_MAT0 on, is on neither the mikroBUS nor the Arduino header map, so the tone does not use it | Zephyr `boards/nxp/frdm_mcxn947/frdm_mcxn947.dtsi` (zephyr `20141949`), `mikrobus_header` lines 75-92, line 86; `arduino_header` lines 94-119 |
+| Pin | P3_19 as CT2_MAT1, CTIMER2 match 1, pin function 4 with the input buffer on; PORT3 clocked with the board's other banks (`hal_soc.c`). `TFW_TONE_PIN` 8, `TFW_MCXN_TONE_PIN_FN` 4 in `boards/frdm-mcxn947/board_profile.h` | NXP `MCXN947VDF-pinctrl.h` (hal_nxp `94438e50`, generated from the MCXN947VDF signal configuration): `CT2_MAT1_PIO3_19 N9X_MUX('3',19,4)` line 833, `N9X_MUX` lines 11-14 |
+| Timer | CTIMER2 in timer mode, prescaler 0, FRO12M at divide 1; match 1 at half the period resets the counter (MCR MR1R) and toggles CT2_MAT1 (EMR EMC1), so no CPU is in the loop. CTIMER0 stays the PWM's. One tone at a time; a stop holds the counter in reset and returns the pin to a GPIO output at 0 | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h`; device header (`CTIMER_Type`, `CTIMER2_BASE`, `CTIMER_MCR_MR1R`, `CTIMER_EMR_EMC1`, `SYSCON_AHBCLKCTRL1_TIMER2`, `SYSCON_PRESETCTRL1_TIMER2_RST`, `SYSCON_CTIMERGLOBALSTARTEN_CTIMER2_CLK_EN`) |
+| Status | **Host-tested, not run on a board**: `test_mcxn94x_tone` runs the register sequence against a register model | |
+
+### Outstanding checks
+
+1. **To confirm on the board**: a tone measured on the mikroBUS PWM pin, and
+   in UM12018's schematic that nothing else on the board drives or loads
+   P3_19 (Zephyr's `pinmux_sai1` also names it, as SAI1_RX_FS).
 
 ## What the port does not do
 
@@ -112,6 +223,34 @@ config lives on the stack for the call; the buffer is the only static the
 writer owns. Its test runs against a ROM model
 (`boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash.c`).
 
+## EEPROM
+
+The EEPROM command family is built (`TFW_FEATURE_EEPROM 1`,
+`TFW_EEPROM_SIZE 1024`) and **not run on the board**.
+`src/hal/cortex-m/mcxn94x/hal_eeprom.c`, which `hal_src` in `mk/firmware.mk`
+picks over the generic `src/hal/cortex-m/hal_eeprom.c`, keeps the AVR's map:
+
+| Address | Backing | Write |
+|---|---|---|
+| below `TFW_BOOT_EE_LEN` (`0x140`) | the platform window, `TFW_CM_PLATFORM_BASE` | refused (`TFW_ERR_RANGE`), but OTA_CONFIRM's request, stored as the generic file stores it |
+| `TFW_BOOT_EE_LEN` to 1023 | the user sector, `TFW_CM_USER_EE_BASE`, from its own zero | read-modify-write of the sector |
+
+The user sector is the 8 KiB sector directly below the platform block's
+(`board_profile.h` asserts it ends at `TFW_CM_PLATFORM_BASE` and starts past
+the application slot). A write calls tfw-boot's flash helper,
+`boot/hal/cortex-m/mcxn94x/mcxn_flash.c`, linked into the application, with
+interrupts masked: it reads the sector into its buffer, merges, erases and
+programs the whole sector through the ROM driver (the table above), and the
+HAL then reads the bytes back. The helper is given the user sector's end as
+the flash's end, so no write erases the platform sector. A ROM failure or a
+read-back mismatch is `TFW_ERR_INTERNAL` (the wire has no I/O status). A
+power loss mid-write loses the user sector only, as a power loss mid-write
+does on the AVR's EEPROM; the platform block is not touched. The test runs
+against a flash model (`test/unit/test_mcxn94x_eeprom.c`).
+
+How OTA_CONFIRM's request reaches flash is unchanged by this: it is the
+generic file's plain store into the platform window.
+
 ## Not confirmed
 
 The SDK, pinned in [`../reference/README.md`](../reference/README.md), stands
@@ -141,6 +280,34 @@ runs an image:
    without an ECC fault is not in a pinned file, and tfw-boot's
    read-modify-write depends on it as much as the application does: reference
    manual, FMU chapter.
-7. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
+7. **User EEPROM sector: settled in part.** The sector size is the same
+   line 949; that the ROM driver accepts an erase and a program of the sector
+   below the platform block from the application, after tfw-boot has handed
+   over, with the same `flash_init` call tfw-boot makes, is not in a pinned
+   file: reference manual, flash chapter, and a run on the board.
+8. **OTA_CONFIRM's request: open.** It is stored into the platform window
+   with a plain store, as on QEMU; on flash that store does not program the
+   cell. Changing how it reaches flash is outside the EEPROM row.
+9. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
    example's `pin_mux.c`. Which header pins they reach, and whether the board
    fits pull-ups, is not in a pinned file: UM12018, board schematic.
+8. **Default reference pin: open.** `CFG.REFSEL` stays 0, the SDK's default
+   ("option 1"), taken as the board's 3.3 V VREFH; which pin option 1 is, and
+   what UM12018 ties it to, is not in a pinned file: reference manual, ADC
+   chapter, and UM12018.
+9. **ADC clock: open.** FRO12M (`ADC0CLKSEL` 3, `kFRO12M_to_ADC0`), divider 1,
+   is the board's core clock and the reversible choice; that 12 MHz is inside
+   the converter's range at the sample time used is not in a pinned file:
+   data sheet, ADC characteristics.
+10. **Result alignment: open.** The 12-bit result is taken from bits 14:3 of
+    `RESFIFO`'s 16-bit `D`, as the SDK's lpadc examples shift it; that a
+    standard-resolution single-ended result sits there is not in a pinned
+    file: reference manual, ADC chapter.
+11. **Analog pin mux: open.** Each read first releases the channel's board
+    pins from the GPIO: the `PDDR` bit cleared and the `PCR` written 0 (pin
+    function 0, no pull, input buffer off; `test_mcxn94x_adc` checks it lands
+    before the trigger). SW2's pin is A5, so a read of A5 leaves the switch
+    unread until its mode command sets it up again. That pin function 0 is
+    the analog connection is taken, not confirmed. The analog function and input-buffer
+    setting for an LPADC input are not in a pinned file: reference manual,
+    PORT chapter, and the SDK's `lpadc` example `pin_mux.c`.

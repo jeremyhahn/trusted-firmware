@@ -75,30 +75,49 @@ PARTS = {
     # STM32H573IIK3Q (STM32H573I-DK), ST's cmsis-device-h5 stm32h573xx.h: 2 MiB
     # of flash at 0x08000000, so TFW_FLASH_TOTAL is an address, the end of bank
     # 2; the SRAM is SRAM1's 256 KiB at 0x20000000, the one region the port
-    # links; no EEPROM. tfw-boot is the first 32 KiB of flash, not its top.
+    # links; the EEPROM is emulated in flash by
+    # src/hal/cortex-m/stm32h5/hal_eeprom.c: tfw-boot's span TFW_BOOT_EE_LEN
+    # (0x140) plus one 8 KiB user sector TFW_CM_USER_EE_SIZE, 0x2140 bytes.
+    # tfw-boot is the first 32 KiB of flash, not its top.
     "stm32h573iik3q": dict(flash=2097152, flash_start=0x08000000, sram=262144,
-                           sram_start=0x20000000, eeprom=0, boot=True,
+                           sram_start=0x20000000, eeprom=8512, boot=True,
                            boot_end=0x08008000),
+    # STM32H563ZIT6 on the NUCLEO-H563ZI: the STM32H573IIK3Q's memory without
+    # its crypto accelerators, the same 2 MiB of flash in two banks and SRAM1
+    # at 0x20000000 (TO CONFIRM against ST's stm32h563xx.h, not held here).
+    "stm32h563zit6": dict(flash=2097152, flash_start=0x08000000, sram=262144,
+                          sram_start=0x20000000, eeprom=0, boot=True,
+                          boot_end=0x08008000),
     # RP2350 on the Raspberry Pi Pico 2 W (RP-008373-DS, "Address map"; the
     # board datasheet RP-008304-DS for the flash): the part has no flash of its
     # own, so the flash is the board's 4 MiB QSPI part behind the XIP window at
-    # 0x10000000; the SRAM is SRAM0-7, SRAM8-9 left to the boot ROM; no EEPROM.
+    # 0x10000000; the SRAM is SRAM0-7, SRAM8-9 left to the boot ROM. No EEPROM
+    # cells: the EEPROM is that flash, tfw-boot's 0x140-byte platform span then
+    # the 4 KiB user sector below the platform block (#393), 0x1140 in all.
     # tfw-boot is the first 32 KiB of the window, where the boot ROM looks.
     "rp2350": dict(flash=4194304, flash_start=0x10000000, sram=524288,
-                   sram_start=0x20000000, eeprom=0, boot=True,
+                   sram_start=0x20000000, eeprom=0x1140, boot=True,
                    boot_end=0x10008000),
     # Nordic nRF54L15 application core (nrfx MDK
     # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,
-    # 256 KiB of RAM at 0x20000000, no EEPROM. tfw-boot is the first 32 KiB of
-    # RRAM, where the core fetches its reset vector, so boot_end is 0x8000.
+    # 256 KiB of RAM at 0x20000000. The part has no EEPROM block: the EEPROM is
+    # emulated in a 4096-byte window of the RRAM (TFW_CM_PLATFORM_SIZE),
+    # programmed through the RRAMC by src/hal/cortex-m/nrf54l/hal_eeprom.c.
+    # tfw-boot is the first 32 KiB of RRAM, where the core fetches its reset
+    # vector, so boot_end is 0x8000.
     "nrf54l15": dict(flash=1560576, sram=262144, sram_start=0x20000000,
-                     eeprom=0, boot=True, boot_end=0x00008000),
+                     eeprom=4096, boot=True, boot_end=0x00008000),
     # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
     # its flash linker script, docs/reference/README.md): 2 MiB of flash at
-    # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.
+    # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off. The part has
+    # no EEPROM block; the EEPROM is emulated, 1024 bytes as the AVR's map
+    # (boards/frdm-mcxn947/board_profile.h TFW_EEPROM_SIZE): the platform
+    # window (TFW_BOOT_EE_LEN bytes) plus the user sector, served by
+    # src/hal/cortex-m/mcxn94x/hal_eeprom.c over the part's flash through
+    # tfw-boot's helper (boot/hal/cortex-m/mcxn94x/mcxn_flash.c).
     # tfw-boot is the first 32 KiB of flash, so boot_end is where it ends.
     "mcxn947": dict(flash=2097152, flash_start=0x10000000, sram=319488,
-                    sram_start=0x30000000, eeprom=0, boot=True,
+                    sram_start=0x30000000, eeprom=1024, boot=True,
                     boot_end=0x10008000),
     # NXP i.MX 95's Cortex-M7 (MIMX9596, UM12527 §1.2 Table 1): its 512 KiB of
     # TCM (IMX95CEC Table 1) as 256 KiB ITCM at M7 0x00000000, the code span,
@@ -216,6 +235,62 @@ def table_rows(source, table):
             elif depth == 0:
                 return rows
     raise ValueError("%s: unterminated initialiser" % table)
+
+
+def board_macros(source):
+    """The #defines of a board.c, object-like and function-like, as
+    {name: (params or None, body)}.
+
+    In an #if group only the first branch counts: a board puts the branch
+    that holds when a capability is on first (frdm-imx95-m7's BOARD_PWM(n)
+    and BOARD_PIN_PWM), so the pin table is checked as that build sees it."""
+    out, stack = {}, []
+    for line in source.splitlines():
+        m = re.match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line)
+        if m:
+            word = m.group(1)
+            if word.startswith("if"):
+                stack.append(True)
+            elif word == "endif":
+                if stack:
+                    stack.pop()
+            elif stack:
+                stack[-1] = False
+            continue
+        if not all(stack):
+            continue
+        m = re.match(r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\(([^)]*)\))?(?:\s+(.*?))?\s*$", line)
+        if m and m.group(1) not in out:
+            params = None
+            if m.group(2):
+                params = [p.strip() for p in m.group(3).split(",") if p.strip()]
+            out[m.group(1)] = (params, m.group(4) or "")
+    return out
+
+
+def expand_macros(text, macros, depth=0):
+    """`text` with the macros of board_macros() replaced by their bodies."""
+    if depth > 16:
+        raise ValueError("macros nest too deep: %s" % text)
+
+    def call(m):
+        params, body = macros[m.group(1)]
+        if params is None:
+            return body if m.group(2) is None else body + m.group(2)
+        if m.group(2) is None:
+            return m.group(0)
+        args = [a.strip() for a in m.group(3).split(",")] if m.group(3).strip() else []
+        if len(args) != len(params):
+            raise ValueError("%s takes %d arguments: %s" % (m.group(1), len(params), m.group(0)))
+        for p, a in zip(params, args):
+            body = re.sub(r"\b%s\b" % re.escape(p), lambda _: a, body)
+        return "(%s)" % body
+
+    if not macros:
+        return text
+    names = "|".join(re.escape(n) for n in sorted(macros, key=len, reverse=True))
+    out = re.sub(r"\b(%s)\b(\s*\(([^()]*)\))?" % names, call, text)
+    return out if out == text else expand_macros(out, macros, depth + 1)
 
 
 PIN_ROW = re.compile(r"^\s*TFW_PB\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*,"
@@ -428,7 +503,13 @@ def check_pins(board, arch, bdir, defs, value, fail):
             fail("pin %d: %s %r is not a number" % (pin, what, text))
             return None
 
+    macros = board_macros(source)
     for pin, row in enumerate(pins):
+        try:
+            row = expand_macros(row, macros)
+        except ValueError as e:
+            fail("pin %d: %s" % (pin, e))
+            continue
         m = PIN_ROW.match(row)
         if not m:
             fail("pin %d: not a { TFW_PB(port, bit), adc, pwm, flags } row" % pin)

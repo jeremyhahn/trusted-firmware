@@ -436,6 +436,35 @@ class TestPins(FixtureTree):
                  "TFW_ADC_NONE, 0u, TFW_PIN_DIGITAL | TFW_PIN_PWM")
         self.assertFails("pin 1: PWM unit 0 is pin 0's")
 
+    BOARD_PWM_MACROS = ("#if TFW_PWM_COUNT\n"
+                        "#define BOARD_PWM(n)  (n)\n"
+                        "#define BOARD_PIN_PWM TFW_PIN_PWM\n"
+                        "#else\n"
+                        "#define BOARD_PWM(n)  TFW_PWM_NONE\n"
+                        "#define BOARD_PIN_PWM 0u\n"
+                        "#endif\n")
+
+    def board_pwm_macros(self, row):
+        self.pin("const tfw_pin_desc_t tfw_board_pins",
+                 self.BOARD_PWM_MACROS + "const tfw_pin_desc_t tfw_board_pins")
+        self.pin("TFW_ADC_NONE, 0u,           TFW_PIN_DIGITAL | TFW_PIN_PWM", row)
+
+    def test_board_pwm_macros_take_the_first_branch(self):
+        self.board_pwm_macros("TFW_ADC_NONE, BOARD_PWM(0u), TFW_PIN_DIGITAL | BOARD_PIN_PWM")
+        self.assertEqual([], bc.check(self.root))
+
+    def test_board_pwm_macro_past_the_count_fails(self):
+        self.board_pwm_macros("TFW_ADC_NONE, BOARD_PWM(1u), TFW_PIN_DIGITAL | BOARD_PIN_PWM")
+        self.assertFails("pin 1: PWM unit 1, but TFW_PWM_COUNT is 1")
+
+    def test_board_pwm_macro_needs_its_flag(self):
+        self.board_pwm_macros("TFW_ADC_NONE, BOARD_PWM(0u), TFW_PIN_DIGITAL")
+        self.assertFails("pin 1: a PWM unit and the TFW_PIN_PWM flag must come together")
+
+    def test_board_macro_with_the_wrong_arguments_fails(self):
+        self.board_pwm_macros("TFW_ADC_NONE, BOARD_PWM(0u, 1u), TFW_PIN_DIGITAL | BOARD_PIN_PWM")
+        self.assertFails("pin 1: BOARD_PWM takes 1 arguments")
+
     def test_portless_pin_is_not_digital(self):
         self.pin("6u, TFW_PWM_NONE, TFW_PIN_ADC", "6u, TFW_PWM_NONE, TFW_PIN_ADC | TFW_PIN_DIGITAL")
         self.assertFails("pin 3: TFW_PIN_DIGITAL on a pin with no port")

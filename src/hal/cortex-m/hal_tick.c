@@ -22,6 +22,7 @@ _Static_assert(CYCLES_PER_US >= 1u, "tfw_hal_delay_us counts whole cycles per mi
 
 tfw_status_t tfw_hal_tick_init(void);
 void         SysTick_Handler(void);
+void         tfw_cm_tick_credit(tfw_ms_t ms);
 
 static volatile tfw_ms_t ticks;
 
@@ -38,6 +39,47 @@ tfw_status_t tfw_hal_tick_init(void)
 void SysTick_Handler(void)
 {
     ticks++;
+}
+
+/* Milliseconds SysTick counted but the handler could not: expirations while
+ * interrupts are masked collapse into the one interrupt pending at the
+ * unmask, so a caller that masks across a longer operation (the RP2350's
+ * flash EEPROM write) credits the rest from its own timer. Called with
+ * interrupts masked, so the handler's increment cannot fall between this
+ * load and store. */
+void tfw_cm_tick_credit(tfw_ms_t ms)
+{
+    ticks += ms;
+}
+
+/* Called with interrupts masked (cm_cycles.h). From cvr_at_mask the counter
+ * reaches 0 after cvr_at_mask cycles (a full reload span when it was at 0),
+ * then every reload span after: each of those is a tick, and the one the
+ * pending interrupt counts on unmask is left to it. */
+void tfw_cm_tick_catch_up(uint32_t cvr_at_mask, uint32_t cycles)
+{
+    uint32_t first = (cvr_at_mask == 0u) ? TICK_RELOAD + 1u : cvr_at_mask;
+
+    if ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) == 0u || cycles <= first) {
+        return;
+    }
+    ticks += (cycles - first) / (TICK_RELOAD + 1u);
+}
+
+/* An eighth of a millisecond either side of a reload: far more than the few
+ * instructions from here to a caller's unmask, and to its last reading. */
+#define TICK_GUARD ((TICK_RELOAD + 1u) / 8u)
+
+void tfw_cm_tick_wait_clear(void)
+{
+    uint32_t cvr;
+
+    if ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) == 0u) {
+        return;
+    }
+    do {
+        cvr = TFW_CM_SYST_CVR;
+    } while (cvr <= TICK_GUARD || cvr >= TICK_RELOAD - TICK_GUARD);
 }
 
 /* A 32-bit load is one instruction here, so the read needs no critical

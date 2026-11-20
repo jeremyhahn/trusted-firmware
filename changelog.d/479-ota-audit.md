@@ -1,0 +1,1 @@
+- docs(ota): SPEC row `ota` audited into a requirements table (status, code, test) and a numbered list of remaining slices in `docs/ota/engineering.md` (#479).

@@ -129,6 +129,62 @@
 #define TFW_H5_VCP_RX_PIN      10u
 #define TFW_H5_VCP_AF          7u
 
+/* ---- I2C4, APB3PERIPH_BASE_NS + 0x2C00 (I2C4_BASE_NS; APB3PERIPH_BASE_NS is
+ * PERIPH_BASE_NS + 0x04000000). The instance ST's BSP drives on the kit, on
+ * PB8 SCL and PB9 SDA, alternate function 6, open drain with the pull-up on
+ * (stm32h573i_discovery_bus.h BUS_I2C4_*, stm32h573i_discovery_bus.c
+ * I2C4_MspInit; GPIO_AF6_I2C4 in stm32h5xx_hal_gpio_ex.h). The register
+ * offsets are I2C_TypeDef's, the bits the header's I2C_CR1_*, I2C_CR2_*,
+ * I2C_ISR_* and I2C_ICR_*. Its kernel clock is PCLK3 out of reset
+ * (RCC_CCIPR4 I2C4SEL 0, LL_RCC_I2C4_CLKSOURCE_PCLK3 in stm32h5xx_ll_rcc.h),
+ * the 64 MHz HSI undivided (hal_soc.c). */
+#define TFW_H5_I2C4_BASE       0x44002C00u
+#define TFW_H5_I2C_CR1         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x00u)
+#define TFW_H5_I2C_CR2         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x04u)
+#define TFW_H5_I2C_TIMINGR     TFW_CM_REG(TFW_H5_I2C4_BASE + 0x10u)
+#define TFW_H5_I2C_ISR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x18u)
+#define TFW_H5_I2C_ICR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x1Cu)
+#define TFW_H5_I2C_RXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x24u)
+#define TFW_H5_I2C_TXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x28u)
+
+#define TFW_H5_RCC_APB3ENR     TFW_CM_REG(TFW_H5_RCC_BASE + 0xA8u)
+#define TFW_H5_RCC_APB3ENR_I2C4EN (0x1u << 8)
+#define TFW_H5_GPIO_OTYPER(b)  TFW_CM_REG((b) + 0x04u)   /* 1: open drain */
+
+#define TFW_H5_I2C_CR1_PE      (0x1u << 0)    /* cleared, the block's software reset */
+#define TFW_H5_I2C_CR2_SADD_POS 0u            /* bits 0-9; a 7-bit address in 1-7 */
+#define TFW_H5_I2C_CR2_RD_WRN  (0x1u << 10)
+#define TFW_H5_I2C_CR2_START   (0x1u << 13)
+#define TFW_H5_I2C_CR2_STOP    (0x1u << 14)
+#define TFW_H5_I2C_CR2_NBYTES_POS 16u         /* bits 16-23 */
+#define TFW_H5_I2C_ISR_TXE     (0x1u << 0)
+#define TFW_H5_I2C_ISR_TXIS    (0x1u << 1)
+#define TFW_H5_I2C_ISR_RXNE    (0x1u << 2)
+#define TFW_H5_I2C_ISR_NACKF   (0x1u << 4)
+#define TFW_H5_I2C_ISR_STOPF   (0x1u << 5)
+#define TFW_H5_I2C_ISR_TC      (0x1u << 6)
+#define TFW_H5_I2C_ISR_BERR    (0x1u << 8)
+#define TFW_H5_I2C_ISR_ARLO    (0x1u << 9)
+#define TFW_H5_I2C_ISR_BUSY    (0x1u << 15)
+#define TFW_H5_I2C_ICR_NACKCF  (0x1u << 4)
+#define TFW_H5_I2C_ICR_STOPCF  (0x1u << 5)
+#define TFW_H5_I2C_ICR_BERRCF  (0x1u << 8)
+#define TFW_H5_I2C_ICR_ARLOCF  (0x1u << 9)
+
+#define TFW_H5_I2C_BANK        1u             /* GPIOB, RCC_AHB2ENR GPIOBEN bit 1 */
+#define TFW_H5_I2C_SCL_PIN     8u
+#define TFW_H5_I2C_SDA_PIN     9u
+#define TFW_H5_I2C_AF          6u
+
+/* TIMINGR (PRESC 31:28, SCLDEL 23:20, SDADEL 19:16, SCLH 15:8, SCLL 7:0) for
+ * a 64 MHz kernel clock, the analog filter on and no digital filter: the
+ * values ST's BSP computes (stm32h573i_discovery_bus.c I2C_GetTiming and its
+ * I2C_Charac table, the same filter settings). Standard mode: PRESC 6,
+ * SCLDEL 7, SDADEL 0, SCLH 39, SCLL 41, a 10.008 us period. Fast mode:
+ * PRESC 1, SCLDEL 10, SDADEL 1, SCLH 22, SCLL 38, a 2.498 us period. */
+#define TFW_H5_I2C_TIMING_100K 0x60702729u
+#define TFW_H5_I2C_TIMING_400K 0x10A11626u
+
 /* ---- ADC1, AHB2PERIPH_BASE_NS + 0x8000 (ADC1_BASE_NS), and the ADC1/ADC2
  * common block at + 0x8300 (ADC12_COMMON_BASE_NS). The offsets are
  * ADC_TypeDef's and ADC_Common_TypeDef's (CCR at 0x300 + 0x08). */
@@ -225,5 +281,43 @@
 /* The status register's update-in-progress bits, PVU to EWU: a prescaler or
  * reload written while one is set is not yet the watchdog's. */
 #define TFW_H5_IWDG_SR_BUSY    0x0Fu
+
+/* ---- TIM3, APB1PERIPH_BASE_NS + 0x0400: the tone's timer (hal_tone.c), a
+ * 16-bit general-purpose timer (not in IS_TIM_32B_COUNTER_INSTANCE). Offsets
+ * are TIM_TypeDef's (CR1 0x00, EGR 0x14, CCMR1 0x18, CCER 0x20, PSC 0x28,
+ * ARR 0x2C, CCR2 0x38); its enable RCC_APB1LENR (0x9C) bit TIM3EN 1. It counts
+ * the APB1 timer clock, TFW_CM_CPU_HZ with the bus prescaler at 1. Channel 2,
+ * whose output-compare mode OC2M is CCMR1 bits 14:12 and 24 (TIM_CCMR1_OC2M,
+ * 0x1007 << 12) and enable CC2E CCER bit 4. The two modes are the LL
+ * driver's (stm32h5xx_ll_tim.h): LL_TIM_OCMODE_TOGGLE, OC1M_1 | OC1M_0 (0011,
+ * OCxREF toggles on match), and LL_TIM_OCMODE_FORCED_INACTIVE, OC1M_2 (0100,
+ * OCxREF low), each moved to channel 2's field. */
+#ifndef TFW_H5_TONE_TIM_HZ
+#define TFW_H5_TONE_TIM_HZ       TFW_CM_CPU_HZ      /* the host test models another clock */
+#endif
+#define TFW_H5_TONE_RCC_ENR      TFW_CM_REG(TFW_H5_RCC_BASE + 0x9Cu)   /* RCC_APB1LENR */
+#define TFW_H5_TONE_RCC_EN       (0x1u << 1)                          /* TIM3EN */
+#define TFW_H5_TONE_TIM_BASE     0x40000400u
+#define TFW_H5_TONE_TIM_CR1      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x00u)
+#define TFW_H5_TONE_TIM_EGR      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x14u)
+#define TFW_H5_TONE_TIM_CCMR1    TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x18u)
+#define TFW_H5_TONE_TIM_CCER     TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x20u)
+#define TFW_H5_TONE_TIM_PSC      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x28u)
+#define TFW_H5_TONE_TIM_ARR      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x2Cu)
+#define TFW_H5_TONE_TIM_CCR2     TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x38u)
+#define TFW_H5_TONE_CR1_CEN      (0x1u << 0)        /* TIM_CR1_CEN */
+#define TFW_H5_TONE_EGR_UG       (0x1u << 0)        /* TIM_EGR_UG */
+#define TFW_H5_TONE_CCMR1_CH2    0x0100FF00u        /* CC2S, OC2FE, OC2PE, OC2M, OC2CE, OC2M[3] */
+#define TFW_H5_TONE_OC2M_TOGGLE  (0x3u << 12)       /* LL_TIM_OCMODE_TOGGLE on channel 2 */
+#define TFW_H5_TONE_OC2M_LOW     (0x4u << 12)       /* LL_TIM_OCMODE_FORCED_INACTIVE on channel 2 */
+#define TFW_H5_TONE_CCER_CH2     (0xBu << 4)        /* CC2E, CC2P, CC2NP: on, active high */
+#define TFW_H5_TONE_CCER_CC2E    (0x1u << 4)        /* TIM_CCER_CC2E */
+/* The tone pin: the Arduino header's D3, PB5 (ST's STM32_open_pin_data board
+ * file labels PB5 ARD_D3; its GPIO modes file gives PB5 TIM3_CH2 as
+ * GPIO_AF2_TIM3, which stm32h5xx_hal_gpio_ex.h defines as 2). */
+#define TFW_H5_TONE_BANK         1u                 /* GPIOB */
+#define TFW_H5_TONE_PIN          5u
+#define TFW_H5_TONE_AF           2u                 /* GPIO_AF2_TIM3 */
+#define TFW_H5_GPIO_AFR(b, n)    TFW_CM_REG((b) + 0x20u + 4u * (uint32_t)(n))   /* AFR[n] */
 
 #endif /* TFW_CM_STM32H5_REGS_H */

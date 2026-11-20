@@ -8,14 +8,15 @@
  * Polling, as the AVR's and the ESP32's implementations do, with their
  * semantics: pulse_in waits for the leading edge (a pulse already in progress
  * is not one it saw start), then measures the level; capture lines up on
- * start_level and records each interval, each bounded by timeout_us, and a
- * line that goes quiet ends the capture. An interrupt between two polls makes
+ * start_level and records each interval, each bounded by timeout_us and all
+ * of them by TFW_PULSE_MAX_US, and a line that goes quiet ends the capture. An interrupt between two polls makes
  * an interval read long by its length; the count itself loses no time, since
  * every poll adds the cycles since the one before.
  */
 
 #include <stdint.h>
 
+#include "tfw/config.h"
 #include "tfw/hal.h"
 #include "cm_cycles.h"
 
@@ -109,13 +110,23 @@ tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
     }
     while (n < max_edges) {
         uint32_t from = c.us;
+        uint32_t deadline;
         uint32_t w;
 
+        /* Each interval is bounded by timeout_us, and the whole capture by
+         * TFW_PULSE_MAX_US from its start: a line toggling just under
+         * timeout_us must not hold the main loop for max_edges of them. */
+        if (from >= TFW_PULSE_MAX_US) {
+            break;
+        }
+        deadline = (timeout_us < TFW_PULSE_MAX_US - from) ? from + timeout_us
+                                                          : (uint32_t)TFW_PULSE_MAX_US;
         want = (uint8_t)!want;
-        st   = wait_level(p, want, &c, from + timeout_us);
+        st   = wait_level(p, want, &c, deadline);
         if (st == TFW_ERR_TIMEOUT) {
-            /* A quiet line ends the capture rather than failing it: the
-             * edges already recorded are the message. */
+            /* A quiet line, or the capture's budget spent, ends the capture
+             * rather than failing it: the edges already recorded are the
+             * message. */
             break;
         }
         if (st != TFW_OK) {

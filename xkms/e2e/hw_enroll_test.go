@@ -321,7 +321,7 @@ type runRecord struct {
 }
 
 // enrollOnce enrolls the target through the same flow as
-// TestDeviceAttestDICEEnrollsTheRealFirmware and checks what it was issued.
+// TestSoftRootEnrollsThroughDeviceAttest01 and checks what it was issued.
 func enrollOnce(t *testing.T, target enrollTarget) *runRecord {
 	t.Helper()
 	element := newDiceElementOn(t, target.open(t), target.permitted)

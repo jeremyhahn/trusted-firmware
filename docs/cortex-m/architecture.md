@@ -3,7 +3,7 @@
 > **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-10-22
 > The decisions and their reasons are in the two ADRs,
 > [adr-reference-part-and-emulation.md](adr-reference-part-and-emulation.md) and
-> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both PROPOSED. This
+> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14). This
 > page describes what the row has built from them; what each slice added, and
 > the QEMU rows that test it, are in the [README](README.md).
 
@@ -124,8 +124,10 @@ disagree with the board.
    its UART off, loads MSP from the application's word 0 and branches to word
    1. The application's own reset handler sets VTOR.
 4. On a refusal, a row without OTA in boot links
-   `boot/hal/cortex-m/recovery_halt.c`, which masks interrupts and sleeps in
-   WFI forever. The an505's `…:1:0` row links the recovery session instead
+   `boot/hal/cortex-m/recovery_halt.c`, which masks interrupts and stops
+   forever, polling its UART: it sends the reason as an EVENT frame on entry
+   and again for every whole frame it receives, and answers nothing else
+   (#542). A board with no platform block says `TFW_ERR_NOT_PROVISIONED`. The an505's `…:1:0` row links the recovery session instead
    (`BOOT_OTA_SRCS` in `mk/boot.mk`).
 
 The application reads the reset cause from the handoff block first, and falls

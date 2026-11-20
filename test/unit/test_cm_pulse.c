@@ -16,6 +16,7 @@
 #include "unity.h"
 
 #include "cm_pulse_model.h"
+#include "tfw/config.h"
 
 #define CYC_PER_US  MODEL_CYC_PER_US
 #define RELOAD_SPAN MODEL_RELOAD_SPAN
@@ -308,6 +309,25 @@ static void test_capture_edge_seen_after_the_interval_timeout(void)
     TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[1]);
 }
 
+/* A line that toggles just under timeout_us never goes quiet, so each
+ * interval alone would let the capture run max_edges * timeout_us. The whole
+ * capture stops within TFW_PULSE_MAX_US of its start, with the intervals that
+ * completed inside it. */
+static void test_capture_bounded_by_one_overall_deadline(void)
+{
+    static const uint32_t e[] = {10u, 29010u, 58010u, 87010u, 116010u, 145010u};
+    uint16_t got[8];
+    uint8_t  n    = 0u;
+    uint64_t from = model_now;
+
+    model_step = 997u;                 /* a read every ~50 us */
+    wave(1u, e, sizeof e / sizeof e[0]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, got, 5u, 30000u, &n));
+    TEST_ASSERT_TRUE(elapsed_us(from) <= TFW_PULSE_MAX_US + 100u);
+    TEST_ASSERT_EQUAL_UINT8(1u, n);
+    TEST_ASSERT_UINT32_WITHIN(100u, 29000u, got[0]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -329,5 +349,6 @@ int main(void)
     RUN_TEST(test_pulse_in_opening_edge_seen_after_the_deadline);
     RUN_TEST(test_pulse_in_closing_edge_seen_after_the_deadline);
     RUN_TEST(test_capture_edge_seen_after_the_interval_timeout);
+    RUN_TEST(test_capture_bounded_by_one_overall_deadline);
     return UNITY_END();
 }

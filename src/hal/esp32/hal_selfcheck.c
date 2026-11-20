@@ -167,7 +167,8 @@ static void check_eeprom(void)
 
 /* An address probe nobody answers: the driver comes up on the board's pins and
  * the bus returns a NACK. A timeout is a bus held low; an ACK is a device at an
- * address the check takes to be empty. Both fail. */
+ * address the check takes to be empty; any other status is a driver failure
+ * (hal_bus.c maps only the driver's no-ACK to a NACK). All fail. */
 static void check_i2c(void)
 {
     tfw_status_t st = tfw_hal_i2c_init(TFW_I2C_DEFAULT_HZ);

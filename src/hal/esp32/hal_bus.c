@@ -72,12 +72,15 @@ static tfw_status_t i2c_up(void)
     return TFW_OK;
 }
 
+/* Only the driver's "no ACK" (ESP_ERR_NOT_FOUND) is a NACK: any other failure
+ * is the driver's, not an address nobody answered. */
 static tfw_status_t i2c_status(esp_err_t err)
 {
     switch (err) {
-    case ESP_OK:          return TFW_OK;
-    case ESP_ERR_TIMEOUT: return TFW_ERR_TIMEOUT;
-    default:              return TFW_ERR_NACK;
+    case ESP_OK:            return TFW_OK;
+    case ESP_ERR_TIMEOUT:   return TFW_ERR_TIMEOUT;
+    case ESP_ERR_NOT_FOUND: return TFW_ERR_NACK;
+    default:                return TFW_ERR_INTERNAL;
     }
 }
 

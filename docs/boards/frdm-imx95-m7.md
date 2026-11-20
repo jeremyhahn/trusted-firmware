@@ -3,7 +3,7 @@
 > **Status: INFORMATIVE** · SPEC rows: `imx95`, `cortex-m`, `ota`,
 > `hsm-self-defence` · Scope: `boards/frdm-imx95-m7/` and
 > `src/hal/cortex-m/imx95/`, built, not yet run on the board · Last verified:
-> 2026-11-17
+> 2026-11-20
 >
 > A profile of the board and of what this project builds for it. Its design,
 > with every source and every open question, is
@@ -81,26 +81,41 @@ changes.
 
 ## Feature matrix
 
-One line per SPEC row that applies to this board. Every row is **not run**:
-queued after #535 and #536 (ruling 768). "Evidence" is what exists off the
-board.
+One line per row of `docs/SPEC.md`'s table, in its order; "SPEC" is the
+row's status there. Every row that applies to this board is **not run**: the
+board is queued after #535 and #536 (ruling 768), and trusted-imx95 must first
+give the M7 its logical machine, console and boot-container slot
+(`docs/cortex-m/engineering.md`, Remaining slices, item 5). "Evidence" is what
+exists off the board. A row that is not this board's says why.
 
-| Row | Status | Date | Evidence | Issue |
-|---|---|---|---|---|
-| `imx95` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | board as data, SoC HAL, SCMI and enclave messages built and host-tested (the design, section 10) | #49 |
-| `cortex-m` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | built in `firmware-matrix`; QEMU has no i.MX 95 (the design, section 9.5) | #161 |
-| `boards` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | `test/unit/test_board_frdm-imx95-m7.c`; `make board-sweep` | #49 |
-| `wire-protocol` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | over LPUART3 only; LPUART host-tested on the register model | #49 |
-| `device-capabilities` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | GPIO, UART and watchdog behind `hal.h`, host-tested; ADC, PWM, tone, pulse, EEPROM, I²C, SPI and 1-Wire not linked (the design, section 3) | #49 |
-| `dice-attestation` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | soft tier only; the enclave tier not started | #49 |
-| `secure-boot` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | no tfw-boot row; the boot is open (question 19) | #49 |
-| `ota` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | AHAB plus our trailer v1 and SUIT gate, designed (the design, section 5); not started | #52 |
-| `application-sdk` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | applications are board-independent; nothing board-specific built | #49 |
-| `hsm-self-defence` | not run: queued after #535 and #536 (ruling 768) | 2026-11-17 | the engine runs on the host only (`make host-test`); nothing on the M7 | #50 |
-
-Not in the matrix: `ethernet-transport` is the AVR boards' W5x00 transport,
-and the M7's Ethernet is the design's question 14; `optee-trustzone` is not
-this board's (ruling 771, above).
+| Row | SPEC | Status | Date | Evidence | Issue |
+|---|---|---|---|---|---|
+| `wire-protocol` | shipped | not run | 2026-11-20 | over LPUART3 only; LPUART host-tested on the register model | #49 |
+| `device-capabilities` | shipped | not run | 2026-11-20 | GPIO, UART, watchdog and pulse timing (`PULSE_IN`, `PULSE_CAPTURE`, on SysTick) linked by default; PWM on a TPM, the SAR ADC, I²C on an LPI2C and tone on a GPT built only in their opt-in rows (`soft:PWM=1`, `soft:ADC=1`, `soft:I2C=1`, `soft:TONE=1`), host-tested on register models, and answering unsupported until their bases are known (the design, question 17); EEPROM, SPI and 1-Wire not linked | #49 |
+| `boards` | shipped | not run | 2026-11-20 | `test/unit/test_board_frdm-imx95-m7.c`; `make board-sweep` | #49 |
+| `dice-attestation` | shipped | not run | 2026-11-20 | soft tier only; the enclave tier not started | #49 |
+| `secure-boot` | shipped | not run | 2026-11-20 | no tfw-boot row; the boot is open (question 19) | #49 |
+| `device-provisioning` | shipped | not run | 2026-11-20 | nothing board-specific built | #49 |
+| `host-sdk` | shipped | not this board's | 2026-11-20 | host side; reaches the board over the wire protocol | — |
+| `xkms-adapter` | in progress | not this board's | 2026-11-20 | the AVR backend for go-xkms | — |
+| `ethernet-transport` | in progress | not this board's | 2026-11-20 | the AVR boards' W5x00 transport; the M7's Ethernet is the design's question 14 | — |
+| `cortex-m` | in progress | not run | 2026-11-20 | built in `firmware-matrix`; QEMU has no i.MX 95 (the design, section 9.5) | #161 |
+| `stm32h5` | in progress | not this board's | 2026-11-20 | another Cortex-M board | — |
+| `secure-element-se05x` | future | not this board's | 2026-11-20 | an element tier; this board's key tier is the enclave | — |
+| `optiga-trust-m` | future | not this board's | 2026-11-20 | an element tier; this board's key tier is the enclave | — |
+| `rp2350` | in progress | not this board's | 2026-11-20 | another Cortex-M board | — |
+| `nrf54l15` | future | not this board's | 2026-11-20 | another Cortex-M board | — |
+| `mcxn947` | in progress | not this board's | 2026-11-20 | another Cortex-M board | — |
+| `optee-trustzone` | future | not this board's | 2026-11-20 | a TrustZone-A secure world on QEMU `virt`; on the i.MX 95 that world is the BSP's (ruling 771, above) | — |
+| `optee-vault-ta` | future | not this board's | 2026-11-20 | runs on `optee-trustzone`'s QEMU `virt` stack | — |
+| `esp32` | in progress | not this board's | 2026-11-20 | another architecture port | — |
+| `esp32-p4` | in progress | not this board's | 2026-11-20 | another board | — |
+| `imx95` | in progress | not run | 2026-11-20 | board as data, SoC HAL, SCMI and enclave messages built and host-tested (the design, section 10) | #49 |
+| `hsm-self-defence` | future | not run | 2026-11-20 | the SUIT reader, payload reader and decision engine on the host only (`make host-test`), and the wire commands `0x76` to `0x7A` in tfwsim-atecc608a (`make sdk-test`); nothing on the M7 | #50 |
+| `device-security-event-evidence` | planned | not this board's | 2026-11-20 | carried by `xkms-adapter`, the AVR backend | — |
+| `application-sdk` | in progress | not run | 2026-11-20 | applications are board-independent; nothing board-specific built | #49 |
+| `ota` | in progress | not run | 2026-11-20 | AHAB plus our trailer v1 and SUIT gate, designed (the design, section 5); not started | #52 |
+| `device-onboarding` | future | not run | 2026-11-20 | nothing board-specific; the board supplies DICE evidence through `dice-attestation` | — |
 
 ## What this page bears on
 

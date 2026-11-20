@@ -181,7 +181,7 @@ test has none on main.
 | R14 | HMAC, pubkey and verify_image return `TFW_ERR_UNSUPPORTED` | done | `src/crypto/optiga/optiga_crypto.c`, `include/tfw/crypto.h` | `test/unit/test_optiga_crypto.c`: `test_the_unsupported_calls_send_nothing` |
 | R15 | `CRYPTO=optiga` links the provider | done; `PROVISION=1` and a build with the bus off are refused | `mk/firmware.mk` | `scripts/test_prov_absent_check.py`: `test_a_tier_make_refuses_to_provision_is_planned_production_only`; `scripts/test_optiga_bus_refused.py`: `test_optiga_with_the_bus_off_is_refused`, `test_optiga_with_i2c_on_links_the_transport` (slice 2) |
 | R16 | No board's tiers name it | holds | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` | none on main |
-| R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are not filled | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
+| R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are filled from those rows (#509) | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
 | R18 | Which boards it fits stays the owner's question | open: question 5, with the coordinator's proposal in the sixth part above | this ADR, "Follow-ups" | none |
 
 ## Remaining slices
@@ -189,13 +189,11 @@ test has none on main.
 In order. "Hardware" means the shield on the bench under §4; "owner" means a
 ruling first; "other project" means the work is not this repository's.
 
-1. **Fill the fit table** (no hardware, no owner): run `make firmware-matrix`
-   on the CI image, which has avr-gcc and the Arm toolchain, and write the
-   measured text+data and data+bss into the fit table above. Touches this ADR
-   only. Proven by `make firmware-matrix` passing its budget gate on the
-   `optiga` rows of `boards/atmega2560/profile.mk` and
-   `boards/mps2-an505/profile.mk`. The coordinator then answers question 5
-   under ruling 109.
+1. **Fill the fit table**: done (#509). The `optiga` rows of
+   `boards/atmega2560/profile.mk` and `boards/mps2-an505/profile.mk` and
+   their soft rows pass the budget gate, and the measured text+data and
+   data+bss are in the fit table above. The coordinator then answers
+   question 5 under ruling 109.
 2. **Test the bus-off refusal** (done, #510, #533; no hardware, no owner): a
    `scripts/test_optiga_bus_refused.py` in the pattern of
    `scripts/test_manifest_refused.py`, asking `make` for `CRYPTO=optiga` on a
@@ -393,24 +391,34 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   The fit table, for question 5. "Without" is the board's default image, the
   first tier `BOARD_TIERS` names, on the same row settings; "with" is the
   optiga row. Each size is text+data and data+bss, as `make firmware-matrix`
-  prints and checks against the budget. No size is measured here: the lane
-  image has neither avr-gcc nor an Arm toolchain, and s6's figures are not
-  recorded in the tree. The cells read "measured in verify" until the
-  coordinator's verify fills them from `make firmware-matrix`.
+  prints and checks against the budget ("flash" and "ram" in its line).
+  Measured on main 9fb5bed51e94 (#596) with
+  avr-gcc 14.2.0 and arm-none-eabi-gcc 14.2.1 (14.2.rel1), one
+  `make firmware BOARD=<board> CRYPTO=<tier> <settings>` per matrix row, as
+  `make firmware-matrix` runs it; every row passed the budget gate. Each cell
+  is text+data / data+bss in bytes.
 
   | Board, row | Flash budget / part | RAM budget / part | Without the tier | With the tier |
   |---|---|---|---|---|
-  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=0`: measured in verify |
-  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=1`: measured in verify |
-  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | soft: measured in verify | `optiga:I2C=1`: measured in verify |
-  | mps2-an500 | 131072 | 16384 | soft: measured in verify | not built: no row turns its bus on |
+  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | `soft:ETH=0`: 20736 / 1036 | `optiga:ETH=0`: 16930 / 1010 |
+  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | `soft` (ETH=1): 26816 / 1170 | `optiga:ETH=1`: 23260 / 1144 |
+  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | `soft:I2C=1`: 17940 / 12784 | `optiga:I2C=1`: 9656 / 984 |
+  | mps2-an500 | 131072 | 16384 | `soft`: 10924 / 888 | not built: no row turns its bus on |
   | atmega32u4 | — | — | not measured | not built: no row |
   | atmega328p | — | — | not measured | not built: question 5 asks about it |
 
+  On every measured row the optiga image is smaller than the soft one. So
+  "without" is not "the same image minus the transport": on mps2-an505
+  (`make firmware-srcs`, both rows) the soft image links micro-ecc, the soft
+  provider, SUIT and the HSM engine with its RAM store, and the optiga image
+  links `src/crypto/optiga/` in their place, hence 8284 bytes less flash and
+  11800 less RAM. The table answers whether the tier fits; it is not the
+  transport's own cost.
+
   The proposal for question 5. This is not an architecture decision, so the
   coordinator takes it under ruling 109:
-  - The ATmega2560 carries the tier as an option. Its two rows already pass
-    the matrix's budget gate in s6's verify.
+  - The ATmega2560 carries the tier as an option. Its two rows pass the
+    matrix's budget gate, at 16930 and 23260 bytes of a 65536 flash gate.
   - mps2-an505 carries it as an option. Its gates are twice the 2560's flash
     and eight times its RAM, and the tier is the same code.
   - On both, the tier joins `BOARD_TIERS` after soft, not in its place. That
@@ -423,8 +431,8 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   - mps2-an500 and the ATmega32U4 are not proposed until a row builds the
     tier there.
 - Left in the row:
-  - The fit table's measured cells, from verify's `make firmware-matrix`,
-    and the coordinator's answer to question 5.
+  - The coordinator's answer to question 5 (the fit table's cells are
+    measured, #509).
   - The bench factory record.
   - On the bench: the counter value's byte order and the factory key's curve.
 - Not in the row: pubkey from the factory certificate `0xE0E0`. Taking the

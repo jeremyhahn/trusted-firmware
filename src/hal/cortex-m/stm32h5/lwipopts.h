@@ -23,6 +23,9 @@
 #define LWIP_RAW                    0
 #define LWIP_UDP                    1
 #define LWIP_TCP                    1
+/* Per-pcb keepalive interval and count: the wire's outbound connection
+ * (hal_eth_wire_tcp.c) bounds how long a silent peer keeps it (#584). */
+#define LWIP_TCP_KEEPALIVE          1
 #define LWIP_DHCP                   1
 /* The offered address is probed with ARP before the client binds it; a
  * conflicting reply declines it (RFC 2131 4.4.1, RFC 5227). The ACD timer is

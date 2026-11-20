@@ -91,15 +91,20 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
 	// The rebooted board dials once its reset is done: the hook runs for
-	// real, then the board starts dialling.
-	var board <-chan net.Conn
+	// real, then the board boots and starts dialling.
+	board := make(chan net.Conn, 1)
 	saved := runHook
 	t.Cleanup(func() { runHook = saved })
 	runHook = func(hook string, bound time.Duration) error {
 		if err := saved(hook, bound); err != nil {
 			return err
 		}
-		board = dialUntil(addr, stop)
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			if c, ok := <-dialUntil(addr, stop); ok {
+				board <- c
+			}
+		}()
 		return nil
 	}
 	c, err := OpenCmd(TCPListenPrefix+addr, []string{"true"}, 5*time.Second)

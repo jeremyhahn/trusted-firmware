@@ -364,12 +364,41 @@ func openListen(port, addr string, reset func() error, bound time.Duration) (io.
 			_ = l.Close()
 			return nil, fmt.Errorf("%s: resetting the board: %w", port, err)
 		}
+		// The listener was up before the reset: a connection queued on it
+		// by now is the board's pre-reset socket. Close each one; the
+		// rebooted board dials again (and redials one closed here).
+		if err := drainAccepted(l); err != nil {
+			_ = l.Close()
+			return nil, fmt.Errorf("%s: %w", port, err)
+		}
 	}
 	c, err := acceptTCP(l, deadline)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// tcpDrain is how long drainAccepted waits for each connection already
+// queued on a listener: a queued connection is accepted at once.
+const tcpDrain = 20 * time.Millisecond
+
+// drainAccepted closes every connection already queued on l.
+func drainAccepted(l *net.TCPListener) error {
+	for {
+		if err := l.SetDeadline(time.Now().Add(tcpDrain)); err != nil {
+			return err
+		}
+		c, err := l.Accept()
+		if err != nil {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				return nil
+			}
+			return err
+		}
+		_ = c.Close()
+	}
 }
 
 // tcpDials bounds the dials openTCP makes to a board that closes each one.

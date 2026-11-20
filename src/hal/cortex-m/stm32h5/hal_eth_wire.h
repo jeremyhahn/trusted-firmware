@@ -23,6 +23,12 @@
  * before each dial. */
 #define TFW_H5_WIRE_REDIAL_MS     1000u
 #define TFW_H5_WIRE_REDIAL_MAX_MS 16000u
+/* Keepalive on the open connection: a peer silent for KEEP_IDLE is probed
+ * KEEP_CNT times KEEP_INTVL apart, and the connection is aborted and
+ * redialled when none is answered (30 s in all). */
+#define TFW_H5_WIRE_KEEP_IDLE_MS  15000u
+#define TFW_H5_WIRE_KEEP_INTVL_MS 5000u
+#define TFW_H5_WIRE_KEEP_CNT      3u
 
 /* Bytes the link holds from the connection before the transport reads them.
  * At least lwIP's TCP_WND: the window is reopened only as bytes are read, so

@@ -115,6 +115,13 @@ static err_t wire_connected(void *arg, struct tcp_pcb *pcb, err_t err)
     wire_wait_ms = 0u;
     tcp_recv(pcb, wire_recv);
     tcp_nagle_disable(pcb);
+    /* A peer that loses its state without FIN or RST would hold the wire
+     * forever: unanswered keepalives make lwIP abort the pcb (wire_err),
+     * and the poll dials again. */
+    ip_set_option(pcb, SOF_KEEPALIVE);
+    pcb->keep_idle  = TFW_H5_WIRE_KEEP_IDLE_MS;
+    pcb->keep_intvl = TFW_H5_WIRE_KEEP_INTVL_MS;
+    pcb->keep_cnt   = TFW_H5_WIRE_KEEP_CNT;
     tfw_h5_wire_open();
     return ERR_OK;
 }

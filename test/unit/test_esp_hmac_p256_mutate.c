@@ -472,6 +472,15 @@ static void test_random_and_sha256_pass_through(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, digest, 32u);
 }
 
+/* The platform block as an unprovisioned part has it: all zero, so no
+ * operator_bind tag (row #606). */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    (void)addr;
+    memset(buf, 0, len);
+    return TFW_OK;
+}
+
 static void test_counters_and_verification_are_unsupported(void)
 {
     static const uint8_t z[64] = { 0u };
@@ -479,7 +488,9 @@ static void test_counters_and_verification_are_unsupported(void)
 
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &c));
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, c);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(z, z, z));
+    /* An operator key with no operator_bind tag is refused, not unsupported:
+     * the tier verifies operators since #606 (test_esp_opsess). */
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(z, z, z));
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(z, z));
 }
 

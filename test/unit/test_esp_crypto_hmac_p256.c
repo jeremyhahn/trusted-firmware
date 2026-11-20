@@ -98,6 +98,14 @@ void mock_esp_log(char level, const char *tag, const char *fmt, ...)
 
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
 
+/* No platform block: test_esp_opsess owns operator_bind (row #606). */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    (void)addr;
+    memset(buf, 0, len);
+    return TFW_OK;
+}
+
 /* ---- helpers --------------------------------------------------------------- */
 
 static void burn_uds(esp_efuse_block_t block)

@@ -350,6 +350,11 @@ func acceptTCP(l *net.TCPListener, deadline time.Time) (net.Conn, error) {
 	return c, nil
 }
 
+// listenDrained, when set, is called by openListen once it has closed the
+// connections queued before the reset returned; nil in production. A test
+// sets it so the rebooted board dials after that drain, not after a sleep.
+var listenDrained func()
+
 // openListen listens on addr, runs reset (if any) once the host is
 // listening, so the rebooted board's first dial lands, and accepts the
 // board's connection, all within bound.
@@ -370,6 +375,9 @@ func openListen(port, addr string, reset func() error, bound time.Duration) (io.
 		if err := drainAccepted(l); err != nil {
 			_ = l.Close()
 			return nil, fmt.Errorf("%s: %w", port, err)
+		}
+		if listenDrained != nil {
+			listenDrained()
 		}
 	}
 	c, err := acceptTCP(l, deadline)

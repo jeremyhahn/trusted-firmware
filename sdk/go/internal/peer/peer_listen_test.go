@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -43,6 +44,19 @@ func dialUntil(addr string, stop <-chan struct{}) <-chan net.Conn {
 		}
 	}()
 	return got
+}
+
+// waitDrained sets listenDrained for the test and returns a channel closed
+// once openListen has dropped the connections queued before the reset
+// returned, so the rebooted board's dial lands after that drain.
+func waitDrained(t *testing.T) <-chan struct{} {
+	t.Helper()
+	drained := make(chan struct{})
+	var once sync.Once
+	saved := listenDrained
+	t.Cleanup(func() { listenDrained = saved })
+	listenDrained = func() { once.Do(func() { close(drained) }) }
+	return drained
 }
 
 func TestOpenAcceptsTheDevicesDialOnATCPListenPort(t *testing.T) {
@@ -93,6 +107,7 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 	// The rebooted board dials once its reset is done: the hook runs for
 	// real, then the board boots and starts dialling.
 	board := make(chan net.Conn, 1)
+	drained := waitDrained(t)
 	saved := runHook
 	t.Cleanup(func() { runHook = saved })
 	runHook = func(hook string, bound time.Duration) error {
@@ -100,7 +115,7 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 			return err
 		}
 		go func() {
-			time.Sleep(100 * time.Millisecond)
+			<-drained
 			if c, ok := <-dialUntil(addr, stop); ok {
 				board <- c
 			}
@@ -127,6 +142,7 @@ func TestOpenCmdResetsThenAcceptsTheRebootedBoardsDial(t *testing.T) {
 func TestOpenCmdDropsTheBoardsPreResetConnection(t *testing.T) {
 	addr := freeAddr(t)
 	fresh := make(chan net.Conn, 1)
+	drained := waitDrained(t)
 	saved := runHook
 	t.Cleanup(func() { runHook = saved })
 	runHook = func(string, time.Duration) error {
@@ -139,7 +155,7 @@ func TestOpenCmdDropsTheBoardsPreResetConnection(t *testing.T) {
 		// The reset drops it, and the rebooted board dials again.
 		_ = stale.Close()
 		go func() {
-			time.Sleep(100 * time.Millisecond)
+			<-drained
 			c, err := net.DialTimeout("tcp", addr, time.Second)
 			if err != nil {
 				fresh <- nil

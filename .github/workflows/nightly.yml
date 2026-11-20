@@ -325,6 +325,7 @@ jobs:
       # runs, so a developer's trivy and this one cannot drift. See the script's
       # header for what the checksum does and does NOT prove.
       - name: Install Trivy (Gitea)
+        id: install_trivy
         if: github.server_url != 'https://github.com'
         run: ./scripts/install-trivy.sh /usr/local/bin
 
@@ -342,8 +343,12 @@ jobs:
       # only, so on the GitHub mirror the "portfolio-wide" misconfig scan ran
       # nowhere at all — a promise kept on one host and silently dropped on the
       # other. Same scanner, same advisory exit code, same pin, on both paths.
+      #
+      # v1.5 (#613): `!cancelled()`, so a failed vulnerability gate above does
+      # not skip the only misconfiguration scan (the job still fails on the
+      # gate); each scan needs only its own scanner step to have succeeded.
       - name: Trivy misconfiguration scan (advisory, GitHub)
-        if: github.server_url == 'https://github.com'
+        if: "!cancelled() && github.server_url == 'https://github.com' && steps.trivy_version.outcome == 'success'"
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           version: v${{ steps.trivy_version.outputs.version }}
@@ -356,6 +361,6 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Trivy misconfiguration scan (advisory, Gitea)
-        if: github.server_url != 'https://github.com'
+        if: "!cancelled() && github.server_url != 'https://github.com' && steps.install_trivy.outcome == 'success'"
         run: trivy fs --scanners misconfig --exit-code 0 --format table --skip-dirs test,examples --ignorefile .trivyignore .
 

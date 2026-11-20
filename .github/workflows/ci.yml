@@ -1293,7 +1293,10 @@ jobs:
       # output at its default ("ubuntu-latest", which must give a standard
       # image) and at its overflow, where exactly
       # [self-hosted, linux, x64, bigdisk] or [..., bigdisk-docker] passes too.
-      # Its tests: testdata/runner-labels-tests.py.
+      # v1.49 (#613): `x || y` with x unknown is unknown, never y alone, so a
+      # `vars.CI_RUNNER || 'ubuntu-latest'` runs-on is not hosted (c); with a
+      # waiver it may still be `release`, and its `if:` is checked as such.
+      # Its tests: scripts/test_ci_runner_expr.py.
       - name: Runner labels (ruling 633)
         run: |
           python3 -I - <<'PY'
@@ -1422,7 +1425,9 @@ jobs:
                       elif ta is False:
                           a = b
                       else:
-                          a = b if truthy(b) is True else U
+                          # v1.49 (#613): an unknown left operand may be truthy,
+                          # and then `||` returns it, not the right one.
+                          a = U
                   return a
 
               def andx(self):
@@ -1704,6 +1709,24 @@ jobs:
               return re.search(r"(?<![\w.-])['\"]?release['\"]?(?![\w-])", text) is not None
 
 
+          def sels_of(path):
+              return ("default", "overflow") if path.replace("\\", "/").rsplit("/", 1)[-1] in SEL_FILES else (None,)
+
+
+          def unknown_runner(path, ro):
+              # v1.49 (#613): a runs-on whose value this step cannot know on some
+              # github.com event (`vars.CI_RUNNER || 'ubuntu-latest'`) may name any
+              # runner, `release` too, though its text names none.
+              for ev, ref, head in HOSTED_CTX:
+                  for sel in sels_of(path):
+                      try:
+                          if runs_on_labels(ro, ev, ref, head, sel) is None:
+                              return True
+                      except ValueError:
+                          return True
+              return False
+
+
           def condition(text):
               t = unquote(text) if text else ""
               m = re.fullmatch(r"\s*\$\{\{(.*)\}\}\s*", t, re.S)
@@ -1738,29 +1761,32 @@ jobs:
                                   bad.append(rf)
                                   continue
                               if WAIVER.search(ro_line):
+                                  if not unknown_runner(path, ro):
+                                      continue
+                                  # v1.49 (#613): a waived runs-on whose value is unknown may
+                                  # be `release`, so its `if:` is checked as one below.
+                              else:
+                                  off = []
+                                  for ev, ref, head in HOSTED_CTX:
+                                      for sel in sels_of(path):
+                                          try:
+                                              got = runs_on_labels(ro, ev, ref, head, sel)
+                                          except ValueError as e:
+                                              off.append(f"{ev} ({ref}): cannot be read ({e})")
+                                              continue
+                                          if got is not None and sel == "overflow" and got in OVERFLOW:
+                                              continue
+                                          if got is None or len(got) != 1 or not STANDARD.fullmatch(got[0]):
+                                              what = "an unknown label" if got is None else ", ".join(got)
+                                              note = ", runner selection overflow" if sel == "overflow" else ""
+                                              off.append(f"{ev} ({ref}{', fork' if head == 'fork/r' else ''}{note}): {what}")
+                                  if off and BARE.search(ro_line):
+                                      bad.append(f"{where}: (e) its `# self-hosted:` reason names no category; ruling 999 allows a self-hosted job "
+                                                 f"only as `# self-hosted: hardware: <reason>` or `# self-hosted: oversize: <reason>`; it runs on " + "; ".join(dict.fromkeys(off)))
+                                  elif off:
+                                      bad.append(f"{where}: (c) does not run on a standard GitHub-hosted image on github.com and its runs-on "
+                                                 f"line gives no `# self-hosted: hardware|oversize: <reason>`; it runs on " + "; ".join(dict.fromkeys(off)))
                                   continue
-                              off = []
-                              sels = ("default", "overflow") if path.replace("\\", "/").rsplit("/", 1)[-1] in SEL_FILES else (None,)
-                              for ev, ref, head in HOSTED_CTX:
-                                  for sel in sels:
-                                      try:
-                                          got = runs_on_labels(ro, ev, ref, head, sel)
-                                      except ValueError as e:
-                                          off.append(f"{ev} ({ref}): cannot be read ({e})")
-                                          continue
-                                      if got is not None and sel == "overflow" and got in OVERFLOW:
-                                          continue
-                                      if got is None or len(got) != 1 or not STANDARD.fullmatch(got[0]):
-                                          what = "an unknown label" if got is None else ", ".join(got)
-                                          note = ", runner selection overflow" if sel == "overflow" else ""
-                                          off.append(f"{ev} ({ref}{', fork' if head == 'fork/r' else ''}{note}): {what}")
-                              if off and BARE.search(ro_line):
-                                  bad.append(f"{where}: (e) its `# self-hosted:` reason names no category; ruling 999 allows a self-hosted job "
-                                             f"only as `# self-hosted: hardware: <reason>` or `# self-hosted: oversize: <reason>`; it runs on " + "; ".join(dict.fromkeys(off)))
-                              elif off:
-                                  bad.append(f"{where}: (c) does not run on a standard GitHub-hosted image on github.com and its runs-on "
-                                             f"line gives no `# self-hosted: hardware|oversize: <reason>`; it runs on " + "; ".join(dict.fromkeys(off)))
-                              continue
                           if ro is None:
                               continue
                           if cond is None:

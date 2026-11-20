@@ -32,6 +32,7 @@
 #include "lwip/dhcp.h"
 #include "lwip/prot/dhcp.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/tcp.h"
 
 void tfw_hal_eth_poll(void);
 
@@ -91,6 +92,112 @@ int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; re
 void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; memcpy(mac_seen, mac, 6); mac_cr = sp; }
 void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
 void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
+/* #584 Codex P1: a TCP peer on the wire that answers every keepalive probe
+ * the device sends, the answer queued in the rx path as the DMA ring would. */
+static const uint8_t ka_peer_mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x30u };
+static const uint8_t ka_peer_ip[4]  = { 192u, 0u, 2u, 30u };
+static const uint8_t ka_dev_ip[4]   = { 192u, 0u, 2u, 20u };
+#define KA_PEER_PORT 40000u
+#define KA_DEV_PORT  7000u
+static uint32_t        ka_dev_nxt, ka_peer_seq;
+static unsigned        ka_probes, ka_answer, ka_errs;
+static uint16_t        ka_buffered;
+static struct tcp_pcb *ka_pcb;
+
+static void ka_put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; }
+static void ka_put32(uint8_t *p, uint32_t v) { ka_put16(p, v >> 16); ka_put16(p + 2, v); }
+static uint32_t ka_get16(const uint8_t *p) { return ((uint32_t)p[0] << 8) | p[1]; }
+static uint32_t ka_get32(const uint8_t *p) { return (ka_get16(p) << 16) | ka_get16(p + 2); }
+
+static uint32_t ka_sum(const uint8_t *p, size_t n, uint32_t s)
+{
+    for (size_t i = 0u; i + 1u < n; i += 2u) {
+        s += ka_get16(p + i);
+    }
+    if ((n & 1u) != 0u) {
+        s += (uint32_t)p[n - 1u] << 8;
+    }
+    return s;
+}
+
+static uint32_t ka_fold(uint32_t s)
+{
+    while ((s >> 16) != 0u) {
+        s = (s & 0xFFFFu) + (s >> 16);
+    }
+    return ~s & 0xFFFFu;
+}
+
+/* A peer segment to the device: seq ka_peer_seq, ack ka_dev_nxt. */
+static void ka_inject_tcp(uint8_t flags, const uint8_t *data, uint16_t dlen)
+{
+    uint8_t *f = rx_frame, *ip = f + 14, *t = ip + 20;
+    uint8_t  ph[12];
+    uint32_t tl = 40u + dlen;
+
+    memset(rx_frame, 0, sizeof rx_frame);
+    memcpy(f, netif_default->hwaddr, 6);
+    memcpy(f + 6, ka_peer_mac, 6);
+    f[12] = 0x08u;
+    ip[0] = 0x45u; ka_put16(ip + 2, tl); ip[8] = 64u; ip[9] = 6u;
+    memcpy(ip + 12, ka_peer_ip, 4);
+    memcpy(ip + 16, ka_dev_ip, 4);
+    ka_put16(ip + 10, ka_fold(ka_sum(ip, 20u, 0u)));
+    ka_put16(t, KA_PEER_PORT);
+    ka_put16(t + 2, KA_DEV_PORT);
+    ka_put32(t + 4, ka_peer_seq);
+    ka_put32(t + 8, (flags & 0x10u) != 0u ? ka_dev_nxt : 0u);
+    t[12] = 0x50u; t[13] = flags; ka_put16(t + 14, 4096u);
+    if (dlen > 0u) {
+        memcpy(t + 20, data, dlen);
+    }
+    memcpy(ph, ka_peer_ip, 4);
+    memcpy(ph + 4, ka_dev_ip, 4);
+    ph[8] = 0u; ph[9] = 6u; ka_put16(ph + 10, 20u + dlen);
+    ka_put16(t + 16, ka_fold(ka_sum(t, 20u + dlen, ka_sum(ph, 12u, 0u))));
+    rx_len = (14u + tl < 60u) ? 60u : 14u + tl;
+}
+
+static void ka_inject_arp_request(void)
+{
+    uint8_t *f = rx_frame, *a = f + 14;
+
+    memset(rx_frame, 0, sizeof rx_frame);
+    memset(f, 0xFF, 6);
+    memcpy(f + 6, ka_peer_mac, 6);
+    f[12] = 0x08u; f[13] = 0x06u;
+    a[1] = 1u; a[2] = 0x08u; a[4] = 6u; a[5] = 4u; a[7] = 1u;
+    memcpy(a + 8, ka_peer_mac, 6);
+    memcpy(a + 14, ka_peer_ip, 4);
+    memcpy(a + 24, ka_dev_ip, 4);
+    rx_len = 60u;
+}
+
+/* Sees the device's segments to the peer: the SYN-ACK sets the device's next
+ * sequence number, and a keepalive probe (no data, one below it) is answered. */
+static void ka_tx(const uint8_t *f, size_t len)
+{
+    const uint8_t *t = f + 34;
+    uint32_t seq, dlen;
+
+    if (len < 54u || f[12] != 0x08u || f[13] != 0x00u || f[23] != 6u ||
+        ka_get16(t + 2) != KA_PEER_PORT) {
+        return;
+    }
+    seq  = ka_get32(t + 4);
+    dlen = ka_get16(f + 16) - 20u - (uint32_t)(t[12] >> 4) * 4u;
+    if ((t[13] & 0x02u) != 0u) {
+        ka_dev_nxt = seq + 1u;
+        return;
+    }
+    if (dlen == 0u && seq + 1u == ka_dev_nxt) {
+        ka_probes++;
+        if (ka_answer) {
+            ka_inject_tcp(0x10u, NULL, 0u);
+        }
+    }
+}
+
 int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
 {
     const uint8_t *f = frame;
@@ -98,6 +205,7 @@ int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
 
     (void)m;
     tx_frames++;
+    ka_tx(f, len);
     if (len >= 42u && f[12] == 0x08u && f[13] == 0x06u && f[21] == 1u &&
         memcmp(f + 28, zero, 4) == 0 && memcmp(f + 38, offered_ip, 4) == 0) {
         arp_probes++;
@@ -787,6 +895,96 @@ static void test_the_lease_expires_on_time_during_a_signature(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(lease_expires_mid_sign));
 }
 
+static err_t ka_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+{
+    (void)arg; (void)pcb; (void)err;
+    if (p != NULL) {
+        ka_buffered = (uint16_t)(ka_buffered + p->tot_len);  /* buffered, as the wire's push */
+        (void)pbuf_free(p);
+    }
+    return ERR_OK;
+}
+
+static void ka_err(void *arg, err_t err)
+{
+    (void)arg; (void)err;
+    ka_errs++;
+    ka_pcb = NULL;
+}
+
+static err_t ka_accept(void *arg, struct tcp_pcb *pcb, err_t err)
+{
+    (void)arg; (void)err;
+    ka_pcb = pcb;
+    tcp_recv(pcb, ka_recv);
+    tcp_err(pcb, ka_err);
+    ip_set_option(pcb, SOF_KEEPALIVE);   /* the wire's own keepalive */
+    pcb->keep_idle  = TFW_H5_WIRE_KEEP_IDLE_MS;
+    pcb->keep_intvl = TFW_H5_WIRE_KEEP_INTVL_MS;
+    pcb->keep_cnt   = TFW_H5_WIRE_KEEP_CNT;
+    return ERR_OK;
+}
+
+static void keepalive_answered_mid_sign(void)
+{
+    static const uint8_t req[4] = { 'R', 'E', 'Q', '!' };
+    struct tcp_pcb *l;
+    unsigned dials, says;
+
+    static_block();
+    l = tcp_new();
+    TEST_ASSERT_NOT_NULL(l);
+    TEST_ASSERT_EQUAL_INT(ERR_OK, tcp_bind(l, IP_ADDR_ANY, KA_DEV_PORT));
+    l = tcp_listen(l);
+    TEST_ASSERT_NOT_NULL(l);
+    tcp_accept(l, ka_accept);
+    ka_inject_arp_request();
+    run_for(100u);
+    ka_peer_seq = 1000u;
+    ka_inject_tcp(0x02u, NULL, 0u);                     /* SYN */
+    run_for(100u);
+    TEST_ASSERT_TRUE(ka_dev_nxt != 0u);
+    ka_peer_seq++;
+    ka_inject_tcp(0x10u, NULL, 0u);                     /* ACK */
+    run_for(100u);
+    TEST_ASSERT_NOT_NULL(ka_pcb);
+    ka_inject_tcp(0x18u, req, sizeof req);              /* a request, buffered */
+    ka_peer_seq += sizeof req;
+    run_for(100u);
+    TEST_ASSERT_EQUAL_UINT16(sizeof req, ka_buffered);
+
+    /* 50 ms steps: lwIP re-arms its 250 ms TCP timer from the poll's time, so
+     * coarser steps would stretch the keepalive clock. */
+    ka_answer = 1u;
+    for (tfw_ms_t end = now_ms + 10000u; now_ms < end; now_ms += 50u) {
+        tfw_hal_eth_poll();                             /* idle 10 s */
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, ka_probes);
+    dials = dial_calls;
+    says  = say_polls;
+
+    /* A 26 s UART signature: the 30 s keepalive deadline falls inside it, and
+     * the peer answers every probe, so the connection must survive. */
+    for (tfw_ms_t end = now_ms + 26000u; now_ms < end; now_ms += 50u) {
+        tfw_sign_yield();
+    }
+    TEST_ASSERT_TRUE(ka_probes > 0u);
+    TEST_ASSERT_EQUAL_UINT(0u, ka_errs);
+    TEST_ASSERT_NOT_NULL(ka_pcb);
+    TEST_ASSERT_EQUAL_UINT16(sizeof req, ka_buffered);  /* the request is kept */
+    TEST_ASSERT_EQUAL_UINT(dials, dial_calls);          /* nothing dispatched */
+    TEST_ASSERT_EQUAL_UINT(says, say_polls);
+
+    run_for(100u);                                      /* the main loop again */
+    TEST_ASSERT_TRUE(say_polls > says);
+    TEST_ASSERT_EQUAL_UINT(0u, ka_errs);
+}
+
+static void test_keepalive_answers_are_read_during_a_signature(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(keepalive_answered_mid_sign));
+}
+
 int main(void)
 {
     tfw_h5_rng.regs = fake_rng;
@@ -809,6 +1007,7 @@ int main(void)
     RUN_TEST(test_a_static_block_written_while_unbound_applies_through_the_poll);
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
+    RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);

@@ -148,9 +148,8 @@
 # off ci/deps-bump (which the preflight refuses), so a PR runs integration,
 # make security and trivy image as main does; the integration job's `if:`
 # no longer skips a PR. The `make gosec (PR tier)` step goes: make security
-# runs gosec on every event. A PR run with a green Integration job proves its
-# tree, so the squash merge of an up-to-date PR is a proven push and main
-# skips its bigdisk jobs (v1.30 fix 2). `ci:full` no longer selects a tier;
+# runs gosec on every event. The squash merge of a PR runs the full tier on
+# main again (#613 removed the unwired v1.30 fix 2 tree reuse). `ci:full` no longer selects a tier;
 # it only turns off the two PR path scopes below. The exceptions, each a job
 # that cannot run on a PR by nature or a scope whose inputs a PR does not
 # change: publish-images (pushes images to the registry from the release
@@ -379,11 +378,9 @@
 #      needs the toolchain image alone (`make docker-build-toolchain`), so
 #      they run beside build and make coverage. lint-gates builds the
 #      toolchain image alone as well.
-#   2. A push to main whose tree already has a green full-tier run (a run of
-#      this workflow whose Integration job succeeded) gets the schedule
-#      guard's `proven` verdict: its bigdisk jobs skip, the guard records the
-#      proving run id, and CI Gate reads the skips as passed. No hourly or
-#      lane ci:full reruns; lint-sweeps run in nightly.yml only.
+#   2. (Removed, #613: the `proven` tree-reuse verdict was never wired up;
+#      every push to main runs the full tier.) No hourly or lane ci:full
+#      reruns; lint-sweeps run in nightly.yml only.
 #   3. lint-gates is path-scoped on a pull request (LINT_GATES_PATTERN, the
 #      changes job's `lint_gates` output). A pull request from a checkpoint
 #      branch (lane-ckpt/*) is refused. cancel-in-progress stays true
@@ -1029,15 +1026,9 @@ jobs:
   # v1.30 (fixes 2, 3 and 5): two more verdicts. `refused`: a
   # workflow_dispatch off main (no full tier on a PR branch, ever) or a pull
   # request from a checkpoint branch (lane-ckpt/*); every job but the gate
-  # skips and CI Gate fails. `proven`: on a push to main, the newest of this
-  # workflow's last 20 successful runs whose head commit has this commit's tree
-  # and whose Integration job succeeded (a ci:full PR run, a dispatch on main,
-  # an earlier main run); the guard records its id as `proof`, every bigdisk
-  # job skips and CI Gate reads the skips as passed. A proof it cannot read
-  # leaves `run`: the full tier runs. A schedule run never gets `proven`,
-  # because its security stages read fresh vulnerability databases. (v1.42:
-  # those stages are in scans.yml; the rule is kept so a schedule run still
-  # re-runs the whole tree.)
+  # skips and CI Gate fails, on every event (#613). (The v1.30 `proven`
+  # verdict, tree reuse on a main push, was never wired up and is removed,
+  # #613: every main push runs the full tier.)
   # Architecture gate (v1.20, Tenant Agent m270 item 9; go-xkms arch-gates).
   # go-objstore owns every blob backend (docs/00), and a repo reaches it only
   # through the packages that are its storage seam. Test files are exempt, and
@@ -1064,7 +1055,6 @@ jobs:
       optee: ${{ steps.optee.outputs.optee }}   # CUSTOMIZE: #253, below
       lint_gates: ${{ steps.diff.outputs.lint_gates }}   # v1.30
       verdict: ${{ steps.guard.outputs.verdict }}
-      proof: ${{ steps.guard.outputs.proof }}   # v1.30
       # v1.48 (ruling 1024): runs-on JSON for the two hosted-capable classes,
       # read as fromJSON(needs.preflight.outputs.runner_docker) by every job
       # that builds or runs images and fromJSON(needs.preflight.outputs.runner)
@@ -1090,11 +1080,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           HEAD_REF: ${{ github.head_ref }}
-          SHA: ${{ github.sha }}
           SERVER: ${{ github.server_url }}
           # This workflow's own file: the route counts its runs only.
           RUNS_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}/actions/workflows/ci.yml/runs
-          REPO_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
           JOB_TOKEN: ${{ github.token }}
           BOT: ${{ github.event_name == 'schedule' && secrets.AGENT_TOKEN || '' }}
         run: |
@@ -1121,37 +1109,7 @@ jobs:
               N=$((N + n))
             done
           }
-          # get <token> <url> <file>: 0 on a 200 reply, saved in <file>.
-          get() {
-            [ "$(curl -sS --max-time 30 -o "$3" -w '%{http_code}' \
-              -H @<(printf 'Authorization: token %s\n' "$1") "$2")" = 200 ]
-          }
-          # v1.30: proof <token>: sets PROOF to the id of the newest of this
-          # workflow's last 20 successful runs whose head commit has this
-          # commit's tree and whose Integration jobs all succeeded (at least
-          # one). It returns 1 when a reply is not 200, and 0 with PROOF
-          # empty when no run proves the tree.
-          proof() {
-            local tree id sha t
-            PROOF=
-            get "$1" "$REPO_API/git/commits/$SHA" "$RUNNER_TEMP/c.json" || return 1
-            tree=$(jq -er '.commit.tree.sha' "$RUNNER_TEMP/c.json") || return 1
-            get "$1" "$RUNS_API?status=success&limit=20" "$RUNNER_TEMP/ok.json" || return 1
-            while read -r id sha; do
-              get "$1" "$REPO_API/git/commits/$sha" "$RUNNER_TEMP/c.json" || continue
-              t=$(jq -r '.commit.tree.sha' "$RUNNER_TEMP/c.json")
-              [ "$t" = "$tree" ] || continue
-              get "$1" "$REPO_API/actions/runs/$id/jobs?limit=100" "$RUNNER_TEMP/j.json" || continue
-              if jq -e '[.jobs[] | select(.name | startswith("Integration"))] | length > 0 and all(.conclusion == "success")' \
-                   "$RUNNER_TEMP/j.json" >/dev/null; then
-                PROOF=$id
-                echo "tree $tree: run $id (head $sha) has a green full tier"
-                return 0
-              fi
-            done < <(jq -r '.workflow_runs[]? | "\(.id) \(.head_sha)"' "$RUNNER_TEMP/ok.json")
-            echo "tree $tree: no green full-tier run among the last 20 successful runs"
-          }
-          verdict=run N=0 PROOF=
+          verdict=run N=0
           # v1.30 (fixes 3 and 5): the refusals come first.
           # v1.39 (ruling 640): deps-bump.yml dispatches this workflow on
           # ci/deps-bump, because the PR it opens with GITHUB_TOKEN starts no
@@ -2010,7 +1968,7 @@ jobs:
     runs-on: ${{ github.server_url == 'https://github.com' && fromJSON(needs.preflight.outputs.runner_docker) || 'bigdisk' }}   # v1.48
     needs: preflight   # v1.24 (CA m749, m751 (a)); v1.29.3; v1.34
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
-    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
+    if: ${{ !github.event.pull_request.draft && needs.preflight.outputs.verdict == 'run' }}   # v1.26
     # CUSTOMIZE: give the stages honest headroom. A cold BuildKit cache builds
     # the three images in 55 min (run 55218); a warm one reuses them. Then lint
     # and build ~2, the module and cross-arch loops ~6 and trivy image ~5 (run
@@ -3183,7 +3141,7 @@ jobs:
     needs: preflight     # v1.29.3; v1.30; v1.34
     # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
     # schedule guard's `run`.
-    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
+    if: ${{ !github.event.pull_request.draft && needs.preflight.outputs.verdict == 'run' }}
     timeout-minutes: 45
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -3275,7 +3233,7 @@ jobs:
     name: Integration [integration image]
     # v1.26: never on a draft PR, ci:full or not. v1.29.3: on a schedule run,
     # only on the schedule guard's `run`. v1.30: only on `run` on every event
-    # (a proven main push and a refused run skip it).
+    # (a refused run skips it).
     needs: preflight   # v1.34
     # v1.41 (ruling 742 (2)): every PR, as main; a docs-only PR skips it, as
     # it skips build and make coverage, and CI Gate reads it as `code`.
@@ -3767,7 +3725,7 @@ jobs:
           NIGHTLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
           # v1.26: a draft PR runs no CI, so its gate fails rather than pass on skips.
           DRAFT: ${{ github.event.pull_request.draft == true }}
-          # v1.29.3: the schedule guard's verdict on a schedule run.
+          # v1.29.3: the schedule guard's verdict; #613: read on every event.
           SCHEDULE: ${{ github.event_name == 'schedule' }}
           SCHEDULE_GUARD: ${{ needs.preflight.outputs.verdict }}
           # CUSTOMIZE (trusted-firmware): a `docs` job builds or tests code, so
@@ -3822,6 +3780,12 @@ jobs:
           # because the guard had no count: fail closed.
           if [ "${SCHEDULE}" = true ] && [ "${SCHEDULE_GUARD}" != run ]; then
             echo "FAIL schedule-guard (verdict '${SCHEDULE_GUARD:-none}': the bigdisk jobs skipped because the guard could not read the API; see its log)"; BAD=1
+          fi
+          # #613: a refused run (a dispatch off main and ci/deps-bump, or a PR
+          # from a lane-ckpt/* branch) fails on every event, a docs-only PR
+          # included: its image, lint-gates and integration jobs skip.
+          if [ "${SCHEDULE_GUARD}" = refused ]; then
+            echo "FAIL preflight (verdict 'refused': see the preflight log)"; BAD=1
           fi
           # CUSTOMIZE: one line per job in needs above. A job gated to the
           # full tier by its `if:` is marked full, one gated to schedule and

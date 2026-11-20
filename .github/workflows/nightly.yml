@@ -131,6 +131,12 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          # CUSTOMIZE (trusted-firmware, #613): setup-go caches by default
+          # and looks for a root go.sum, which this repository does not have;
+          # name the two modules' lock files.
+          cache-dependency-path: |
+            xkms/go.sum
+            sdk/go/go.sum
 
       # CUSTOMIZE (trusted-firmware, #611): there is no root Go module, so a
       # bare `go build ./...` builds nothing; build the two Go modules, xkms/

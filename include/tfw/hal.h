@@ -206,4 +206,9 @@ uint32_t         tfw_hal_free_ram(void);
 void             tfw_hal_watchdog_arm(void);
 void             tfw_hal_watchdog_pet(void);
 
+/* One pass of the SoC Ethernet MAC's interface under lwIP (ETH_MAC=1, #581:
+ * src/hal/cortex-m/stm32h5/hal_eth_netif.c). Called once per main-loop pass;
+ * a build without the MAC links src/main.c's weak empty definition. */
+void             tfw_hal_eth_poll(void);
+
 #endif /* TFW_HAL_H */

@@ -37,4 +37,10 @@ void    tfw_link_tx_done(uint8_t serial);
 /* 1 if the wire the current frame arrived on may run cmd. */
 uint8_t tfw_link_admits(uint8_t cmd);
 
+/* 1, once, if the peer has changed since the last call (a connection dropped
+ * or replaced): the transport then forgets any partly received frame and any
+ * reply still owed, so the new peer's first request is not read as the old
+ * frame's tail. */
+uint8_t tfw_link_take_reset(void);
+
 #endif /* TFW_LINK_H */

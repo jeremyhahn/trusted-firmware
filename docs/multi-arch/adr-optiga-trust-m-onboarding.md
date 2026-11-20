@@ -392,7 +392,7 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   first tier `BOARD_TIERS` names, on the same row settings; "with" is the
   optiga row. Each size is text+data and data+bss, as `make firmware-matrix`
   prints and checks against the budget ("flash" and "ram" in its line).
-  Measured at commit 63eadde8 (row/509-optiga-fit, origin/main merged) with
+  Measured on main 9fb5bed51e94 (#596) with
   avr-gcc 14.2.0 and arm-none-eabi-gcc 14.2.1 (14.2.rel1), one
   `make firmware BOARD=<board> CRYPTO=<tier> <settings>` per matrix row, as
   `make firmware-matrix` runs it; every row passed the budget gate. Each cell
@@ -400,10 +400,10 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
 
   | Board, row | Flash budget / part | RAM budget / part | Without the tier | With the tier |
   |---|---|---|---|---|
-  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | `soft:ETH=0`: 20666 / 1034 | `optiga:ETH=0`: 16914 / 1010 |
-  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | `soft` (ETH=1): 26774 / 1168 | `optiga:ETH=1`: 23272 / 1144 |
-  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | `soft:I2C=1`: 17876 / 12780 | `optiga:I2C=1`: 9648 / 984 |
-  | mps2-an500 | 131072 | 16384 | soft: measured in verify | not built: no row turns its bus on |
+  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | `soft:ETH=0`: 20736 / 1036 | `optiga:ETH=0`: 16930 / 1010 |
+  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | `soft` (ETH=1): 26816 / 1170 | `optiga:ETH=1`: 23260 / 1144 |
+  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | `soft:I2C=1`: 17940 / 12784 | `optiga:I2C=1`: 9656 / 984 |
+  | mps2-an500 | 131072 | 16384 | `soft`: 10924 / 888 | not built: no row turns its bus on |
   | atmega32u4 | — | — | not measured | not built: no row |
   | atmega328p | — | — | not measured | not built: question 5 asks about it |
 
@@ -411,14 +411,14 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   "without" is not "the same image minus the transport": on mps2-an505
   (`make firmware-srcs`, both rows) the soft image links micro-ecc, the soft
   provider, SUIT and the HSM engine with its RAM store, and the optiga image
-  links `src/crypto/optiga/` in their place, hence 8228 bytes less flash and
-  11796 less RAM. The table answers whether the tier fits; it is not the
+  links `src/crypto/optiga/` in their place, hence 8284 bytes less flash and
+  11800 less RAM. The table answers whether the tier fits; it is not the
   transport's own cost.
 
   The proposal for question 5. This is not an architecture decision, so the
   coordinator takes it under ruling 109:
   - The ATmega2560 carries the tier as an option. Its two rows pass the
-    matrix's budget gate, at 16914 and 23272 bytes of a 65536 flash gate.
+    matrix's budget gate, at 16930 and 23260 bytes of a 65536 flash gate.
   - mps2-an505 carries it as an option. Its gates are twice the 2560's flash
     and eight times its RAM, and the tier is the same code.
   - On both, the tier joins `BOARD_TIERS` after soft, not in its place. That

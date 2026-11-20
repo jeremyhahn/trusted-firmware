@@ -480,8 +480,11 @@ void tfw_hal_eth_poll(void)
         eth_rx_all();
         eth_watch_link();
         tfw_h5_eth_service_deadlines();
-        if (eth_link && !ip4_addr_isany_val(*netif_ip4_addr(&eth_netif))) {
-            tfw_h5_wire_dial_poll();    /* the device opens the connection */
+        if (eth_link) {
+            /* The device opens the connection. The dial reconciles the netif
+             * with the block first, also while it has no address (a static
+             * block written with no lease), and connects only once ready. */
+            tfw_h5_wire_dial_poll();
         }
         if (!eth_bound_said && dhcp_supplied_address(&eth_netif)) {
             eth_bound_said = 1u;

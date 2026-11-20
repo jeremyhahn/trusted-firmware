@@ -140,20 +140,21 @@ sdk-coverage:
 # PORT=tcp:<board>:21574 (the ETH_MAC=1 image's wire) takes no default reset
 # and so no CM_PROBE_SERIAL: the rows dial the board as it runs and select
 # the TCP rows of its Ethernet allow-list; an HW_RESET given runs before the dial.
+# PORT=tcp-listen:<host-port> (the board dials the host) is treated the same.
 # A PORT=tcp: board has no DTR line:
 # RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
 # DTR on to reset it, and only that row resets; unset, that row skips, naming
 # RESET_PORT (#550, docs/plans/550.md).
 HW_TEST_RUN ?=
 HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
-hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:%,$(PORT)),,$(HW_RESET_$(BOARD)))
+hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:% tcp-listen:%,$(PORT)),,$(HW_RESET_$(BOARD)))
 hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_DEFAULT))
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ -n "$(HW_RESET_DEFAULT)" ]; then case "$(CM_PROBE_SERIAL)" in \
 	    '') echo "hw-test: REFUSED. $(BOARD) resets through its probe: name it, make hw-test BOARD=$(BOARD) PORT=$(PORT) CM_PROBE_SERIAL=<serial>" >&2; exit 1;; \
 	    *[!A-Za-z0-9_-]*) echo "hw-test: REFUSED. CM_PROBE_SERIAL '$(CM_PROBE_SERIAL)' is not letters, digits, - and _" >&2; exit 1;; esac; fi
-	@if [ -z "$(filter tcp:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@if [ -z "$(filter tcp:% tcp-listen:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ESP_TARGET='$(ESP_TARGET)' TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_RESET_PORT='$(RESET_PORT)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go

@@ -1472,6 +1472,17 @@ $(HOST_DIR)/test_esp_crypto_hmac_p256: test/unit/test_esp_crypto_hmac_p256.c \
                                        src/proto/crc16.c src/proto/crc16_update.c \
                                        $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+# The P4's operator session (row #606): auth_session.c over that provider, the
+# operator key bound to the faked UDS (docs/multi-arch/esp32-p4-design.md 2.5).
+$(HOST_DIR)/test_esp_opsess: test/unit/test_esp_opsess.c src/core/auth_session.c \
+                             src/core/platform_id.c src/core/reader.c src/core/writer.c \
+                             src/hal/esp32/crypto_hmac_p256.c src/crypto/deviceid_p256.c \
+                             src/crypto/sha256.c src/core/handoff.c src/core/handoff_seed_none.c \
+                             src/core/secure_zero.c boot/boot_handoff.c boot/boot_platform.c \
+                             src/proto/crc16.c src/proto/crc16_update.c \
+                             $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_opsess
 
 # The P4's C6 hold (#48, row esp32-p4): src/hal/esp32/hal_board.c over the
 # suite's gpio driver (test/mock/esp32/driver/gpio.h). boards/esp32p4-poe goes

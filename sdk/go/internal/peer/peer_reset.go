@@ -59,9 +59,18 @@ func StartBooted(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWrite
 	if t.Hook == "" {
 		tb.Skipf("%s: %s=%s, and %s names no %s<command> to reset the board", NoResetOnOpen, PortEnv, t.Port, ResetEnv, ResetCmdPrefix)
 	}
-	c, err := openReset(strings.TrimPrefix(t.Port, TCPPrefix), t.Hook, TCPResetBound)
+	var c io.ReadWriteCloser
+	if strings.HasPrefix(t.Port, TCPListenPrefix) {
+		c, err = OpenCmd(t.Port, []string{t.Hook}, TCPResetBound)
+	} else {
+		c, err = openReset(strings.TrimPrefix(t.Port, TCPPrefix), t.Hook, TCPResetBound)
+		if err != nil {
+			// openListen names the port itself; openReset does not.
+			err = fmt.Errorf("%s: %w", t.Port, err)
+		}
+	}
 	if err != nil {
-		tb.Fatal(fmt.Errorf("%s: %w", t.Port, err))
+		tb.Fatal(err)
 	}
 	tb.Cleanup(func() { _ = c.Close() })
 	return c

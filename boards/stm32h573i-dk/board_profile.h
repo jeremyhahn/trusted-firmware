@@ -43,6 +43,15 @@
 /* I2C4 on PB8/PB9 (src/hal/cortex-m/stm32h5/hal_bus.c), on only in the I2C=1
  * row (profile.mk): built and host-tested against a register model, not yet
  * run on the kit. */
+/* The Ethernet PHY probe (src/hal/cortex-m/stm32h5/hal_eth_mdio.c, #579): one
+ * console line at boot naming the PHY on MDIO and its link, only in the
+ * ETH_PROBE=1 build (TFW_CM_ETH_PROBE from profile.mk). */
+#if defined(TFW_CM_ETH_PROBE)
+#define TFW_H5_ETH_PROBE    1
+#else
+#define TFW_H5_ETH_PROBE    0
+#endif
+
 #if defined(TFW_CM_I2C)
 #define TFW_FEATURE_I2C     1
 #else

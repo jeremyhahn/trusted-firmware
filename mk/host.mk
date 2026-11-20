@@ -172,6 +172,10 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
+                            test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
+                            test/unit/test_h5_eth_wire.c test/unit/test_h5_wire_transport.c \
+                            test/unit/test_h5_wire_connect.c test/unit/test_h5_netif.c \
+                            test/unit/test_h5_sign_yield.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1570,6 +1574,10 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
+                    $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
+                    $(HOST_DIR)/test_h5_eth_wire $(HOST_DIR)/test_h5_wire_transport \
+                    $(HOST_DIR)/test_h5_wire_connect $(HOST_DIR)/test_h5_netif \
+                    $(HOST_DIR)/test_h5_sign_yield \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -2242,7 +2250,9 @@ lint-grep-selftest:
 # by the prefixes the port includes them by (esp_, driver/, freertos/, lwip/,
 # bootloader_, soc/, rom/, hal/, sdkconfig.h), and the ESP-IDF names no portable
 # file has a reason to spell (esp_err_t, ESP_OK, IRAM_ATTR, portMAX_DELAY, ...),
-# matched with string literals blanked. Its sweep is src, boot, include, tools
+# matched with string literals blanked. Under src/hal/cortex-m/ lwip/ is not an
+# ESP-IDF prefix: the STM32H5 Ethernet port (#581) builds lwIP itself, so its
+# includes are the port's own stack (ARCH_LEAK_ESP_INC_CM). Its sweep is src, boot, include, tools
 # and every other board, bar src/third_party/; the test tree holds the HAL's
 # ESP-IDF stand-ins and is not swept. scripts/test_esp32_port.py
 # (EspIdfStaysBehindTheHal) plants a leak of each kind and runs this target.
@@ -2258,6 +2268,7 @@ ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
 ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Za-z0-9_])(tfw_cm_[a-z_]+|TFW_CM_(REG|VTOR|AIRCR[A-Z_]*|SYST_[A-Z_]+|NVIC_[A-Z]+)|SCB|NVIC|SysTick(_[A-Za-z]+)?|__(DSB|ISB|DMB|WFI|WFE)|__(disable|enable)_irq)([^A-Za-z0-9_]|$$)|"(dsb|isb|dmb|wfi|wfe|cpsi[de]|msr|mrs)[ \\"]
 ARCH_LEAK_ESP_DIRS := src boot include tools boards
 ARCH_LEAK_ESP_INC  := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|lwip/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
+ARCH_LEAK_ESP_INC_CM := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
 ARCH_LEAK_ESP_PAT  := (^|[^A-Za-z0-9_])(esp_err_t|ESP_OK|ESP_FAIL|ESP_ERR_[A-Za-z0-9_]+|IRAM_ATTR|DRAM_ATTR|RTC_NOINIT_ATTR|EXT_RAM_ATTR|CONFIG_IDF_[A-Za-z0-9_]+|portMAX_DELAY|xTaskCreate[A-Za-z0-9_]*|vTaskDelay[A-Za-z0-9_]*)([^A-Za-z0-9_]|$$)
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
@@ -2281,7 +2292,9 @@ lint-arch-leak:
 	      if grep -Eqs '^ARCH[[:space:]]*:?=[[:space:]]*esp32[[:space:]]*$$' boards/$$b/profile.mk; then continue; fi ;; esac; \
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
-	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_ESP_INC)' || true); \
+	  inc='$(ARCH_LEAK_ESP_INC)'; \
+  case $$f in src/hal/cortex-m/*) inc='$(ARCH_LEAK_ESP_INC_CM)' ;; esac; \
+  hits=$$(printf '%s\n' "$$code" | grep -En "$$inc" || true); \
 	  hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | sed -E 's/"([^"\\]|\\.)*"/""/g' | grep -En '$(ARCH_LEAK_ESP_PAT)' || true)"; \
 	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \
@@ -3007,6 +3020,96 @@ $(HOST_DIR)/test_stm32h5_tone: test/unit/test_stm32h5_tone.c src/hal/cortex-m/st
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/stm32h573i-dk \
 	  $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_tone.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 Ethernet PHY probe's pure decode (#579): hal_eth_mdio.h's PHYID,
+# BMSR, scan and boot-line helpers over a fake MDIO bus; no register touched.
+$(HOST_DIR)/test_h5_eth_mdio: test/unit/test_h5_eth_mdio.c src/hal/cortex-m/stm32h5/hal_eth_mdio.h \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_mdio.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 Ethernet MAC/DMA driver (#581) over a fake register block and
+# fake descriptor rings: ring wrap, the OWN hand-off and the tail pointers.
+$(HOST_DIR)/test_h5_eth_mac: test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h5/hal_eth_mac.c \
+                             src/hal/cortex-m/stm32h5/hal_eth_mac.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h5/hal_eth_mac.c \
+	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 tfw-wire TCP link (#582) over a fake listener seam and a fake
+# UART: wire choice and hold, the receive window, reply batching, a dropped peer.
+$(HOST_DIR)/test_h5_eth_wire: test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                              src/hal/cortex-m/stm32h5/hal_eth_wire.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/proto $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The same link under the real transport and framer, link_serial.c out: a
+# connection replaced mid-frame leaves nothing to the one that replaces it.
+$(HOST_DIR)/test_h5_wire_transport: test/unit/test_h5_wire_transport.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The outbound TCP connection (hal_eth_wire_tcp.c) on that link and transport,
+# over a fake of lwIP's raw TCP API built against the vendored lwIP headers:
+# it dials the network block's endpoint and listens on nothing, redials after
+# a backoff on the block read again, and a request that arrives with FIN is
+# answered before the connection is closed (#584).
+$(HOST_DIR)/test_h5_wire_connect: test/unit/test_h5_wire_connect.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) src/net/netcfg.c \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                        src/hal/cortex-m/stm32h5/hal_eth_wire_tcp.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) \
+	  -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The STM32H5 netif (hal_eth_netif.c) on the real vendored lwIP core, DHCP and
+# timers, with the PHY, MAC and wire faked: a link flap leaves the lease clock
+# running, so an expired lease clears the address (#584); the RNG (hal_rng.c)
+# over fake registers keys the RFC 6528 TCP ISNs. lwIP compiles with -w
+# as in the firmware build.
+H5_NETIF_LWIP := $(addprefix third_party/lwip/src/core/,init.c def.c inet_chksum.c ip.c \
+                   mem.c memp.c netif.c pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
+                 $(addprefix third_party/lwip/src/core/ipv4/,acd.c dhcp.c etharp.c icmp.c \
+                   ip4.c ip4_addr.c ip4_frag.c) \
+                 third_party/lwip/src/netif/ethernet.c
+# #584: the ETH_MAC image's tfw_sign_yield keeps the scheduler's deadlines
+# running through a software P-256 sign, on the real scheduler, signer and
+# micro-ecc (patches/0002's ladder hook).
+$(HOST_DIR)/test_h5_sign_yield: test/unit/test_h5_sign_yield.c \
+                                src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
+                                src/caps/sched.c src/core/reader.c src/core/writer.c \
+                                src/crypto/deviceid_p256.c src/crypto/sha256.c \
+                                src/core/secure_zero.c $(HOST_DIR)/uECC.o \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_h5_netif: test/unit/test_h5_netif.c src/hal/cortex-m/stm32h5/hal_eth_netif.c \
+                           src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c \
+                           src/hal/cortex-m/stm32h5/hal_rng.c src/hal/cortex-m/stm32h5/hal_rng.h \
+                           src/hal/cortex-m/stm32h5/lwipopts.h src/crypto/sha256.c \
+                           src/net/netcfg.c src/proto/crc16.c src/proto/crc16_update.c \
+                           $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -Isrc/hal/cortex-m \
+	  -c -o $@.o test/unit/test_h5_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -c -o $@.netif.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_netif.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -c -o $@.rng.o src/hal/cortex-m/stm32h5/hal_rng.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.yield.o \
+	  src/hal/cortex-m/stm32h5/hal_eth_sign_yield.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.sha.o src/crypto/sha256.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.netcfg.o src/net/netcfg.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crc.o src/proto/crc16.c
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@.crcu.o src/proto/crc16_update.c
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -isystem third_party/lwip/src/include \
+	  -Isrc/hal/cortex-m/stm32h5/lwip-port $(HOST_CFLAGS) $(EXTRA_CFLAGS) -w \
+	  -o $@ $@.o $@.netif.o $@.yield.o $@.rng.o $@.sha.o $@.netcfg.o $@.crc.o $@.crcu.o $(H5_NETIF_LWIP) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

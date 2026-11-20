@@ -89,6 +89,15 @@ void tfw_transport_poll(tfw_transport_t *t)
 
     tfw_link_poll();
 
+    /* A new peer: the old one's partial frame and owed reply are not its. */
+    if (tfw_link_take_reset()) {
+        tfw_framer_abort(&t->framer);
+        t->in_frame  = 0u;
+        t->out_len   = 0u;
+        t->out_pos   = 0u;
+        t->out_event = 0u;
+    }
+
     /* Finish what is owed before reading more. */
     if (t->out_len && drain(t)) {
         return;
@@ -105,8 +114,13 @@ void tfw_transport_poll(tfw_transport_t *t)
     while (tfw_link_rx(&byte, t->in_frame)) {
         tfw_frame_event_t e = tfw_framer_push(&t->framer, byte);
 
-        t->last_rx_ms = tfw_hal_millis();
-        t->in_frame   = 1u;
+        /* The hold follows the framer: a byte it discarded while hunting for
+         * SOF neither starts the hold nor refreshes its idle clock, so a peer
+         * sending noise cannot keep the other wire waiting. */
+        t->in_frame = tfw_framer_in_frame(&t->framer);
+        if (t->in_frame) {
+            t->last_rx_ms = tfw_hal_millis();
+        }
 
         switch (e) {
         case TFW_FRAME_READY:

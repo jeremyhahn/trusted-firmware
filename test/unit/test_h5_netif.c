@@ -363,15 +363,23 @@ static void test_a_dhcp_block_starts_dhcp_with_the_block_mac(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(dhcp_block));
 }
 
+/* The DeviceID the ATTEST evidence carries (src/caps/attest.c): the 16-byte
+ * platform serial, here 00 01 .. 0f. */
+const uint8_t *tfw_platform_id_serial(void)
+{
+    static const uint8_t serial[16] = {
+        0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+        0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+    };
+    return serial;
+}
+
 static void zero_mac_block(void)
 {
-    uint32_t uid[3];
-    uint8_t  want[6];
+    /* #584 Codex P1: sdk/go DerivedMAC of that serial, the vector
+     * sdk/go/netcfg_test.go's TestDerivedMACIsPinned pins. */
+    static const uint8_t want[6] = { 0x86u, 0xC4u, 0x10u, 0x37u, 0x0Au, 0x0Au };
 
-    for (unsigned i = 0u; i < 3u; i++) {
-        uid[i] = 0x01020304u + (uint32_t)i;
-    }
-    tfw_eth_mac_from_uid(uid, want);
     put_block(TFW_NETCFG_DHCP, no_mac);
     link_up_flag = 1u;
     run_for(5000u);
@@ -382,7 +390,7 @@ static void zero_mac_block(void)
 
 /* docs/SPEC.md (ethernet-transport) and the H5 Ethernet ADR: a locally
  * administered address derived on the device until a MAC is supplied. */
-static void test_an_all_zero_block_mac_takes_the_uid_mac(void)
+static void test_an_all_zero_block_mac_takes_the_deviceid_mac(void)
 {
     TEST_ASSERT_EQUAL_INT(0, in_child(zero_mac_block));
 }
@@ -997,7 +1005,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_static_block_sets_its_address_and_mac_and_no_dhcp);
     RUN_TEST(test_a_dhcp_block_starts_dhcp_with_the_block_mac);
-    RUN_TEST(test_an_all_zero_block_mac_takes_the_uid_mac);
+    RUN_TEST(test_an_all_zero_block_mac_takes_the_deviceid_mac);
     RUN_TEST(test_a_missing_or_bad_block_keeps_the_device_off_the_network);
     /* In a child each, before the suite's own netif below comes up. */
     RUN_TEST(test_a_changed_static_address_applies_before_the_next_dial);

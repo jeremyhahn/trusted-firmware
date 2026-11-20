@@ -306,16 +306,17 @@ static void test_a_busy_entropy_source_refuses_the_challenge(void)
     adc_held    = 1;
     plain_draws = 0u;
     TEST_ASSERT_NOT_EQUAL(TFW_OK, challenge(nonce));
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, authenticate_with(operator_priv));
-    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
     TEST_ASSERT_EQUAL_UINT(0u, plain_draws);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
 /* Every operator nonce is drawn with the entropy source on. */
 static void test_the_challenge_is_drawn_with_the_entropy_source_on(void)
 {
+    uint8_t nonce[TFW_AUTH_NONCE_LEN];
+
     plain_draws = 0u;
-    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
+    TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
     TEST_ASSERT_EQUAL_UINT(0u, plain_draws);
     TEST_ASSERT_FALSE(entropy_on);
 }

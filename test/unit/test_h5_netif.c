@@ -129,8 +129,18 @@ int tfw_eth_mac_rx(tfw_eth_mac_t *m, void *out, size_t cap)
 }
 
 /* --- the wire: tested on its own in test_h5_eth_wire.c ------------------- */
-static unsigned dial_calls, say_polls;
-void tfw_h5_wire_dial_poll(void) { dial_calls++; }
+static unsigned dial_calls, connects, say_polls;
+/* As hal_eth_wire_tcp.c's dial: load the block, reconcile the netif with it,
+ * and connect only when the reconcile says the interface is ready. */
+void tfw_h5_wire_dial_poll(void)
+{
+    tfw_netcfg_t cfg;
+
+    dial_calls++;
+    if (tfw_netcfg_load(&cfg) == TFW_OK && tfw_h5_eth_reconcile(&cfg)) {
+        connects++;
+    }
+}
 void tfw_h5_wire_say(const char *s) { (void)s; }
 void tfw_h5_wire_say_poll(void) { say_polls++; }
 
@@ -237,7 +247,7 @@ static void dhcp_block(void)
     TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DISCOVER)) != 0u);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, netif_default->hwaddr, 6);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, mac_seen, 6);
-    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);             /* no lease yet */
+    TEST_ASSERT_EQUAL_UINT(0u, connects);               /* no lease yet */
 }
 
 static void test_a_dhcp_block_starts_dhcp_with_the_block_mac(void)
@@ -699,6 +709,28 @@ static void test_a_static_address_set_before_any_lease_is_kept(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(unbound_dhcp_to_static));
 }
 
+/* With no lease the address is zero; a static block written then must still
+ * reach the netif through the poll (the dial poll is the only production
+ * caller of the reconcile), and only the connect waits for readiness. */
+static void unbound_dhcp_to_static_by_poll(void)
+{
+    put_block(TFW_NETCFG_DHCP, mac_a);
+    link_up_flag = 1u;
+    run_for(5000u);                                     /* still discovering */
+    TEST_ASSERT_TRUE(ip4_addr_isany_val(*netif_ip4_addr(netif_default)));
+    TEST_ASSERT_EQUAL_UINT(0u, connects);               /* not ready: no connect */
+
+    put_block(0u, mac_a);
+    run_for(5000u);
+    TEST_ASSERT_EQUAL_HEX32(host_addr(20u), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+    TEST_ASSERT_TRUE(connects > 0u);                    /* the dial starts */
+}
+
+static void test_a_static_block_written_while_unbound_applies_through_the_poll(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unbound_dhcp_to_static_by_poll));
+}
+
 static void new_mac(void)
 {
     put_block(0u, mac_a);
@@ -774,6 +806,7 @@ int main(void)
     RUN_TEST(test_a_switch_to_dhcp_drops_the_static_address_and_asks);
     RUN_TEST(test_a_switch_to_static_stops_dhcp_and_keeps_the_block_address);
     RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
+    RUN_TEST(test_a_static_block_written_while_unbound_applies_through_the_poll);
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);

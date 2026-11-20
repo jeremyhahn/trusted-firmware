@@ -81,6 +81,31 @@ class HwTestResetNamesTheProbe(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("TFW_HW_RESET='cmd:true'", out)
 
+    def test_tcp_listen_port_takes_no_default_reset_and_no_probe(self):
+        # PORT=tcp-listen:<host-port>: the Go side listens and the board dials
+        # in; like tcp:, no probe reset by default and no serial-path check.
+        port = "tcp-listen:21574"
+        rc, out = make("hw-test", "BOARD=stm32h573i-dk", f"PORT={port}",
+                       "GO=true")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("REFUSED", out)
+        self.assertNotIn("does not exist", out)
+        rc, out = make("-n", "hw-test", "BOARD=stm32h573i-dk", f"PORT={port}")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"TFW_HW_PORT={port} ", out)
+        self.assertIn("TFW_HW_RESET=''", out)
+        self.assertNotIn("STM32_Programmer_CLI", out)
+
+    def test_tcp_listen_port_runs_a_given_reset(self):
+        rc, out = make("hw-test", "BOARD=stm32h573i-dk",
+                       "PORT=tcp-listen:21574", "HW_RESET=cmd:true", "GO=true")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("does not exist", out)
+        rc, out = make("-n", "hw-test", "BOARD=stm32h573i-dk",
+                       "PORT=tcp-listen:21574", "HW_RESET=cmd:true")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("TFW_HW_RESET='cmd:true'", out)
+
 
 if __name__ == "__main__":
     unittest.main()

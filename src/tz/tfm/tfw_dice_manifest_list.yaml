@@ -1,0 +1,23 @@
+#-------------------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# Passed to TF-M as TFM_EXTRA_MANIFEST_LIST_FILES by scripts/tfm-build.sh,
+# with this directory as TFM_EXTRA_PARTITION_PATHS (#608 slice 3).
+#-------------------------------------------------------------------------------
+
+{
+  "manifest_list": [
+    {
+      "description": "trusted-firmware DICE partition",
+      "manifest": "tfw_dice.yaml",
+      "output_path": "tfw_dice",
+      "conditional": "TFM_PARTITION_TFW_DICE",
+      "linker_pattern": {
+        "library_list": [
+          "*tfm_*partition_tfw_dice.*"
+        ]
+      }
+    }
+  ]
+}

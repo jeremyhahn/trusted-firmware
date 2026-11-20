@@ -2124,9 +2124,20 @@ jobs:
 
       # Ruling 901: the images the job built or pulled carry no private address in their history or
       # config, checked after the build and before any use, on a pool runner.
+      # CUSTOMIZE (trusted-firmware, DS-3166): a docs-only PR builds only the
+      # toolchain image (as in the images step), so only it is checked; the
+      # esp32 and integration images are named but absent, and
+      # ci-image-history.sh fails on an image it cannot inspect (#613).
       - name: Check the images carry no private address
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && runner.environment != 'github-hosted' }}
-        run: scripts/ci-image-history.sh "$TOOLCHAIN_IMAGE" ${ESP32_IMAGE:+"$ESP32_IMAGE"} ${IT_IMAGE:+"$IT_IMAGE"}
+        env:
+          DOCS_ONLY: ${{ needs.preflight.outputs.docs_only }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        run: |
+          if [ "$DOCS_ONLY" = true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
+            scripts/ci-image-history.sh "$TOOLCHAIN_IMAGE"
+          else
+            scripts/ci-image-history.sh "$TOOLCHAIN_IMAGE" ${ESP32_IMAGE:+"$ESP32_IMAGE"} ${IT_IMAGE:+"$IT_IMAGE"}
+          fi
 
       # v1.23: a lease on the integration image (from a Codex review). A
       # reused image can be older than REAP_IMAGE_MIN_AGE, so its age alone
@@ -3317,6 +3328,26 @@ jobs:
       - name: Name the integration image
         run: echo "IT_IMAGE=$(make -s it-image)" >> "$GITHUB_ENV"
 
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry the
+      # integration image's build reads the toolchain image's cache from.
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      # CUSTOMIZE (trusted-firmware, ruling 901, #613): build (or reuse) the
+      # integration image before the lease and the check, so a cold daemon's
+      # image is leased and checked like a reused one; the run step then
+      # re-tags the checked id and its docker-build-it prerequisite reuses it.
+      - name: Build the integration image
+        run: |
+          # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
+          # and the cache answers, `|` so any error falls through to the public
+          # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          bp=
+          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
+          fi
+          make docker-build-it ${bp:+"$bp"} IT_IMAGE="$IT_IMAGE"
+
       # v1.23: a lease on the integration image (from a Codex review). A
       # reused image can be older than REAP_IMAGE_MIN_AGE, so its age alone
       # does not keep another run's reap step off it while this job needs it.
@@ -3354,28 +3385,31 @@ jobs:
           declare -f image_lock image_unlock > "$RUNNER_TEMP/image-lock.sh"
           trap image_unlock EXIT
           # v1.25.2: the lease holds the image id; IT_LEASE_ID carries it to the
-          # re-tags. This file has no v1.25.1 rebuild, so a missing image still
-          # takes no lease (and the re-tags then do nothing).
+          # re-tags. #613: the job builds the image in the step before, so a
+          # missing image (or a lease create that fails) is an error, never a
+          # skipped lease: the check step after checks "$IT_LEASE_ID" always.
           image_lock || exit 1
-          if id=$(docker image inspect -f '{{.Id}}' "$IT_IMAGE" 2>/dev/null) &&
-            docker create --pull never --name "$lease" "$id" true >/dev/null; then
-            echo "IT_LEASE=$lease" >> "$GITHUB_ENV"
-            echo "IT_LEASE_ID=$id" >> "$GITHUB_ENV"
+          if ! id=$(docker image inspect -f '{{.Id}}' "$IT_IMAGE" 2>/dev/null); then
+            echo "::error::the integration image $IT_IMAGE is not on the daemon after its build"
+            exit 1
           fi
+          if ! docker create --pull never --name "$lease" "$id" true >/dev/null; then
+            echo "::error::could not lease the integration image $IT_IMAGE ($id)"
+            exit 1
+          fi
+          echo "IT_LEASE=$lease" >> "$GITHUB_ENV"
+          echo "IT_LEASE_ID=$id" >> "$GITHUB_ENV"
           image_unlock
 
       # CUSTOMIZE: host tuning the suite needs goes here, as in the test job.
 
       # Ruling 901: the integration image the job leased carry no private address in their history or
       # config, checked after the build and before any use, on a pool runner.
+      # #613: the job built the image and the lease fails without it, so
+      # IT_LEASE_ID is always set here and the check never skips.
       - name: Check the images carry no private address
-        if: ${{ !cancelled() && env.IT_LEASE_ID != '' && runner.environment != 'github-hosted' }}
+        if: ${{ !cancelled() && runner.environment != 'github-hosted' }}
         run: scripts/ci-image-history.sh "$IT_LEASE_ID"
-
-      # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry the
-      # integration image's build reads the toolchain image's cache from.
-      - name: Log in to the forge registry
-        run: scripts/ci-registry-login.sh
 
       - name: make integration-test (integration image)
         run: |
@@ -3449,6 +3483,26 @@ jobs:
       - name: Name the integration image
         run: echo "IT_IMAGE=$(make -s it-image)" >> "$GITHUB_ENV"
 
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry the
+      # integration image's build reads the toolchain image's cache from.
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      # CUSTOMIZE (trusted-firmware, ruling 901, #613): build (or reuse) the
+      # integration image before the lease and the check, so a cold daemon's
+      # image is leased and checked like a reused one; the run step then
+      # re-tags the checked id and its docker-build-it prerequisite reuses it.
+      - name: Build the integration image
+        run: |
+          # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
+          # and the cache answers, `|` so any error falls through to the public
+          # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          bp=
+          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
+          fi
+          make docker-build-it ${bp:+"$bp"} IT_IMAGE="$IT_IMAGE"
+
       # v1.23: a lease on the integration image (from a Codex review). A
       # reused image can be older than REAP_IMAGE_MIN_AGE, so its age alone
       # does not keep another run's reap step off it while this job needs it.
@@ -3486,22 +3540,30 @@ jobs:
           declare -f image_lock image_unlock > "$RUNNER_TEMP/image-lock.sh"
           trap image_unlock EXIT
           # v1.25.2: the lease holds the image id; IT_LEASE_ID carries it to the
-          # re-tags. This file has no v1.25.1 rebuild, so a missing image still
-          # takes no lease (and the re-tags then do nothing).
+          # re-tags. #613: the job builds the image in the step before, so a
+          # missing image (or a lease create that fails) is an error, never a
+          # skipped lease: the check step after checks "$IT_LEASE_ID" always.
           image_lock || exit 1
-          if id=$(docker image inspect -f '{{.Id}}' "$IT_IMAGE" 2>/dev/null) &&
-            docker create --pull never --name "$lease" "$id" true >/dev/null; then
-            echo "IT_LEASE=$lease" >> "$GITHUB_ENV"
-            echo "IT_LEASE_ID=$id" >> "$GITHUB_ENV"
+          if ! id=$(docker image inspect -f '{{.Id}}' "$IT_IMAGE" 2>/dev/null); then
+            echo "::error::the integration image $IT_IMAGE is not on the daemon after its build"
+            exit 1
           fi
+          if ! docker create --pull never --name "$lease" "$id" true >/dev/null; then
+            echo "::error::could not lease the integration image $IT_IMAGE ($id)"
+            exit 1
+          fi
+          echo "IT_LEASE=$lease" >> "$GITHUB_ENV"
+          echo "IT_LEASE_ID=$id" >> "$GITHUB_ENV"
           image_unlock
 
       # CUSTOMIZE: host tuning the suite needs goes here, as in the test job.
 
       # Ruling 901: the integration image the job leased carry no private address in their history or
       # config, checked after the build and before any use, on a pool runner.
+      # #613: the job built the image and the lease fails without it, so
+      # IT_LEASE_ID is always set here and the check never skips.
       - name: Check the images carry no private address
-        if: ${{ !cancelled() && env.IT_LEASE_ID != '' && runner.environment != 'github-hosted' }}
+        if: ${{ !cancelled() && runner.environment != 'github-hosted' }}
         run: scripts/ci-image-history.sh "$IT_LEASE_ID"
 
       - name: Soak (integration suite, looped)

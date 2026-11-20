@@ -326,6 +326,26 @@ CA 583 forbids: option bytes or provisioning).
   on the board. A changed network block now applies at the next dial: the
   netif is reconciled with the block first (address, DHCP, MAC), and the
   lwIP and DHCP timers run while a signature is computed (#584).
+- PR #584's outbound-transport image on the board, 2026-11-20 (lane
+  hw-584g, slice 22 of docs/plans/543.md): built at 0bb49390 with `make
+  BOARD=stm32h573i-dk ETH_MAC=1 cortex-m-dk-image` (application 40952
+  bytes, size-check passes).
+  - App-partition-only flash (ruling 945 (3)): failed 2026-11-20. `app.bin`
+    alone written with `pyocd load -e sector` at the `addrs.env` address;
+    tfw-boot then refused it on every reset (status-only event, status 14,
+    `TFW_ERR_CRYPTO`, no BOOT event): `cortex-m-dk-image` signs each build
+    with a fresh key that only that build's `boot.bin` and `platform.bin`
+    carry, so a later app cannot boot on an earlier build's boot. `boot.bin`,
+    `app.bin` and `platform.bin` were then written together (sector erase,
+    no option byte), and the board boots this image.
+  - Unprovisioned: verified 2026-11-20, the BOOT event then the console
+    line `eth: not provisioned` (no network block; the UART is served).
+  - Network block: written 2026-11-20 over the UART with `tfwctl netcfg set
+    --mac 00:00:00:00:00:00 --dhcp --endpoint <lane host>:7020`.
+  - DHCP lease (#581): verified 2026-11-20, the console line `eth: dhcp
+    bound` with a dev-VLAN lease about 16 s after a debugger reset. The
+    image prints no PHY, link or dial line, so those are not seen on the
+    UART in this run.
 - Enrolling over Ethernet: CAPS and the attestation refusals verified over
   TCP 2026-11-17 (above); attestation itself is owner (provisioning; CA 583).
 

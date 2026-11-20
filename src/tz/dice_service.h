@@ -1,9 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b, ruling 935): the DeviceID key,
- * the alias key and the alias certificate behind four non-secure-callable
- * entry points. docs/plans/590b.md is the contract.
+ * The secure-world DICE service: the DeviceID key, the alias key and the
+ * alias certificate. Written for #590 slice b (docs/plans/590b.md, ruling
+ * 935) behind four NSC entry points; since #608 slice 3 (ruling 1024 (a)) it
+ * is the core of the TF-M Application RoT partition, reached only through
+ * src/tz/dice_partition.c's dispatcher. TF-M's SPM checks the non-secure
+ * caller's buffers and the dispatcher hands this service partition-local
+ * copies, so no CMSE check is made here.
  *
  * The UDS-derived seed, the CDI and every private scalar stay in this
  * service's static state: no entry point returns one. Every caller buffer is
@@ -17,8 +21,6 @@
 #include <stddef.h>
 #include "tfw/status.h"
 #include "tfw/types.h"
-/* TFW_NSC, TFW_NS_CHECK and TFW_NS_CHECK_READ: CMSE under -mcmse, plain on host. */
-#include "../hal/cortex-m/cm_nsc.h"
 
 #define TFW_DICE_KEY_LEN    64u  /* X||Y */
 #define TFW_DICE_SIG_LEN    64u  /* r||s */
@@ -40,20 +42,19 @@ typedef struct {
     tfw_crypto_tier_t tier;
 } tfw_dice_inputs_t;
 
-/* Secure-only (not NSC). TFW_ERR_RANGE on a NULL input. */
+/* Partition-only, not a call type. TFW_ERR_RANGE on a NULL input. */
 tfw_status_t tfw_dice_service_init(const tfw_dice_inputs_t *in);
-/* Secure-only. Zeroes every secret; later calls answer TFW_ERR_NOT_PROVISIONED. */
+/* Partition-only. Zeroes every secret; later calls answer TFW_ERR_NOT_PROVISIONED. */
 void tfw_dice_service_clear(void);
 
-/* The non-secure API. Each answers TFW_ERR_RANGE for a NULL or short buffer
+/* The service API. Each answers TFW_ERR_RANGE for a NULL or short buffer
  * or a wrong digest length, TFW_ERR_NOT_PROVISIONED before init, and writes
  * nothing unless it answers TFW_OK. */
-TFW_NSC tfw_status_t tfw_dice_deviceid_pub(uint8_t *out, uint32_t cap);
-TFW_NSC tfw_status_t tfw_dice_alias_pub(uint8_t *out, uint32_t cap);
-/* One page of the alias certificate. A struct because an NSC entry point
- * takes at most four register arguments (cmse_nonsecure_entry refuses
- * stack-passed ones). The caller fills nonce, off, out and cap; on TFW_OK the
- * service has written bytes [off, off+got) to out and set total (the full
+tfw_status_t tfw_dice_deviceid_pub(uint8_t *out, uint32_t cap);
+tfw_status_t tfw_dice_alias_pub(uint8_t *out, uint32_t cap);
+/* One page of the alias certificate, request and answer in one struct (the
+ * shape the #590 NSC entry point needed, kept for the partition). The caller
+ * fills nonce, off, out and cap; on TFW_OK the service has written bytes [off, off+got) to out and set total (the full
  * length) and got (<= min(cap, TFW_DICE_PAGE_MAX)). Past the end is
  * TFW_ERR_RANGE. */
 typedef struct {
@@ -65,8 +66,8 @@ typedef struct {
     uint32_t  got;
 } tfw_dice_cert_page_t;
 
-TFW_NSC tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *page);
-TFW_NSC tfw_status_t tfw_dice_alias_sign(const uint8_t *digest, uint32_t dlen,
-                                         uint8_t *sig, uint32_t cap);
+tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *page);
+tfw_status_t tfw_dice_alias_sign(const uint8_t *digest, uint32_t dlen,
+                                 uint8_t *sig, uint32_t cap);
 
 #endif

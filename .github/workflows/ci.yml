@@ -1778,10 +1778,16 @@ jobs:
           echo "host cache: enabled=$enabled hit=$hit ${dir:+dir=$dir}"
           { echo "enabled=$enabled"; echo "hit=$hit"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
 
+      # Fleet Ops 11-13: the 5.18 GiB restore died at 52% after the default
+      # 10-minute segment timeout on the shared link (run with ~60 jobs
+      # queued), and fail-on-cache-miss turned it red. 45 minutes fits the
+      # 90-minute job.
       - name: Restore the OP-TEE stack
         id: cache
         if: ${{ steps.host.outputs.hit != 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '45'
         with:
           path: ${{ runner.temp }}/optee-cache
           key: optee-${{ steps.pin.outputs.release }}

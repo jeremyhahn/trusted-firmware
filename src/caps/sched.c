@@ -136,6 +136,11 @@ tfw_status_t tfw_sched_cmd_cancel(tfw_reader_t *r, tfw_writer_t *w)
     tfw_sched_slot_t *s;
 
     (void)w;
+    /* api.md gives apply_final as (0|1): range before state, as TIMER_SET
+     * refuses its level byte. */
+    if (apply_final > 1u) {
+        return TFW_ERR_RANGE;
+    }
     s = slot_for(pin);
     if (!s) {
         return TFW_ERR_NO_SLOT;

@@ -15,9 +15,19 @@
 
 #include <stdint.h>
 
+#ifdef TFW_CM_MODEL_REGFILE
+/* A suite with its own register file (test/unit/test_stm32h5_pwm.c) builds
+ * with -DTFW_CM_MODEL_REGFILE and defines these: no i.MX 95 model linked. */
+volatile uint32_t *tfw_cm_model_reg(uintptr_t addr);
+#define TFW_CM_REG(addr) (*tfw_cm_model_reg((uintptr_t)(addr)))
+static inline void     tfw_imx95_model_irq_mask(uint32_t m) { (void)m; }
+static inline uint32_t tfw_imx95_model_irq_save(void) { return 0u; }
+static inline void     tfw_imx95_model_irq_restore(uint32_t m) { (void)m; }
+#else
 #include "../imx95_model.h"
 
 #define TFW_CM_REG(addr) (*tfw_imx95_model_reg((uintptr_t)(addr)))
+#endif
 
 #define TFW_CM_VTOR  TFW_CM_REG(0xE000ED08u)
 #define TFW_CM_AIRCR TFW_CM_REG(0xE000ED0Cu)

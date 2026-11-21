@@ -30,6 +30,8 @@
 #include "esp_efuse.h"
 #include "esp_hmac.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "uECC.h"
 #include "tfw/crypto.h"
 #include "tfw/protocol.h"
@@ -147,6 +149,13 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message, size_t m
     seed_of((unsigned)key_id, hmac);
     return ESP_OK;
 }
+
+/* The entropy source's lock and switch around tfw_crypto_random (#607); its
+ * order and busy path are test_esp_crypto_hmac_p256's. */
+esp_err_t adc_lock_try_acquire(adc_unit_t adc_unit) { (void)adc_unit; return ESP_OK; }
+esp_err_t adc_lock_release(adc_unit_t adc_unit) { (void)adc_unit; return ESP_OK; }
+void bootloader_random_enable(void) {}
+void bootloader_random_disable(void) {}
 
 void esp_fill_random(void *buf, size_t len)
 {
@@ -472,6 +481,15 @@ static void test_random_and_sha256_pass_through(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, digest, 32u);
 }
 
+/* The platform block as an unprovisioned part has it: all zero, so no
+ * operator_bind tag (row #606). */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    (void)addr;
+    memset(buf, 0, len);
+    return TFW_OK;
+}
+
 static void test_counters_and_verification_are_unsupported(void)
 {
     static const uint8_t z[64] = { 0u };
@@ -479,7 +497,9 @@ static void test_counters_and_verification_are_unsupported(void)
 
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &c));
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, c);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(z, z, z));
+    /* An operator key with no operator_bind tag is refused, not unsupported:
+     * the tier verifies operators since #606 (test_esp_opsess). */
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(z, z, z));
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(z, z));
 }
 

@@ -1,0 +1,31 @@
+diff --git a/uECC.c b/uECC.c
+index 70db1411..259cc37b 100644
+--- a/uECC.c
++++ b/uECC.c
+@@ -861,6 +861,16 @@ static void XYcZ_addC(uECC_word_t * X1,
+ }
+ 
+ /* result may overlap point. */
++/* trusted-firmware local change (patches/0002-ladder-yield-hook.patch): the
++ * Montgomery ladder calls this after every step, at positions that do not
++ * depend on the scalar, so a single-threaded caller can service deadlines
++ * during a long software multiplication. NULL, the default, is upstream. */
++static void (*g_yield_function)(void) = 0;
++
++void uECC_set_yield(void (*yield_function)(void)) {
++    g_yield_function = yield_function;
++}
++
+ static void EccPoint_mult(uECC_word_t * result,
+                           const uECC_word_t * point,
+                           const uECC_word_t * scalar,
+@@ -886,6 +896,9 @@ static void EccPoint_mult(uECC_word_t * result,
+         nb = !uECC_vli_testBit(scalar, i);
+         XYcZ_addC(Rx[1 - nb], Ry[1 - nb], Rx[nb], Ry[nb], sub, curve);
+         XYcZ_add(Rx[nb], Ry[nb], Rx[1 - nb], Ry[1 - nb], sub, curve);
++        if (g_yield_function) {
++            g_yield_function();
++        }
+     }
+ 
+     nb = !uECC_vli_testBit(scalar, 0);

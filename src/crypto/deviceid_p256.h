@@ -39,4 +39,10 @@ int tfw_deviceid_p256_sign(const uint8_t seed[32], const uint8_t digest[32],
 int tfw_p256_sign_rfc6979(const uint8_t d[32], const uint8_t digest[32],
                           uint8_t sig[64]);
 
+/* Called after every step of the sign's scalar-multiplication ladder, at
+ * points independent of the key. A weak no-op here; a build that must keep
+ * deadlines running through a long software sign defines it. It must not
+ * sign, read the wire or dispatch a command. */
+void tfw_sign_yield(void);
+
 #endif /* TFW_DEVICEID_P256_H */

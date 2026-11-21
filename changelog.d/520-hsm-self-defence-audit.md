@@ -1,0 +1,1 @@
+- docs(hsm-self-defence): the SPEC row `hsm-self-defence` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/hsm-self-defence/engineering.md`, Requirements) (Refs #520).

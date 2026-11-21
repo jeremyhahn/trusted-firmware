@@ -152,6 +152,31 @@ class ShardLists(unittest.TestCase):
                       "the CI Gate no longer needs unit, so a red shard or race suite "
                       "cannot fail it; fix: add unit to the CI Gate's needs")
 
+    def test_each_shard_and_the_race_suite_is_its_own_matrix_leg(self):
+        # CA ruling 580 follow-up: run one after another the four took up to
+        # 110 min against the job's timeout; each leg runs one of them.
+        head, steps = unit_job()
+        _, shards = shard_lists()
+        m = re.search(r"(?m)^        leg: \[([^]]*)\]$", head)
+        self.assertIsNotNone(m, "the unit job has no matrix of legs; fix: restore "
+                             "strategy.matrix.leg")
+        legs = [l.strip() for l in m.group(1).split(",")]
+        self.assertEqual(sorted(legs), sorted(["shard-%d" % n for n in shards] + ["race"]),
+                         "the matrix must have one leg per TEST_SHARD_N and one race leg")
+        self.assertRegex(head, r"(?m)^      fail-fast: false$",
+                         "fail-fast cancels the other legs on the first red one, so a "
+                         "run no longer reports every shard; fix: fail-fast: false")
+        t = re.search(r"(?m)^    timeout-minutes: ([0-9]+)$", head)
+        self.assertTrue(t and int(t.group(1)) <= 60,
+                        "a leg runs one shard, so its timeout is at most 60 min")
+        for leg in legs:
+            run = ('"make test-%s ' % leg) if leg != "race" else "go test -race "
+            mine = [s for s in steps if run in s]
+            with self.subTest(leg=leg):
+                self.assertEqual(len(mine), 1, "one step runs leg %s" % leg)
+                self.assertIn("matrix.leg == '%s'" % leg, step_if(mine[0]),
+                              "the %s step must run on its own leg only" % leg)
+
     def test_a_gate_in_two_shards_is_named_with_its_fix(self):
         gates, shards = shard_lists("TEST_SHARD_3=test-asan-host coverage")
         self.assertIn("runs coverage in shard 2 and again in shard 3; fix: delete it "

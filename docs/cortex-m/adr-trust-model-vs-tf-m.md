@@ -1,16 +1,139 @@
 # ADR: the Cortex-M trust model, and its relation to TF-M
 
-> **Status: PROPOSED** · Issue: #15 · Scope: trusted-firmware (the
+> **Status: ACCEPTED (owner ruling 632 item 208 a, 2026-11-14)** · Issue: #15 · Scope: trusted-firmware (the
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md);
 > the Security Extension (TrustZone-M) is the Armv8-M Architecture Reference
 > Manual's (DDI 0553), and the CI machine's board is AN505's (DAI 0505), both
 > listed in [`../reference/README.md`](../reference/README.md#cortex-m-sources) ·
-> Last verified: 2026-10-22
+> Last verified: 2026-11-16
 >
-> Nothing here is implemented, and nothing is decided until the owner accepts it.
+> Nothing here is implemented. The owner accepted the trust model per core on
+> 2026-11-14; the open questions it does not answer stay open.
 > This ADR changes no code, no wire vector and no SPEC row.
+
+## Amended by ruling 1024 (owner, 2026-11-20)
+
+The owner decided on 2026-11-20 (Tenant Agent ruling 1024 (a), row #608),
+verbatim:
+
+> "the TrustZone-M secure world is built on Trusted Firmware-M with our DICE
+> layer on top, not a secure monitor written from scratch."
+
+For this ADR it means:
+
+- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, (b1), TF-M
+  Profile Medium with our DICE layer as an Application RoT partition, is taken
+  in place of ruling 935's option (a), our own secure world. Option (a) goes
+  back to reserve, as ruling 632 left it;
+- ruling 935's other two points stand: no vendor secure world (not ST's Secure
+  Manager, and upstream TF-M rather than a vendor's build of it), and no PSA
+  token. TF-M is built without its Initial Attestation partition, or with it
+  present but not exposed to the non-secure side; the only evidence offered
+  is the DICE evidence through go-xkms device-attest-01.
+
+The TF-M pin is the one `scripts/tfm-measure.sh` measures, v2.3.1. Which of
+our boards that release has a platform port for is in
+[`../plans/608.md`](../plans/608.md).
+
+## Amended by ruling 935 (owner queue 236)
+
+Ruling 935 sets one attestation path for every MCU: TCG DICE evidence through
+go-xkms device-attest-01, with the DICE layer and the DeviceID and alias keys
+in the secure world, which on the STM32H5 and the nRF54L is our own
+TrustZone-M firmware, "not ST Secure Manager, no PSA token verifier". The
+decision and its slices are in
+[`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md).
+For this ADR it means:
+
+- *superseded by ruling 1024*: on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK)
+  and the nRF54L15, option (a), our own secure world, is taken in place of
+  (b1);
+- open question 2 (vendor secure worlds) is closed: no vendor secure world,
+  not ST's Secure Manager;
+- open question 4 (the PSA token) is closed: no PSA token is offered and no
+  PSA or EAT verifier is added.
+
+The passages below that offer the Secure Manager or a PSA token are kept as
+the analysis first recorded and are marked **not taken**.
+
+## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
+
+The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
+
+> "ADRs #14 and #15 adopt the i.MX 95 M7 reference part, QEMU mps2-an505
+> emulation, TF-M Profile Medium plus our DICE attestation partition on the M33
+> secure world, and MPU-only isolation on the M7. Record it as one PR."
+
+What the ruling decides in this ADR:
+
+| Part of this ADR | Now |
+|---|---|
+| Recommendation, Cortex-M33 | **decided**: (b1), TF-M Profile Medium with our DICE attestation partition in the M33 secure world |
+| Recommendation, Cortex-M7 | **decided**: (c), MPU-only isolation, no TrustZone |
+| Recommendation, (a) | stays in reserve, not chosen |
+| The reference part | the i.MX 95 M7, decided in #14 on the same ruling (#14 question 1 (a)) |
+| Open question 1 | **closed**: (b1) on the M33 |
+| Open questions 2 to 13 | open; the ruling does not answer them (one line each below) |
+
+The ruling does not touch the SPEC: the `stm32h5` row's wording ("our own
+TrustZone secure world") changes in its own SPEC change, not here.
+
+## Measured on 2026-11-16 (#483, follow-up F1)
+
+Option (b1)'s footprint is no longer an estimate. `scripts/tfm-measure.sh`
+fetches TF-M v2.3.1 at its release tag (commit
+`0b40d7806136baadf489febf8e2f91bf87aca63d`) and tf-m-extras at the commit that
+tag fetches (`2ac90aff6da35cde4a67f2d34076b1adf6ca9161`), outside the tree. It
+builds platform `stm/stm32h573i_dk` at `TFM_PROFILE=profile_medium` with BL2
+and `CMAKE_BUILD_TYPE=MinSizeRel`, with the platform's own `config.cmake`
+otherwise. That config enables Crypto with ST's hardware accelerator, ITS, PS,
+Initial Attestation, Firmware Update and the Platform partition, and sets the
+log level to INFO. The script builds the secure image twice, as shipped and
+with tf-m-extras' example partition as a stub Application RoT partition (one
+IPC service, no crypto of its own). The difference between the two is the
+stub. It then builds tf-m-extras' example non-secure application as the
+non-secure stub. The compiler is `arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1
+20241119`, the toolchain image's Debian package (`docker/packages.txt`), with
+CMake 3.31.6. The command was `scripts/tfm-measure.sh /tmp/tfm-measure`, and
+it ran to the end on dl385-01. Its output, verbatim:
+
+```
+TF-M TF-Mv2.3.1 (0b40d7806136baadf489febf8e2f91bf87aca63d), tf-m-extras 2ac90aff6da35cde4a67f2d34076b1adf6ca9161
+platform stm/stm32h573i_dk, profile_medium, BL2 on, CMAKE_BUILD_TYPE=MinSizeRel
+arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119; cmake 3.31.6
+
+| Image | text | data | bss | flash, bytes | RAM, bytes |
+|---|---|---|---|---|---|
+| BL2 (MCUboot) | 49056 | 164 | 26004 | 49220 (48.0 KiB) | 26168 (25.5 KiB) |
+| secure image, Profile Medium | 88272 | 228 | 47700 | 88500 (86.4 KiB) | 47928 (46.8 KiB) |
+| secure image with the stub partition | 88852 | 228 | 48276 | 89080 (86.9 KiB) | 48504 (47.3 KiB) |
+| the stub partition (difference) | 580 | 0 | 576 | 580 (0.5 KiB) | 576 (0.5 KiB) |
+| BL2 + secure image with the stub | 137908 | 392 | 74280 | 138300 (135.0 KiB) | 74672 (72.9 KiB) |
+| non-secure stub | 22224 | 96 | 8852 | 22320 (21.7 KiB) | 8948 (8.7 KiB) |
+```
+
+How to read it:
+- Flash is text + data and RAM is data + bss, from `arm-none-eabi-size`.
+- RAM is the linked images' static use: stacks, the heap and the shared boot
+  data included. It is not the size of the regions the platform reserves.
+- BL2's RAM is used only before the secure image starts.
+- The stub's 576 bytes of RAM are its 512-byte stack and 64 bytes of SPM
+  bookkeeping. Its flash is the load-list entry, the service code and the SPM
+  glue.
+- The stub carries no template builder. Our partition's own code (the three
+  builders, the UCCS encoder, the DER walker) is still an estimate: it has no
+  build yet.
+- The board was not used. These are link-time figures; nothing was flashed.
+
+What the figures change: (b1)'s "Code size" and the Comparison row below now
+carry them, and F1's (b1) part is done. They answer none of the open
+questions. Flash and RAM were never the deciding constraint on the M33 parts
+("Every M33 target has room"), and these figures confirm that on the
+STM32H573: 135.0 KiB of flash and 72.9 KiB of RAM for BL2 and the secure
+image, beside 2 MB and 640 KB. The decisions and the open questions are
+unchanged.
 
 ## Changes on 2026-10-20
 
@@ -399,11 +522,19 @@ There are two shapes, and only one of them keeps the signing rule.
   that token is not an alias certificate or a PKCS#10, so it cannot complete
   device-attest-01 alone. It is an addition to (b1), never a replacement.
 
-- **Code size (estimated, unmeasured).** On the order of 100 KB of flash and
-  tens of KB of RAM for the TF-M secure image and the MCUboot BL2 together at
-  Profile Medium. Our partition adds about 4–6 KB, because the crypto is TF-M's.
-  TF-M's profile documents publish no footprint, so measuring it is follow-up F1.
-  It fits every M33 target listed above with room to spare.
+- **Code size (measured 2026-11-16, #483; see "Measured on 2026-11-16").**
+  On the STM32H573I-DK's TF-M v2.3.1 build at Profile Medium:
+  - BL2: 48.0 KiB of flash and 25.5 KiB of RAM.
+  - The secure image: 86.4 KiB of flash and 46.8 KiB of RAM.
+  - Together: 135.0 KiB of flash and 72.9 KiB of RAM with a stub partition.
+  - The stub partition itself: 0.5 KiB of flash and 0.5 KiB of RAM.
+  - A non-secure stub: 21.7 KiB of flash and 8.7 KiB of RAM.
+
+  The earlier estimate was "on the order of 100 KB of flash and tens of KB of
+  RAM". Our partition's own code, the three template builders and the UCCS
+  encoder, is still an estimate of about 4–6 KB (unmeasured: it has no build
+  yet), because the crypto is TF-M's. It fits every M33 target listed above
+  with room to spare.
 - **Evidence.** Our three structures come from the partition, unchanged, as in
   (a). Optionally the RFC 9783 PSA token rides beside them as a second piece of
   evidence, signed by TF-M's IAK. **What go-xkms must accept:**
@@ -417,9 +548,10 @@ There are two shapes, and only one of them keeps the signing rule.
 
   go-quicbaas's Verifier would need IAK endorsements and PSA reference values
   (implementation ID, software component measurements and signer IDs) in its
-  store. The SPEC row `stm32h5` already assumes go-xkms's EAT path verifies a
-  PSA token, from ST's Secure Manager. Whether it does today is unknown here and
-  is reported, not checked by reading go-xkms.
+  store. The SPEC row `stm32h5` assumed go-xkms's EAT path verifies a
+  PSA token, from ST's Secure Manager. **Not taken** (ruling 935): no PSA
+  token or EAT verifier is added
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Licence.** Every component is permissive, so all of them are compatible
   with AGPL-3.0-or-later and with our commercial licence:
   - TF-M and tf-m-extras: BSD-3-Clause (`contributing/lic.html`).
@@ -539,7 +671,7 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 |---|---|---|---|
 | Cores | M33 | M33 | M7 (and any M33 fallback) |
 | Boards (CA m623) | a fallback only | STM32H573I-DK, nRF54L15-DK | i.MX 95 M7 |
-| Secure image, flash (estimate) | 16–24 KB | ~100 KB with BL2, plus 4–6 KB ours | 6–12 KB |
+| Secure image, flash | 16–24 KB (estimate) | 135.0 KiB with BL2 and a stub partition (measured, #483), plus about 4–6 KB ours (estimate) | 6–12 KB (estimate) |
 | TCB we write | all of it | the partition | privileged layer and SVC gate |
 | Our three structures | unchanged | unchanged | unchanged |
 | PSA token (RFC 9783) | none | optional, from TF-M | none |
@@ -551,6 +683,10 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 
 ## Recommendation
 
+**Decided 2026-11-14 (owner ruling 632 item 208 a): (b1) on the Cortex-M33 and
+(c) on the Cortex-M7, as recommended below.** The i.MX 95 M7 is the reference
+part (#14 question 1 (a)).
+
 One model per core, whichever part #14's open question 1 makes the reference:
 the Cortex-M33 with TrustZone-M on the two bench boards, and the i.MX 95's M7,
 the reference part in the SPEC row `cortex-m`. The M33 comes first below because
@@ -559,7 +695,7 @@ both bench boards are M33s and its questions are the ones the next slice meets
 board of the port).
 
 - **Cortex-M33: (b1), TF-M Profile Medium with our attestation code as an
-  Application RoT secure partition**, on the STM32H573I-DK and the nRF54L15-DK.
+  Application RoT secure partition** (decided 2026-11-14), on the STM32H573I-DK and the nRF54L15-DK.
   - The wire protocol and the application run non-secure.
   - MCUboot is BL2.
   - The PSA Attestation, Crypto and Firmware Update APIs are the interfaces to
@@ -574,9 +710,12 @@ board of the port).
   RP2350. Where a part ships a vendor secure world (ST's Secure Manager on the
   STM32H573I-DK, Nordic's TF-M on the nRF54L15), the same partition targets the
   vendor's PSA-compatible secure world if the licence allows; otherwise it
-  targets upstream TF-M. This is open question 2, and it is the `stm32h5` row's
-  open decision, which this ADR does not close.
-- **Cortex-M7: (c), MPU-only.**
+  targets upstream TF-M. This was open question 2 and the `stm32h5` row's
+  open decision; ruling 935 closed it: on the STM32H5 and the nRF54L15 the
+  secure world is our own TrustZone-M firmware, the vendor secure worlds are
+  **not taken**, and the PSA token is not offered
+  ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
+- **Cortex-M7: (c), MPU-only** (decided 2026-11-14).
   - The template builders run privileged, behind an SVC gate.
   - Layer 0 is the SoC's where it has one (NXP's ROM, ELE and System Manager
     on the i.MX 95), and tfw-boot where it does not.
@@ -630,7 +769,29 @@ extends without renumbering:
 
 ## Open questions for the owner
 
-1. **M33 trust model.** Accept (b1), TF-M with our partition, on the
+Owner ruling 632 item 208 a (2026-11-14) closes question 1. It does not answer
+questions 2 to 13, which stay open:
+
+- 2, vendor secure worlds: closed by ruling 935, none (our own TrustZone-M
+  firmware on the STM32H5 and nRF54L15; not ST's Secure Manager).
+- 3, the PSA interfaces: open; the ruling does not name them.
+- 4, the PSA token: closed by ruling 935, not offered, no PSA verifier.
+- 5, crypto tier values: open.
+- 6, the alias key: open.
+- 7, where the CoRIM check runs: open.
+- 8, TF-M release policy: open.
+- 9, PSA Certified and the language rule: open.
+- 10, upstream contributions: open.
+- 11, the secure world in CI: open; the ruling picks `mps2-an505` as the CI
+  machine but not whether TF-M runs on it.
+- 12, the i.MX 95 M7: open; the ruling picks MPU-only isolation, not the facts
+  or the MPU's timing listed there.
+- 13, the DICE root on the M33 parts: open.
+
+1. **Closed 2026-11-14: yes, (b1) on the M33 (ruling 632 item 208 a).** The
+   SPEC row `stm32h5` still reads "our own TrustZone secure world"; aligning
+   it is a SPEC change, not this ADR's.
+   **M33 trust model.** Accept (b1), TF-M with our partition, on the
    STM32H573I-DK and the nRF54L15-DK? If so, the `stm32h5` row's "our own
    TrustZone secure world" on the NUCLEO-H563ZI becomes "our partition on
    TF-M". TF-M upstream supports the STM32H573I-DK, not the NUCLEO-H563ZI, so
@@ -744,6 +905,9 @@ extends without renumbering:
   carries the measurement only if open question 11 is answered yes. Measure the
   (c) privileged layer in the M7 build (`mps2-an500` is #14's question 8).
   Replace every estimate in this ADR with the measured figure.
+  **(b1) done 2026-11-16 (#483):** see "Measured on 2026-11-16". Still open:
+  our partition's own code once it is built, (c)'s privileged layer, and
+  (a), which has no build.
 - **F2.** Once open question 4 is answered, the coordinator files the go-xkms
   and go-quicbaas gaps it names. This ADR touches neither repository.
 - **F3.** When the owner accepts a model, update `docs/multi-arch/architecture.md`

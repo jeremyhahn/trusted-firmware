@@ -35,6 +35,7 @@
 #include "lwip/sockets.h"
 #include "tfw/hal.h"
 #include "hal_esp32.h"
+#include "auth_session.h"
 
 #define NFD       16
 #define LSN_FD    7
@@ -89,6 +90,16 @@ tfw_status_t tfw_esp_eth_start(void)
 {
     eth_starts++;
     return eth_st;
+}
+
+/* The operator session (src/core/auth_session.c on the P4) is not this
+ * suite's: what it holds is that every host the wire lets go ends it, once,
+ * and a host refused at the door ends nothing (#607, Codex round 2). */
+static unsigned session_ends;
+
+void tfw_auth_session_init(void)
+{
+    session_ends++;
 }
 
 void mock_esp_log(char level, const char *tag, const char *fmt, ...)
@@ -458,13 +469,15 @@ static void test_no_connection_touches_nothing(void)
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
     TEST_ASSERT_EQUAL_UINT(0u, k.warns);
-    /* Bytes with no host go nowhere, and are not kept for the next one. */
-    send_str("lost");
+    /* Bytes sent before the first host are kept for it, and do not hold up
+     * the loop (#550); test_esp_wire.c covers what is dropped after it. */
+    send_str("boot");
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, k.fd[3].sends);
 }
 
 static void take(int fd)
@@ -519,6 +532,29 @@ static void test_a_host_quiet_for_the_window_is_replaced(void)
         TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
         TEST_ASSERT_EQUAL_UINT8('N', b);
     }
+}
+
+/* A hw-test row hangs up and the next row dials at once: the old host's EOF
+ * and the new connection are both pending before one poll. The hangup is
+ * read first, so the new host is taken, not refused as a second one. */
+static void test_a_hangup_and_a_new_host_in_one_poll_hand_the_wire_over(void)
+{
+    take(3);
+    now += 1u;
+    k.fd[3].hung = 1;
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].closes);
+    TEST_ASSERT_EQUAL_HEX(OTHER_FL | O_NONBLOCK, k.fd[4].fl);
+    TEST_ASSERT_EQUAL_INT(1, k.fd[4].nodelay);
+    feed(4, (const uint8_t *)"N", 1u);
+    {
+        uint8_t b = 0u;
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_UINT8('N', b);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].closes);
 }
 
 static void test_the_window_holds_across_a_clock_wrap(void)
@@ -744,6 +780,73 @@ static void test_eagain_on_send_keeps_the_host_and_the_bytes(void)
     TEST_ASSERT_EQUAL_MEMORY("hold", k.fd[3].out, 4u);
 }
 
+/* ---- the operator session goes with its host (#607) ------------------ */
+
+static void test_a_quiet_host_replaced_ends_its_operator_session(void)
+{
+    take(3);
+    session_ends = 0u;
+    now += TFW_ESP_WIRE_IDLE_MS;
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);
+}
+
+static void test_a_host_that_hangs_up_ends_its_operator_session(void)
+{
+    take(3);
+    session_ends = 0u;
+    k.fd[3].hung = 1;
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);    /* ended once */
+}
+
+static void test_a_hangup_and_a_new_host_in_one_poll_end_the_session_once(void)
+{
+    take(3);
+    session_ends = 0u;
+    now += 1u;
+    k.fd[3].hung = 1;
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].closes);
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);
+}
+
+static void test_a_broken_recv_ends_the_operator_session(void)
+{
+    take(3);
+    session_ends = 0u;
+    k.fd[3].recv_err = ECONNRESET;
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);
+}
+
+static void test_a_broken_send_ends_the_operator_session(void)
+{
+    take(3);
+    session_ends = 0u;
+    k.fd[3].send_err = EPIPE;
+    send_str("x");
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT(1u, session_ends);
+}
+
+static void test_a_host_refused_in_the_window_ends_no_session(void)
+{
+    take(3);
+    session_ends = 0u;
+    now += TFW_ESP_WIRE_IDLE_MS - 1u;
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[4].closes);
+    TEST_ASSERT_EQUAL_UINT(0u, session_ends);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -758,6 +861,7 @@ int main(void)
     RUN_TEST(test_no_connection_touches_nothing);
     RUN_TEST(test_a_second_host_inside_the_window_is_refused);
     RUN_TEST(test_a_host_quiet_for_the_window_is_replaced);
+    RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_hand_the_wire_over);
     RUN_TEST(test_the_window_holds_across_a_clock_wrap);
     RUN_TEST(test_a_host_just_taken_is_heard);
     RUN_TEST(test_a_byte_received_is_heard);
@@ -772,5 +876,11 @@ int main(void)
     RUN_TEST(test_a_broken_recv_drops_the_host_with_its_errno);
     RUN_TEST(test_a_broken_send_drops_the_host_and_its_bytes);
     RUN_TEST(test_eagain_on_send_keeps_the_host_and_the_bytes);
+    RUN_TEST(test_a_quiet_host_replaced_ends_its_operator_session);
+    RUN_TEST(test_a_host_that_hangs_up_ends_its_operator_session);
+    RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_end_the_session_once);
+    RUN_TEST(test_a_broken_recv_ends_the_operator_session);
+    RUN_TEST(test_a_broken_send_ends_the_operator_session);
+    RUN_TEST(test_a_host_refused_in_the_window_ends_no_session);
     return UNITY_END();
 }

@@ -10,7 +10,7 @@ and the reason is required: what the vulnerability is, why it stays, the path
 govulncheck reports and what removes the entry. An entry with no reachable
 finding behind it is reported, so a stale one is seen and deleted. A finding
 in a module or package the code imports but never calls is printed and does
-not fail, as in govulncheck's text mode. mk/stages.mk pipes xkms-security into
+not fail, as in govulncheck's text mode. mk/stages.mk pipes xkms-vuln into
 it; scripts/test_govulncheck_gate.py runs it under `make scripts-test`.
 """
 

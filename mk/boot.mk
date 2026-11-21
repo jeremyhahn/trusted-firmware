@@ -705,7 +705,8 @@ $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
 
 # tfw-boot's STM32H5 flash driver (#14), boot/hal/cortex-m/stm32h5/h5_flash.c,
 # on a flash interface and a flash of the test's own: the test is the hardware,
-# acting at the wait the part's boot_flash.c polls, so boot_flash.c is not here.
+# acting at the wait the part's boot_flash.c polls, so boot_flash.c is not here
+# (test_boot_h5_flash_entry, below, has it).
 $(BOOT_TEST_DIR)/test_boot_stm32h5_flash: test/unit/boot/test_boot_stm32h5_flash.c \
         boot/hal/cortex-m/stm32h5/h5_flash.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -772,6 +773,28 @@ $(BOOT_TEST_DIR)/test_boot_mps2_uart: $(MPS2_BOOT_TEST_DIR)/test_boot_mps2_uart.
         boot/hal/cortex-m/mps2/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_MPS2_AN505_CFLAGS) -I$(MPS2_BOOT_TEST_DIR) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# tfw-boot's STM32H5 UART (#599), the RP2350's way, under the STM32H573I-DK's
+# profile, over the register file test_stm32h5_uart uses: test/model/cortex-m/
+# comes ahead of src/hal/cortex-m/ so its cm_regs.h, under
+# -DTFW_CM_MODEL_REGFILE, sends every TFW_CM_REG to regfile_model.c.
+BOOT_TEST_H5_CFLAGS = -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m -Isrc/hal/cortex-m \
+                      $(subst -Iboards/$(HOST_BOARD),-Iboards/stm32h573i-dk,\
+                        $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+H5_BOOT_TEST_DIR := boot/hal/cortex-m/stm32h5/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_h5_uart
+$(BOOT_TEST_DIR)/test_boot_h5_uart: $(H5_BOOT_TEST_DIR)/test_boot_h5_uart.c \
+        boot/hal/cortex-m/stm32h5/boot_uart.c test/model/cortex-m/regfile_model.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its flash entry points, boot_flash.c, which the test includes itself after
+# pointing NSSR's offset at its poll-counting model; the driver, h5_flash.c,
+# is the test's stand-in, so the address handed to it is what is checked.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_h5_flash_entry
+$(BOOT_TEST_DIR)/test_boot_h5_flash_entry: $(H5_BOOT_TEST_DIR)/test_boot_h5_flash_entry.c \
+        boot/hal/cortex-m/stm32h5/boot_flash.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	  $(filter-out %/boot_flash.c,$^) $(EXTRA_LDFLAGS)
+
 # tfw-boot's nRF54L15 UART and RRAM write (#512), the RP2350's way, under the
 # DK's profile, over the nRF54L register model (test/model/nrf54l_model.c):
 # test/model/cortex-m/nrf54l/ comes ahead of src/hal/cortex-m/ so its cm_regs.h
@@ -794,13 +817,14 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
-# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
-# mps2 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L,
+# mps2 and STM32H5 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make
 # asked for both host-test and boot-test still runs each binary once.
 BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
                            $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram \
-                           $(BOOT_TEST_DIR)/test_boot_mps2_uart
+                           $(BOOT_TEST_DIR)/test_boot_mps2_uart \
+                           $(BOOT_TEST_DIR)/test_boot_h5_uart $(BOOT_TEST_DIR)/test_boot_h5_flash_entry
 .PHONY: boot-soc-host-test
 boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
 	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))

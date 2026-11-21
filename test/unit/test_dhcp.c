@@ -414,6 +414,24 @@ static void test_the_lease_runs_from_the_request_and_then_starts_again(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
 }
 
+/* dhcp.c:601: the lease counts from the first DHCPREQUEST, not a resend (§4.4.1). */
+static void test_a_retransmitted_request_keeps_the_lease_counting_from_the_first(void)
+{
+    tfw_ms_t asked;
+    reply_t  r = reply(5u);
+
+    offer_and_request();
+    asked = now_ms;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(70000u));          /* no answer: sent again */
+    TEST_ASSERT_EQUAL_UINT8(3u, sent());
+    TEST_ASSERT_TRUE((int32_t)(now_ms - asked) >= 3000);
+    TEST_ASSERT_EQUAL(TFW_OK, acked(&r));
+    now_ms = asked + T1_MS - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = asked + T1_MS;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+}
+
 static void test_an_infinite_lease_is_held_to_the_clock_compare(void)
 {
     tfw_ms_t asked;
@@ -946,6 +964,7 @@ int main(void)
     RUN_TEST(test_an_ack_hands_the_link_the_lease_and_gives_the_socket_back);
     RUN_TEST(test_a_bound_client_answers_from_its_lease_without_the_chip);
     RUN_TEST(test_the_lease_runs_from_the_request_and_then_starts_again);
+    RUN_TEST(test_a_retransmitted_request_keeps_the_lease_counting_from_the_first);
     RUN_TEST(test_an_infinite_lease_is_held_to_the_clock_compare);
     RUN_TEST(test_discover_is_retransmitted_at_4_8_16_32_64_s_then_given_up);
     RUN_TEST(test_a_request_without_an_answer_is_given_up_the_same_way);

@@ -29,6 +29,10 @@ void tfw_cm_boot_uart_off(void);
 #define PORT1_CLK      (1u << 14)
 #define FC4_CLK        (1u << 15)
 
+/* FC4CLKDIV as the boot finds it before init: halted and dividing by 6, so a
+ * divider the code never sets up, or sets up only after the start, shows. */
+#define FC4CLKDIV_HALTED ((1u << 30) | 5u)
+
 #define MODEL_REGS 32u
 
 static uint32_t model_addr[MODEL_REGS];
@@ -67,6 +71,7 @@ static uint32_t start_baud;
 static uint32_t start_clk1;
 static uint32_t start_rst1;
 static uint32_t start_clksel;
+static uint32_t start_clkdiv;
 
 tfw_status_t tfw_mcxn_uart_start(volatile uint32_t *fc, uint32_t clk_hz, uint32_t baud)
 {
@@ -77,6 +82,7 @@ tfw_status_t tfw_mcxn_uart_start(volatile uint32_t *fc, uint32_t clk_hz, uint32_
     start_clk1 = reg(AHBCLKCTRLSET1);
     start_rst1 = reg(PRESETCTRLCLR1);
     start_clksel = reg(FC4CLKSEL);
+    start_clkdiv = reg(FC4CLKDIV);
     return start_rc;
 }
 
@@ -124,6 +130,7 @@ static uint8_t touched(uint32_t addr)
 void setUp(void)
 {
     model_used = 0u;
+    *tfw_cm_model_reg(FC4CLKDIV) = FC4CLKDIV_HALTED;
     start_rc = TFW_OK;
     start_calls = 0u;
     start_fc = 0u;
@@ -132,6 +139,7 @@ void setUp(void)
     start_clk1 = 0u;
     start_rst1 = 0u;
     start_clksel = 0u;
+    start_clkdiv = FC4CLKDIV_HALTED;
     getc_calls = 0u;
     putc_calls = 0u;
     putc_byte = 0u;
@@ -162,6 +170,7 @@ static void test_init_clocks_and_releases_fc4_before_it_starts(void)
     TEST_ASSERT_EQUAL_HEX32(FC4_CLK, start_clk1);
     TEST_ASSERT_EQUAL_HEX32(FC4_CLK, start_rst1);
     TEST_ASSERT_EQUAL_HEX32(2u, start_clksel);
+    TEST_ASSERT_EQUAL_HEX32(0u, start_clkdiv);            /* running, by 1 */
 }
 
 static void test_a_failed_start_muxes_no_pin_and_keeps_rx_and_tx_off(void)

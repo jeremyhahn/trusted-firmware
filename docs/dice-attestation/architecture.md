@@ -1,6 +1,6 @@
 # DICE attestation — architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## Ownership boundary
@@ -57,7 +57,7 @@ a root of trust it does not have. See `include/tfw/crypto.h`.
 | CDI | `HMAC(UDS, H(firmware))` inside the element | software `HMAC(UDS, H(firmware))` |
 | Signs with | ECDSA P-256 (element) | ECDSA P-256, a DeviceID whose seed tfw-boot derives as HMAC(UDS, `TFW_DEVICEID_LABEL`) and hands over beside the CDI in handoff v4 (`SOFT_ID=p256`); HMAC-SHA256, the verifier holding the key, on the ATmega328P and ATmega32U4 (`SOFT_ID=hmac`) |
 | `CAPS` tier | `TFW_CRYPTO_SECURE_ELEMENT` (2) | `TFW_CRYPTO_SOFTWARE` (1) |
-| Built with | `CRYPTO=atecc608a` | `CRYPTO=soft` (default) |
+| Built with | `CRYPTO=atecc608a` | `CRYPTO=soft` (the fallback for a board whose profile names no tier; the ATmega2560 defaults to `CRYPTO=auto`, which carries both, and the ATmega328P to `CRYPTO=atecc608a`, refusing soft) |
 
 `tfw_crypto_tier_t` also reserves `TFW_CRYPTO_TPM2` (3) for a discrete TPM; no
 `src/crypto/tpm2/` implementation exists in this tree today. That value is a
@@ -74,7 +74,8 @@ provisioning, which is procedural. Full conformance detail moves to
 ## What an unprovisioned device does
 
 It refuses and says which kind of nothing it has: `TFW_CRYPTO_NONE` reports an
-empty algorithm bitmap and every crypto operation returns `TFW_ERR_CRYPTO`; an
+empty algorithm bitmap and every crypto operation returns `TFW_ERR_UNSUPPORTED`,
+except `tfw_crypto_random`, which returns `TFW_ERR_CRYPTO`; an
 element that is present but unseeded still reports `TFW_CRYPTO_SECURE_ELEMENT`
 (truthfully — a host's decision depends on knowing an element is there) and
 signing returns `TFW_ERR_NOT_PROVISIONED`. A device that signed anyway would
@@ -281,9 +282,12 @@ shift for the length. The boot links `src/crypto/sha256_small.c` in its place
 the same `sha256.h` API: one rotate-or-shift routine shared by the four sigma
 functions, the 16-word rolling schedule, the working variables as an array,
 and K in flash through `tfw/progmem.h`. The application keeps `sha256.c` for
-its speed. `test/unit/test_sha256.c` runs against both objects: the empty
-message, "abc", the 448-bit and 896-bit messages, a million "a", and
-RFC 4231 cases 1 and 2. The cost is time, because each rotate is a loop.
+its speed. `test/unit/test_sha256_small.c` runs the small one against the
+empty message, "abc", the 448-bit message, a million "a", the 55-, 56- and
+64-byte block edges, a split at every offset, and RFC 4231 cases 1, 2, 6 and 7.
+`test/unit/test_sha256_mutate.c` runs against both objects (`mk/host.mk` builds
+it as `test_sha256_mutate` and `test_sha256_small_mutate`): every length
+against a reference, every split, and every one-bit flip. The cost is time, because each rotate is a loop.
 
 **Rows.** Every soft row is `BOOT_TIER=soft BOOT_MEASURE=soft
 BOOT_SIG=p256-soft`, measured by verify's `make bootloader-budget`. A row is in
@@ -359,9 +363,9 @@ never required on an AVR board. The Mega 2560 links both the element provider
 and the software DICE root, and at runtime runs the element when one answers,
 else the soft root. The boot side (`feat/130-soft-root`) is not this section's.
 
-Until now the tier was a build choice: `mk/firmware.mk:136`–`:207` picks one of
+Until now the tier was a build choice: `mk/firmware.mk:276`–`:450` picks one of
 `CRYPTO=soft|none|atecc608a`, and each tier's source list brings its own
-`tfw_crypto_init()` (`src/crypto/soft/provider.c:65`,
+`tfw_crypto_init()` (`src/crypto/soft/provider.c:66`,
 `src/crypto/atecc608a/provider.c:72`). `CRYPTO=auto` is a fourth value, the
 2560 profile's default.
 
@@ -382,10 +386,10 @@ one byte of RAM and the dispatch's branches.
 **The probe runs once, at `tfw_crypto_init`, and the choice never changes until
 reset.** The dispatch probes before either provider's init runs, because the
 element provider drains the boot handoff's CDI unconditionally
-(`src/crypto/atecc608a/provider.c:106`) and the soft provider needs that CDI
-when tfw-boot derived it from the soft UDS (`src/crypto/soft/provider.c:115`).
+(`src/crypto/atecc608a/provider.c:109`) and the soft provider needs that CDI
+when tfw-boot derived it from the soft UDS (`src/crypto/soft/provider.c:121`).
 The probe is the element provider's own presence test: the I2C bus at
-`TFW_ATECC_I2C_HZ`, the wake answer (`src/crypto/atecc608a/atecc.c:77`), and an
+`TFW_ATECC_I2C_HZ`, the wake answer (`src/crypto/atecc608a/atecc.c:81`), and an
 `Info(Revision)` that must return with a good CRC, then sleep. All three pass →
 the element provider's init runs, and the element is chosen only if it then
 reports `TFW_CRYPTO_SECURE_ELEMENT`. Any of them fails — no bus, no wake, a
@@ -396,14 +400,14 @@ with `TFW_ERR_CRYPTO` rather than falling over to the soft key. The one race,
 an element that answers the probe and not its own init a moment later, falls
 to soft after the element provider has drained the handoff's CDI. It cannot
 sign under a wrong key: the drain clears only the CDI, the handoff's tier
-stays readable (`src/core/handoff.c:89`–`:102`), so the soft provider either
+stays readable (`src/core/handoff.c:96`–`:110`), so the soft provider either
 finds a handoff naming its own tier with no CDI left and stays unprovisioned,
 finds one naming the element and refuses it, or finds none and derives from
-its own UDS (`src/crypto/soft/provider.c:116`–`:129`).
+its own UDS (`src/crypto/soft/provider.c:120`–`:131`).
 
 **The evidence states the tier.** `SYS_INFO` writes `tfw_crypto_tier()`
-(`src/caps/sys.c:112`), which the dispatch answers from the chosen provider:
-`TFW_CRYPTO_SOFTWARE` from the soft root (`src/crypto/soft/provider.c:162`),
+(`src/caps/sys.c:125`), which the dispatch answers from the chosen provider:
+`TFW_CRYPTO_SOFTWARE` from the soft root (`src/crypto/soft/provider.c:163`),
 `TFW_CRYPTO_SECURE_ELEMENT` only from an element that answered
 (`src/crypto/atecc608a/provider.c:169`). `tfw_crypto_algorithms()` is the
 chosen provider's too, so a soft-rooted Mega advertises ECDSA-P256-SHA256 only
@@ -428,7 +432,7 @@ tier must (no image key, no TRNG). The auth gate is `src/core/auth_session_auto.
 operator-signature gate, renamed per object, when the dispatch chose the
 element, and the soft tier's permissive answer when it chose soft. The ATTEST
 refusal of a CDI handed off for the other tier stays where it is, in the soft
-provider's init (`src/crypto/soft/provider.c:116`–`:129`), and runs only when
+provider's init (`src/crypto/soft/provider.c:120`–`:131`), and runs only when
 the dispatch chose soft; the element provider never derives from the handoff.
 
 No image writes DiceTcbInfo vendorInfo today (the alias template carries none),
@@ -452,7 +456,7 @@ no operator key, so no session could be opened there, and the gate stays.
 
 **The rollback floor.** OTA_INFO's floor follows the boot's tier, not the
 application's dispatch. `src/core/ota_floor_auto.c` reads the `tier` byte
-tfw-boot wrote into the handoff (offset 5, `include/tfw/boot.h:285`):
+tfw-boot wrote into the handoff (offset 5, `include/tfw/boot.h:328`):
 
 - an element boot reports the element's boot counter;
 - a soft boot reports the platform block's EEPROM floor;

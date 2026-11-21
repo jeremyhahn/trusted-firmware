@@ -277,10 +277,12 @@
 /* EEPROM a bootloader keeps ABOVE the reserved end (include/tfw/boot.h's
  * TFW_BOOT_EE_LEN, the wire's EEPROMReservedEnd), which EEPROM_WRITE refuses
  * as it refuses the reserved span itself and EEPROM_READ gates the same way. A
- * board whose bootloader keeps state there names the range. None does since
- * the end moved to 0x140 (#125): the ATmega2560's swap journal and confirm
- * request now lie below it. Every board says nothing and gets an empty range at
- * the reserved end, which the block's own check already covers, so the test
+ * board whose bootloader keeps state there names the range. The ATmega2560
+ * names none since the end moved to 0x140 (#125): its swap journal and confirm
+ * request now lie below it. The mps2-an500 and mps2-an505 A/B builds name
+ * [0x0E0, 0x0F5), their swap record, below the end (their board_profile.h).
+ * The rest say nothing and get an empty
+ * range at the reserved end, which the block's own check already covers, so the test
  * folds away; an empty range at 0 would be a comparison against zero that
  * -Wtype-limits rejects. Read only where include/tfw/boot.h is in scope. */
 #ifndef TFW_BOOT_EE_EXTRA_BASE
@@ -290,8 +292,8 @@
 #define TFW_BOOT_EE_EXTRA_LEN  0u
 #endif
 /* OTA_CONFIRM's request record (include/tfw/boot.h). Only a board with the
- * trial links OTA_CONFIRM and places it, inside its EXTRA span (the 2560); the
- * host builds that link it for tests and tfwsim take the 2560's place. */
+ * trial links OTA_CONFIRM and places it, below TFW_BOOT_EE_LEN (the 2560 at
+ * 0x0EA-0x134; the mps2 A/B builds at 0x0EA too); the host builds that link it for tests and tfwsim take the 2560's place. */
 #ifndef TFW_BOOT_CONFIRM_ADDR
 #define TFW_BOOT_CONFIRM_ADDR  0x0EAu
 #endif

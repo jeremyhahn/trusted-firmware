@@ -40,11 +40,13 @@ typedef struct {
  *   TFW_ERR_NOT_PROVISIONED   this bootloader has no public key, or the key it
  *                            has is not the one reserved EEPROM pins
  *
- * A backend that keeps its key -- the element, verifying in stored mode -- has
- * no key to pin and is not refused for it. See the TFW_ERR_UNSUPPORTED arm in
- * boot_policy.c, and note that this is the ONLY configuration that fits a 4 KB
- * boot section, so the arm is on every supported build rather than an exotic
- * one.
+ * A backend that keeps its key has no key to pin and is not refused for it.
+ * Both P-256 backends do -- the element, verifying in stored mode, and
+ * p256-soft, its key in the boot section (boot/verify/verify_p256_soft.c) --
+ * and tfw_boot_pubkey returns TFW_ERR_UNSUPPORTED for both. See that arm in
+ * boot_policy.c, and note that every row's default is one of the two
+ * (mk/boot.mk:77), so the arm is on every supported build rather than an
+ * exotic one.
  *
  * ORDER. The rollback check comes before the signature check, because it is
  * cheap and refusing early costs nothing -- and because it is safe: the version

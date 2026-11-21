@@ -45,10 +45,18 @@ has one place to read, not a scatter of checks between peripheral setup.
 
 ## Data flow
 
-The first line is the AVR entry (`BOOTRST`, `.init3`); the other HALs enter
-`main()` from their own reset path — see [../boards/](../boards/) for each
-board, [../cortex-m/](../cortex-m/) and [../esp32/](../esp32/). From `main()`
-on, the order is `boot/boot_main.c`'s on every architecture.
+The diagram is `boot/boot_main.c`'s, which `mk/boot.mk` links on the AVR,
+Cortex-M and host builds only. Its first line is the AVR entry (`BOOTRST`,
+`.init3`); the Cortex-M and host HALs enter `main()` from their own reset path
+— see [../boards/](../boards/) for each board and [../cortex-m/](../cortex-m/).
+From `main()` on, the order is the same on those three.
+
+The ESP32 links no `boot_main.c`. Its layer 0 (`boot/hal/esp32/boot_l0.c`)
+replaces ESP-IDF's second-stage entry, `call_start_cpu0`, and runs
+`bootloader_init`, ESP-IDF's choice of the boot partition, layer 0's verify,
+gate and CDI derivation, then ESP-IDF's loader
+(`bootloader_utility_load_boot_image`). It has no request/session, EEPROM
+trial or swap step; see [../esp32/engineering.md](../esp32/engineering.md).
 
 ```
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)

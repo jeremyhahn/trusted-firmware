@@ -65,6 +65,11 @@ tfw_status_t tfw_esp_board_init(void)
     return mock_sys.board_status;
 }
 
+void tfw_esp_selfcheck(void)
+{
+    mock_sys.selfcheck_calls++;
+}
+
 uint8_t tfw_boot_handoff_reset_cause(uint8_t *out)
 {
     mock_sys.handoff_calls++;

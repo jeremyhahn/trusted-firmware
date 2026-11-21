@@ -7,7 +7,8 @@
  * TFW_ERR_UNSUPPORTED: src/caps/bus.c is one translation unit and links all
  * three. Registers and bits are soc_regs.h's, each cited to [RP-DS] release 8
  * §12.2; the SCL arithmetic is soc_calc.h's, pinned by test_rp2350_soc.c.
- * test_rp2350_i2c.c runs this file over a register model.
+ * test_rp2350_i2c.c runs this file over a register model. Init sets the SDA
+ * hold after SCL falls to 300 ns (120 ns at fast-mode plus), UM10204's.
  *
  * The status codes are the MPS2 master's (src/hal/cortex-m/mps2/hal_bus.c):
  *
@@ -170,6 +171,10 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
         TFW_RP_IC_FS_SCL_LCNT = t.lcnt;
     }
     TFW_RP_IC_FS_SPKLEN   = t.spklen;
+    /* IC_SDA_HOLD.IC_SDA_TX_HOLD (table 1137) resets to 1 ic_clk; UM10204
+     * table 10 note 2 wants 300 ns after SCL falls, 120 ns at fast plus. */
+    TFW_RP_IC_SDA_HOLD    = tfw_rp_i2c_cycles((uint32_t)TFW_CM_CPU_HZ,
+                                              hz <= TFW_RP_I2C_FS_HZ_MAX ? 30u : 12u);
     TFW_RP_IC_INTR_MASK   = 0u;
     return TFW_OK;
 }

@@ -77,7 +77,8 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
 
 ### Remaining slices
 
-1. **Host tests for tfw-boot's nRF54L halves** (no hardware): tests for
+1. **Host tests for tfw-boot's nRF54L halves** (no hardware): **done** by
+   #529, the two test files below passing in `make boot-test`. Tests for
    `boot/hal/cortex-m/nrf54l/boot_uart.c` (`INTEN` 0, one byte per transfer,
    the reset values put back before the jump) and `boot_rram.c` (`WEN` only
    inside the write, a span below the region end refused, a bounded wait that

@@ -29,6 +29,10 @@ tfw_status_t tfw_esp_board_init(void);
  * address comes from DHCP, or from the board's static one. Returns TFW_ERR_INTERNAL if ESP-IDF refuses. */
 tfw_status_t tfw_esp_eth_start(void);
 
+/* The bench self-check of the pin peripherals (hal_selfcheck.c): empty unless
+ * CONFIG_TFW_PERIPH_SELFCHECK, a bench build's Kconfig. */
+void tfw_esp_selfcheck(void);
+
 /* esp_reset_reason() to the wire's reset cause (hal_sys.c). */
 tfw_reset_cause_t tfw_esp_reset_decode(esp_reset_reason_t reason);
 

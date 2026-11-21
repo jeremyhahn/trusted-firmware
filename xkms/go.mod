@@ -11,7 +11,7 @@ module github.com/jeremyhahn/trusted-firmware/xkms
 
 go 1.27.4
 
-// The versions below are the module graph go-xkms v0.57.0-alpha resolved. They
+// The versions below are the module graph go-xkms v0.64.2-alpha resolved. They
 // are listed here so the graph is pruned (every module's go.mod is not needed
 // to build), which is what lets this module build from a populated module cache
 // with GOPROXY=off.

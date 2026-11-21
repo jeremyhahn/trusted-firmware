@@ -11,7 +11,7 @@
  * element are not driven yet, so every other capability is off by file
  * selection, as on mps2-an505.
  *
- * The board id is PROVISIONAL (boards/stm32h573i-dk/profile.mk).
+ * The board id 0x43 is allocated in docs/boards/board-id-registry.md.
  */
 #ifndef TFW_BOARD_STM32H573I_DK_H
 #define TFW_BOARD_STM32H573I_DK_H

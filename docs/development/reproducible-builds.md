@@ -51,14 +51,37 @@ the compiler, the claim is not falsifiable.
 ## The check
 
 ```sh
-make reproducible-check BOARD=atmega328p
-make reproducible-check BOARD=atmega328p CRYPTO=atecc608a
+# the firmware image, one command per tier of the board (BOARD_TIERS)
+make reproducible-check BOARD=atmega2560 CRYPTO=soft
+make reproducible-check BOARD=atmega2560 CRYPTO=atecc608a
+# the application's image: APP_DIR names it, as the build stage does
+make reproducible-check APP_DIR=test/app/example BOARD=atmega2560
+# tfw-boot, on the ATmega2560 soft base row
+make bootloader-reproducible-check
 ```
 
-It builds the same source twice **in two different directories** and fails if
-the `.hex` files differ. Two different directories specifically, because the
-most common reproducibility defect is a path leaking into the image, and a check
-that builds twice in the same place cannot see it.
+Each builds the image twice, each time from a clean copy of the committed
+source in its own directory, and fails unless the two `.hex` files are
+byte-identical. Both targets run `scripts/repro_build.py` (`mk/firmware.mk`
+`reproducible-check`, `mk/boot.mk` `bootloader-reproducible`). A clean copy is
+`git archive HEAD`, so no `build/`, no untracked file and no uncommitted edit
+reaches it, and an image a previous build left behind cannot satisfy the check:
+what is checked is the commit, not the working tree. Each build runs with
+`SOURCE_DATE_EPOCH` set to the commit time (`git log -1 --format=%ct HEAD`).
+
+Two different directories specifically, because the most common
+reproducibility defect is a path leaking into the image, and a check that
+builds twice in the same place cannot see it.
+
+With `APP_DIR`, the image checked is the application's (`$(TARGET)` carries its
+name). An application inside this tree is built from each clean copy, so it
+must be committed; one outside it is the same directory for both builds,
+passed by absolute path (`repro_build.py --app-dir`). `make build` runs
+`reproducible-check` with `APP_DIR=test/app/example BOARD=atmega2560` and
+`bootloader-reproducible-check` (`mk/stages.mk`). The bootloader check builds
+the ATmega2560 row `BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft
+BOOT_OTA=0 BOOT_STORE=0`; `make bootloader-reproducible` checks whatever row
+its `BOOT_*` variables name.
 
 The crypto tier is part of the build path, so the soft and element images are
 separate artifacts with separate measurements. They are different firmware.

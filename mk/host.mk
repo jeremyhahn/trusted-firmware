@@ -2231,20 +2231,23 @@ lint-test-sleep:
 ## lint-grep-selftest: the grep gates fail on a plant and print path and line only
 # Plants go into a throwaway tree, never into this one. Each plant must fail its
 # gate with `path:line: ` and without the planted text; an include guard, an
-# exempt HAL directory and a sleep outside a test file must not.
+# exempt HAL directory, a sleep outside a test file and a comment naming
+# delay() must not.
 lint-grep-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/optee/ta $$t/boards $$t/include $$t/sdk $$t/scripts && \
 	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
 	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
-	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep LINT_GREP_ROOT=$$t > /dev/null || \
+	printf '/*\n * delay() is banned\n */\n// vTaskDelay(1) too\n' > $$t/src/core/comment.c && \
+	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep lint-no-delay LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
 	             'conditionals:optee/ta/plant.c:#ifdef TFW_PLANTED_TEXT' \
 	             'timestamps:src/core/plant.c:const char *d = __DATE__; /* TFW_PLANTED_TEXT */' \
 	             'test-sleep:sdk/plant_test.go:time.Sleep(1) // TFW_PLANTED_TEXT' \
-	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT'; do \
+	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT' \
+             'no-delay:src/core/plant.c:void f(void){ delay(10); } /* TFW_PLANTED_TEXT */'; do \
 	  gate=$${plant%%:*}; rest=$${plant#*:}; f=$${rest%%:*}; printf '%s\n' "$${rest#*:}" > $$t/$$f; \
 	  if out=$$($(MAKE) --no-print-directory lint-$$gate LINT_GREP_ROOT=$$t 2>&1); then \
 	    echo "selftest: lint-$$gate passed a plant"; exit 1; \

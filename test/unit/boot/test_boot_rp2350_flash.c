@@ -170,6 +170,27 @@ static void test_a_failed_sector_write_stops_and_is_returned(void)
     TEST_ASSERT_EQUAL_UINT32(1u, writes);
 }
 
+/* A three-sector span whose middle sector already holds its bytes writes the
+ * first and third sectors only, in order, and every byte of the span lands. */
+static void test_a_three_sector_span_writes_only_the_sectors_that_change(void)
+{
+    static uint8_t span[3u * TFW_RP_FLASH_SECTOR];
+    uint32_t       addr = TFW_RP_XIP_BASE + 0x20000u;
+    uint32_t       i;
+
+    for (i = 0u; i < TFW_RP_FLASH_SECTOR; i++) {
+        span[i]                            = (uint8_t)(0xA5u ^ i);
+        span[2u * TFW_RP_FLASH_SECTOR + i] = (uint8_t)(0x5Au ^ i);
+    }
+    memcpy(&span[TFW_RP_FLASH_SECTOR], &flash[0x21000u], TFW_RP_FLASH_SECTOR);
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_rp_flash_update(addr, span, sizeof span, FLASH_END));
+    TEST_ASSERT_EQUAL_UINT32(2u, writes);
+    TEST_ASSERT_EQUAL_HEX32(0x20000u, written[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x22000u, written[1]);
+    TEST_ASSERT_EQUAL_MEMORY(span, &flash[0x20000u], sizeof span);
+}
+
 /* The sector buffer holds the platform block's bytes during the write and
  * none after it: the application inherits that SRAM. */
 static void test_the_sector_buffer_is_zeroed_after_a_write(void)
@@ -221,6 +242,7 @@ int main(void)
     RUN_TEST(test_a_zero_length_write_is_ok);
     RUN_TEST(test_a_failed_sector_write_stops_and_is_returned);
     RUN_TEST(test_the_sector_buffer_is_zeroed_after_a_write);
+    RUN_TEST(test_a_three_sector_span_writes_only_the_sectors_that_change);
     RUN_TEST(test_the_rom_interface_is_pinned);
     return UNITY_END();
 }

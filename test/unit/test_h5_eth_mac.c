@@ -186,6 +186,51 @@ static void test_rx_drops_errors_splits_and_overlong(void)
     TEST_ASSERT_EQUAL_UINT32(3u, m.rx_ix);
 }
 
+/*
+ * A dropped frame copies no byte into the caller's buffer, whatever the
+ * DMA wrote into PL, and hands its descriptor straight back to the DMA.
+ */
+static void test_rx_a_dropped_frame_copies_nothing_and_rearms(void)
+{
+    static uint8_t out[TFW_ETH_BUF_SIZE + 64u];
+    static const struct {
+        uint32_t len, extra, clear_ld;
+        size_t cap;
+    } drop[] = {
+        { 0u, 0u, 0u, sizeof out },                     /* zero length */
+        { 65u, 0u, 0u, 64u },                           /* over the caller's cap */
+        { TFW_ETH_BUF_SIZE + 1u, 0u, 0u, sizeof out },  /* past the DMA buffer */
+        { 60u, TFW_ETH_DES3_ES, 0u, sizeof out },       /* error summary */
+        { 60u, 0u, 1u, sizeof out },                    /* first of a split frame */
+    };
+
+    memset(out, 0xEE, sizeof out);
+    for (uint32_t n = 0u; n < sizeof drop / sizeof drop[0]; n++) {
+        uint32_t i = n % TFW_ETH_DESC_COUNT;
+
+        dma_rx(i, drop[n].len, drop[n].extra);
+        if (drop[n].clear_ld != 0u) {
+            rx[i].des3 &= ~TFW_ETH_DES3_LD;
+        }
+        rx[i].des0 = 0u;                                /* the write-back */
+        TEST_ASSERT_EQUAL_INT(-1, tfw_eth_mac_rx(&m, out, drop[n].cap));
+        for (size_t k = 0u; k < sizeof out; k++) {
+            TEST_ASSERT_EQUAL_HEX8(0xEEu, out[k]);
+        }
+        TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DES3_OWN | TFW_ETH_DES3_IOC | TFW_ETH_DES3_BUF1V,
+                                rx[i].des3);
+        TEST_ASSERT_EQUAL_HEX32(addr32(rxbuf[i]), rx[i].des0);
+        TEST_ASSERT_EQUAL_HEX32(addr32(&rx[i]), R(TFW_ETH_DMACRDTPR));
+        TEST_ASSERT_EQUAL_UINT32((i + 1u) % TFW_ETH_DESC_COUNT, m.rx_ix);
+    }
+
+    /* The next whole frame is copied, and no byte past it. */
+    dma_rx(1u, 100u, 0u);
+    TEST_ASSERT_EQUAL_INT(100, tfw_eth_mac_rx(&m, out, sizeof out));
+    TEST_ASSERT_EQUAL_MEMORY(rxbuf[1], out, 100u);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, out[100]);
+}
+
 static void test_phy_speed_decode(void)
 {
     uint32_t cr = 0u;
@@ -218,6 +263,7 @@ int main(void)
     RUN_TEST(test_rx_nothing_while_the_dma_owns_it);
     RUN_TEST(test_rx_copies_rearms_and_wraps);
     RUN_TEST(test_rx_drops_errors_splits_and_overlong);
+    RUN_TEST(test_rx_a_dropped_frame_copies_nothing_and_rearms);
     RUN_TEST(test_phy_speed_decode);
     return UNITY_END();
 }

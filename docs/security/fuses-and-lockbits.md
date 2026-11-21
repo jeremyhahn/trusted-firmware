@@ -1,7 +1,7 @@
 # Fuses and lock bits
 
 > **Status: NORMATIVE** · Scope: provisioning, `docs/device-provisioning/user.md`
-> · Last verified: 2026-10-21
+> · Last verified: 2026-11-21
 >
 > Several settings on this page are **irreversible**. Read the whole page before
 > running anything on a part you care about.
@@ -38,7 +38,7 @@ voids the BLB read barrier from the inside.
 
 ## The lock byte, per board
 
-The three AVR parts share one lock byte layout and one meaning for each boot lock
+The three AVR parts with a boot section share one lock byte layout and one meaning for each boot lock
 mode. Each data sheet is listed in
 [`../reference/README.md`](../reference/README.md), "Board sources"; the
 section numbers are theirs.
@@ -68,6 +68,9 @@ every bit the profile names reads programmed (`docs/device-provisioning/user.md`
 On the 328P and the 32U4 no soft-root `tfw-boot` fits the 4 KB boot section today
 (`mk/boot.mk` `BOOT_SUPPORTED` has the element row only), so no UDS sits behind
 `BLB1` there yet; the expected value follows the data sheet all the same.
+The fourth AVR board, `attiny85`, has no boot section and its profile names no
+`BOOT_LOCK_PROGRAMMED`, so `make lock-check BOARD=attiny85` is refused before
+anything is read (`mk/boot.mk` lines 1484-1488).
 
 ### Why `BLB0` stays unprogrammed
 
@@ -154,6 +157,16 @@ The decommission procedure is therefore: revoke the DeviceID certificate, delete
 the registry record, and — where the MCU allows it — chip-erase the part. The
 element stays locked and stays with the board. This is written down so nobody
 plans around an unlock that does not exist.
+
+A bench AVR board is put back as it left the factory by `make board-restore`,
+from the factory record: the `ARCH_FACTORY_BYTES` (`lfuse hfuse efuse lock`)
+read before the project's first write to the board (`BOOT_FIRST_FLASH=1`
+writes them to its record under `build/`), carried as `FACTORY_LFUSE`, `FACTORY_HFUSE`,
+`FACTORY_EFUSE`, `FACTORY_LOCK` and `FACTORY_BOOT_HEX_SHA256` in the board's
+profile (today `boards/atmega2560/profile.mk` lines 45-53 only); it flashes the
+stock bootloader behind the same `EESAVE` guard, then writes the fuses and the
+factory lock byte last, and reads each back (`mk/board-restore.mk`,
+`mk/arch/avr.mk` lines 320-345).
 
 ## Verification
 

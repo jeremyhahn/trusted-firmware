@@ -12,7 +12,9 @@
  * offset high byte first, then the control byte
  *
  *   bits 7..3  BSB  block select: 00000 common, 00001 socket 0 registers,
- *                   00010 socket 0 TX buffer, 00011 socket 0 RX buffer
+ *                   00010 socket 0 TX buffer, 00011 socket 0 RX buffer,
+ *                   00101 socket 1 registers, 00110 socket 1 TX buffer,
+ *                   00111 socket 1 RX buffer
  *   bit  2     RWB  1 write, 0 read
  *   bits 1..0  OM   00 variable-length data mode, the length set by CS
  *
@@ -158,6 +160,38 @@ static void test_socket0_rx_buffer_is_bsb_00011_with_the_pointer_unwrapped(void)
     expect_frame(1u, 0x08u, 0x00u, 0x1Cu, 0x01u);
 }
 
+/* Socket 1 is the DHCP client's UDP socket: its three spaces are the next
+ * three block selects, not socket 0's blocks again. */
+static void test_socket1_registers_are_bsb_00101(void)
+{
+    data = 0x22u;
+    w5x_wr(W5X_SOCK1, 0x0001u, 0x20u);
+    TEST_ASSERT_EQUAL_HEX8(0x22u, w5x_rd(W5X_SOCK1, 0x0003u));
+    TEST_ASSERT_EQUAL_UINT(2u, frames);
+    expect_frame(0u, 0x00u, 0x01u, 0x2Cu, 0x20u);
+    expect_frame(1u, 0x00u, 0x03u, 0x28u, 0x00u);
+}
+
+static void test_socket1_tx_buffer_is_bsb_00110_with_the_pointer_unwrapped(void)
+{
+    data = 0x99u;
+    w5x_wr(W5X_TX1, 0xABCDu, 0x5Au);
+    TEST_ASSERT_EQUAL_HEX8(0x99u, w5x_rd(W5X_TX1, 0x1234u));
+    TEST_ASSERT_EQUAL_UINT(2u, frames);
+    expect_frame(0u, 0xABu, 0xCDu, 0x34u, 0x5Au);
+    expect_frame(1u, 0x12u, 0x34u, 0x30u, 0x00u);
+}
+
+static void test_socket1_rx_buffer_is_bsb_00111_with_the_pointer_unwrapped(void)
+{
+    data = 0xC3u;
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, w5x_rd(W5X_RX1, 0xFFFFu));
+    w5x_wr(W5X_RX1, 0x0800u, 0x01u);
+    TEST_ASSERT_EQUAL_UINT(2u, frames);
+    expect_frame(0u, 0xFFu, 0xFFu, 0x38u, 0x00u);
+    expect_frame(1u, 0x08u, 0x00u, 0x3Cu, 0x01u);
+}
+
 /* A write sends its data byte whatever it is, 0x00 and 0xFF included, and a
  * read returns the data phase only, never a header byte. */
 static void test_data_bytes_pass_unchanged_both_ways(void)
@@ -260,6 +294,9 @@ int main(void)
     RUN_TEST(test_socket0_registers_are_bsb_00001);
     RUN_TEST(test_socket0_tx_buffer_is_bsb_00010_with_the_pointer_unwrapped);
     RUN_TEST(test_socket0_rx_buffer_is_bsb_00011_with_the_pointer_unwrapped);
+    RUN_TEST(test_socket1_registers_are_bsb_00101);
+    RUN_TEST(test_socket1_tx_buffer_is_bsb_00110_with_the_pointer_unwrapped);
+    RUN_TEST(test_socket1_rx_buffer_is_bsb_00111_with_the_pointer_unwrapped);
     RUN_TEST(test_data_bytes_pass_unchanged_both_ways);
     RUN_TEST(test_init_resets_polls_mr_once_and_reads_versionr);
     RUN_TEST(test_init_refuses_a_bus_it_cannot_have_without_a_frame);

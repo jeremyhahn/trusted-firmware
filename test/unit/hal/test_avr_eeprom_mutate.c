@@ -15,10 +15,13 @@
 
 #include "unity.h"
 #include "tfw/hal.h"
+#include "tfw/config.h"
 
 #define EE_SIZE    4096u
 #define FLASH_SIZE 0x40000ul
 #define GUARD      16u
+
+_Static_assert(TFW_EEPROM_SIZE <= EE_SIZE, "model smaller than the part");
 
 static uint8_t  ee[EE_SIZE];
 static uint8_t  flash[FLASH_SIZE];
@@ -162,7 +165,7 @@ static void check_read(tfw_status_t (*rd)(uint16_t, uint8_t *, uint8_t), uint16_
 
 static void test_read_returns_exactly_the_cells_asked(void)
 {
-    static const uint16_t addrs[] = { 0u, 1u, 0x0100u, 0x03FFu, (uint16_t)(EE_SIZE - 255u) };
+    static const uint16_t addrs[] = { 0u, 1u, 0x0100u, 0x02FFu, (uint16_t)(TFW_EEPROM_SIZE - 255u) };
     static const uint8_t  lens[]  = { 0u, 1u, 2u, 31u, 255u };
     unsigned a, l;
 
@@ -171,7 +174,7 @@ static void test_read_returns_exactly_the_cells_asked(void)
             check_read(tfw_hal_eeprom_read, addrs[a], lens[l]);
         }
     }
-    check_read(tfw_hal_eeprom_read, (uint16_t)(EE_SIZE - 1u), 1u);
+    check_read(tfw_hal_eeprom_read, (uint16_t)(TFW_EEPROM_SIZE - 1u), 1u);
 }
 
 /* The platform block's read is the same body at the same address. */
@@ -211,10 +214,10 @@ static void test_write_of_a_short_run_at_the_edges(void)
     TEST_ASSERT_EQUAL_UINT(1u, updates);
     TEST_ASSERT_EQUAL_UINT(1u, kicks);
 
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(EE_SIZE - 2u), two, 2u));
-    TEST_ASSERT_EQUAL_HEX8(0x11u, ee[EE_SIZE - 2u]);
-    TEST_ASSERT_EQUAL_HEX8(0x22u, ee[EE_SIZE - 1u]);
-    TEST_ASSERT_EQUAL_HEX8(pattern(EE_SIZE - 3u), ee[EE_SIZE - 3u]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE - 2u), two, 2u));
+    TEST_ASSERT_EQUAL_HEX8(0x11u, ee[TFW_EEPROM_SIZE - 2u]);
+    TEST_ASSERT_EQUAL_HEX8(0x22u, ee[TFW_EEPROM_SIZE - 1u]);
+    TEST_ASSERT_EQUAL_HEX8(pattern(TFW_EEPROM_SIZE - 3u), ee[TFW_EEPROM_SIZE - 3u]);
     TEST_ASSERT_EQUAL_UINT(3u, updates);
     TEST_ASSERT_EQUAL_UINT(3u, kicks);
 }
@@ -290,6 +293,41 @@ static void test_flash_read_past_64k_keeps_the_high_bits(void)
     TEST_ASSERT_EQUAL_UINT(0u, near_copies);
 }
 
+/* A read that runs past the part is refused whole and fills nothing: on the
+ * part the address would wrap onto the platform block at 0. */
+static void check_read_refused(tfw_status_t (*rd)(uint16_t, uint8_t *, uint8_t), uint16_t addr, uint8_t len)
+{
+    uint8_t  buf[4];
+    unsigned i;
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, rd(addr, buf, len));
+    for (i = 0u; i < sizeof buf; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xEEu, buf[i]);
+    }
+}
+
+static void test_read_past_the_part_is_refused(void)
+{
+    check_read_refused(tfw_hal_eeprom_read, (uint16_t)(TFW_EEPROM_SIZE - 1u), 2u);
+    check_read_refused(tfw_hal_eeprom_read, (uint16_t)TFW_EEPROM_SIZE, 1u);
+    check_read_refused(tfw_hal_nvm_read, (uint16_t)(TFW_EEPROM_SIZE - 1u), 2u);
+    check_read_refused(tfw_hal_nvm_read, (uint16_t)TFW_EEPROM_SIZE, 1u);
+}
+
+/* A write that runs past the part writes nothing, not even the cells that fit,
+ * and nothing lands on the platform block at 0. */
+static void test_write_past_the_part_is_refused_and_touches_nothing(void)
+{
+    const uint8_t two[2] = { 0x11u, 0x22u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE - 1u), two, 2u));
+    TEST_ASSERT_EQUAL_UINT(0u, updates);
+    TEST_ASSERT_EQUAL_UINT(0u, kicks);
+    TEST_ASSERT_EQUAL_HEX8(pattern(TFW_EEPROM_SIZE - 1u), ee[TFW_EEPROM_SIZE - 1u]);
+    TEST_ASSERT_EQUAL_HEX8(pattern(0u), ee[0]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -301,5 +339,7 @@ int main(void)
     RUN_TEST(test_unchanged_cells_cost_no_wear);
     RUN_TEST(test_flash_read_low);
     RUN_TEST(test_flash_read_past_64k_keeps_the_high_bits);
+    RUN_TEST(test_read_past_the_part_is_refused);
+    RUN_TEST(test_write_past_the_part_is_refused_and_touches_nothing);
     return UNITY_END();
 }

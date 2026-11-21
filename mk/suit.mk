@@ -127,4 +127,15 @@ $(HOST_DIR)/test_image_seal: test/unit/test_image_seal.c tools/image-seal/seal.c
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(UECC_HOST_DEFS) -Itools/image-seal \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The sealer's command line, test/unit/test_image_seal_cli.c: main.c as make
+# image-tbs and make image-seal run it, included into the suite (its main
+# renamed), so it is a prerequisite and not linked on its own.
+$(HOST_DIR)/test_image_seal_cli: test/unit/test_image_seal_cli.c tools/image-seal/main.c tools/image-seal/seal.c \
+        boot/boot_policy.c boot/boot_image.c boot/boot_platform.c boot/measure/measure_soft.c \
+        boot/verify/verify_p256_soft.c src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(UECC_HOST_DEFS) -Itools/image-seal \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ \
+	   $(filter-out %image-seal/main.c,$^) $(EXTRA_LDFLAGS)
+
 .PHONY: image-seal-row image-tbs image-seal

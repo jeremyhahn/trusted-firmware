@@ -431,6 +431,38 @@ static void test_a_frame_waits_for_a_queued_diagnostic(void)
     TEST_ASSERT_EQUAL_UINT(16, uart_out_len);
 }
 
+/* A TCP connect or disconnect while the UART is the current wire leaves the
+ * transport's UART frame alone: no reset is raised (#599). */
+static void test_a_tcp_peer_change_while_the_uart_is_current_keeps_its_frame(void)
+{
+    uint8_t b;
+
+    (void)tfw_link_take_reset();        /* setUp's drop may have raised it */
+    uart_feed("u");
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('u', b);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+    tfw_h5_wire_drop();
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+}
+
+/* A TCP peer dropped while TCP is the current wire raises the reset, and the
+ * transport reads it once. */
+static void test_a_tcp_peer_change_while_tcp_is_current_is_reported_once(void)
+{
+    uint8_t b;
+
+    (void)tfw_link_take_reset();
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(1, tcp_feed("t"));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('t', b);
+    tfw_h5_wire_drop();
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_take_reset());
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -449,5 +481,7 @@ int main(void)
     RUN_TEST(test_a_half_closed_peer_is_answered_then_closed);
     RUN_TEST(test_a_diagnostic_waits_for_the_frame_in_flight);
     RUN_TEST(test_a_frame_waits_for_a_queued_diagnostic);
+    RUN_TEST(test_a_tcp_peer_change_while_the_uart_is_current_keeps_its_frame);
+    RUN_TEST(test_a_tcp_peer_change_while_tcp_is_current_is_reported_once);
     return UNITY_END();
 }

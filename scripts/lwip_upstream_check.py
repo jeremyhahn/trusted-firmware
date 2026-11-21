@@ -65,11 +65,12 @@ def upstream_blobs(repo, commit, paths):
         if len(head) == 2 and head[1] == b"missing":
             got[p] = None
             continue
-        if len(head) != 3 or head[1] != b"blob":
+        if len(head) != 3:
             got[p] = None
             continue
+        # cat-file prints a body for every found object, tree or commit too.
         size = int(head[2])
-        got[p] = buf[pos:pos + size]
+        got[p] = buf[pos:pos + size] if head[1] == b"blob" else None
         pos += size + 1
     return got
 
@@ -84,16 +85,25 @@ def fetch_archive(url):
 def archive_blobs(data, paths):
     """Returns {path: bytes or None} for each path in the release archive (a
     zip or a gzipped tar, read in memory, nothing extracted), whose entries
-    sit under one top directory (lwip-STABLE-2_2_1_RELEASE/)."""
+    sit under one top directory (lwip-STABLE-2_2_1_RELEASE/); a second top
+    directory raises ValueError."""
+    def one_top(names):
+        tops = sorted({n.split("/", 1)[0] for n in names if "/" in n})
+        if len(tops) > 1:
+            raise ValueError("archive has %d top directories (%s), want one"
+                             % (len(tops), ", ".join(tops)))
+
     got = {p: None for p in paths}
     if data[:4] == b"PK\x03\x04":
         with zipfile.ZipFile(io.BytesIO(data)) as z:
+            one_top(z.namelist())
             for info in z.infolist():
                 parts = info.filename.split("/", 1)
                 if not info.is_dir() and len(parts) == 2 and parts[1] in got:
                     got[parts[1]] = z.read(info)
         return got
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as t:
+        one_top(t.getnames())
         for info in t.getmembers():
             parts = info.name.split("/", 1)
             if info.isfile() and len(parts) == 2 and parts[1] in got:
@@ -136,7 +146,12 @@ def main_archive(root, url, want):
         print("lwip-upstream-check: FAIL: %s has SHA-256 %s, want %s" % (url, got, want))
         return 1
     paths = vendored_files(root)
-    bad = compare(root, paths, archive_blobs(data, paths), "the archive")
+    try:
+        blobs = archive_blobs(data, paths)
+    except ValueError as e:
+        print("lwip-upstream-check: FAIL: %s: %s" % (url, e))
+        return 1
+    bad = compare(root, paths, blobs, "the archive")
     if bad:
         print("lwip-upstream-check: FAIL: %d of %d vendored files differ from %s (SHA-256 %s)"
               % (len(bad), len(paths), url, want))

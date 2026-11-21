@@ -37,7 +37,7 @@ enum {
     /* src/hal/avr/hal_adc.c. */
     TFW_AVR_ADMUX, TFW_AVR_ADCSRA, TFW_AVR_ADCSRB, TFW_AVR_ADCL, TFW_AVR_ADCH,
     /* src/hal/avr/hal_tone.c: Timer2. */
-    TFW_AVR_TCCR2A, TFW_AVR_TCCR2B, TFW_AVR_OCR2A,
+    TFW_AVR_TCCR2A, TFW_AVR_TCCR2B, TFW_AVR_OCR2A, TFW_AVR_TCNT2,
     /* src/hal/avr/hal_bus.c: the TWI. */
     TFW_AVR_TWBR, TFW_AVR_TWSR, TFW_AVR_TWCR, TFW_AVR_TWDR,
     /* src/hal/avr/hal_sys.c: the clock prescaler. */
@@ -178,6 +178,7 @@ volatile uint16_t *tfw_avr_mem16(unsigned addr);
 #define TCCR2A (*tfw_avr_reg(TFW_AVR_TCCR2A))
 #define TCCR2B (*tfw_avr_reg(TFW_AVR_TCCR2B))
 #define OCR2A  (*tfw_avr_reg(TFW_AVR_OCR2A))
+#define TCNT2  (*tfw_avr_reg(TFW_AVR_TCNT2))
 #define COM2A0 6
 #define WGM21  1
 #define CS22   2

@@ -25,7 +25,8 @@ static int     atomic_depth, atomic_blocks, outside_atomic;
 
 volatile uint8_t *tfw_avr_reg(unsigned id)
 {
-    TEST_ASSERT_TRUE_MESSAGE(id == TFW_AVR_TCCR2A || id == TFW_AVR_TCCR2B || id == TFW_AVR_OCR2A,
+    TEST_ASSERT_TRUE_MESSAGE(id == TFW_AVR_TCCR2A || id == TFW_AVR_TCCR2B || id == TFW_AVR_OCR2A ||
+                             id == TFW_AVR_TCNT2,
                              "hal_tone.c touched a register outside Timer2");
     if (atomic_depth == 0) {
         outside_atomic++;
@@ -69,6 +70,7 @@ static const tfw_pinref_t oc2a_2560 = { 0x23u, 4u };
 #define TCCR2A_SEED 0xB5u   /* COM2A0 set, other bits a pattern to keep */
 #define TCCR2B_SEED 0x5Au
 #define OCR2A_SEED  0xC3u
+#define TCNT2_SEED  0xF0u   /* above every top the fast tones use */
 
 static void fill(void)
 {
@@ -83,6 +85,7 @@ static void fill(void)
     regs[TFW_AVR_TCCR2A] = TCCR2A_SEED;
     regs[TFW_AVR_TCCR2B] = TCCR2B_SEED;
     regs[TFW_AVR_OCR2A]  = OCR2A_SEED;
+    regs[TFW_AVR_TCNT2]  = TCNT2_SEED;
     atomic_depth = atomic_blocks = outside_atomic = 0;
 }
 
@@ -157,6 +160,7 @@ static void check_stopped(void)
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(TCCR2A_SEED & ~0x40u), regs[TFW_AVR_TCCR2A]);
     TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCCR2B]);
     TEST_ASSERT_EQUAL_HEX8(OCR2A_SEED, regs[TFW_AVR_OCR2A]);  /* left alone */
+    TEST_ASSERT_EQUAL_HEX8(TCNT2_SEED, regs[TFW_AVR_TCNT2]);  /* left alone */
     only_changed(MEM);                                        /* pin left as it was */
     TEST_ASSERT_EQUAL_INT(1, atomic_blocks);
     TEST_ASSERT_EQUAL_INT(0, outside_atomic);
@@ -189,6 +193,33 @@ static void test_start_then_stop(void)
     TEST_ASSERT_EQUAL_INT(0, outside_atomic);
 }
 
+/* CTC misses a compare value below the running count: the counter runs on to
+ * 0xFF and wraps first. Start must leave the count at zero, below any top. */
+static void test_start_clears_the_count_so_a_lower_top_is_not_missed(void)
+{
+    fill();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 4400u));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCNT2]);
+    TEST_ASSERT_EQUAL_UINT8(27u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_HEX8(0x04u, regs[TFW_AVR_TCCR2B]);     /* CS22: clock on */
+    TEST_ASSERT_EQUAL_INT(1, atomic_blocks);
+    TEST_ASSERT_EQUAL_INT(0, outside_atomic);
+    TEST_ASSERT_EQUAL_INT(0, atomic_depth);
+}
+
+/* Retune up in pitch while a lower tone sounds: the count is mid-period of
+ * the old top 124, above the new top 27. */
+static void test_retune_down_to_a_lower_top_clears_the_count(void)
+{
+    fill();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 1000u));
+    regs[TFW_AVR_TCNT2] = 100u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 4400u));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCNT2]);
+    TEST_ASSERT_EQUAL_UINT8(27u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_INT(0, outside_atomic);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -197,5 +228,7 @@ int main(void)
     RUN_TEST(test_stop_disconnects_pin_and_stops_clock);
     RUN_TEST(test_start_zero_hz_is_stop);
     RUN_TEST(test_start_then_stop);
+    RUN_TEST(test_start_clears_the_count_so_a_lower_top_is_not_missed);
+    RUN_TEST(test_retune_down_to_a_lower_top_clears_the_count);
     return UNITY_END();
 }

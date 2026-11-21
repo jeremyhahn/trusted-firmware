@@ -756,6 +756,17 @@ $(BOOT_TEST_DIR)/test_boot_rp2350_rom: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_
         boot/hal/cortex-m/rp2350/rp_flash_rom.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# tfw-boot's mps2 UART the RP2350's way, under mps2-an505's profile: its own
+# cm_regs.h in boot/hal/cortex-m/mps2/test/ comes ahead of src/hal/cortex-m, so
+# every TFW_CM_REG goes to the test's model of UART0, which sees each store.
+MPS2_BOOT_TEST_DIR := boot/hal/cortex-m/mps2/test
+BOOT_TEST_MPS2_AN505_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,\
+                                $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_mps2_uart
+$(BOOT_TEST_DIR)/test_boot_mps2_uart: $(MPS2_BOOT_TEST_DIR)/test_boot_mps2_uart.c \
+        boot/hal/cortex-m/mps2/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_MPS2_AN505_CFLAGS) -I$(MPS2_BOOT_TEST_DIR) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # tfw-boot's nRF54L15 UART and RRAM write (#512), the RP2350's way, under the
 # DK's profile, over the nRF54L register model (test/model/nrf54l_model.c):
 # test/model/cortex-m/nrf54l/ comes ahead of src/hal/cortex-m/ so its cm_regs.h
@@ -778,12 +789,13 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
-# host-test runs the register-model suites of tfw-boot's RP2350 and nRF54L
-# halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
+# mps2 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make
 # asked for both host-test and boot-test still runs each binary once.
 BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
-                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
+                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram \
+                           $(BOOT_TEST_DIR)/test_boot_mps2_uart
 .PHONY: boot-soc-host-test
 boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
 	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))

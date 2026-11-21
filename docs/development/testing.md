@@ -127,7 +127,8 @@ Two fixed paces stay in `boot_harness.c` because they are not waits:
 `make lint-no-delay`, also part of `make lint`, holds the firmware to the same
 rule: a `delay(`, `_delay_ms(`, `delayMicroseconds(` or `vTaskDelay(` call in
 any `.c` or `.h` under `src/` or `boot/` fails with `path:line: delay-call`.
-Comment lines are skipped, and `_delay_us`, the bus-timing primitive behind
+A call split across lines (`delay` then `(10)` on the next line) is still a
+call, reported at the line of the name. Comment lines are skipped, and `_delay_us`, the bus-timing primitive behind
 `tfw_hal_delay_us`, stays allowed.
 
 ### Exemptions proposed to the owner

@@ -2247,21 +2247,32 @@ lint-test-sleep:
 # _delay_us stays allowed: it is the bus-timing primitive behind
 # tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
 # one transaction, not a wait. A line whose first non-blank is *, /* or // is
-# a comment and is skipped, so prose naming delay() is not a finding. The gate
-# fails closed: a root it cannot enter or a grep error (exit 2, an unreadable
-# file) fails it, never passes as no hits (scripts/test_lint_no_delay.py).
-LINT_NO_DELAY_PAT := (^|[^A-Za-z0-9_])(delay|_delay_ms|delayMicroseconds|vTaskDelay)[[:space:]]*\(
+# a comment and is skipped, so prose naming delay() is not a finding. A call
+# split across lines (delay, then blank lines, then the open parenthesis) is
+# still a call: the finding names the line of the identifier. The gate
+# fails closed: a root it cannot enter or a file awk cannot read fails it,
+# never passes as no hits (scripts/test_lint_no_delay.py).
+LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
+LINT_NO_DELAY_AWK := \
+	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
+	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
+	FNR == 1 { pend = "" } \
+	pend != "" && /^[[:space:]]*[(]/ { print pend } \
+	!/^[[:space:]]*$$/ { pend = "" } \
+	/^[[:space:]]*([*]|[/][*]|[/][/])/ { next } \
+	$$0 ~ call { print FILENAME ":" FNR ": delay-call"; next } \
+	$$0 ~ tail { pend = FILENAME ":" FNR ": delay-call" }
 lint-no-delay:
 	@cd $(LINT_GREP_ROOT) || exit 1; \
-	raw=$$(grep -rnE '$(LINT_NO_DELAY_PAT)' src boot \
-	     --include='*.c' --include='*.h' --exclude-dir=third_party); rc=$$?; \
-	if [ $$rc -gt 1 ]; then \
-	  echo "lint-no-delay: grep could not scan the tree (exit $$rc), so it is not clean"; \
+	hits=$$(find src boot -name third_party -prune -o -type f \
+	     \( -name '*.c' -o -name '*.h' \) \
+	     -exec awk -v id='$(LINT_NO_DELAY_ID)' '$(LINT_NO_DELAY_AWK)' {} +); rc=$$?; \
+	if [ $$rc -ne 0 ]; then \
+	  echo "lint-no-delay: the scan could not read the tree (exit $$rc), so it is not clean"; \
 	  exit 1; \
 	fi; \
-	hits=$$(printf '%s\n' "$$raw" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|/\*|//)' || true); \
 	if [ -n "$$hits" ]; then \
-	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: delay-call"; done; \
+	  printf '%s\n' "$$hits"; \
 	  echo "a wait is a poll that returns at once, never a blocking delay (SPEC device-capabilities)"; \
 	  exit 1; \
 	fi

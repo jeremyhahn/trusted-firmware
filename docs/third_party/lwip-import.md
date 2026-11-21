@@ -2,7 +2,8 @@
 
 The record of the check that `third_party/lwip` is upstream lwIP, unmodified,
 at the release it claims (#584, Codex round 2). `third_party/lwip/README.tfw.md`
-keeps the pin, the port files and the upgrade rule; this page is the audit.
+keeps the pin, the port files, the release archive, the upstream check, CVE
+tracking and the upgrade rule; this page is the audit.
 
 ## What the import claims
 
@@ -26,7 +27,8 @@ keeps the pin, the port files and the upgrade rule; this page is the audit.
    (SHA-256 of the download
    `ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539`),
    unpacked to `lwip-STABLE-2_2_1_RELEASE/`.
-3. Every file git tracks under `third_party/lwip` was compared with the file
+3. Every vendored file under `third_party/lwip` (the 145 that `SHA256SUMS`
+   lists, not the three of ours named below) was compared with the file
    at the same path in that tree by SHA-256 (`sha256sum` of each side).
 4. `SHA256SUMS` was checked against both trees: `sha256sum -c SHA256SUMS`
    in `third_party/lwip` and in the unpacked upstream tree.
@@ -47,6 +49,12 @@ PASS.
   `src/hal/cortex-m/stm32h5/lwip-port/arch/cc.h`, `hal_eth_netif.c` and
   `hal_eth_wire_tcp.c`.
 
-`make lwip-check` re-checks `SHA256SUMS` offline at every build, and
-`make lwip-upstream-check` repeats the comparison against upstream at the
-pinned commit when the network is up.
+`make lwip-check` runs `make lwip-upstream-check` first and then re-checks
+`SHA256SUMS` (`scripts/vendor_sums.py`), so it is not an offline check; no
+build depends on it, it is run by hand. The offline re-check is
+`make scripts-test` (`scripts/test_vendor_sums.py`).
+`make lwip-upstream-check` (`scripts/lwip_upstream_check.py`) runs two modes:
+archive mode downloads `LWIP_ARCHIVE_URL`, refuses it unless its SHA-256 is
+`LWIP_ARCHIVE_SHA256`, and compares every vendored file; git mode fetches
+`LWIP_UPSTREAM_COMMIT`, checks the fetched id and compares every vendored
+file. With no network it prints SKIP and its reason, never PASS.

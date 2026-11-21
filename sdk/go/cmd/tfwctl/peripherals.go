@@ -506,18 +506,14 @@ func parseHexOrEmpty(s string) ([]byte, error) {
 	return parseHex(s)
 }
 
-// loadECPrivateKey reads a PEM-encoded EC private key -- the operator key
-// AuthResponse signs a challenge with. tfwctl never generates or stores one:
-// it is a bench convenience for reading whatever key file the operator
-// already has, never a place this project's key material would live.
 // externalKeySigner signs by shelling out to `openssl pkeyutl`, so the
 // operator private key file is read only by openssl's OWN process and never
 // enters tfwctl's (this repo's Layer 0 module carries no private key
-// material -- see CLAUDE.md's SDK boundary, and sdk/go must stay importable
-// by go-xkms and go-trusted-platform without inheriting a key-custody
-// requirement it never asked for). This is a bench convenience wired to
-// whatever key an operator already has on disk, not a place this project's
-// own keys would live.
+// material -- see docs/SPEC.md's host-sdk line: no private keys, and sdk/go
+// must stay importable by go-xkms and go-trusted-platform without
+// inheriting a key-custody requirement it never asked for). This is a bench
+// convenience wired to whatever key an operator already has on disk, not a
+// place this project's own keys would live.
 type externalKeySigner struct {
 	path string
 }

@@ -686,6 +686,33 @@ static void test_a_transient_rng_seed_error_recovers_on_the_next_retry(void)
     TEST_ASSERT_TRUE((fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN) != 0u);
 }
 
+/* HSI48 never readies: the RNG clock and the RNG stay off and the netif stays
+ * down, with no fallback key. The next retry, with HSI48 ready, brings it up. */
+static void hsi48_never_ready(void)
+{
+    fake_rcc_cr = 0u;
+    fake_rcc_ahb2enr = 0u;
+    fake_rng[TFW_H5_RNG_CR_IX] = 0u;
+    link_up_flag = 0u;
+    run_for(1000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_TRUE((fake_rcc_cr & TFW_H5_RCC_CR_HSI48ON) != 0u);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN);
+
+    fake_rcc_cr |= TFW_H5_RCC_CR_HSI48RDY;
+    run_for(2000u);
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_TRUE((fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN) != 0u);
+    TEST_ASSERT_TRUE((fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN) != 0u);
+}
+
+static void test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(hsi48_never_ready));
+}
+
 /* RFC 6528: two listeners (local ports) and two keys on one 4-tuple at one M
  * give unrelated ISNs; the same tuple and key at a later M advances by M. The
  * hook lwIP calls uses the key drawn from the RNG at bring-up. */
@@ -1016,6 +1043,7 @@ int main(void)
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
+    RUN_TEST(test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);

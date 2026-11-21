@@ -1,14 +1,17 @@
 # Coverage
 
-> **Status: NORMATIVE** · Scope: `make coverage`, `mk/host.mk`
-> · Last verified: 2026-09-22
+> **Status: NORMATIVE** · Scope: `make coverage`, `mk/host.mk`, `mk/go.mk`
+> · Last verified: 2026-11-21
 
 ```sh
 make coverage          # runs the host and boot suites instrumented, enforces the floor
 ```
 
-Current: **96.3% of lines, 95.7% of functions** over `src/proto`, `src/core`,
-`src/caps` and `boards/`. The floor is 90% and it fails the build.
+As of 2026-09-22: **96.3% of lines, 95.7% of functions**, measured then over
+the narrower set of `src/proto`, `src/core`, `src/caps` and `boards/` only; this
+page has not re-taken it over the set below. The floor is 90% of lines
+(`--fail-under-line`) and it fails the build; functions and branches have no
+floor.
 
 ## What is measured, and what is deliberately not
 
@@ -61,12 +64,28 @@ The project rule is explicit: **do not write tests for the sake of coverage**.
 A branch that is genuinely unreachable should be unreachable in the source, not
 papered over with a test that reaches it.
 
+## The Go floors
+
+Beside `coverage` in `make test` (`TEST_GATES` in `mk/stages.mk`) sit two Go
+floors, both in `mk/go.mk`:
+
+- **`sdk-coverage`**: the Go SDK's statement coverage, `SDK_COVERAGE_FLOOR ?= 90`.
+- **`xkms-coverage`**: the xkms adapter's, `XKMS_COVERAGE_FLOOR ?= 90`, every
+  package but `xkms/e2e`.
+
+Each fails if the module's total or any one package is under its floor
+(`go-cover-floor`: the owner's 90% per package, m655), so a well-covered package
+cannot carry a thin one. Both measure the unit tests alone: without the
+`tfwsim` build tag no simulator-driven test is compiled, and `sdk-test` and
+`xkms-test` run those. See [`building.md`](building.md), "The gate".
+
 ## Two things this figure does not tell you
 
-**Branch coverage is 80.4%, and that is the more honest number.** Line coverage
+**Branch coverage was 80.4% (2026-09-22, over the narrower set), and that is
+the more honest number.** Line coverage
 counts a line with a condition on it as covered when either arm runs. The gap
 between the two is mostly error paths in the bus drivers, where a peripheral
-would have to fail at a particular moment — and `tfw_mock_fail_next()` reaches
+would have to fail at a particular moment — and `tfw_mock_bus_fails()` reaches
 many of those, but not all.
 
 **Coverage says nothing about the wire.** The golden vectors are what hold the C

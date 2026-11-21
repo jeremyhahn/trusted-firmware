@@ -20,7 +20,8 @@
 
 /* Register spaces. The numbers are the W5500's block selects; the W5100 file
  * maps them onto its flat address map. In the buffer spaces the offset is the
- * socket's raw 16-bit pointer, and the chip file wraps it into the buffer. */
+ * socket's raw 16-bit pointer, and the W5100 file masks it into the buffer
+ * (w5100.c's map()); the W5500 wraps it itself. */
 #define W5X_COMMON  0u
 #define W5X_SOCK0   1u
 #define W5X_TX0     2u
@@ -37,7 +38,8 @@ uint8_t      w5x_rd(uint8_t space, uint16_t off);
 void         w5x_wr(uint8_t space, uint16_t off, uint8_t v);
 
 /* Resets the chip and checks it is the chip this file drives.
- * TFW_ERR_UNSUPPORTED if it is absent or is the other one. */
+ * TFW_ERR_UNSUPPORTED if the board has no chip-select pins, if the reset bit
+ * never clears, or if the chip is absent or is the other one. */
 tfw_status_t w5x_chip_init(void);
 
 /* For the chip files: resolves the chip select into *cs and parks the shield's
@@ -46,7 +48,7 @@ tfw_status_t w5x_bus_init(tfw_pinref_t *cs);
 
 /* For the chip files: one transaction of len bytes, in place, in SPI mode 0
  * MSB first. Re-applied every time, because a serial host's SPI_CONFIG may
- * have changed the mode since. */
+ * have changed the mode, clock or bit order since. */
 void         w5x_xfer(const tfw_pinref_t *cs, uint8_t *buf, uint8_t len);
 
 /* Common registers. */
@@ -92,9 +94,11 @@ void         w5x_xfer(const tfw_pinref_t *cs, uint8_t *buf, uint8_t len);
 #define W5X_SR_ESTABLISHED 0x17u
 #define W5X_SR_CLOSE_WAIT  0x1Cu
 
-/* How many times a command or a reset is polled before it is given up on.
- * Each poll is one four-byte SPI transaction, so at the 4 MHz the chip files
- * use this bounds a wait to about two milliseconds. */
+/* How many times a wait is polled before it is given up on: a reset, a
+ * command, two reads of a 16-bit pointer agreeing, and a SEND in flight.
+ * Each poll is one four-byte SPI transaction, or two for the pointer reads,
+ * 8 us each at the 4 MHz w5x00.c sets (fosc/4 at 16 MHz), so this bounds a
+ * wait to about two to four milliseconds. */
 #define W5X_POLL_LIMIT  200u
 
 #endif /* TFW_W5X00_H */

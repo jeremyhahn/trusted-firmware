@@ -62,9 +62,11 @@ TEE_Result tfw_blob_unseal(const uint8_t *key, size_t key_len, const uint8_t *ex
 
 /*
  * Derive key_len bytes unique to this TA from OP-TEE's system PTA, binding
- * extra_data (tfw_derive.c). Refuses an extra_data over 1024 bytes or a
- * key_len outside 16 to 32 with TEE_ERROR_BAD_PARAMETERS before any session
- * opens; otherwise returns the PTA's own result, the key zeroed on failure.
+ * extra_data (tfw_derive.c). Refuses a NULL key, a NULL extra_data with a
+ * non-zero extra_data_len, an extra_data over 1024 bytes or a key_len outside
+ * 16 to 32 with TEE_ERROR_BAD_PARAMETERS before any session opens; returns
+ * TEE_OpenTASession's result when the session to the PTA does not open;
+ * otherwise returns the PTA's own result, the key zeroed on failure.
  */
 TEE_Result tfw_derive_ta_unique_key(const uint8_t *extra_data, size_t extra_data_len,
                                     uint8_t *key, size_t key_len);

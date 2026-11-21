@@ -1354,15 +1354,49 @@ jobs:
           PR = {"pull_request", "pull_request_target"}
           CTX = [  # (event, ref) pairs a release job must never run on
               ("pull_request", "refs/pull/1/merge"), ("pull_request_target", "refs/heads/main"),
-              ("push", "refs/heads/feature"), ("workflow_dispatch", "refs/heads/feature"),
-              ("workflow_dispatch", "refs/tags/v1.0.0"), ("schedule", "refs/heads/main"),
+              ("schedule", "refs/heads/main"),
               ("workflow_run", "refs/heads/main"), ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1"),
               ("release", "refs/tags/v1.0.0"), ("create", "refs/tags/v1.0.0"),
               ("issue_comment", "refs/heads/main"), ("repository_dispatch", "refs/heads/main"),
           ]
 
+          # v1.49 (#613 round 5): on push and workflow_dispatch the ref is any branch
+          # but main (on dispatch, any tag too), so the `if` is tried under each ref
+          # it names and under one fresh ref standing for every other. There
+          # github.ref, github.event.ref and github.ref_name are a Ref. A fresh Ref
+          # reaches only == and != against a string, which record the ref the
+          # string names, and a ref prefix in startsWith/contains; any other use
+          # (ordering, a number, a substring, another function, an index) is
+          # unknown. Repeated until no new ref is named, every branch b gets the
+          # result of the named ref equal to b (comparisons ignore case), or else
+          # of the fresh one: each test that reads b compares it with a recorded
+          # string, and gives the same answer under both.
+          REFS = [("push", "refs/heads/"), ("workflow_dispatch", "refs/heads/"), ("workflow_dispatch", "refs/tags/")]
+          FRESH = {"refs/heads/": "feature", "refs/tags/": "v1.0.0"}
+          MAIN = "main"  # push and dispatch on main are allowed
+          SEEN = set()  # (prefix, name) of each ref a comparison names
 
-          def ctx_get(ev, ref, path):
+
+          class Ref(str):
+              def __new__(cls, s, pre, full, fresh):
+                  r = str.__new__(cls, s)
+                  r.pre, r.full, r.fresh = pre, full, fresh
+                  return r
+
+
+          def is_fresh(v):
+              return isinstance(v, Ref) and v.fresh
+
+
+          def named(r, y):
+              """The branch or tag a string compared with Ref r names, if any."""
+              y = y.lower()
+              if r.full:
+                  return y[len(r.pre):] if y.startswith(r.pre) and len(y) > len(r.pre) else None
+              return y or None
+
+
+          def ctx_get(ev, ref, path, fresh=None):
               p = path.lower()
               name = ref.split("/", 2)[-1]
               known = {"github.event_name": ev, "github.ref": ref, "github.event.ref": ref,
@@ -1371,6 +1405,9 @@ jobs:
                        "github.head_ref": "feature" if ev in PR else "",
                        "github.base_ref": "main" if ev in PR else ""}
               if p in known:
+                  if fresh is not None and p in ("github.ref", "github.event.ref", "github.ref_name"):
+                      pre = "refs/tags/" if ref.startswith("refs/tags/") else "refs/heads/"
+                      return Ref(known[p], pre, p != "github.ref_name", fresh)
                   return known[p]
               if ev not in PR and (p == "github.event.pull_request" or p.startswith("github.event.pull_request.")):
                   return None
@@ -1426,6 +1463,14 @@ jobs:
           def eq(a, b):
               if a is U or b is U:
                   return U
+              if isinstance(a, Ref) != isinstance(b, Ref):
+                  r, y = (a, b) if isinstance(a, Ref) else (b, a)
+                  if isinstance(y, str):
+                      n = named(r, y)
+                      if n:
+                          SEEN.add((r.pre, n))
+                  elif r.fresh:
+                      return U  # num() reads a branch named 0 or 1e3 as a number
               if isinstance(a, str) and isinstance(b, str):
                   return a.lower() == b.lower()
               if type(a) is type(b) and not isinstance(a, (int, float)):
@@ -1493,7 +1538,7 @@ jobs:
                       elif op == "!=":
                           r = eq(a, b)
                           a = U if r is U else not r
-                      elif a is U or b is U:
+                      elif a is U or b is U or is_fresh(a) or is_fresh(b):
                           a = U
                       else:
                           x, y = (a.lower(), b.lower()) if isinstance(a, str) and isinstance(b, str) else (num(a), num(b))
@@ -1543,7 +1588,7 @@ jobs:
                       else:
                           idx = self.orx()
                           self.take("]")
-                          if isinstance(idx, str):
+                          if isinstance(idx, str) and not is_fresh(idx):
                               path += "." + idx
                           else:
                               exact = False
@@ -1556,9 +1601,19 @@ jobs:
                       if U in a:
                           return U
                       if f == "contains" and isinstance(a[0], list):
-                          return any(eq(x, a[1]) is True for x in a[0])
+                          rs = [eq(x, a[1]) for x in a[0]]
+                          return True if True in rs else U if U in rs else False
+                      if is_fresh(a[0]) and isinstance(a[1], str) and not isinstance(a[1], Ref):
+                          r, y = a[0], a[1].lower()  # v1.49: decided by the ref prefix alone, or unknown
+                          if y == "" or r.full and (r.pre.startswith(y) if f == "startswith" else f == "contains" and y in r.pre):
+                              return True
+                          return False if f == "startswith" and r.full and not y.startswith(r.pre) else U
+                      if any(is_fresh(x) for x in a):
+                          return U
                       x, y = (str(s).lower() if s is not None else "" for s in a)
                       return x.startswith(y) if f == "startswith" else x.endswith(y) if f == "endswith" else y in x
+                  if any(is_fresh(x) for x in a):
+                      return U
                   if f == "fromjson" and len(a) == 1 and isinstance(a[0], str):
                       try:
                           return json.loads(a[0])
@@ -1567,6 +1622,28 @@ jobs:
                   if f == "format" and a and U not in a and isinstance(a[0], str):
                       return re.sub(r"\{(\d+)\}", lambda m: str(a[int(m.group(1)) + 1]) if int(m.group(1)) + 1 < len(a) else m.group(0), a[0])
                   return U  # success(), failure(), hashFiles(), ...: unknown
+
+
+          def release_runs(toks):
+              """The (event, ref) pairs under which the `if` is not false."""
+              names = set()
+              while True:
+                  SEEN.clear()
+                  ctxs = [(ev, ref, None) for ev, ref in CTX]
+                  for ev, pre in REFS:
+                      taken = {n for p, n in names if p == pre}
+                      fresh, k = FRESH[pre], 0
+                      while fresh in taken:
+                          fresh, k = f"{FRESH[pre]}-{k}", k + 1
+                      ctxs.append((ev, pre + fresh, True))
+                      ctxs += [(ev, pre + n, False) for n in sorted(taken) if (pre, n) != ("refs/heads/", MAIN)]
+                  runs = [(ev, ref) for ev, ref, fr in ctxs
+                          if truthy(P(toks, lambda p: ctx_get(ev, ref, p, fr)).parse()) is not False]
+                  if SEEN <= names:
+                      return runs
+                  names |= SEEN
+                  if len(names) > 64:
+                      raise ValueError("it names more than 64 branches or tags")
 
 
           def unquote(s):
@@ -1857,11 +1934,7 @@ jobs:
                           try:
                               expr = condition(cond)
                               toks = lex(expr)
-                              runs = []
-                              for ev, ref in CTX:
-                                  r = truthy(P(toks, lambda p: ctx_get(ev, ref, p)).parse())
-                                  if r is not False:
-                                      runs.append((ev, ref))
+                              runs = release_runs(toks)
                           except ValueError as e:
                               bad.append(f"{where}: (b) names `release` and its `if:` cannot be read ({e})")
                               continue

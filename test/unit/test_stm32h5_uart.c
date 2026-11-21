@@ -7,7 +7,9 @@
  * (test/model/cortex-m/regfile_model.c): USART1's BRR for 115200 at 64 MHz,
  * CR1's UE/TE/RE, PA9 and PA10 on alternate function 7, TDR written from the
  * ring with TXE set and not with it clear, tx_idle on TC, and RDR into the
- * ring with RXNE set and nothing with it clear. The register file holds what
+ * ring with RXNE set and nothing with it clear, a full receive ring dropping
+ * the new byte and keeping the 63 queued in order, and an overrun beside a
+ * byte both taking the byte and clearing ORE. The register file holds what
  * the test writes, so each status flag the HAL polls is preset before the
  * call. A board has not run them.
  */
@@ -35,6 +37,9 @@ void tfw_cm_irq58(void);
 
 /* The TX ring holds one less than its 64 slots. */
 #define TX_RING_ROOM 63u
+
+/* The RX ring holds one less than its 64 slots too. */
+#define RX_RING_ROOM 63u
 
 static uint32_t mode_of(uint8_t pin)
 {
@@ -206,6 +211,70 @@ static void test_rx_has_nothing_with_rxne_clear(void)
     TEST_ASSERT_EQUAL_HEX8(0x11u, b);
 }
 
+/* One receive interrupt with RXNE set and RDR = d. */
+static void rx_push(uint8_t d)
+{
+    TFW_H5_USART_RDR = d;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE;
+    tfw_cm_irq58();
+}
+
+static void test_a_full_rx_ring_drops_the_new_byte_and_keeps_the_queued_ones(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    for (uint32_t i = 0u; i < RX_RING_ROOM; i++) {
+        rx_push((uint8_t)i);
+    }
+    rx_push(0xEEu);
+    for (uint32_t i = 0u; i < RX_RING_ROOM; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)i, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));   /* 0xEE was dropped */
+}
+
+static void test_the_rx_ring_takes_bytes_again_once_read_and_wraps(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    for (uint32_t i = 0u; i < RX_RING_ROOM; i++) {
+        rx_push((uint8_t)i);
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, b);
+    rx_push(0xEEu);
+    for (uint32_t i = 1u; i < RX_RING_ROOM; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)i, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, b);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+    for (uint32_t i = 0u; i < 70u; i++) {
+        rx_push((uint8_t)(0x80u + i));
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x80u + i), b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
+static void test_an_overrun_beside_a_byte_takes_the_byte_and_clears_ore(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_ICR = 0u;
+    TFW_H5_USART_RDR = 0x5Au;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0x1u << 3, TFW_H5_USART_ICR);   /* ORECF */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+}
+
 static void test_an_overrun_is_cleared_by_the_service_routine(void)
 {
     init_115200();
@@ -232,6 +301,9 @@ int main(void)
     RUN_TEST(test_tx_idle_waits_for_the_ring);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
     RUN_TEST(test_rx_has_nothing_with_rxne_clear);
+    RUN_TEST(test_a_full_rx_ring_drops_the_new_byte_and_keeps_the_queued_ones);
+    RUN_TEST(test_the_rx_ring_takes_bytes_again_once_read_and_wraps);
+    RUN_TEST(test_an_overrun_beside_a_byte_takes_the_byte_and_clears_ore);
     RUN_TEST(test_an_overrun_is_cleared_by_the_service_routine);
     return UNITY_END();
 }

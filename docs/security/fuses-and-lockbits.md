@@ -1,7 +1,7 @@
 # Fuses and lock bits
 
 > **Status: NORMATIVE** · Scope: provisioning, `docs/device-provisioning/user.md`
-> · Last verified: 2026-10-21
+> · Last verified: 2026-11-21
 >
 > Several settings on this page are **irreversible**. Read the whole page before
 > running anything on a part you care about.
@@ -34,11 +34,11 @@ voids the BLB read barrier from the inside.
 | `BODLEVEL` | enabled, 2.7 V (or the part's nearest) | **not optional** — see below |
 | `DWEN` | unprogrammed | debugWIRE reads SRAM and defeats everything above |
 | `OCDEN` | unprogrammed | same, for parts with on-chip debug |
-| `EESAVE` | programmed | a chip erase then preserves the EEPROM, including the device serial |
+| `EESAVE` | programmed: the fuse and bit each board's profile names in `BOOT_EESAVE_FUSE` and `BOOT_EESAVE_BIT` (`hfuse` bit 3 on the 328P, the 2560 and the 32U4) | a chip erase then preserves the EEPROM, including the device serial; `make boot-flash` refuses without it (see "Order matters" and [`../development/isp-route.md`](../development/isp-route.md)) |
 
 ## The lock byte, per board
 
-The three AVR parts share one lock byte layout and one meaning for each boot lock
+The three AVR parts with a boot section share one lock byte layout and one meaning for each boot lock
 mode. Each data sheet is listed in
 [`../reference/README.md`](../reference/README.md), "Board sources"; the
 section numbers are theirs.
@@ -68,6 +68,9 @@ every bit the profile names reads programmed (`docs/device-provisioning/user.md`
 On the 328P and the 32U4 no soft-root `tfw-boot` fits the 4 KB boot section today
 (`mk/boot.mk` `BOOT_SUPPORTED` has the element row only), so no UDS sits behind
 `BLB1` there yet; the expected value follows the data sheet all the same.
+The fourth AVR board, `attiny85`, has no boot section and its profile names no
+`BOOT_LOCK_PROGRAMMED`, so `make lock-check BOARD=attiny85` is refused before
+anything is read (`mk/boot.mk` lines 1484-1488).
 
 ### Why `BLB0` stays unprogrammed
 
@@ -102,10 +105,18 @@ With BOD enabled the part halts below the threshold instead of writing.
 ## Order matters, and one of these is a trap
 
 1. Fuses first — `BOOTRST`, `BOOTSZ`, `BODLEVEL`, `DWEN` off.
-2. Flash the bootloader, then the application.
-3. Write the platform-reserved EEPROM region.
-4. Provision the element (see `provisioning.md`) and **verify by reading back**.
-5. Lock bits last.
+2. Before the first `make boot-flash`, `EESAVE` must read programmed. The boot
+   flash reads the fuse byte and bit the board's profile names
+   (`BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT`) before its chip erase, and refuses
+   unless the bit reads 0. `BOOT_FIRST_FLASH=1` is the board's first boot
+   flash: it writes the factory record under `build/`, programs `EESAVE` alone,
+   reads it back and flashes only if it held. `BOOT_EEPROM_RESTORE=1` instead
+   saves the EEPROM, flashes, writes it back and compares (`mk/arch/avr.mk`
+   lines 166-291).
+3. Flash the bootloader, then the application.
+4. Write the platform-reserved EEPROM region.
+5. Provision the element (see `provisioning.md`) and **verify by reading back**.
+6. Lock bits last.
 
 **The trap:** lock bits can only be cleared by a chip erase, and a chip erase
 also erases the flash. So setting them before the image is final costs a full
@@ -146,6 +157,16 @@ The decommission procedure is therefore: revoke the DeviceID certificate, delete
 the registry record, and — where the MCU allows it — chip-erase the part. The
 element stays locked and stays with the board. This is written down so nobody
 plans around an unlock that does not exist.
+
+A bench AVR board is put back as it left the factory by `make board-restore`,
+from the factory record: the `ARCH_FACTORY_BYTES` (`lfuse hfuse efuse lock`)
+read before the project's first write to the board (`BOOT_FIRST_FLASH=1`
+writes them to its record under `build/`), carried as `FACTORY_LFUSE`, `FACTORY_HFUSE`,
+`FACTORY_EFUSE`, `FACTORY_LOCK` and `FACTORY_BOOT_HEX_SHA256` in the board's
+profile (today `boards/atmega2560/profile.mk` lines 45-53 only); it flashes the
+stock bootloader behind the same `EESAVE` guard, then writes the fuses and the
+factory lock byte last, and reads each back (`mk/board-restore.mk`,
+`mk/arch/avr.mk` lines 320-345).
 
 ## Verification
 

@@ -17,7 +17,8 @@
  * write set bits would pass a stager that forgot an erase, and the same image
  * would then fail on every board with a real part.
  *
- * tfw-boot reads the same span through its own three opcodes,
+ * tfw-boot reaches the same span through its own five SPI NOR opcodes (JEDEC
+ * ID, status, write enable, read, page program),
  * boot/hal/<arch>/boot_ota_store_<arch>.c.
  */
 #include <stdint.h>

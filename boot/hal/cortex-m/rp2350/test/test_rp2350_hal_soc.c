@@ -201,6 +201,19 @@ static void script_bring_up(void)
     script(3u, RESETS_DONE, 1u << 6, RESETS_WANTED, 5u);
 }
 
+/* A fresh trace, the model's values kept: a second run over the state the
+ * first left. Every status register then reads ready at once. */
+static void trace_reset(void)
+{
+    uint32_t i;
+
+    trace_used = 0u;
+    for (i = 0u; i < MODEL_POLLS; i++) {
+        poll[i].reads = 0u;
+        poll[i].ready_at = 1u;
+    }
+}
+
 void setUp(void)
 {
     uint32_t i;
@@ -211,6 +224,10 @@ void setUp(void)
         poll[i].addr = 0u;
     }
     tfw_cm_reset_mark = 0u;
+    take_reason = 0;
+    take_chip_reset = 0;
+    take_requested = 0xFFu;
+    take_calls = 0u;
 }
 
 void tearDown(void) {}
@@ -243,9 +260,117 @@ static void test_early_waits_on_each_status_bit_in_order(void)
     TEST_ASSERT_EQUAL_UINT32(trace_used - 1u, last(RESETS_DONE));
 }
 
+static void test_early_moves_clk_sys_off_before_clk_ref_onto_the_crystal(void)
+{
+    script_bring_up();
+    tfw_cm_soc_early();
+    trace_close();
+
+    TEST_ASSERT_TRUE(first(CLK_SYS_CTRL) < first(CLK_REF_CTRL));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(CLK_SYS_CTRL));          /* SRC clk_ref */
+    TEST_ASSERT_EQUAL_HEX32(2u, reg(CLK_REF_CTRL));          /* SRC xosc */
+    TEST_ASSERT_EQUAL_HEX32(1u << 16, reg(CLK_REF_DIV));     /* INT 1 */
+    TEST_ASSERT_EQUAL_HEX32(1u << 16, reg(CLK_SYS_DIV));
+    TEST_ASSERT_EQUAL_HEX32(1u << 16, reg(CLK_PERI_DIV));
+    TEST_ASSERT_EQUAL_HEX32(1u << 11, reg(CLK_PERI_CTRL));   /* ENABLE, clk_sys */
+    /* 12 MHz into a 1 MHz tick, for the watchdog and TIMER0. */
+    TEST_ASSERT_EQUAL_UINT32(12u, reg(TICKS_WD_CYCLES));
+    TEST_ASSERT_EQUAL_HEX32(1u, reg(TICKS_WD_CTRL));
+    TEST_ASSERT_EQUAL_UINT32(12u, reg(TICKS_T0_CYCLES));
+    TEST_ASSERT_EQUAL_HEX32(1u, reg(TICKS_T0_CTRL));
+    TEST_ASSERT_EQUAL_HEX32(RESETS_WANTED, reg(RESETS_CLR));
+}
+
+static const uint32_t written[] = {
+    WDOG_CTRL_CLR, XOSC_STARTUP, XOSC_CTRL, CLK_SYS_CTRL, CLK_REF_CTRL,
+    CLK_REF_DIV, CLK_SYS_DIV, CLK_PERI_DIV, CLK_PERI_CTRL, TICKS_WD_CYCLES,
+    TICKS_WD_CTRL, TICKS_T0_CYCLES, TICKS_T0_CTRL, RESETS_CLR,
+};
+#define WRITTEN (sizeof written / sizeof written[0])
+
+/* Over the state the first run left, every register is written once more with
+ * the value it already holds: nothing toggles. */
+static void test_a_second_early_writes_the_same_values(void)
+{
+    uint32_t before[WRITTEN];
+    uint32_t i, j;
+
+    script_bring_up();
+    tfw_cm_soc_early();
+    trace_close();
+    for (j = 0u; j < WRITTEN; j++) {
+        before[j] = reg(written[j]);
+    }
+
+    trace_reset();
+    tfw_cm_soc_early();
+    trace_close();
+
+    for (j = 0u; j < WRITTEN; j++) {
+        TEST_ASSERT_EQUAL_UINT32(1u, accesses(written[j]));
+        for (i = 0u; i < trace_used; i++) {
+            if (trace_addr[i] == written[j]) {
+                TEST_ASSERT_EQUAL_HEX32(before[j], trace_val[i]);
+            }
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses(XOSC_STATUS));
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses(CLK_SYS_SEL));
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses(CLK_REF_SEL));
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses(RESETS_DONE));
+}
+
+static void test_watchdog_arm_marks_and_arms_for_8_s(void)
+{
+    tfw_cm_soc_watchdog_arm();
+
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+    /* Every block but ROSC and XOSC (bits 2, 3), which keep running. */
+    TEST_ASSERT_EQUAL_HEX32(0x01FFFFF3u, reg(PSM_WDSEL));
+    TEST_ASSERT_EQUAL_UINT32(8000000u, reg(WDOG_LOAD));      /* 1 us ticks */
+    TEST_ASSERT_EQUAL_HEX32(0x47000000u, reg(WDOG_CTRL));    /* ENABLE, PAUSE */
+    TEST_ASSERT_TRUE(last(WDOG_LOAD) < first(WDOG_CTRL));
+}
+
+static void test_watchdog_pet_reloads_load_only(void)
+{
+    tfw_cm_soc_watchdog_arm();
+    *slot(WDOG_LOAD) = 17u;
+    trace_used = 0u;
+
+    tfw_cm_soc_watchdog_pet();
+    trace_close();
+
+    TEST_ASSERT_EQUAL_UINT32(8000000u, reg(WDOG_LOAD));
+    TEST_ASSERT_EQUAL_UINT32(1u, trace_used);
+    TEST_ASSERT_EQUAL_HEX32(WDOG_LOAD, trace_addr[0]);
+}
+
+/* REASON and CHIP_RESET go through as registers, and only the RESETREQ mark
+ * says the firmware asked for the reset. */
+static void test_reset_cause_hands_the_registers_and_the_request_on(void)
+{
+    static const uint32_t marks[] = {0u, TFW_CM_MARK_WATCHDOG, TFW_CM_MARK_PANIC,
+                                     TFW_CM_MARK_RESETREQ};
+    uint32_t i;
+
+    for (i = 0u; i < sizeof marks / sizeof marks[0]; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_EXTERNAL, tfw_cm_soc_reset_cause(marks[i]));
+        TEST_ASSERT_EQUAL_PTR(slot(WDOG_REASON), take_reason);
+        TEST_ASSERT_EQUAL_PTR(slot(POWMAN_CHIP_RST), take_chip_reset);
+        TEST_ASSERT_EQUAL_UINT8(marks[i] == TFW_CM_MARK_RESETREQ ? 1u : 0u, take_requested);
+    }
+    TEST_ASSERT_EQUAL_UINT32(4u, take_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_early_waits_on_each_status_bit_in_order);
+    RUN_TEST(test_early_moves_clk_sys_off_before_clk_ref_onto_the_crystal);
+    RUN_TEST(test_a_second_early_writes_the_same_values);
+    RUN_TEST(test_watchdog_arm_marks_and_arms_for_8_s);
+    RUN_TEST(test_watchdog_pet_reloads_load_only);
+    RUN_TEST(test_reset_cause_hands_the_registers_and_the_request_on);
     return UNITY_END();
 }

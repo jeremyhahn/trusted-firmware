@@ -13,6 +13,9 @@
  *            word's other bits are not signals.
  *   key      the test envelopes' tenant key, SUIT_TENANT_PUB, byte for byte.
  *   measure  unsupported, touching no register.
+ *   unknown  an action outside A1-A6 (0, 7, 0xFF) touches no register.
+ *   reads    sense reads the button word once; each lit action does one
+ *            read-modify-write of the LED word.
  */
 #include <stdint.h>
 #include <string.h>
@@ -131,6 +134,36 @@ static void test_measure_is_unsupported_and_touches_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, accesses);
 }
 
+static void test_an_action_outside_a1_to_a6_touches_no_register(void)
+{
+    static const uint8_t outside[] = { 0u, 7u, 0xFFu };
+
+    for (unsigned i = 0u; i < sizeof outside; i++) {
+        /* core/hsm_port.h specifies act for A1-A6 only: the return is not pinned. */
+        (void)tfw_hsm_port_act(outside[i]);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, accesses);
+    TEST_ASSERT_EQUAL_HEX32(0u, led);
+}
+
+static void test_sense_and_each_lit_action_touch_one_register_once(void)
+{
+    static const uint8_t lit[] = {
+        TFW_HSM_ACT_POWER_OFF, TFW_HSM_ACT_KEYS_WIPE, TFW_HSM_ACT_SHUTDOWN
+    };
+
+    button = 0x3u;
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(sig_bit(TFW_HSM_SIG_TAMPER_PIN) | sig_bit(TFW_HSM_SIG_HOTPLUG)),
+                           tfw_hsm_port_sense());
+    TEST_ASSERT_EQUAL_UINT(1u, accesses);
+
+    for (unsigned i = 0u; i < sizeof lit; i++) {
+        accesses = 0u;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_port_act(lit[i]));
+        TEST_ASSERT_EQUAL_UINT(1u, accesses);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -140,5 +173,7 @@ int main(void)
     RUN_TEST(test_button_0_is_the_tamper_pin_and_button_1_hotplug);
     RUN_TEST(test_the_key_is_the_test_envelopes_tenant_key);
     RUN_TEST(test_measure_is_unsupported_and_touches_nothing);
+    RUN_TEST(test_an_action_outside_a1_to_a6_touches_no_register);
+    RUN_TEST(test_sense_and_each_lit_action_touch_one_register_once);
     return UNITY_END();
 }

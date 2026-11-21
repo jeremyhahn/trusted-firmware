@@ -23,13 +23,14 @@ spec = importlib.util.spec_from_file_location("lwip_upstream_check", SCRIPT)
 luc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(luc)
 
-PATHS = ["README", "src/core/tcp.c", "src/api/api.c", "COPYING"]
-WANT = {"README": b"r", "src/core/tcp.c": b"tcp", "src/api/api.c": None, "COPYING": None}
+PATHS = ["README", "src/core/tcp.c", "src/api", "src/api/api.c", "COPYING"]
+WANT = {"README": b"r", "src/core/tcp.c": b"tcp", "src/api": None, "src/api/api.c": None, "COPYING": None}
 
 
 def tar_gz():
     """top/, top/README, top/src/core/tcp.c, a bare COPYING, a directory
-    top/src/api and a symlink top/COPYING -> README."""
+    top/src/api (requested, so a directory gives None) and a symlink
+    top/COPYING -> README."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as t:
         def entry(name, kind=tarfile.REGTYPE, data=b"", link=""):

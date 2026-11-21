@@ -9,6 +9,7 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "unity.h"
 #include "boot_hal.h"
@@ -113,6 +114,36 @@ static void test_off_restores_reset_values(void)
     TEST_ASSERT_EQUAL_HEX32_ARRAY(want, got, sizeof want / sizeof want[0]);
 }
 
+/* A rate the vendor's table refuses: the UARTE the application left on is
+ * switched off, no receive is armed, and receive and send do nothing, so the
+ * session is silent rather than on the wire at the application's rate. */
+static void test_an_unlisted_baud_leaves_the_uarte_off(void)
+{
+    static const uint32_t rates[] = { 0u, 1u, 115201u };
+    char msg[32];
+    size_t i;
+    uint8_t b;
+
+    for (i = 0u; i < sizeof rates / sizeof rates[0]; i++) {
+        (void)snprintf(msg, sizeof msg, "baud %lu", (unsigned long)rates[i]);
+        tfw_nrf54l_model_reset();
+        TFW_NRF_UARTE_ENABLE = TFW_NRF_UARTE_ENABLE_ON;
+        TFW_NRF_UARTE_INTEN  = 0xFFFFFFFFu;
+        tfw_boot_uart_init(rates[i]);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, TFW_NRF_UARTE_ENABLE, msg);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, TFW_NRF_UARTE_INTEN, msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, TFW_NRF_UARTE_RX_MAXCNT, msg);
+
+        TFW_NRF_UARTE_RX_END = 1u;
+        b = 0xA5u;
+        TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, tfw_boot_uart_rx(&b), msg);
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(0xA5u, b, msg);
+
+        tfw_boot_uart_tx(0x5Au);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, TFW_NRF_UARTE_TX_MAXCNT, msg);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -123,5 +154,6 @@ int main(void)
     RUN_TEST(test_off_stops_the_armed_receive);
     RUN_TEST(test_off_disables_only_after_rxto);
     RUN_TEST(test_off_restores_reset_values);
+    RUN_TEST(test_an_unlisted_baud_leaves_the_uarte_off);
     return UNITY_END();
 }

@@ -251,9 +251,138 @@ static void test_early_switches_to_sirc_and_waits_on_csr(void)
     TEST_ASSERT_TRUE(find(A_AHBCLKDIV, 0u) > csr + 3);
 }
 
+static void test_early_restarts_the_ahb_divider_at_one(void)
+{
+    int32_t div;
+
+    seed(A_AHBCLKDIV, 0x7u);
+    tfw_cm_soc_early();
+
+    div = find(A_AHBCLKDIV, 0u);
+    TEST_ASSERT_TRUE(div >= 0);
+    TEST_ASSERT_EQUAL_UINT32(2u, count(A_AHBCLKDIV));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CLKDIV_RESET | TFW_MCXN_CLKDIV_HALT, trace[div].val);
+    TEST_ASSERT_EQUAL_INT32(div + 1, find(A_AHBCLKDIV, (uint32_t)div + 1u));
+    TEST_ASSERT_EQUAL_HEX32(0u, trace[div + 1].val);
+}
+
+static void test_early_clocks_and_releases_every_port_and_gpio_bank(void)
+{
+    uint32_t banks = 0u;
+    uint32_t n;
+    int32_t set, clr;
+
+    for (n = 0u; n < 5u; n++) {
+        banks |= (1u << (13u + n)) | (1u << (19u + n));
+    }
+    tfw_cm_soc_early();
+
+    set = find(A_AHBCLKCTRLSET0, 0u);
+    clr = find(A_PRESETCTRLCLR0, 0u);
+    TEST_ASSERT_TRUE(set > find(A_AHBCLKDIV, 0u));
+    TEST_ASSERT_TRUE(clr > set);
+    TEST_ASSERT_EQUAL_HEX32(banks, trace[set].val);
+    TEST_ASSERT_EQUAL_HEX32(banks, trace[clr].val);
+    TEST_ASSERT_EQUAL_UINT32(1u, count(A_AHBCLKCTRLSET0));
+    TEST_ASSERT_EQUAL_UINT32(1u, count(A_PRESETCTRLCLR0));
+}
+
+/* One feed at from: SAVE, FEED_1, FEED_2, RESTORE with save's value, and
+ * nothing between them. Returns the index after it. */
+static uint32_t assert_feed_at(uint32_t from)
+{
+    flush();
+    TEST_ASSERT_TRUE(from + 4u <= trace_used);
+    TEST_ASSERT_EQUAL_INT(EV_SAVE, trace[from].kind);
+    TEST_ASSERT_EQUAL_INT(EV_REG, trace[from + 1u].kind);
+    TEST_ASSERT_EQUAL_HEX32(A_WWDT_FEED, trace[from + 1u].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_WWDT_FEED_1, trace[from + 1u].val);
+    TEST_ASSERT_EQUAL_INT(EV_REG, trace[from + 2u].kind);
+    TEST_ASSERT_EQUAL_HEX32(A_WWDT_FEED, trace[from + 2u].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_WWDT_FEED_2, trace[from + 2u].val);
+    TEST_ASSERT_EQUAL_INT(EV_RESTORE, trace[from + 3u].kind);
+    TEST_ASSERT_EQUAL_HEX32(PRIMASK_TOKEN + irq_saves, trace[from + 3u].val);
+    return from + 4u;
+}
+
+static void test_arm_marks_clocks_and_starts_wwdt0_then_feeds(void)
+{
+    uint32_t clock_other = 0x00000101u;
+    int32_t ctrl, set, div, tc, mod;
+
+    seed(A_CLOCK_CTRL, clock_other);
+    seed(A_WDT0CLKDIV, 0x3u);
+    tfw_cm_soc_watchdog_arm();
+
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+    ctrl = find(A_CLOCK_CTRL, 0u);
+    set = find(A_AHBCLKCTRLSET0, 0u);
+    div = find(A_WDT0CLKDIV, 0u);
+    tc = find(A_WWDT_TC, 0u);
+    mod = find(A_WWDT_MOD, 0u);
+    TEST_ASSERT_EQUAL_INT32(0, ctrl);
+    TEST_ASSERT_EQUAL_HEX32(clock_other | TFW_MCXN_CLOCK_CTRL_FRO1MHZ_ENA |
+                            TFW_MCXN_CLOCK_CTRL_FRO1MHZ_CLK_ENA, trace[ctrl].val);
+    TEST_ASSERT_TRUE(set > ctrl);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTRL0_WWDT0, trace[set].val);
+    TEST_ASSERT_TRUE(div > set);
+    TEST_ASSERT_EQUAL_UINT32(2u, count(A_WDT0CLKDIV));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CLKDIV_RESET | TFW_MCXN_CLKDIV_HALT, trace[div].val);
+    TEST_ASSERT_EQUAL_INT32(div + 1, find(A_WDT0CLKDIV, (uint32_t)div + 1u));
+    TEST_ASSERT_EQUAL_HEX32(0u, trace[div + 1].val);
+    TEST_ASSERT_TRUE(tc > div + 1);
+    TEST_ASSERT_EQUAL_HEX32(2000000u, trace[tc].val);
+    TEST_ASSERT_EQUAL_INT32(tc + 1, mod);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_WWDT_MOD_WDEN | TFW_MCXN_WWDT_MOD_WDRESET, trace[mod].val);
+    TEST_ASSERT_EQUAL_UINT32(1u, count(A_WWDT_TC));
+    TEST_ASSERT_EQUAL_UINT32(1u, count(A_WWDT_MOD));
+
+    /* Then one feed, and nothing after it. */
+    TEST_ASSERT_EQUAL_UINT32(1u, irq_saves);
+    TEST_ASSERT_EQUAL_UINT32(trace_used, assert_feed_at((uint32_t)mod + 1u));
+    TEST_ASSERT_EQUAL_UINT32(2u, count(A_WWDT_FEED));
+}
+
+static void test_pet_is_one_feed_under_masked_interrupts(void)
+{
+    tfw_cm_soc_watchdog_pet();
+    TEST_ASSERT_EQUAL_UINT32(1u, irq_saves);
+    TEST_ASSERT_EQUAL_UINT32(trace_used, assert_feed_at(0u));
+    TEST_ASSERT_EQUAL_HEX32(PRIMASK_TOKEN + 1u, irq_restored);
+
+    /* A second pet is a second whole feed with its own mask. */
+    tfw_cm_soc_watchdog_pet();
+    TEST_ASSERT_EQUAL_UINT32(2u, irq_saves);
+    TEST_ASSERT_EQUAL_UINT32(trace_used, assert_feed_at(4u));
+    TEST_ASSERT_EQUAL_HEX32(PRIMASK_TOKEN + 2u, irq_restored);
+}
+
+static void test_reset_cause_hands_srs_and_the_resetreq_flag_on(void)
+{
+    volatile uint32_t *srs = tfw_cm_model_reg(A_CMC_SRS);
+
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_UINT32(1u, take_calls);
+    TEST_ASSERT_EQUAL_PTR(srs, take_srs);
+    TEST_ASSERT_EQUAL_UINT8(1u, take_requested);
+
+    (void)tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG);
+    TEST_ASSERT_EQUAL_PTR(srs, take_srs);
+    TEST_ASSERT_EQUAL_UINT8(0u, take_requested);
+
+    (void)tfw_cm_soc_reset_cause(0u);
+    TEST_ASSERT_EQUAL_UINT8(0u, take_requested);
+    TEST_ASSERT_EQUAL_UINT32(3u, take_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_early_switches_to_sirc_and_waits_on_csr);
+    RUN_TEST(test_early_restarts_the_ahb_divider_at_one);
+    RUN_TEST(test_early_clocks_and_releases_every_port_and_gpio_bank);
+    RUN_TEST(test_arm_marks_clocks_and_starts_wwdt0_then_feeds);
+    RUN_TEST(test_pet_is_one_feed_under_masked_interrupts);
+    RUN_TEST(test_reset_cause_hands_srs_and_the_resetreq_flag_on);
     return UNITY_END();
 }

@@ -1555,9 +1555,9 @@ $(HOST_DIR)/test_stm32h5_eeprom: test/unit/test_stm32h5_eeprom.c src/hal/cortex-
 	@$(HOST_CC) -Iboards/stm32h573i-dk -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_stm32h5_ee_flash_port includes ee_flash_port.c unchanged behind
-# test/unit/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the fixed
-# flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
-$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/unit/stm32h5_ee_port_stubs.h \
+# test/model/cortex-m/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the
+# fixed flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
+$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/model/cortex-m/stm32h5_ee_port_stubs.h \
                                         src/hal/cortex-m/stm32h5/ee_flash_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_ee_flash_port.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)

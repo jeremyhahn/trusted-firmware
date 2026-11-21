@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 #include "unity.h"
-#include "stm32h5_ee_port_stubs.h"
+#include "../model/cortex-m/stm32h5_ee_port_stubs.h"
 #include "stm32h5/soc_regs.h"
 
 /* soc_regs.h's FLASH_NSSR offset, kept before the model takes the name. */

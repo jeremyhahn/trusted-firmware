@@ -40,7 +40,8 @@ typedef struct {
 
 /* One CBOR head: major type and argument. */
 tfw_status_t tfw_suit_head(tfw_suit_cur_t *c, uint8_t *major, uint32_t *val);
-/* Exactly this head, or TFW_ERR_UNSUPPORTED. */
+/* Exactly this head: TFW_ERR_UNSUPPORTED on another head, TFW_ERR_RANGE
+ * (from tfw_suit_head) when truncated or past 32 bits. */
 tfw_status_t tfw_suit_expect(tfw_suit_cur_t *c, uint8_t major, uint32_t val);
 /* An unsigned integer that fits 32 bits. */
 tfw_status_t tfw_suit_uint32(tfw_suit_cur_t *c, uint32_t *out);

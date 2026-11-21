@@ -151,7 +151,7 @@ refused for application writes by `src/caps/storage.c`:
 |---:|---:|---|---|
 | 0 | 4 | `magic` | `TFW_BOOT_EE_MAGIC` = `0x52504654` |
 | 4 | 1 | `layout_version` | `TFW_BOOT_EE_VERSION` = 2 (grew from 1 when `operator_pubkey` below was added — issue #4; an older-layout region parses as unprovisioned rather than partially) |
-| 5 | 1 | `flags` | |
+| 5 | 1 | `flags` | only the bits named here are defined, and a provisioned block has none set. Bit 0 `TFW_BOOT_EE_FLAG_REFUSED`: the last fall-back followed a refusal at evaluation, clear when the trial ended unconfirmed; written at each fall-back by the 328P's and 32U4's `boot/boot_prev.c`, meaningful only beside `ota_state` `FAILED`; reported as `OTA_INFO` flags bit 1 |
 | 6 | 2 | reserved | |
 | 8 | 32 | `pubkey_hash` | SHA-256 of the 32-byte Ed25519 public key; ignored on the element tier |
 | 40 | 4 | `rollback_floor` | software tier only; the element tier uses its own monotonic counter |
@@ -161,7 +161,8 @@ refused for application writes by `src/caps/storage.c`:
 | 50 | 2 | `boot_fail_count` | |
 | 52 | 16 | `device_serial` | baked into the `.eep` image by `tfwprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
 | 68 | 64 | `operator_pubkey` | the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), P-256 as X‖Y; element tier only, baked in the same way as `device_serial`; see [../security/threat-model.md](../security/threat-model.md) |
-| 132 | 58 | reserved | |
+| 132 | 32 | `operator_bind` | `TFW_BOOT_EE_O_OPERATOR_BIND`, `TFW_BOOT_OPERATOR_BIND_LEN`; on the ESP32-P4 the operator key's binding tag `HMAC-SHA256(UDS, "tfw-opsess-v1" ‖ operator_pubkey)` (row #606, [../multi-arch/esp32-p4-design.md](../multi-arch/esp32-p4-design.md#25-the-operator-session-bound-to-the-efuse-uds-row-606)); every other tier leaves it zero and never reads it. Inside the CRC span, and kept across a write-back of the block (`boot/boot_platform.c`'s static asserts) |
+| 164 | 26 | reserved | |
 | 190 | 2 | `crc16` | over bytes `[0, 190)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
 Parsed by `tfw_boot_platform_parse`, serialised by `tfw_boot_platform_serialise`

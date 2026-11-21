@@ -376,11 +376,11 @@
 # layer's /var/tmp; it takes the memory bound, GOTMPDIR and the Athens-first
 # bridge GOPROXY, and every toolchain, esp32, optee and integration image
 # build takes GO_BUILD_PROXY.
-# v1.29.2 (Company Agent ruling 239(8), 2026-10-28): comments only; no job,
+# v1.29.2 (ruling 239(8), 2026-10-28): comments only; no job,
 # gate or tier changes. A CUSTOMIZE job gated on a changes output (a path-gated
 # suite) needs the image job too and tests an output of the image job in its
 # `if:`. A repository needs no adoption PR.
-# v1.29.1 (Company Agent ruling 226(15), 108 repair, 2026-10-27): the
+# v1.29.1 (ruling 226(15), 108 repair, 2026-10-27): the
 # lint-gates job runs `make lint-gates` without `-k`, so the first failing gate
 # ends the step and reports at once; the gates after it run on the next push.
 # v1.29.0 (ruling 220(5) and 221(4), 2026-10-27; handbook #474):
@@ -393,7 +393,7 @@
 # would fail the step and need APK_BASE_IMAGES, which is a value to decide).
 # The step, the script, the Makefile's APK_INDEX_SUM and the Dockerfile's ARG
 # and `apk upgrade --no-cache` are left out together until the owner rules.
-# v1.28.0 (Company Agent ruling 219(3), 2026-10-26; adopted here under ruling
+# v1.28.0 (ruling 219(3), 2026-10-26; adopted here under ruling
 # 220(3)): `make deps-check` joins the PR tier as a lint-class gate. Its step
 # runs on every event, as `make lint` does, so a module behind its dependency
 # floor fails the PR, not main after the merge. The step keeps
@@ -1176,7 +1176,7 @@ jobs:
       runner_docker: ${{ steps.runner.outputs.runner_docker }}
     steps:
       # v1.34: the guard is the first step; nothing is checked out before it.
-      # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
+      # v1.29.3 (ruling 255(10)/(11)(c)): one nightly per
       # repository, and none while main is busy. On a schedule run only, this
       # step asks the API whether this workflow has a push run on main in
       # progress or waiting, and sets `verdict`: `run` (none, or not a schedule

@@ -240,6 +240,15 @@ needs it.
 
 ## Checklist
 
+First, take the next free id in the family's range, and in the same change add
+its row to [`board-id-registry.md`](board-id-registry.md) and its constant and
+name to `sdk/go/boardid.go`; add the part's row to `PARTS` in
+`scripts/board-check.py`, citing the data sheet. Without all three,
+`make scripts-test` fails: `TFW_BOARD_ID ... is not its row in` the registry or
+`boardid.go` (board-check line 591), and `part ... is not one board-check
+knows: add its data sheet's numbers to PARTS` (line 431). The registry's
+[Rules](board-id-registry.md#rules) say the same.
+
 ```sh
 make firmware BOARD=<board>                  # size budget + the address asserts
 make firmware BOARD=<board> CRYPTO=atecc608a # if BOARD_TIERS has it: a different image

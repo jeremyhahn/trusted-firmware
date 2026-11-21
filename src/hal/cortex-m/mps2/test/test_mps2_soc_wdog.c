@@ -14,6 +14,7 @@
  */
 #include <stdint.h>
 #include "unity.h"
+#include "tfw/config.h"
 #include "cm_regs.h"
 #include "hal_early.h"
 #include "soc_regs.h"
@@ -116,9 +117,47 @@ static void test_early_disarms_inside_the_unlock(void)
     expect_access(3u, WDOG_LOCK, 0u);
 }
 
+/* The marker first, so a bite reads as the watchdog's; then the four-second
+ * period, the interrupt cleared, the reset enabled, all inside the unlock. */
+static void test_arm_marks_then_loads_and_enables_inside_the_unlock(void)
+{
+    tfw_cm_soc_watchdog_arm();
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+    TEST_ASSERT_EQUAL_UINT32(5u, accesses());
+    expect_access(0u, WDOG_LOCK, TFW_MPS2_WDOG_UNLOCK);
+    expect_access(1u, WDOG_LOAD, (uint32_t)(TFW_CM_CPU_HZ * 4u));
+    expect_access(2u, WDOG_INTCLR, 1u);
+    expect_access(3u, WDOG_CTRL, TFW_MPS2_WDOG_CTRL_INTEN | TFW_MPS2_WDOG_CTRL_RESEN);
+    expect_access(4u, WDOG_LOCK, 0u);
+}
+
+/* A pet reloads through INTCLR alone: a LOAD write would change the period. */
+static void test_pet_clears_inside_the_unlock_and_nothing_else(void)
+{
+    tfw_cm_soc_watchdog_pet();
+    TEST_ASSERT_EQUAL_UINT32(3u, accesses());
+    expect_access(0u, WDOG_LOCK, TFW_MPS2_WDOG_UNLOCK);
+    expect_access(1u, WDOG_INTCLR, 1u);
+    expect_access(2u, WDOG_LOCK, 0u);
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+}
+
+static void test_reset_cause_decodes_each_mark(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_SOFTWARE, tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_PANIC, tfw_cm_soc_reset_cause(TFW_CM_MARK_PANIC));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_POWER_ON, tfw_cm_soc_reset_cause(0u));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_POWER_ON, tfw_cm_soc_reset_cause(0xDEADBEEFu));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_early_disarms_inside_the_unlock);
+    RUN_TEST(test_arm_marks_then_loads_and_enables_inside_the_unlock);
+    RUN_TEST(test_pet_clears_inside_the_unlock_and_nothing_else);
+    RUN_TEST(test_reset_cause_decodes_each_mark);
     return UNITY_END();
 }

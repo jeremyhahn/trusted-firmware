@@ -4,7 +4,7 @@
 > · Last verified: 2026-09-22
 
 ```sh
-make coverage          # runs the host suite instrumented, enforces the floor
+make coverage          # runs the host and boot suites instrumented, enforces the floor
 ```
 
 Current: **96.3% of lines, 95.7% of functions** over `src/proto`, `src/core`,
@@ -12,11 +12,36 @@ Current: **96.3% of lines, 95.7% of functions** over `src/proto`, `src/core`,
 
 ## What is measured, and what is deliberately not
 
-Measured: `src/proto`, `src/core`, `src/caps`, `boards/*/board.c`. These are the
-layers that run on x86 against the mock HAL, which means every branch in them is
-reachable from a test.
+Measured, as the `--filter`s of the gcovr call in `mk/host.mk` (lines
+2099-2113) give it, with the reason for each in the comment above it (lines
+2056-2098):
 
-**`src/hal/avr/` is excluded on purpose.** It pokes registers that do not exist
+- **`src/` layers:** `src/proto/`, `src/core/`, `src/caps/`; and `boards/`.
+- **`boot/`:** `boot_image`, `boot_measure`, `boot_ota`, `boot_platform`,
+  `boot_policy`, `boot_session`, `boot_request`, `boot_entry`, `boot_stage`,
+  `boot_stage_none`, `boot_swap`, `boot_swap_none`, `boot_trial`, `boot_store`,
+  `boot_handoff`, `boot_cose` and `boot_prev`; `boot/recovery/recovery_ota.c`;
+  `boot/measure/measure_soft.c` and `measure_atecc608a.c`; `boot/tier/cdi_soft.c`
+  and `cdi_atecc.c`; `boot/verify/verify_ed25519_donna.c`, `verify_atecc608a.c`,
+  `donna_shim.c`, `verify_p256_soft.c` and `p256_key_slot.c`.
+- **`src/crypto/`:** `sha256.c`, `sha256_small.c`, `deviceid_p256.c`; the soft
+  provider with `soft/uds_flash.c`, `soft/id_p256.c` and `soft/id_hmac.c`; the
+  none, ATECC608A (`atecc608a/atecc.c`, `atecc608a/provider.c`) and auto
+  providers; the OPTIGA Trust M driver, `optiga/optiga_i2c.c`, `optiga_cmd.c`
+  and `optiga_crypto.c`.
+- **`src/net/`:** `netcfg.c`, `w5100.c`, `w5500.c`, `w5x00.c`, `dhcp.c`,
+  `dhcp_none.c`.
+- **`src/store/`:** `spi_nor.c`.
+- **`tools/`:** `tools/suit-emit/emit.c` and `tools/platform-bake/bake.c`.
+- **`optee/`:** `optee/ta/tfw_ta.c` and `optee/check/check.c`.
+
+These are the layers that run on x86 against the mock HAL, the software
+element and the software W5100, W5500, NOR and OPTIGA parts, which means every
+branch in them is reachable from a test. The `main()`s are out: `src/main.c`
+and `boot/boot_main.c` are superloops with no return, linked only into the AVR
+images, and no host test links the tools' or the OP-TEE check's `main.c`.
+
+**`src/hal/avr/` and `boot/hal/avr` are excluded on purpose.** They poke registers that do not exist
 on the host, so a number counting code x86 cannot execute would not mean
 anything — it would go up when someone added an `#ifdef`, which is the opposite
 of what a coverage figure is for. What covers that layer is `make

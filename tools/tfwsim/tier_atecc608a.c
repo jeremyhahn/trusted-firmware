@@ -11,8 +11,8 @@
  * to end, signature checks included; it is not a reason for anyone to attest
  * to anything with it, enrol it or allow-list it.
  *
- * A device needs three things, and each has its own explicit, off-by-default
- * option, so a start with no options is a blank part and says so:
+ * Each part of a device has its own explicit, off-by-default option, so a
+ * start with no options is a blank part and says so:
  *
  *   platform EEPROM block   --eeprom FILE      Intel HEX, what `tfwprov
  *                           --eeprom-bin FILE  --bake-eeprom` writes; or a raw
@@ -32,6 +32,9 @@
  *                                              the CDI and the DeviceID seed
  *                                              it derives from that UDS
  *                                              (boot/tier/cdi_soft.c)
+ *   no element fitted        --no-element       the model NACKs every transfer,
+ *                                              as an empty bus does
+ *                                              (tfwsim-auto, #130)
  *
  * Element provisioning is seeded directly rather than driven over the wire:
  * the provisioning commands exist only in a jig image (TFW_FEATURE_PROVISION),
@@ -39,7 +42,8 @@
  * not survive into the production-shaped binary a test then talks to.
  *
  * tfwsim-prov is that jig image: this file and the same object list, plus
- * src/caps/provision.c and tools/tfwsim/reboot.c (mk/host.mk). Started without
+ * src/caps/provision.c, src/caps/provision_atecc.c and tools/tfwsim/reboot.c
+ * (mk/host.mk). Started without
  * --provision-element its element is blank, `tfwprov --commit` provisions it
  * over the wire, and after a RESET, which keeps the element, the same process
  * attests with the key the element generated.

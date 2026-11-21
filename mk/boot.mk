@@ -1095,6 +1095,11 @@ $(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/
 # The factory copy of the A/B rows (#628), on host memory mapped at mps2-an505's
 # addresses; tfw_cm_dsb comes through the rp2350 test cm_regs.h.
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_cm_boot_factory
+# host-test runs it too, through boot-soc-host-test: the rule above expanded its
+# prerequisites when it was read, so the binary joins them here; the verdict
+# reads BOOT_SOC_HOST_TEST_BINS when it runs and so checks its exit status.
+BOOT_SOC_HOST_TEST_BINS += $(BOOT_TEST_DIR)/test_cm_boot_factory
+boot-soc-host-test: $(BOOT_TEST_DIR)/test_cm_boot_factory $(BOOT_TEST_DIR)/test_cm_boot_factory.run
 $(BOOT_TEST_DIR)/test_cm_boot_factory: boot/hal/cortex-m/test/test_cm_boot_factory.c \
         boot/hal/cortex-m/boot_factory.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) -I$(RP2350_BOOT_TEST_DIR) $(call BOOT_TEST_MPS2_CFLAGS,mps2-an505) $(EXTRA_CFLAGS) \

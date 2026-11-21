@@ -39,10 +39,11 @@
  * That number is wrong by a factor of thirty-six; the measured one is in
  * docs/secure-boot/engineering.md.
  *
- * NO SUBSTITUTE HAS BEEN MADE. Picking a different primitive is an
- * architectural decision with a security cost attached to every option, and it
- * is not one to take quietly inside a seam. The alternatives, with their costs,
- * are in docs/secure-boot/engineering.md.
+ * The substitute is p256-soft (#130, CA m453), the soft-tier default by the
+ * item 79 owner ruling 2026-10-17 (mk/boot.mk:68-77): ES256 verified in the
+ * boot section (boot/verify/verify_p256_soft.c). ed25519-donna stays for the
+ * bootloader-budget and boot-core-size measuring targets only. The
+ * alternatives, with their costs, are in docs/secure-boot/engineering.md.
  * ------------------------------------------------------------------------
  */
 #ifndef TFW_BOOT_VERIFY_H

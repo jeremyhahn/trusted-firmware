@@ -2144,7 +2144,7 @@ LINT_SOC_DEFS_rp2350 := -DTFW_CM_PERIPH=1
 lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
-lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
+lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep lint-no-delay
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
@@ -2227,6 +2227,28 @@ lint-test-sleep:
 	  exit 1; \
 	fi
 	@echo "no sleeps in test files"
+
+## lint-no-delay: no blocking delay call in the firmware C
+# The device-capabilities SPEC row: "There is no delay()". Every poll in the
+# superloop returns promptly, so a timed output fires within one iteration and
+# the device answers while it waits (src/main.c). The sweep is every .c and .h under src/ and
+# boot/, bar src/third_party, and it enters the HAL directories too: the
+# arch-leak gate lets src/hal/esp32 name vTaskDelay, this one does not.
+# _delay_us stays allowed: it is the bus-timing primitive behind
+# tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
+# one transaction, not a wait. A line whose first non-blank is *, /* or // is
+# a comment and is skipped, so prose naming delay() is not a finding.
+LINT_NO_DELAY_PAT := (^|[^A-Za-z0-9_])(delay|_delay_ms|delayMicroseconds|vTaskDelay)[[:space:]]*\(
+lint-no-delay:
+	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rnE '$(LINT_NO_DELAY_PAT)' src boot \
+	     --include='*.c' --include='*.h' --exclude-dir=third_party \
+	     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|/\*|//)' || true); \
+	if [ -n "$$hits" ]; then \
+	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: delay-call"; done; \
+	  echo "a wait is a poll that returns at once, never a blocking delay (SPEC device-capabilities)"; \
+	  exit 1; \
+	fi
+	@echo "no delay calls in the firmware"
 
 ## lint-grep-selftest: the grep gates fail on a plant and print path and line only
 # Plants go into a throwaway tree, never into this one. Each plant must fail its
@@ -2717,7 +2739,7 @@ host-dir:
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
 .PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
-        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
+        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-no-delay lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep
 #

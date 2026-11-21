@@ -1092,6 +1092,24 @@ $(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(call BOOT_TEST_MPS2_CFLAGS,mps2-$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The SoC file both MPS2 images link, src/hal/cortex-m/mps2/hal_soc.c, the
+# RP2350 UART's way: its test's cm_regs.h comes ahead of src/hal/cortex-m, so
+# every TFW_CM_REG lands in the test's access log. Once per profile, since the
+# watchdog's base is the image's; the rule states it by literal (TEST_WDOG_BASE).
+# The test lives in a subdirectory, which the SoC's *.c wildcard does not reach.
+MPS2_SOC_TEST_DIR := src/hal/cortex-m/mps2/test
+BOOT_TEST_MPS2_SOC_BINS := $(BOOT_TEST_DIR)/test_mps2_soc_wdog-an505 $(BOOT_TEST_DIR)/test_mps2_soc_wdog-an500
+BOOT_TEST_BINS += $(BOOT_TEST_MPS2_SOC_BINS)
+MPS2_WDOG_BASE_an505 := 0x50081000u
+MPS2_WDOG_BASE_an500 := 0x40008000u
+BOOT_TEST_MPS2_SOC_CFLAGS = -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+                            $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-$(1),\
+                              $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+                            -DTEST_WDOG_BASE=$(MPS2_WDOG_BASE_$(1))
+$(BOOT_TEST_MPS2_SOC_BINS): $(BOOT_TEST_DIR)/test_mps2_soc_wdog-%: $(MPS2_SOC_TEST_DIR)/test_mps2_soc_wdog.c \
+        src/hal/cortex-m/mps2/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(call BOOT_TEST_MPS2_SOC_CFLAGS,$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \

@@ -1,9 +1,9 @@
 # OTA — user guide
 
-> **Status: DRAFT** · Issue: #75, #52 · Scope: trusted-firmware · Last verified: 2026-10-16
+> **Status: DRAFT** · Issue: #75, #52 · Scope: trusted-firmware · Last verified: 2026-11-21
 > Staging an image into the external store of an ATmega2560, as main does it
 > today. `tfwctl ota-stage <image>` and `tfwctl ota-status` stage an image and
-> read the session, and `tfwctl ota-activate [now]` takes it
+> read the session, and `tfwctl ota-activate --sig=... [now]` takes it
 > ([cli.md](../wire-protocol/cli.md)); the steps below also use `sdk/go`.
 
 ## What you need
@@ -98,13 +98,19 @@ the running image is untouched. Start again with `tfwctl ota-stage` or
 
 A staged image is not taken by itself: `OTA_END` leaves it verified in RAM and
 writes no `MARK`, so a reset after staging alone boots the running image again.
-The operator, or the control plane after its checks, activates it:
+The operator, or the control plane after its checks, activates it. The device
+needs `OTA_AUTH` with the row key's ES256 signature (64 bytes `r||s`, over the
+staged image's measurement and version and the mode; [api.md](api.md),
+"Authorization by the row key") immediately before `OTA_ACTIVATE`. tfwctl signs
+nothing: the signature comes from the row key's holder, as `--sig=<128 hex
+digits>` or `--sig-file=<path>`, and without one tfwctl sends nothing and
+exits 1.
 
 ```sh
-tfwctl <port> ota-activate         # OTA_ACTIVATE mode 0: taken at the next reset
+tfwctl <port> ota-activate --sig-file=<sig>       # OTA_AUTH, OTA_ACTIVATE mode 0: taken at the next reset
 activated; taken at the next reset
 
-tfwctl <port> ota-activate now     # mode 1: the device resets after its reply
+tfwctl <port> ota-activate --sig-file=<sig> now   # mode 1: the device resets after its reply
 activated; the device resets now
 ```
 
@@ -112,10 +118,13 @@ activated; the device resets now
 re-reads and re-verifies the whole staged image, then writes `MARK`. It
 answers `TFW_ERR_BAD_STATE` (19) when no verified image is staged, when a trial
 is running or its confirm is not yet settled, or when the image fails the
-re-check; `TFW_ERR_RANGE` (11) for a mode other than 0 or 1; and, on the
-element tier, the auth gate's status outside an operator session. tfwctl prints
-`tfwctl: <error>` on stderr and exits 1, as it does for a wrong argument
-(`usage: ota-activate [now]`).
+re-check; `TFW_ERR_RANGE` (11) for a mode other than 0 or 1;
+`TFW_ERR_AUTH_REQUIRED` (17), on every tier, when no `OTA_AUTH` precedes it and
+no activation is pending; and, on the element tier, the auth gate's status
+outside an operator session. tfwctl prints `tfwctl: <error>` on stderr and
+exits 1, as it does for a wrong argument (`usage: ota-activate [now]`) and for
+a missing signature (`ota-activate needs the row key's authorization, sent as
+OTA_AUTH first: --sig=<128 hex digits> or --sig-file=<path>`).
 
 The staged state lives in RAM. A board that resets when its port is opened
 (the Mega 2560 over USB serial) has lost it by the time a separate
@@ -123,8 +132,8 @@ The staged state lives in RAM. A board that resets when its port is opened
 one connection instead:
 
 ```sh
-tfwctl <port> ota-stage --activate <image>       # stage, activate, then print OTA_STATUS
-tfwctl <port> ota-stage --activate=now <image>   # stage, activate, reset now
+tfwctl <port> ota-stage --activate --sig-file=<sig> <image>       # stage, activate, then print OTA_STATUS
+tfwctl <port> ota-stage --activate=now --sig-file=<sig> <image>   # stage, activate, reset now
 activated; the device resets now
 ```
 
@@ -152,10 +161,14 @@ A refused image is never swapped in, and the previous image keeps running. A
 reset during the copy or the swap resumes it at the next boot.
 
 The trial is confirmed only by `OTA_CONFIRM` (0x6E, [api.md](api.md)), which
-the control plane sends to the running new image after attestation; tfwctl has
-no verb for it, so a host sends it through `sdk/go`:
-`(*Device).OTAConfirm(ctx context.Context) error` (`sdk/go/ota.go`). Without
-it the next reset after a trial swaps the previous image back and marks the
+the control plane sends to the running new image after attestation. tfwctl
+sends it as `tfwctl <port> ota-confirm --sig-file=<sig>`: `OTA_AUTH` with the
+row key's signature over the running image's measurement and version, then
+`OTA_CONFIRM`, and it prints `confirmed; settled at the next reset`. An
+`sdk/go` host calls `(*Device).OTAAuth(ctx, sig)`, then
+`(*Device).OTAConfirm(ctx)` (`sdk/go/ota.go`). Without `OTA_AUTH` just before
+it the device answers `TFW_ERR_AUTH_REQUIRED` (17). Without a confirm
+the next reset after a trial swaps the previous image back and marks the
 new one `FAILED`; the same staged image is not taken again. The states and
 each case are in [architecture.md](architecture.md).
 

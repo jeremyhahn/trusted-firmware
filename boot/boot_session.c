@@ -33,7 +33,12 @@ tfw_status_t tfw_boot_session_handle(tfw_ota_t *ota,
     case TFW_CMD_PING:
         /* Kept because it is the only way a host can tell "in the bootloader,
          * waiting" from "dead". Both look identical otherwise: neither answers
-         * any application command. */
+         * any application command. The response holds at most
+         * TFW_MAX_PAYLOAD bytes (boot_session.h), so a longer payload is
+         * refused rather than echoed past it. */
+        if (plen > TFW_MAX_PAYLOAD) {
+            return TFW_ERR_TOO_LONG;
+        }
         for (uint8_t i = 0u; i < plen; i++) {
             resp[i] = payload[i];
         }

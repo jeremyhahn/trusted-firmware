@@ -1,6 +1,6 @@
 # Cortex-M
 
-> **Status: DRAFT** · Issue: #161 · SPEC row: `cortex-m` (future) · Last verified: 2026-10-22
+> **Status: DRAFT** · Issue: #161 · SPEC row: `cortex-m` (in progress) · Last verified: 2026-11-21
 
 The Cortex-M architecture ports: Cortex-M7 and Cortex-M33 first. Each is a HAL
 and boot-HAL port under `src/hal/cortex-m/` and `boot/hal/cortex-m/`, and boards

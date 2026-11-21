@@ -1542,6 +1542,17 @@ $(HOST_DIR)/test_mcxn94x_eeprom: test/unit/test_mcxn94x_eeprom.c boot/hal/cortex
 	@$(HOST_CC) -Iboards/frdm-mcxn947 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter %.o,$^) $(filter-out %/mcxn94x/hal_eeprom.c %/hal_tick.c,$(filter %.c,$^)) $(EXTRA_LDFLAGS)
 
+# test_mcxn_boot_flash compiles tfw-boot's MCXN947 flash write,
+# boot/hal/cortex-m/mcxn94x/boot_flash.c, unchanged and without mcxn_flash.c:
+# the suite records tfw_mcxn_flash_update and the model mask, so the ROM
+# tree's driver, the flash span and the mask given back are pinned. Its
+# HOST_EXTRA_BINS line sits after the list's := below.
+$(HOST_DIR)/test_mcxn_boot_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_boot_flash.c \
+                                  boot/hal/cortex-m/mcxn94x/boot_flash.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m -Itest/model -Iboards/frdm-mcxn947 -Iboot/hal/cortex-m \
+	  -Iboot/hal/cortex-m/mcxn94x $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The STM32H5's EEPROM (SPEC row stm32h5) on stm32h573i-dk's layout, over
 # the application's flash write, ee_flash.c over h5_flash.c: the suite maps
 # the flash at the part's own address and is the hardware, at the wait
@@ -1650,6 +1661,7 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
 HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate
 HOST_EXTRA_BINS += $(HOST_DIR)/test_ota_begin_budget
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mcxn_boot_flash
 
 # The handoff block over a stand-in RTC-retained block sized as sdkconfig sizes it (#163).
 $(HOST_DIR)/test_esp_handoff_mutate: test/unit/test_esp_handoff_mutate.c src/hal/esp32/hal_handoff.c \

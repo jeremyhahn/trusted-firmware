@@ -1,12 +1,14 @@
 # Host SDK
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is
 
 **One host implementation.** Not one per tool: one codec, one framing
-implementation, one transport, in `sdk/go`, and every command
+implementation and one `Device`, in `sdk/go`, over two links (serial through
+`sdk/go/serialport`, TCP through `sdk/go/tcp.go`'s `TCPDevice`, see
+`docs/ethernet-transport/architecture.md`), and every command
 (`tfwctl`, `tfwprov`) is a `main` package in that same module.
 `tools/tfwsim` is the peer on the other end — the firmware, not a client.
 
@@ -17,8 +19,11 @@ implementation, one transport, in `sdk/go`, and every command
 | `sdk/go` (package `tfw`) | frame codec, CRC, `Device`, commands, provisioning, attestation, errors | stdlib only |
 | `sdk/go/serialport` | opening a physical port | `go.bug.st/serial` |
 | `sdk/go/internal/vectors` | published wire vectors, mirrored from `testdata/vectors.h` | stdlib only |
+| `sdk/go/internal/simproc` | the one launcher of the host firmware builds (`tfwsim`, `tfwsim-atecc608a`) as subprocesses spoken to over stdio: where the binary is, and failing when it is not there | stdlib only |
+| `sdk/go/internal/peer` | the one seam between the cross-implementation suite and the firmware it talks to: `tfwsim` through `simproc` by default, a real board on a serial port for `make hw-test`, an Ethernet listener when a row needs one | `internal/simproc`, `serialport` |
+| `sdk/go/tfwsim` | the supported way for another module's tests to start the host firmware (`Start`, `StartElement`, `StartProvisioningWith`, `StartElementEthernet`) and its published TEST identity | `tfw`, `internal/simproc` |
 | `sdk/go/templates` | reviewable provisioning templates (data, not code) | — |
-| `sdk/go/cmd/tfwctl` | reference client: every command, human output and `--json` | `tfw`, `serialport` |
+| `sdk/go/cmd/tfwctl` | reference client: every command, human output and `-json` | `tfw`, `serialport` |
 | `sdk/go/cmd/tfwprov` | provisioning with a commit guard | `tfw`, `serialport` |
 | `tools/tfwsim` | firmware sources + mock HAL, linked for the host | `src/proto`, `src/core`, `src/caps`, `test/mock` |
 
@@ -121,10 +126,10 @@ contract; a failure here is a wire break, not a test to update. See
   `sdk/go` is a dependency added to every Layer 3/5 consumer. The template
   format is six keys; `sdk/go/cmd/tfwprov/template.go` parses `key = value` by
   hand rather than pull in a parser for the whole graph.
-- **A transport abstraction with one implementation.** Serial is the
-  transport. `Device` takes an `io.ReadWriter`, which already admits a pty or
-  an `tfwsim` subprocess pipe; when Ethernet lands it is a second concrete
-  implementation, not a plugin system designed in advance for it.
+- **A transport abstraction designed in advance.** `Device` takes an
+  `io.ReadWriter`, which admits a serial port, a pty or a `tfwsim` subprocess
+  pipe; Ethernet landed as a second concrete link (`TCPDevice` in
+  `sdk/go/tcp.go`, a `Device` over a `net.Conn`), not a plugin system.
 
 ## What this deliberately does not do
 

@@ -10,7 +10,9 @@
  * The model cannot tell a read from a write: each access is one call. So at
  * every call it compares each register with the value it last left there,
  * and a difference is a write, logged in order with the poll counts at that
- * moment. A write the code makes last is logged by model_flush. Three
+ * moment. A write the code makes last is logged by model_flush. A store of
+ * the value already there is no difference, so the model also counts every
+ * call per register: a register the code must leave alone has none. Three
  * registers act as the part does:
  *   FLASH_ACR  a new LATENCY reads back only on the Nth read after the write
  *   RCC_CR     HSIDIVF sets on the Nth read after HSIDIV is written
@@ -45,6 +47,10 @@
 #define ACR_INIT      0x00000135u
 #define RCC_CR_INIT   (0x50000003u | (0x1u << 3) | TFW_H5_RCC_CR_HSI48ON)
 
+/* An inherited watchdog configuration: PR /256, RLR half the counter. */
+#define INHERITED_PR  6u
+#define INHERITED_RLR 0x7FFu
+
 volatile uint32_t tfw_cm_reset_mark;
 
 #define MODEL_REGS 16u
@@ -60,6 +66,7 @@ struct model_write {
 static uint32_t          model_addr[MODEL_REGS];
 static volatile uint32_t model_val[MODEL_REGS];
 static uint32_t          model_seen[MODEL_REGS];
+static uint32_t          model_access[MODEL_REGS];   /* calls, read or write */
 static uint32_t          model_used;
 
 static struct model_write model_log[MODEL_LOG];
@@ -136,6 +143,7 @@ static volatile uint32_t *model_slot(uint32_t addr)
     model_addr[model_used] = addr;
     model_val[model_used]  = 0u;
     model_seen[model_used] = 0u;
+    model_access[model_used] = 0u;
     return &model_val[model_used++];
 }
 
@@ -155,6 +163,7 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
 
     model_flush();
     r = model_slot(addr);
+    model_access[r - model_val]++;
     if (addr == ADDR_ACR && acr_waiting) {
         if (++acr_reads == ACR_POLLS) {
             model_set(addr, acr_pending);
@@ -213,6 +222,28 @@ static uint32_t writes_to(uint32_t addr)
     return n;
 }
 
+/* The code's calls on addr, reads and writes: a store of the value already
+ * there is no difference to log, but it is still a call. */
+static uint32_t accesses(uint32_t addr)
+{
+    uint32_t i;
+
+    for (i = 0u; i < model_used; i++) {
+        if (model_addr[i] == addr) {
+            return model_access[i];
+        }
+    }
+    return 0u;
+}
+
+/* A watchdog an earlier stage armed: PR and RLR not at zero, so a zero
+ * written over them is a difference the model logs. */
+static void inherit_armed_watchdog(void)
+{
+    model_set(ADDR_PR, INHERITED_PR);
+    model_set(ADDR_RLR, INHERITED_RLR);
+}
+
 /* tfw_h5_reset_take's stand-in: soc_reset.c has its own test. */
 static volatile uint32_t *take_rsr;
 static uint8_t            take_requested;
@@ -250,6 +281,7 @@ void tearDown(void) {}
 
 static void test_early_pets_the_watchdog_first(void)
 {
+    inherit_armed_watchdog();
     tfw_cm_soc_early();
     model_flush();
 
@@ -260,6 +292,11 @@ static void test_early_pets_the_watchdog_first(void)
     TEST_ASSERT_EQUAL_UINT32(1u, writes_to(ADDR_KR));
     TEST_ASSERT_EQUAL_UINT32(0u, writes_to(ADDR_PR));
     TEST_ASSERT_EQUAL_UINT32(0u, writes_to(ADDR_RLR));
+    /* Not even a store of the value already there. */
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_PR));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_RLR));
+    TEST_ASSERT_EQUAL_HEX32(INHERITED_PR, reg(ADDR_PR));
+    TEST_ASSERT_EQUAL_HEX32(INHERITED_RLR, reg(ADDR_RLR));
 }
 
 static void test_early_writes_the_wait_states_before_the_divider(void)
@@ -350,6 +387,7 @@ static void test_arm_times_four_seconds_of_the_32_khz_lsi(void)
 
 static void test_pet_writes_reload_only(void)
 {
+    inherit_armed_watchdog();
     tfw_cm_soc_watchdog_pet();
     model_flush();
 
@@ -357,6 +395,10 @@ static void test_pet_writes_reload_only(void)
     TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_PR));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_RLR));
+    TEST_ASSERT_EQUAL_HEX32(INHERITED_PR, reg(ADDR_PR));
+    TEST_ASSERT_EQUAL_HEX32(INHERITED_RLR, reg(ADDR_RLR));
 }
 
 /* ---- tfw_cm_soc_reset_cause ---- */

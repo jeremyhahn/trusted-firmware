@@ -160,6 +160,22 @@ class ReleaseGuardBranches(unittest.TestCase):
                 r = run_policy(job(RELEASE_RO, cond))
                 self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_waived_runs_on_is_tried_on_the_branches_it_names(self):
+        # #613 round 6 sweep: a waived runs-on is evaluated on every branch or
+        # tag it names, not only on main and one fresh branch.
+        for test in ("github.ref == 'refs/heads/develop'", "github.ref_name == 'develop'",
+                     "startsWith(github.ref, 'refs/heads/rel')", "github.ref == 'refs/tags/v1'"):
+            with self.subTest(test=test):
+                ro = OPEN + f" {test} && format('{{0}}{{1}}', 're', 'lease') || 'ubuntu-latest' }}}}   # self-hosted: hardware: bench"
+                r = run_policy(job(ro))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("release", r.stdout)
+
+    def test_review_label_is_tried_on_the_branches_it_names(self):
+        ro = OPEN + " github.ref_name == 'develop' && format('{0}{1}', 'co', 'dex') || 'ubuntu-latest' }}"
+        r = run_policy(job(ro))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+
 
 PRE_RO = (OPEN + " github.server_url == 'https://github.com' && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")

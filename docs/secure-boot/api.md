@@ -1,6 +1,6 @@
 # tfw-boot — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 One transport: the framed UART protocol (`src/proto/frame.c`), polled, no
@@ -165,6 +165,13 @@ refused for application writes by `src/caps/storage.c`:
 | 164 | 26 | reserved | |
 | 190 | 2 | `crc16` | over bytes `[0, 190)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
+The table is the platform block, `TFW_BOOT_EE_BLOCK_LEN` (192) bytes, ending at
+`0x0C0`. The rest of the region, `[0x0C0, 0x140)`, holds on the ATmega2560 the
+swap journal (`0x0E0`-`0x0E9`) and the signed confirm request
+(`0x0EA`-`0x134`); `TFW_BOOT_EE_LEN` grew from `0x0C0` to `0x140` when the
+confirm request took its signature (#231). `EEPROM_WRITE` refuses the whole
+`[0x000, 0x140)` on every board.
+
 Parsed by `tfw_boot_platform_parse`, serialised by `tfw_boot_platform_serialise`
 (`boot/boot_platform.c`); accessed through `tfw_boot_platform_load` /
 `tfw_boot_platform_store` (`boot/boot_store.c`). The second party is `tfwprov`
@@ -242,6 +249,8 @@ the raw `MCUSR` to the abstract reset cause without moving it, and version 4
 the CRC to cover it and growing the block from 80 to 112 bytes. An
 application and a bootloader built from sources on either side of a version
 change treat each other's handoff exactly like a missing one: refused, not
-misread — see "The DICE CDI handoff record" above. The OTA command IDs
-(`0x68`–`0x6B`) sit in the same extend-never-renumber space as the rest of
-`include/tfw/protocol.h`.
+misread — see "The DICE CDI handoff record" above. The bootloader's OTA
+command IDs (`0x68`–`0x6B`) and the application's (`OTA_INFO` `0x6C`,
+`OTA_ACTIVATE` `0x6D`, `OTA_CONFIRM` `0x6E`, `OTA_AUTH` `0x6F`, which tfw-boot
+answers `TFW_ERR_UNKNOWN_CMD`) sit in the same extend-never-renumber space as
+the rest of `include/tfw/protocol.h`.

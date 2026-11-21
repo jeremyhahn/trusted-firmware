@@ -57,9 +57,9 @@ void tfw_attest_reset_state(void)
  * accessors) would otherwise get a certificate correctly signed over an
  * all-zero UEID and measurement, on a fully provisioned device, with nothing
  * about the exchange indicating anything had gone wrong. Reading the live
- * sources here means the two callers -- this file's own build() and
- * alias.c's gather() -- agree with each other regardless of which command
- * ran first.
+ * sources here, as this file's own build() also does, means build() and the
+ * callers in alias.c and csr.c agree with each other regardless of which
+ * command ran first.
  */
 const uint8_t *tfw_attest_device_id(void)
 {

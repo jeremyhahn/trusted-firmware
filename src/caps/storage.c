@@ -53,9 +53,10 @@
 #define TFW_EEPROM_CHUNK 8u
 
 /* Whether [addr, addr + len) touches bootloader-owned EEPROM: the platform
- * block, or the range a board's bootloader keeps above it (the ATmega2560's
- * swap journal, include/tfw/config.h). A board that keeps none declares an
- * empty range at the block's end, and its half of the test folds away. */
+ * block, or any range a board's bootloader declares above it
+ * (TFW_BOOT_EE_EXTRA_BASE/_LEN, include/tfw/config.h; none does since #125).
+ * A board that keeps none declares an empty range at the block's end, and its
+ * half of the test folds away. */
 static uint8_t boot_owned(uint16_t addr, uint8_t len)
 {
     return (uint8_t)(addr < TFW_EEPROM_RESERVED_END
@@ -108,10 +109,10 @@ tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_RANGE;
     }
     /* The whole write must clear the reserved region, not merely start above
-     * it. A write beginning at 0xBF and running eight bytes would otherwise
-     * reach 0xC6 -- past the boundary at 0xC0 -- having passed a check on its
-     * first address only. The same holds for a board's range above the region
-     * (the ATmega2560's journal at 0x0E0-0x0E9). */
+     * it. A write beginning at 0x13F and running eight bytes would otherwise
+     * reach 0x146 -- past the boundary at 0x140 -- having passed a check on
+     * its first address only. The same holds for any range a board declares
+     * above the region (TFW_BOOT_EE_EXTRA_BASE/_LEN); none does today. */
     if (boot_owned(addr, len)) {
         return TFW_ERR_PROTECTED_REGION;
     }

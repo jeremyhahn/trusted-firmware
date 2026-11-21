@@ -1092,6 +1092,14 @@ $(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(call BOOT_TEST_MPS2_CFLAGS,mps2-$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The factory copy of the A/B rows (#628), on host memory mapped at mps2-an505's
+# addresses; tfw_cm_dsb comes through the rp2350 test cm_regs.h.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_cm_boot_factory
+$(BOOT_TEST_DIR)/test_cm_boot_factory: boot/hal/cortex-m/test/test_cm_boot_factory.c \
+        boot/hal/cortex-m/boot_factory.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -I$(RP2350_BOOT_TEST_DIR) $(call BOOT_TEST_MPS2_CFLAGS,mps2-an505) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \

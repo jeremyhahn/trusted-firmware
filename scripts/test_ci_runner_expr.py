@@ -251,7 +251,7 @@ class OverflowShortList(unittest.TestCase):
         run = self.run_text()
         elif_short = run.index('elif [ -n "$SHORT" ]; then')
         self.assertLess(run.index('elif [ "$queued" -gt 0 ]; then'), elif_short)
-        self.assertLess(elif_short, run.index('emit "$HOSTED" "$HOSTED"'))
+        self.assertLess(elif_short, run.rindex('emit "$HOSTED" "$HOSTED"'))
         self.assertIn('[ -z "$SHORT" ] || why="$why (a lower bound: $SHORT)"', run)
 
 

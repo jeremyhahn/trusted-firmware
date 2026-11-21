@@ -394,6 +394,21 @@ static void test_h5_pka_sign_refused_leaves_sig_alone(void)
         TEST_ASSERT_EQUAL_HEX8(0x5A, sig[i]);
 }
 
+static void test_h5_pka_refused_sign_wipes_d_and_k(void)
+{
+    static const uint8_t zero[32];
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    m.refuse = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+    ram_get(ST_PKA_SIGN_IN_K, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+}
+
 static void test_h5_pka_times_out_when_procendf_never_rises(void)
 {
     uint8_t sig[64];
@@ -446,6 +461,27 @@ static void test_h5_pka_error_flags_are_no_answer(void)
         TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
     }
     TEST_ASSERT_FALSE(m.fault);
+}
+
+static void test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k(void)
+{
+    static const uint8_t zero[32];
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    memset(sig, 0x5A, sizeof sig);
+    for (uint32_t bit = 19; bit <= 21; bit++) {
+        m.err_flags = 1u << bit;
+        TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+        TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
+        ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+        TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+        ram_get(ST_PKA_SIGN_IN_K, got);
+        TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+        for (uint32_t i = 0; i < sizeof sig; i++)
+            TEST_ASSERT_EQUAL_HEX8(0x5A, sig[i]);
+    }
+    TEST_ASSERT_EQUAL(0, m.fault);
 }
 
 /* The provider (src/crypto/stm32h5/provider.c) over the same model. What it
@@ -619,10 +655,12 @@ int main(void)
     RUN_TEST(test_h5_pka_signs_and_the_soft_verify_accepts_it);
     RUN_TEST(test_h5_pka_round_trips_its_own_signatures);
     RUN_TEST(test_h5_pka_sign_refused_leaves_sig_alone);
+    RUN_TEST(test_h5_pka_refused_sign_wipes_d_and_k);
     RUN_TEST(test_h5_pka_times_out_when_procendf_never_rises);
     RUN_TEST(test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped);
     RUN_TEST(test_h5_pka_busy_that_never_clears_gets_no_ram_write);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
+    RUN_TEST(test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
     RUN_TEST(test_h5_provider_leaves_a_timed_out_pka_alone);

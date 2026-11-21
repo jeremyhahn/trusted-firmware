@@ -209,6 +209,26 @@ static void test_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
     TEST_ASSERT_EQUAL_UINT32(TFW_CM_CPU_HZ, 64000000u);
 }
 
+static void test_a_refused_start_leaves_a_sounding_tone_as_it_was(void)
+{
+    static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    n_log = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&other, 440u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    tone_tim_hz = 100000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&d3, 60000u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    TEST_ASSERT_EQUAL_HEX32(31999u, peek(A_ARR));      /* still the old tone */
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_PSC));
+    TEST_ASSERT_EQUAL_HEX32(0x3068u, peek(A_CCMR1));
+    TEST_ASSERT_EQUAL_HEX32(1u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());    /* still running: stop acts */
+    TEST_ASSERT_EQUAL_HEX32(0x4068u, peek(A_CCMR1));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -217,5 +237,6 @@ int main(void)
     RUN_TEST(test_a_second_start_retargets);
     RUN_TEST(test_stop_halts_and_holds_the_pin_low);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);
+    RUN_TEST(test_a_refused_start_leaves_a_sounding_tone_as_it_was);
     return UNITY_END();
 }

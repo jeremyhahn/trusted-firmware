@@ -4,7 +4,7 @@
  * The trusted application for go-enclave's arm-trustzone backend (#253;
  * docs/optee-trustzone/README.md, "The trusted application"). It speaks the
  * GlobalPlatform TEE Internal Core API v1.3.1 as written: the five TA entry
- * points, TEE_Param and TEE_GenerateRandom. It holds no key and keeps no state
+ * points, TEE_Param and TEE_GenerateRandom. It stores no key and keeps no state
  * across sessions, so every session context is NULL.
  *
  * v1 implements GET_INFO and GET_RANDOM. SEAL and UNSEAL (#288) hold a key

@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The sealed blob: go-xkms's docs/optee-sealed-blob/README.md §2 to §5, at
- * go-xkms 02b3da51f. The blob is COSE_Encrypt0_Tagged (RFC 9052 §5.2) in
+ * go-xkms 06ca5ec59. The blob is COSE_Encrypt0_Tagged (RFC 9052 §5.2) in
  * core deterministic encoding (RFC 8949 §4.2.1), sealed with A256GCM
  * (RFC 9053 §4.1) over the Enc_structure of RFC 9052 §5.3. Every primitive
  * is a GlobalPlatform TEE Internal Core API operation: nothing here is AES,

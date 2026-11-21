@@ -124,10 +124,6 @@ static const tfw_mcxn_flash_api_t model_api = {
 };
 
 #define TFW_MCXN_EE_FLASH  ((const uint8_t *)model)
-/* A store into the window is not a write to flash: it lands here, not in
- * the model. */
-static uint8_t window[TFW_CM_PLATFORM_SIZE];
-#define TFW_MCXN_EE_WINDOW window
 #define TFW_MCXN_EE_API    (&model_api)
 #include "../../src/hal/cortex-m/mcxn94x/hal_eeprom.c"
 
@@ -249,6 +245,10 @@ static void test_the_confirm_request_is_programmed_into_the_platform_sector(void
     TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, &model[USER_OFF], TFW_CM_USER_EE_SIZE);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_CONFIRM_ADDR, back, sizeof back));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(req, back, sizeof back);
+    /* The one erase outside the user sector this case asks for; tearDown
+     * checks there is no other. */
+    TEST_ASSERT_EQUAL_UINT(1u, other_erases);
+    platform_erases = other_erases = 0u;
 }
 
 static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)

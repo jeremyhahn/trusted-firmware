@@ -41,14 +41,17 @@ static struct {
     uint8_t  hang;
     uint8_t  fault;
     uint32_t hr_reads;
+    uint32_t sr_reads;
 } m;
 
 uint32_t tfw_h5_rd(uintptr_t addr)
 {
     uint32_t off = (uint32_t)(addr - HASH_BASE);
 
-    if (off == ST_HASH_SR)
+    if (off == ST_HASH_SR) {
+        m.sr_reads++;
         return m.done ? ST_HASH_SR_DCIS : (m.hang ? ST_HASH_SR_BUSY : 0u);
+    }
     if (off >= ST_HASH_HR && off < ST_HASH_HR + 32u && (off % 4u) == 0u) {
         const uint8_t *d = &ABC_DIGEST[off - ST_HASH_HR];
 
@@ -152,7 +155,12 @@ tfw_status_t tfw_crypto_soft_verify_image(const uint8_t d[32], const uint8_t sig
     return TFW_ERR_UNSUPPORTED;
 }
 
-void setUp(void) { memset(&m, 0, sizeof m); }
+/* Each case is a fresh boot: tfw_crypto_init brings the HASH back. */
+void setUp(void)
+{
+    memset(&m, 0, sizeof m);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+}
 void tearDown(void) {}
 
 static void test_h5_provider_sha256_falls_back_to_software_on_a_hash_timeout(void)
@@ -178,10 +186,49 @@ static void test_h5_provider_sha256_answers_from_the_hash_peripheral(void)
     TEST_ASSERT_FALSE(m.fault);
 }
 
+/* #599: a hung HASH costs the status-poll timeout once per boot; after it
+ * the digests run in software without touching the peripheral. */
+static void test_h5_provider_sha256_polls_a_hung_hash_once_per_boot(void)
+{
+    uint8_t  out[32];
+    uint32_t polls;
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
+    polls = m.sr_reads;
+    TEST_ASSERT_NOT_EQUAL_UINT32(0, polls);
+
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
+    TEST_ASSERT_EQUAL_UINT32(polls, m.sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(0, m.hr_reads);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+static void test_h5_provider_sha256_uses_the_hash_again_after_init(void)
+{
+    uint8_t out[32];
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+
+    memset(&m, 0, sizeof m);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
+    TEST_ASSERT_EQUAL_UINT32(8, m.hr_reads);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_h5_provider_sha256_falls_back_to_software_on_a_hash_timeout);
     RUN_TEST(test_h5_provider_sha256_answers_from_the_hash_peripheral);
+    RUN_TEST(test_h5_provider_sha256_polls_a_hung_hash_once_per_boot);
+    RUN_TEST(test_h5_provider_sha256_uses_the_hash_again_after_init);
     return UNITY_END();
 }

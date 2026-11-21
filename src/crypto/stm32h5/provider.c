@@ -48,6 +48,7 @@ tfw_status_t      tfw_crypto_soft_verify_image(const uint8_t digest[32], const u
 #define H5_AHB2ENR_PKAEN    (1u << 19)
 
 static uint8_t pka_up;
+static uint8_t hash_up;
 
 tfw_status_t tfw_crypto_init(void)
 {
@@ -59,6 +60,7 @@ tfw_status_t tfw_crypto_init(void)
      * a HSI48 that never readies leaves INITOK low and the soft code answers. */
     (void)tfw_h5_hsi48_start(TFW_H5_RCC_BASE);
     pka_up = (uint8_t)(tfw_h5_pka_init(H5_PKA_BASE) == TFW_OK);
+    hash_up = 1;
     return tfw_crypto_soft_init();
 }
 
@@ -79,9 +81,16 @@ tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
 
 tfw_status_t tfw_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[32])
 {
-    if (tfw_h5_hash_sha256(H5_HASH_BASE, data, len, out) != TFW_OK) {
-        tfw_sha256(data, len, out);
+    if (hash_up) {
+        if (tfw_h5_hash_sha256(H5_HASH_BASE, data, len, out) == TFW_OK) {
+            return TFW_OK;
+        }
+        /* A HASH that timed out once costs the status-poll timeout on every
+         * later digest: software answers for the rest of the boot
+         * (docs/plans/544.md, #599). */
+        hash_up = 0;
     }
+    tfw_sha256(data, len, out);
     return TFW_OK;
 }
 

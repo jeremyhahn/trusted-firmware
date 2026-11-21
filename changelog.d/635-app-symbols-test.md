@@ -1,11 +1,8 @@
 ### Added
 
-- **app_symbols.py has a test** (row `application-sdk`).
-  `scripts/test_app_symbols.py`, run by `make scripts-test`, builds ELF32 and
-  ELF64 images byte by byte and pins the reader app-firmware-check relies on:
-  a symbol defined in a loaded section is printed (exit 0); a gc-dropped one,
-  absent, left in an unloaded section or undefined, is not (exit 1); a
-  `.lto_priv.0` suffix matches its name; a non-ELF file is refused (exit 2).
-  Where gcc is installed it also links a host image with `--gc-sections` and
-  checks the kept function is found and the dropped one is not. The script
-  itself is unchanged.
+- **`scripts/test_app_symbols.py`, a test of the check app-firmware-check
+  runs** (#635). An image linked by the host cc with `--gc-sections` pins
+  `scripts/app_symbols.py`: a symbol the link kept is found, one it dropped
+  exits 1, a compiler suffix such as `.lto_priv.0` still matches, and a file
+  that is not ELF is refused. Hand-built minimal headers cover the 32-bit and
+  big-endian images the host cc cannot link. `make scripts-test` runs it.

@@ -316,8 +316,10 @@ static void test_an_empty_i2c_transfer_is_a_probe(void)
         tfw_status_t want;
     } t[] = {
         { ESP_OK, TFW_OK }, { ESP_ERR_TIMEOUT, TFW_ERR_TIMEOUT },
-        { ESP_ERR_NOT_FOUND, TFW_ERR_NACK }, { ESP_FAIL, TFW_ERR_NACK },
-        { ESP_ERR_INVALID_ARG, TFW_ERR_NACK },
+        { ESP_ERR_NOT_FOUND, TFW_ERR_NACK }, { ESP_FAIL, TFW_ERR_INTERNAL },
+        { ESP_ERR_INVALID_ARG, TFW_ERR_INTERNAL },
+        /* Only a transfer reports a NACK so; from a probe it is a driver error. */
+        { ESP_ERR_INVALID_RESPONSE, TFW_ERR_INTERNAL },
     };
     unsigned i;
 
@@ -370,11 +372,15 @@ static void test_an_i2c_write_read_or_both_is_one_device_cycle(void)
 
 static void test_an_i2c_error_is_mapped_and_the_device_removed(void)
 {
-    static const esp_err_t errs[] = { ESP_ERR_TIMEOUT, ESP_FAIL, ESP_ERR_INVALID_ARG };
-    static const tfw_status_t want[] = { TFW_ERR_TIMEOUT, TFW_ERR_NACK, TFW_ERR_NACK };
+    /* A transfer's NACK is ESP_ERR_INVALID_RESPONSE; ESP_ERR_NOT_FOUND is the
+     * probe's, so from a transfer it is a driver error. */
+    static const esp_err_t errs[] = { ESP_ERR_TIMEOUT, ESP_ERR_INVALID_RESPONSE,
+                                      ESP_ERR_NOT_FOUND, ESP_FAIL, ESP_ERR_INVALID_ARG };
+    static const tfw_status_t want[] = { TFW_ERR_TIMEOUT, TFW_ERR_NACK, TFW_ERR_INTERNAL,
+                                         TFW_ERR_INTERNAL, TFW_ERR_INTERNAL };
     unsigned i;
 
-    for (i = 0u; i < 3u; i++) {
+    for (i = 0u; i < sizeof errs / sizeof errs[0]; i++) {
         setUp();
         xfer_err = errs[i];
         TEST_ASSERT_EQUAL(want[i], tfw_hal_i2c_xfer(0x10u, wbuf, 2u, NULL, 0u));

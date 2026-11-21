@@ -153,6 +153,26 @@ rc=0
 RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/bad.patterns "$gate" > /dev/null 2>&1 || rc=$?
 if [ "$rc" -ne 2 ]; then fail "an unknown class exited $rc, want 2"; fi
 
+# A last line with no final newline is still a rule.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\t(^|[.])example\\.internal' > "$tmp/nonl.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/nonl.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 1 ]; then fail "a last rule with no newline exited $rc, want 1: $out"
+else case "$out" in *"doc.md:1: lab-host"*) ;; *) fail "a last rule with no newline: no doc.md:1: lab-host in: $out" ;; esac
+fi
+
+# A regex grep -E refuses fails the list, not the rule alone.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\tfoo(\n' > "$tmp/badre.patterns"
+git -C "$t" add -A
+rc=0
+RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/badre.patterns "$gate" > /dev/null 2>&1 || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a regex grep -E refuses exited $rc, want 2"; fi
+
 # This tree passes its own list.
 checks=$((checks + 1))
 rc=0

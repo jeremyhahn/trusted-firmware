@@ -1,7 +1,7 @@
 # mps2-an500 (Arm AN500 under QEMU)
 
 > **Status: INFORMATIVE** · SPEC row: `cortex-m` · Scope:
-> `boards/mps2-an500/` · Last verified: 2026-11-12
+> `boards/mps2-an500/` · Last verified: 2026-11-21
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -93,10 +93,14 @@ QEMU, which does not measure the pin.
 ## PWM
 
 The image has no PWM block of its own, so `PWM=1` builds a software PWM
-(`src/hal/cortex-m/mps2/hal_pwm.c`, shared with `mps2-an505`): the dual
-timer's first counter interrupts 256 times a period at 500 Hz, counted from
-the 25 MHz core clock (`TFW_MPS2_PWM_STEP` in `soc_regs.h`), and the handler
-sets or clears each LED's bit in the FPGA I/O LED register against its duty.
+(`src/hal/cortex-m/mps2/hal_pwm.c`, shared with `mps2-an505`). The period is
+256 steps at 500 Hz, the duty's resolution, a step `TFW_MPS2_PWM_STEP` ticks
+of the 25 MHz core clock (`soc_regs.h`). The timer does not interrupt on every
+step: the dual timer's first counter is loaded with the distance to the next
+edge (`arm_next()` in `hal_pwm.c`), so a period takes one interrupt per
+distinct running duty plus one, three at most with the two LEDs. At each
+interrupt the handler sets or clears each LED's bit in the FPGA I/O LED
+register against its duty.
 Duty 0 and 255 drive the pin and leave the timer alone. The registers are the
 *Arm Cortex-M System Design Kit Technical Reference Manual* (DDI 0479C) APB
 dual-input timer's, as QEMU v10.0.0's `hw/timer/cmsdk-apb-dualtimer.c` models

@@ -18,18 +18,13 @@ import subprocess
 import tempfile
 import unittest
 
-import yaml
+from test_ci_workflow_text import load
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 CI = os.path.join(REPO, ".github", "workflows", "ci.yml")
 NIGHTLY = os.path.join(REPO, ".github", "workflows", "nightly.yml")
 LOCKS = ("xkms/go.sum", "sdk/go/go.sum")
-
-
-def load(path):
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def gate_script():

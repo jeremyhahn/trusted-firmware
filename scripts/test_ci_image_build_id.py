@@ -15,17 +15,12 @@ import os
 import re
 import unittest
 
-import yaml
+from test_ci_workflow_text import load
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 CI = os.path.join(REPO, ".github", "workflows", "ci.yml")
 DOCKER_MK = os.path.join(REPO, "mk", "docker.mk")
-
-
-def load(path):
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def builds_it(job):

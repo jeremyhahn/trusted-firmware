@@ -1,0 +1,3 @@
+### Fixed
+
+- **The DICE attestation engineering and API pages, the CryptoAuthLib record and `include/tfw/crypto.h`'s bitmap comment match the code on main** (#629): the TBS size asserts (249/400, 401 on the software root), the certificate length (489, up to 491), the soft root's DeviceID point and template, `TFW_CRYPTO_NONE`'s `TFW_ERR_UNSUPPORTED`, the soft tier's CDI handoff and `TFW_ERR_NOT_PROVISIONED`, the two verify functions and two measurement functions, `tfw_alias_parts_t`'s `tier`, the five `CRYPTO=` tiers and the board default, `CONFIG_DICE_STRICT_DEVICEID` marked not implemented, the ATECC608A wake as a zero byte at 100 kHz, and `TFW_ALGBIT_*` for the algorithm bitmap.

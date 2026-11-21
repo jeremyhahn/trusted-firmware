@@ -12,7 +12,7 @@
  * Where sha256.c's bytes go on AVR, and what this file does instead:
  *
  *   - every ROR and SHR there is a constant 32-bit shift pair that avr-gcc
- *     expands inline, twelve rotates and two shifts per round and schedule
+ *     expands inline, ten rotates and two shifts per round and schedule
  *     step. Here one rotate-or-shift routine serves all four sigma functions,
  *     a byte step and then single bits.
  *   - the schedule is W[64] there, 256 bytes of stack and four indexed loads

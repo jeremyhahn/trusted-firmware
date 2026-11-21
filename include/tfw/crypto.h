@@ -45,7 +45,7 @@ tfw_status_t      tfw_crypto_init(void);
 /* What this build's root of trust actually is. */
 tfw_crypto_tier_t tfw_crypto_tier(void);
 
-/* A bitmap of TFW_ALG_* values this provider can sign with. Reported in CAPS so
+/* A bitmap of TFW_ALGBIT_* values this provider can sign with. Reported in CAPS so
  * the host negotiates rather than assumes -- and so that adding an element with
  * hardware Ed25519 is a provisioning change, not a protocol change. */
 uint16_t         tfw_crypto_algorithms(void);

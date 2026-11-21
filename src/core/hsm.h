@@ -8,7 +8,8 @@
  * Portable C with no HAL call (architecture.md question 16, decided): time
  * comes in as an argument, and every action goes out through hsm_port.h, which
  * the SoC implements and a test's mock replaces at link time. Which builds
- * carry it is decided by the object list: today only its tests link
+ * carry it is decided by the object list: the host tests and a firmware image
+ * built with HSM := 1 on the soft tier (mk/firmware.mk HSM_SRCS) link
  * src/core/hsm_payload.c and src/core/hsm_engine.c.
  *
  * No dynamic allocation: every bound below is fixed, and a set or script past

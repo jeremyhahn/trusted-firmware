@@ -75,7 +75,7 @@ application has started.
 Then the one check that proves the scheduler is real:
 
 ```sh
-tfwctl timer-set /dev/ttyUSB0 13 1 5000
+tfwctl /dev/ttyUSB0 timer 13 1 5s
 # now unplug the host. The LED must still go out at 5 s.
 ```
 
@@ -158,7 +158,10 @@ erase takes the platform block, and with it the device's identity.
 
 A bench board the project is finished with goes back to its factory state:
 the stock bootloader and the fuse and lock bytes its page in
-[bench/](bench/) recorded before the first write.
+[bench/](bench/) recorded before the first write. This page gives the AVR
+route; an ESP32 board restores from its recorded whole-flash image
+(`BOARD_RESTORE_IMAGE`, `ESP_PORT`) and a Cortex-M board from its
+`make board-record` record, per `mk/board-restore.mk`.
 
 ```sh
 make board-restore BOARD=atmega2560 BOARD_RESTORE_HEX=<stock bootloader .hex>
@@ -169,8 +172,9 @@ says where it comes from. The target refuses a file whose SHA-256 is not the
 `FACTORY_BOOT_HEX_SHA256` in the board's `profile.mk`, then writes it through
 the same `EESAVE` guard as `boot-flash` (refuse, or `BOOT_EEPROM_RESTORE=1`),
 writes `FACTORY_LFUSE`, `FACTORY_EFUSE`, `FACTORY_HFUSE` and `FACTORY_LOCK`,
-and reads all four back. A board with no `FACTORY_*` values is refused before
-anything runs. The restore leaves `EESAVE` as the factory had it, unprogrammed.
+and reads all four back. A board with no `FACTORY_*` values, or with no
+`BOOT_EESAVE_FUSE`/`BOOT_EESAVE_BIT` in its profile, is refused before anything
+runs, and so is `BOOT_FIRST_FLASH=1`, which belongs to `boot-flash`. The restore leaves `EESAVE` as the factory had it, unprogrammed.
 
 ## Fuses and lock bits
 
@@ -182,7 +186,7 @@ are irreversible and one of them (`DWEN`) cannot be cleared over ISP once set.
 | symptom | usual cause |
 |---|---|
 | `avrdude` cannot sync | wrong `AVRDUDE_BAUD` for that bootloader, or the port is held open by a serial monitor |
-| flashes, then nothing on the wire | a watchdog reset loop — `MCUSR` must be cleared and the WDT disarmed in the first instructions, before the C runtime; `src/hal/avr/hal_sys.c` does this from `.init3` |
+| flashes, then nothing on the wire | a watchdog reset loop — `MCUSR` must be cleared and the WDT disarmed in the first instructions, before the C runtime; `src/hal/avr/hal_early.c` does this from `.init3` |
 | garbage on the wire | the host's baud does not match `TFW_UART_BAUD`, or the part is running at a different `F_CPU` than the profile says |
 | `PING` works, nothing else does | you are talking to a bootloader, not the application |
 

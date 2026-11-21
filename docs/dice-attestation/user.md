@@ -149,7 +149,7 @@ verifies, which is exactly why this matters: the private key above is the hash o
 a published string, so anyone can compute it and sign as this device. A passing
 signature check proves the bytes are well formed and were signed by that key; it
 proves nothing about any device. **Never enrol, allow-list or pin this key
-outside a test that supplied it.** The serial `tfwsim-test-id-01` and the FWHash
+outside a test that supplied it.** The serial `tfwsim-testid-01` and the FWHash
 of `tfwsim-test-firmware-image-v1` are likewise fixed and public.
 
 Use it to test paging, parsing, signature verification, nonce binding, the UEID
@@ -220,11 +220,22 @@ across that boundary unmodified. The CLI equivalent is
 | `TFW_ERR_UNSUPPORTED` from `AttestCSR` | CAPS bit 15 is clear (the 32U4, or a build without the alias certificate), or the tier has no asymmetric key — nothing was asked of the device |
 | `*tfw.ShortReplyError` from `AttestCSR` | the device answered with something other than 64 bytes |
 
-## Known limitation: the measurement fields are not live yet
+## The measurement fields
 
-`DeviceID` and `FWHash` inside the evidence and the certificate's `ueid`/
-`measurements` claims are currently zero-filled — the trusted bootloader
-that supplies a real measurement is not wired up (`architecture.md`).
-Signing, paging and the wire shapes are exercised and correct; do not build
-a verifier today that expects those two fields to carry a real firmware
-identity.
+`DeviceID` in the evidence, and the certificate's `ueid` claim, is the platform
+serial: `src/caps/attest.c` copies `tfw_platform_id_serial()` into it, the
+serial `tfwprov --bake-eeprom` put in the platform-reserved EEPROM block before
+the part was flashed (`src/core/platform_id.c`). `FWHash` is the measurement
+tfw-boot verified and handed off, `tfw_boot_handoff_measurement()`
+(`src/core/handoff.c`); the application reports what was checked and never
+recomputes it. How the handoff gets there is
+[`architecture.md`'s handoff section](architecture.md#data-flow-status-the-bootloader-handoff-is-wired-up).
+
+Each field is zero, never made up, where its source is absent. An
+unprovisioned or corrupted platform block reads as 16 zero bytes of
+`DeviceID`. An image with no valid handoff — a stock bootloader, no
+bootloader at all, or a board with no boot section, which links
+`src/core/handoff_none.c` — gets NULL from `tfw_boot_handoff_measurement()`,
+and `FWHash` stays the 32 zero bytes the evidence was cleared to. A verifier
+should treat an all-zero `DeviceID` as an unprovisioned device and an all-zero
+`FWHash` as firmware no trusted bootloader measured, not as a real identity.

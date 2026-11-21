@@ -133,7 +133,7 @@ static void test_pwm_refuses_a_pin_with_no_compare_unit(void)
     TEST_ASSERT_TRUE(found > 0u);
 }
 
-/* RSVD is the same refusal as NONE to tfw_board_pwm (board_lookup.c:75); only
+/* RSVD is the same refusal as NONE to tfw_board_pwm (board_lookup.c:76); only
  * the CAPS state byte tells them apart. */
 static void test_pwm_refuses_a_reserved_timer_pin_but_reports_it_as_2(void)
 {

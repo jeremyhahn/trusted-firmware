@@ -740,11 +740,22 @@ $(BOOT_TEST_DIR)/test_mcxn_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # Its polled LPUART, boot/hal/cortex-m/mcxn94x/mcxn_uart.c, over a register
 # model of the LP_FLEXCOMM unit; boot_uart.c, which hands it LP_FLEXCOMM4 and
-# sets the clock and the pins, is not here.
+# sets the clock and the pins, is test_mcxn_boot_uart below.
 $(BOOT_TEST_DIR)/test_mcxn_uart: boot/hal/cortex-m/mcxn94x/test/test_mcxn_uart.c \
         boot/hal/cortex-m/mcxn94x/mcxn_uart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# boot_uart.c itself under the FRDM-MCXN947's profile, which names the link's
+# port and pins: the RP2350's test cm_regs.h comes ahead of the real one, so
+# every SYSCON and PORT access lands in the test's register model, and the
+# test stands in for mcxn_uart.c.
+BOOT_TEST_MCXN_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/frdm-mcxn947,\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_mcxn_boot_uart
+$(BOOT_TEST_DIR)/test_mcxn_boot_uart: boot/hal/cortex-m/mcxn94x/test/test_mcxn_boot_uart.c \
+        boot/hal/cortex-m/mcxn94x/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_MCXN_CFLAGS) -Iboot/hal/cortex-m/rp2350/test -Iboot/hal/cortex-m/mcxn94x \
+	  -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The Pico 2 W's flash map by literal, under its own profile: the regions
 # tfw-boot writes, and the 4 MiB flash they must fit (pico-sdk's pico2_w.h).
@@ -829,13 +840,14 @@ $(BOOT_TEST_DIR)/test_mcxn_hal_soc: src/hal/cortex-m/mcxn94x/test/test_mcxn_hal_
 	  -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
-# mps2 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# mps2 halves and the MCXN947's boot UART as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make
 # asked for both host-test and boot-test still runs each binary once.
 BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
                            $(BOOT_TEST_DIR)/test_rp2350_hal_soc \
                            $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram \
-                           $(BOOT_TEST_DIR)/test_boot_mps2_uart
+                           $(BOOT_TEST_DIR)/test_boot_mps2_uart \
+                           $(BOOT_TEST_DIR)/test_mcxn_boot_uart
 .PHONY: boot-soc-host-test
 boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
 	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))

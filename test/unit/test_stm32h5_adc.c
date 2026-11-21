@@ -408,6 +408,45 @@ static void test_a_channel_past_the_board_is_refused_before_any_access(void)
     TEST_ASSERT_EQUAL_UINT(0u, m.nconv);
 }
 
+/* A refused read touches nothing: a channel past the board (RANGE, checked
+ * first, so before init too) and any read while the converter is not up
+ * (UNSUPPORTED) leave the pin's mode and pull, SMPR1/SMPR2, SQR1, ISR and CR
+ * as they were, not only start no conversion. */
+static void test_a_refused_read_writes_no_register(void)
+{
+    uint8_t  before[sizeof m];
+    uint16_t raw = 0xFFFFu;
+
+    memcpy(before, &m, sizeof m);                                   /* no init */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(TFW_ADC_COUNT, &raw));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(0xFFu, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_MEMORY(before, &m, sizeof m);
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+
+    m.hang_cal = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    settle();
+    m.moder[1] = 0x1u;                          /* PB0, channel 9's A0 pin: output */
+    m.pupdr[1] = 0x1u;                          /* pull-up */
+    memcpy(before, &m, sizeof m);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(9u, &raw));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(10u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_MEMORY(before, &m, sizeof m);
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+
+    m.hang_cal = 0u;
+    m.cr      &= ~TFW_H5_ADC_CR_ADCAL;          /* the hung calibration ends after all */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    memcpy(before, &m, sizeof m);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(TFW_ADC_COUNT, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_MEMORY(before, &m, sizeof m);
+}
+
 static void test_vref_plus_is_the_one_reference(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_set_ref(TFW_ADC_REF_VCC));
@@ -439,6 +478,7 @@ int main(void)
     RUN_TEST(test_a_timed_out_conversion_never_answers_the_next_read);
     RUN_TEST(test_a_conversion_that_will_not_stop_refuses_later_reads);
     RUN_TEST(test_a_channel_past_the_board_is_refused_before_any_access);
+    RUN_TEST(test_a_refused_read_writes_no_register);
     RUN_TEST(test_vref_plus_is_the_one_reference);
     RUN_TEST(test_the_arithmetic);
     return UNITY_END();

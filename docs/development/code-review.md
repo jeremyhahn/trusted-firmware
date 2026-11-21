@@ -9,12 +9,17 @@ dept-software#17; the runner side: dept-infra#24.
 
 ## Trigger
 
-The workflow runs on `opened`, `reopened`, `synchronize` and `labeled`, on the
-`codex` runner. It reviews only when the pull request **as Gitea reports it
-now** carries `code-review`; the event payload is not trusted for that, because
-a re-run replays the payload it was created with. Without the label the job
-says so and passes: an unlabelled PR merges on green CI (automerge.yml), and
-this workflow is not its gate.
+The workflow runs on `pull_request_target`, on `opened`, `reopened`,
+`synchronize`, `labeled` and `ready_for_review`, and its definition always
+comes from the base branch, never the PR head (code-review.yml lines 715-724).
+It reviews a pull request that carries both `code-review` and `task:ready`
+(lines 1-2): the review job's `if:` tests both labels in the event payload,
+and that the PR is open, not `task:in-progress` and has its head in this
+repository (lines 1227-1239). The guard then reads the **live** pull request
+again and stays the authority, because a re-run replays the payload it was
+created with (lines 1223-1224). A `labeled` event starts a review only for
+`code-review`, `task:ready` or an `agent:`, `model:` or `effort:` label
+(lines 1233-1238).
 
 | Label | Effect |
 | --- | --- |

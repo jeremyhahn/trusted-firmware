@@ -41,12 +41,12 @@ static void test_sb_release_writes_controls_at_base(void)
 
 static void test_sb_lines_reads_control_masked_to_scl_sda(void)
 {
-    *tfw_cm_model_reg(TFW_MPS2_I2C_BASE + 0x0u) = 0xFFFFFFFCu | TFW_SB_SDA;
+    regfile_model_poke(TFW_MPS2_I2C_BASE + 0x0u, 0xFFFFFFFCu | TFW_SB_SDA);
     TEST_ASSERT_EQUAL_HEX32(TFW_SB_SDA, tfw_mps2_sb_lines());
-    *tfw_cm_model_reg(TFW_MPS2_I2C_BASE + 0x0u) = 0xFFFFFFFFu;
+    regfile_model_poke(TFW_MPS2_I2C_BASE + 0x0u, 0xFFFFFFFFu);
     TEST_ASSERT_EQUAL_HEX32(TFW_SB_SCL | TFW_SB_SDA, tfw_mps2_sb_lines());
-    *tfw_cm_model_reg(TFW_MPS2_I2C_BASE + 0x4u) = 0xFFFFFFFFu;
-    *tfw_cm_model_reg(TFW_MPS2_I2C_BASE + 0x0u) = 0u;
+    regfile_model_poke(TFW_MPS2_I2C_BASE + 0x4u, 0xFFFFFFFFu);
+    regfile_model_poke(TFW_MPS2_I2C_BASE + 0x0u, 0u);
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_mps2_sb_lines());
 }
 
@@ -61,8 +61,8 @@ static void test_ssp_write_lands_at_spi_base_plus_off(void)
 
 static void test_ssp_read_comes_from_spi_base_plus_off(void)
 {
-    *tfw_cm_model_reg(TFW_MPS2_SPI_BASE + 0x0Cu) = 0x12u;
-    *tfw_cm_model_reg(TFW_MPS2_SPI_BASE + 0x08u) = 0x34u;
+    regfile_model_poke(TFW_MPS2_SPI_BASE + 0x0Cu, 0x12u);
+    regfile_model_poke(TFW_MPS2_SPI_BASE + 0x08u, 0x34u);
     TEST_ASSERT_EQUAL_HEX32(0x12u, tfw_mps2_ssp_read(0x0Cu));
     TEST_ASSERT_EQUAL_HEX32(0x34u, tfw_mps2_ssp_read(0x08u));
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_mps2_ssp_read(0x00u));
@@ -77,8 +77,8 @@ static void test_misc_write_lands_at_fpgaio_base_plus_4c(void)
 
 static void test_misc_read_comes_from_fpgaio_base_plus_4c(void)
 {
-    *tfw_cm_model_reg(TFW_MPS2_FPGAIO_BASE + 0x4Cu) = 0x41u;
-    *tfw_cm_model_reg(TFW_MPS2_FPGAIO_BASE + 0x48u) = 0x99u;
+    regfile_model_poke(TFW_MPS2_FPGAIO_BASE + 0x4Cu, 0x41u);
+    regfile_model_poke(TFW_MPS2_FPGAIO_BASE + 0x48u, 0x99u);
     TEST_ASSERT_EQUAL_HEX32(0x41u, tfw_mps2_misc_read());
 }
 

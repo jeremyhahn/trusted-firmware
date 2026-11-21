@@ -704,6 +704,18 @@ $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
 $(BOOT_TEST_DIR)/test_boot_stm32h5_flash: test/unit/boot/test_boot_stm32h5_flash.c \
         boot/hal/cortex-m/stm32h5/h5_flash.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The STM32H5 SoC bring-up both images link, src/hal/cortex-m/stm32h5/hal_soc.c,
+# over a register model under the stm32h573i-dk profile: the clock raise's wait
+# states before the divider, the watchdog's keys. The test sits in the SoC's
+# test/ (the *.c wildcard does not descend), and the RP2350 test's cm_regs.h
+# comes ahead of the real one, so every TFW_CM_REG lands in the test's model.
+BOOT_TEST_STM32H5_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/stm32h573i-dk,\
+                             $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_h5_hal_soc
+$(BOOT_TEST_DIR)/test_h5_hal_soc: src/hal/cortex-m/stm32h5/test/test_h5_hal_soc.c \
+        src/hal/cortex-m/stm32h5/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_STM32H5_CFLAGS) -Iboot/hal/cortex-m/rp2350/test -Isrc/hal/cortex-m/stm32h5 \
+	   -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The RP2350's sector read-modify-write (row rp2350): the arithmetic every
 # tfw-boot flash write goes through, over a RAM flash the test supplies in
 # place of rp_flash_rom.c's boot ROM calls.

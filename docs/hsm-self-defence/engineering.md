@@ -1,7 +1,7 @@
 # HSM self-defence: engineering
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Scope:
-> trusted-firmware · Last verified: 2026-11-16
+> trusted-firmware · Last verified: 2026-11-21
 >
 > The implementation contract and the test plan. Slices 1, 2 and 4 are built
 > and their tables met (marked **Met**); nothing here names an identifier that
@@ -260,7 +260,10 @@ Numbered for this audit; the m7-design.md §7 slice each continues is named.
    Test: `test/unit/test_imx95_hsm_port.c` with the ids set. Needs **another
    project** (trusted-imx95's System Manager configuration; imx95 Q21,
    architecture Q7, Q10) and then the **board**.
-3. **A4's key-group delete and whole-store wipe; A3** (slice 8). Files:
+3. **A4's key-group delete and whole-store wipe; A3** (slice 8). A3 is
+   not implemented: its implementation and its test (a case in
+   `test/unit/test_imx95_hsm_port.c` that A3 alone powers the A55 off, or
+   whatever O5 settles) are outstanding. Files:
    `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c`. Test:
    `test/unit/test_imx95_ele_mu.c`, `test_imx95_hsm_port.c`. Needs an
    **owner decision** with **go-xkms** (architecture Q4, Q5: whether the M7's

@@ -3,7 +3,9 @@
 #
 # scripts/repro_build.py's commit_epoch and clean_copy on their own, on a
 # throwaway git repository: the epoch is HEAD's committer time as a digit
-# string, and the copy holds the committed bytes only. Needs git and tar, no
+# string (the fixture gives author and committer different times on purpose,
+# so an author-time read fails), and the copy holds the committed bytes only.
+# Needs git and tar, no
 # make, no build, no network. REPRO_BUILD_SCRIPT overrides the script path (for
 # a mutation run against a scratch copy).
 
@@ -22,6 +24,7 @@ rb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rb)
 
 COMMIT_TIME = "1700000000"
+AUTHOR_TIME = "1600000000"
 GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
     "GIT_CONFIG_NOSYSTEM": "1",
@@ -29,7 +32,7 @@ GIT_ENV = {
     "GIT_AUTHOR_EMAIL": "test@example.com",
     "GIT_COMMITTER_NAME": "Test",
     "GIT_COMMITTER_EMAIL": "test@example.com",
-    "GIT_AUTHOR_DATE": f"@{COMMIT_TIME} +0000",
+    "GIT_AUTHOR_DATE": f"@{AUTHOR_TIME} +0000",
     "GIT_COMMITTER_DATE": f"@{COMMIT_TIME} +0000",
 }
 
@@ -66,6 +69,8 @@ class CopyEpochTest(unittest.TestCase):
         git(self.repo, "commit", "-q", "-m", "init")
 
     def test_epoch_is_committer_time_digits(self):
+        # The author time differs, so an epoch read from %at fails here.
+        self.assertNotEqual(AUTHOR_TIME, COMMIT_TIME)
         self.assertEqual(rb.commit_epoch(self.repo), COMMIT_TIME)
 
     def test_epoch_of_empty_repository_fails(self):

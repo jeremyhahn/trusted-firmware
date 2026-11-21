@@ -3,14 +3,16 @@
  *
  * The application image's entry point is built with -Dmain=tfw_app_main_ut
  * and linked against the stand-ins below, one test wide, in place of every
- * function it calls. Each stand-in records an event; the superloop never
- * returns, so tfw_ota_trial_poll, the last call of a pass, counts the passes
- * and leaves through longjmp after the number a test asks for. Nothing waits
+ * function it calls but tfw_hal_eth_poll, whose weak no-op comes with
+ * src/main.c. Each stand-in records an event; the superloop never returns,
+ * so tfw_ota_trial_poll, the last stand-in of a pass (only tfw_hal_eth_poll
+ * follows it), counts the passes and leaves through longjmp after the number a test asks for. Nothing waits
  * on a clock.
  *
  * Pinned: the start-up order, interrupts enabled only after all of it and
  * before the boot event, the boot event on the transport every other call
- * gets, the order inside one pass, and the framer's two counters handed to
+ * gets, the order of one pass up to tfw_ota_trial_poll (tfw_hal_eth_poll
+ * after it is not reached), and the framer's two counters handed to
  * the SYS capability each pass, unswapped.
  */
 #include <setjmp.h>

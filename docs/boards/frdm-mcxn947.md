@@ -285,9 +285,12 @@ runs an image:
    below the platform block from the application, after tfw-boot has handed
    over, with the same `flash_init` call tfw-boot makes, is not in a pinned
    file: reference manual, flash chapter, and a run on the board.
-8. **OTA_CONFIRM's request: open.** It is stored into the platform window
-   with a plain store, as on QEMU; on flash that store does not program the
-   cell. Changing how it reaches flash is outside the EEPROM row.
+8. **OTA_CONFIRM's request: done (#620).** It is programmed into the
+   platform sector through tfw-boot's ROM flash helper
+   (`tfw_mcxn_flash_update`), a read-modify-write that keeps the platform
+   block's other bytes, where `tfw_boot_nvm_read` finds it; a plain store
+   into flash programmed nothing. Host-tested against the ROM flash model
+   (`test_mcxn94x_eeprom`), not yet on the board.
 9. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
    example's `pin_mux.c`. Which header pins they reach, and whether the board
    fits pull-ups, is not in a pinned file: UM12018, board schematic.

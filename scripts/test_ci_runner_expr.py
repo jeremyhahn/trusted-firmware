@@ -23,6 +23,8 @@
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
+6. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
+   handbook template byte for byte; the header names v5.12.11.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -293,9 +295,9 @@ CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
 class CodeReviewSupersede(unittest.TestCase):
     """code-review-template v5.12.8: a new head cancels only older runs."""
 
-    def test_header_names_v5_12_10(self):
+    def test_header_names_v5_12_11(self):
         with open(CODE_REVIEW, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.10 "))
+            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.11 "))
 
     def test_supersede_cancels_only_older_runs_on_other_heads(self):
         jobs = load(CODE_REVIEW)["jobs"]

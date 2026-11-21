@@ -93,7 +93,7 @@ func BuildPlatformBlock(serial [SerialLen]byte, pubkeyHash [PubkeyHashLen]byte,
 `SerialLen` (16), `PubkeyHashLen` (32), `OperatorPubkeyLen` (64, issue #4) and
 `PlatformBlockLen` (192, grew from 128 when `operatorPubkey` was added) mirror
 `include/tfw/boot.h`'s `TFW_BOOT_SERIAL_LEN`/`TFW_BOOT_MEASURE_LEN`/
-`TFW_BOOT_OPERATOR_PUBKEY_LEN`/`TFW_BOOT_EE_LEN`. `operatorPubkey` is the
+`TFW_BOOT_OPERATOR_PUBKEY_LEN`/`TFW_BOOT_EE_BLOCK_LEN`. `operatorPubkey` is the
 `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor — a P-256 point, X‖Y
 — and is meaningful only on the element tier; a soft-tier or `CRYPTO=none`
 image never reads it, so the zero value is correct there. CLI:
@@ -173,7 +173,7 @@ same flags, converts its Intel HEX to binary with the host's GNU `objcopy`
 ihex` fails with "invalid operation"),
 and turns the bytes into a C array (`build/platform-bake/<board>/gen/block.c`).
 Nothing in the image or the build lays out the block a second time. A block of
-any length but `TFW_BOOT_EE_LEN` fails to compile.
+any length but `TFW_BOOT_EE_BLOCK_LEN` fails to compile (the `_Static_assert` in the generated `block.c`, `mk/platform-bake.mk`).
 
 **What it does, once per boot** (`tools/platform-bake/bake.c`,
 `tfw_bake_run`):

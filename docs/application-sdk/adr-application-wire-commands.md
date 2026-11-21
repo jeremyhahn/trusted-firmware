@@ -46,7 +46,7 @@ preprocessor conditionals stay in the four places.
   `TFW_ERR_BAD_ARGC` and `TFW_ERR_TOO_LONG` come from one place.
 - `APP_INFO` (`0x06`) is present only in an image built with an `APP_DIR`
   (`TFW_FEATURE_APP`, `src/core/commands.def:33`). It is on the Ethernet
-  allow-list (`src/proto/link_eth.c:127`), read-only and unauthenticated.
+  allow-list (`src/proto/link_eth.h:19`), read-only and unauthenticated.
 - The hooks are strong symbols the application defines. Weak defaults and a
   table of function pointers are both rejected
   ([architecture.md](architecture.md#rejected-alternatives)).
@@ -161,7 +161,7 @@ read-only sub-ops, such as a sensor read, cost a challenge round.
 
 `APP_CMD` is not added to `tfw_link_admits()`, so over Ethernet it answers
 `TFW_ERR_UNKNOWN_CMD`, as every command off the list does. The allow-list is
-a decision about what the network may ask for (`src/proto/link_eth.c:125`).
+a decision about what the network may ask for (`src/proto/link_eth.h:15`).
 The OTA ADR took the same decision for `OTA_INFO`, `OTA_ACTIVATE` and
 `OTA_CONFIRM`. The BMC on the ESP32-P4 speaks only Ethernet, so for it this
 leaves the commands unreachable until the owner rules (open question 2).

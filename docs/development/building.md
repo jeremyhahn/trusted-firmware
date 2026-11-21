@@ -41,11 +41,16 @@ wired as the fleet template wires them:
 
 | Stage | Gates |
 |---|---|
-| `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check`, `provenance`, `app-firmware-check`, `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
-| `make test` | `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors`, `xkms-coverage`, `sdk-coverage`, `scripts-test` |
-| `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test` |
-| `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
+| `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check` (and again for the example application on the ATmega2560), `bootloader-reproducible-check`, `provenance`, `app-firmware-check` (ATmega2560 and `mps2-an505`), `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
+| `make test` | `TEST_GATES`: `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan-host`, `test-asan-boot`, `verify-vectors`, `xkms-coverage`, `sdk-coverage`, `scripts-test` |
+| `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test`, `xkms-e2e-soft` |
+| `make security` | `security-novuln`: `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `lint-grep-selftest`, `go-tags-selftest`, `esp32-overlay-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan`; then `vuln`: `go-govulncheck`, `xkms-vuln` |
 | `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
+
+`make security` is `security-novuln`, the gates that read only the tree and
+what the CI Gate's Security job runs, then `vuln`, which reads the
+vulnerability database and so runs in `scans.yml` on main, never in the CI Gate
+(ruling 742 (1)); `make security` and `make ci` run both.
 
 CI runs `make test` in one Unit job, `unit`, as three steps, each
 `make test-shard-N` over one shard of its gates, then the sdk/go race suite

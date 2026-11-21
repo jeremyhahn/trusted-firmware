@@ -65,11 +65,12 @@ def upstream_blobs(repo, commit, paths):
         if len(head) == 2 and head[1] == b"missing":
             got[p] = None
             continue
-        if len(head) != 3 or head[1] != b"blob":
+        if len(head) != 3:
             got[p] = None
             continue
+        # cat-file prints a body for every found object, tree or commit too.
         size = int(head[2])
-        got[p] = buf[pos:pos + size]
+        got[p] = buf[pos:pos + size] if head[1] == b"blob" else None
         pos += size + 1
     return got
 

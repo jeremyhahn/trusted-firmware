@@ -178,7 +178,7 @@ the file that meets it and the host test that holds it.
 | every command refuses a payload outside its bounds, and a HAL or bus error reaches the host with no reply bytes | met | `src/core/dispatch.c`, `src/caps/*.c` | `test_caps_faults.c` `test_every_capability_refuses_a_payload_outside_its_bounds` and its bus, EEPROM and gpio fault tests |
 | the HAL is substituted at link time, never through a vtable | met by construction | `include/tfw/hal.h`; `mk/host.mk` links `test/mock/hal_mock.c` in place of `src/hal/<arch>/` | no test: the link is the check, and a `hal.h` function the mock lacks fails `make host-test` |
 | a held pin reverts on time whether or not the host is present | met | `src/caps/sched.c` `tfw_sched_poll` | `test_sched.c` `test_a_timed_pin_reverts_without_the_host`; `test_caps_faults.c` `test_a_cancel_that_cannot_apply_the_final_level_keeps_the_timer`, `test_a_failed_rearm_keeps_the_first_deadline` |
-| there is no `delay()` | met, not enforced | `src/` has only `tfw_hal_delay_us`, for bus bit-banging | none: no lint target refuses a `delay` call |
+| there is no `delay()` | met, enforced | `src/` has only `tfw_hal_delay_us`, for bus bit-banging; `make lint-no-delay` (in `make lint`) refuses `delay()`, `_delay_ms()`, `delayMicroseconds()` and `vTaskDelay()` in `src/`, `boot/`, `boards/` and `include/` | `make lint-grep-selftest` plants each refused call and must see the gate fail; a `_delay_us` call and a comment naming `delay()` must pass |
 
 Unit coverage of the handlers above and the scheduler was measured as
 `make coverage` builds it (`--coverage`, the `src/(proto|core|caps)/`

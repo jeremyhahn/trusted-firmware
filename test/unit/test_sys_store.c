@@ -19,6 +19,9 @@
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
+#include "tfw/app.h"
+#include "app_runner.h"
+#include "app_mock.h"
 
 static uint8_t     inbuf[TFW_MAX_PAYLOAD];
 static uint8_t     outbuf[TFW_MAX_PAYLOAD];
@@ -29,6 +32,7 @@ void setUp(void)
 {
     tfw_mock_reset();
     tfw_sys_reset_state();
+    tfw_mock_app_reset();
 }
 void tearDown(void) {}
 
@@ -71,10 +75,27 @@ static void test_a_store_image_serves_an_update_path_but_no_session(void)
     TEST_ASSERT_TRUE(handoff_untouched());
 }
 
+/* That update path is why the image's OTA slots still count: an application
+ * that declares one is started, and one that asks for more than the image
+ * serves is refused before its init runs. */
+static void test_an_application_on_a_store_image_keeps_its_update_slots(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(TFW_OTA_SLOTS, tfw_update_slots());
+
+    tfw_mock_app_descriptor()->ota_slots = TFW_APP_OTA_SINGLE;
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+
+    tfw_mock_app_descriptor()->ota_slots = (uint8_t)(TFW_OTA_SLOTS + 1u);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_UNSUPPORTED, tfw_app_runner_state());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_reset_to_bootloader_is_unsupported_on_a_store_image);
     RUN_TEST(test_a_store_image_serves_an_update_path_but_no_session);
+    RUN_TEST(test_an_application_on_a_store_image_keeps_its_update_slots);
     return UNITY_END();
 }

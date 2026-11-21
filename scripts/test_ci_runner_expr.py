@@ -120,6 +120,52 @@ class RunnerExpression(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+RELEASE_RO = "[self-hosted, release]   # self-hosted: hardware: bench"
+
+
+class ReleaseGuardBranches(unittest.TestCase):
+    """#613 round 5: a release job's `if` is tried under every branch (and, on
+    workflow_dispatch, every tag) it names, and under one it does not name."""
+
+    def test_branches_outside_ctx_are_rejected(self):
+        for cond in ("github.event_name == 'push' && github.ref == 'refs/heads/develop'",
+                     "github.event_name == 'push' && github.ref_name == 'develop'",
+                     "github.event_name == 'push' && github.event.ref == 'refs/heads/develop'",
+                     "github.event_name == 'push' && github.ref == 'refs/heads/Develop'",
+                     "github.event_name == 'push' && github.ref == 'refs/heads/release/1.x'",
+                     "github.event_name == 'push' && github.ref_name == 'release/1.x'",
+                     "github.event_name == 'push' && startsWith(github.ref, 'refs/heads/rel')",
+                     "github.event_name == 'push' && startsWith(github.ref_name, 'rel')",
+                     "github.event_name == 'push' && contains(github.ref, 'dev')",
+                     "github.event_name == 'push' && endsWith(github.ref_name, '1.x')",
+                     "github.event_name == 'push' && contains(github.ref_name, 'a') && contains(github.ref_name, 'b')",
+                     "github.event_name == 'push' && github.ref == format('refs/heads/{0}', 'develop')",
+                     "github.event_name == 'push' && contains(fromJSON('[\"refs/heads/main\",\"refs/heads/develop\"]'), github.ref)",
+                     "github.event_name == 'push' && github.ref_name == 1",
+                     "github.event_name == 'push' && github.ref > 'refs/heads/m'",
+                     "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'",
+                     "github.event_name == 'push' && github.ref != 'refs/heads/feature' && github.ref != 'refs/heads/main'",
+                     "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'",
+                     "github.event_name == 'workflow_dispatch' && github.ref_name == 'develop'",
+                     "github.event_name == 'workflow_dispatch' && github.ref == 'refs/tags/v2.0.0'"):
+            with self.subTest(cond=cond):
+                r = run_policy(job(RELEASE_RO, cond))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("(b) names `release`", r.stdout)
+
+    def test_main_tags_and_dispatch_on_main_pass(self):
+        for cond in ("github.event_name == 'push' && github.ref == 'refs/heads/main'",
+                     "github.event_name == 'push' && github.ref_name == 'main' && github.ref_type == 'branch'",
+                     "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')",
+                     "github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))",
+                     "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.ref != 'refs/heads/develop'",
+                     "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+                     "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'"):
+            with self.subTest(cond=cond):
+                r = run_policy(job(RELEASE_RO, cond))
+                self.assertEqual(r.returncode, 0, r.stdout)
+
+
 PRE_RO = (OPEN + " github.server_url == 'https://github.com' && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
 

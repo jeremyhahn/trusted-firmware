@@ -279,7 +279,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestCSRSignatureIsOverTheNonce":               {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt":  {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne":      {lacks: tfw.FeatureAttestCSR, tier: softTier},
-	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {not: partTCP}, // meddler waits for a BOOT
+	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {}, // any board: meddler keeps the read deadline, openPeer waits for no BOOT on TCP (#48)
 	"TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt":        {caps: tfw.FeatureAttestCSR, has: partIdentity},
 
 	// e2e_auth_test.go: the operator session, and the key TFW_HW_OPERATOR_KEY names

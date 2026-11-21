@@ -1419,9 +1419,9 @@ HOST_ESP_OTA_CFLAGS = $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(HOS
 HOST_ESP_OTA_SRCS = test/unit/test_esp_ota.c \
                     $(subst boards/$(HOST_BOARD)/board.c,boards/esp32-qemu/board.c,$(HOST_ESP_LIB_SRCS)) \
                     src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
-                    test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o
+                    test/mock/esp_ota_mock.c boot/boot_cose.c $(HOST_DIR)/unity.o
 $(HOST_DIR)/test_esp_ota: $(HOST_ESP_OTA_SRCS) | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$(HOST_ESP_OTA_SRCS)) $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 -I$(UECC_DIR) $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$(HOST_ESP_OTA_SRCS)) $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
 $(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_ESP_LIB_SRCS) \

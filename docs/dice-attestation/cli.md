@@ -1,6 +1,6 @@
 # DICE attestation — CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## `tfwctl attest` and `tfwctl attest-cert`
@@ -23,8 +23,14 @@ answers only CAPS, APP_INFO, ATTEST, ATTEST_CERT, ATTEST_CSR and OTA staging
 `src/proto/link_eth.h` `tfw_link_eth_allows`, so every verb on this page works
 over it and `tfwprov` does not.
 
-`attest` returns the 164-byte evidence frame as hex; `attest-cert` returns the
-alias certificate as DER hex. Both are `sdk/go/cmd/tfwctl/peripherals.go` over
+`attest` prints the 164-byte evidence frame as hex, and with `-json`
+`{"evidence": <hex>, "len": 164}`. `attest-cert` prints the alias certificate
+as DER hex, and with `-json` `{"certificate": <hex>, "len": <n>,
+"app_evidence": <hex>}`, where `app_evidence` is the 32 bytes of the
+certificate's measurements claim: the running application's evidence, or the
+firmware measurement where it supplied none (`tfw.ApplicationEvidence`,
+[the application's evidence](../application-sdk/user.md#put-your-evidence-in-the-devices-attestation)).
+Both are `sdk/go/cmd/tfwctl/peripherals.go` over
 `Device.Attest` and `Device.AttestCert`.
 
 **The nonce is the caller's and the tool never generates one.** A client that
@@ -65,12 +71,13 @@ offer the command fails with `TFW_ERR_UNSUPPORTED`; `tfwctl caps` lists
 tfwctl [-baud N] [-timeout D] [-boot-wait D] [-json] <port> caps
 ```
 
-Relevant fields of the text output (`sdk/go/cmd/tfwctl/main.go`):
+The text output (`sdk/go/cmd/tfwctl/main.go`) is protocol, firmware, board
+id, pins, sched slots and max payload, then these three lines in this order:
 
 ```
-root of trust SOFTWARE           # or NONE / SECURE_ELEMENT / TPM2 — Caps.CryptoTier
-algorithms    ECDSA_P256_SHA256|HMAC_SHA256   # Caps.Algorithms, what the provider can actually sign with
-features      ... attest ...     # present only when TFW_FEATURE_ATTEST=1
+root of trust SOFTWARE         # or NONE / SECURE_ELEMENT / TPM2 — Caps.CryptoTier
+features    ... attest ...     # present only when TFW_FEATURE_ATTEST=1
+algorithms  ECDSA_P256_SHA256|HMAC_SHA256   # Caps.Algorithms, what the provider can actually sign with
 ```
 
 Example:
@@ -100,11 +107,13 @@ tfwprov [flags] <port>
 | `--yes-i-mean-it` | required by `--commit` |
 | `--config PATH` | the provisioning template, a `key = value` file (`sdk/go/templates/*.conf`), not YAML; required in each of these three modes |
 | `--baud N` | serial baud rate |
-| `--timeout D` | reply timeout |
+| `--timeout D` | reply timeout; default 30s |
 | `--force` | refused outright — not accepted as a synonym for `--yes-i-mean-it` |
 | `--record PATH` | `--commit`/`--verify`: join the DeviceID point to the provisioning record `--bake-eeprom --record` started: the UEID (RFC 9711 §4.2.1 `ueid`) and the point as an RFC 7800 §3.2 `cnf` JWK. A different point is refused, never overwritten ([the provisioning record](../device-provisioning/cli.md#the-provisioning-record)) |
 
-Exactly one of `--dry-run` / `--verify` / `--commit` is required.
+Exactly one of `--dry-run` / `--verify` / `--commit` is required, except in the
+separate modes `--bake-eeprom`, `--bake-netblock` and `--write-pubkey`, which
+take none of them and no `--config` ([the provisioning CLI](../device-provisioning/cli.md)).
 
 Examples:
 

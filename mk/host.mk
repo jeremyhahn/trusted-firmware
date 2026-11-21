@@ -1886,6 +1886,14 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The Cortex-M hal_handoff.c (#628): as test_avr_handoff_mutate, the suite
+# finds the block's section in its own ELF headers.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_handoff
+$(HOST_DIR)/test_cm_handoff: test/unit/hal/test_cm_handoff.c src/hal/cortex-m/hal_handoff.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/mps2-an505 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The M7's MPU region table (src/hal/cortex-m/hal_mpu.c, row 482): the pure
 # table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu

@@ -18,7 +18,8 @@
  *
  * The framer retains at most TFW_MAX_FRAME bytes and every transition is
  * bounded, so an arbitrary byte stream can waste CPU but cannot overrun,
- * allocate, or wedge the machine. test_frame_fuzz asserts exactly that.
+ * allocate, or wedge the machine. test/unit/test_frame.c's
+ * test_random_bytes_never_overrun_or_wedge_the_framer asserts exactly that.
  */
 #ifndef TFW_FRAME_H
 #define TFW_FRAME_H
@@ -103,8 +104,8 @@ uint16_t tfw_frame_encode_event(uint8_t *out, uint16_t cap,
                                tfw_status_t status,
                                const uint8_t *payload, uint8_t plen);
 
-/* Used by the host SDK, the simulator and the tests. Compiled into firmware
- * too, where nothing references it and --gc-sections drops it; keeping one
+/* Used by the C unit tests and the test vectors (the Go host SDK has its own,
+ * sdk/go/codec.go's EncodeRequest). Compiled into firmware too, where nothing references it and --gc-sections drops it; keeping one
  * encoder for both directions is what stops request and response framing from
  * drifting apart. */
 uint16_t tfw_frame_encode_request(uint8_t *out, uint16_t cap,

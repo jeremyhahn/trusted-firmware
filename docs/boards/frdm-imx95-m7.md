@@ -56,7 +56,7 @@ value is marked TO CONFIRM in the file that states it (the design, section
 | Memory map | ITCM at M7 `0x00000000`: 32 KiB reserved for tfw-boot, the application slot of 192 KiB at `0x00008000`, the platform block in the last 4 KiB at `0x0003F000`; DTCM at `0x20000000`: `.data`, `.bss`, the stack, the reset marker and the handoff block. The A55 sees the ITCM at `0x203C0000` and the DTCM at `0x20400000`. TCM is RAM, so nothing survives a power cycle | `boards/frdm-imx95-m7/profile.mk`; the design, section 9.1; **to confirm against IMX95RM** (question 1) |
 | Loaders | the boot container (AHAB, trusted-imx95's) or Linux's remoteproc on the A55; the application carries an empty remoteproc resource table | `profile.mk`; the design, sections 9.1 and 9.2 |
 | Clock | `TFW_CM_CPU_HZ` 800 MHz; the LPUART root at 24 MHz | `board_profile.h`; the design, section 9.4; **to confirm against IMX95RM** |
-| Clocks, pins, power | none set by us: the System Manager on the M33 owns them, reached over SCMI. The SCMI client is built and host-tested, and not yet called (question 21) | the design, sections 9.3 and 9.6 |
+| Clocks, pins, power | none set by us: the System Manager on the M33 owns them, reached over SCMI. The SCMI client is called only by `hsm_port.c`'s A1 and A2 actions, host-tested; not in this board's image, whose `profile.mk` does not set `HSM := 1` (question 21) | the design, sections 9.3 and 9.6 |
 | Crypto tier | `BOARD_TIERS := soft` until the EdgeLock Enclave tier lands | `profile.mk`; the design, section 4 |
 | Writing the board | nothing is flashed: the image is loaded into TCM | `profile.mk` |
 
@@ -91,9 +91,9 @@ exists off the board. A row that is not this board's says why.
 | Row | SPEC | Status | Date | Evidence | Issue |
 |---|---|---|---|---|---|
 | `wire-protocol` | shipped | not run | 2026-11-20 | over LPUART3 only; LPUART host-tested on the register model | #49 |
-| `device-capabilities` | shipped | not run | 2026-11-20 | GPIO, UART, watchdog and pulse timing (`PULSE_IN`, `PULSE_CAPTURE`, on SysTick) linked by default; PWM on a TPM, the SAR ADC, I²C on an LPI2C and tone on a GPT built only in their opt-in rows (`soft:PWM=1`, `soft:ADC=1`, `soft:I2C=1`, `soft:TONE=1`), host-tested on register models, and answering unsupported until their bases are known (the design, question 17); EEPROM, SPI and 1-Wire not linked | #49 |
+| `device-capabilities` | shipped | not run | 2026-11-20 | GPIO, UART, watchdog and pulse timing (`PULSE_IN`, `PULSE_CAPTURE`, on SysTick) linked by default; PWM on a TPM, the SAR ADC, I²C on an LPI2C and tone on a GPT built only in their opt-in rows (`soft:PWM=1`, `soft:ADC=1`, `soft:I2C=1`, `soft:TONE=1`), host-tested on register models, and answering unsupported until their bases are known (PWM also until the pad handoff, `TFW_IMX95_PWM_PAD_HANDOFF`) (the design, question 17); EEPROM, SPI and 1-Wire not linked | #49 |
 | `boards` | shipped | not run | 2026-11-20 | `test/unit/test_board_frdm-imx95-m7.c`; `make board-sweep` | #49 |
-| `dice-attestation` | shipped | not run | 2026-11-20 | soft tier only; the enclave tier not started | #49 |
+| `dice-attestation` | shipped | not run | 2026-11-20 | soft tier only; the enclave tier's message layer built and host-tested (`test/unit/test_imx95_ele_mu.c`), not called until questions 3 and 4 are answered | #49 |
 | `secure-boot` | shipped | not run | 2026-11-20 | no tfw-boot row; the boot is open (question 19) | #49 |
 | `device-provisioning` | shipped | not run | 2026-11-20 | nothing board-specific built | #49 |
 | `host-sdk` | shipped | not this board's | 2026-11-20 | host side; reaches the board over the wire protocol | — |
@@ -111,7 +111,7 @@ exists off the board. A row that is not this board's says why.
 | `esp32` | in progress | not this board's | 2026-11-20 | another architecture port | — |
 | `esp32-p4` | in progress | not this board's | 2026-11-20 | another board | — |
 | `imx95` | in progress | not run | 2026-11-20 | board as data, SoC HAL, SCMI and enclave messages built and host-tested (the design, section 10) | #49 |
-| `hsm-self-defence` | future | not run | 2026-11-20 | the SUIT reader, payload reader and decision engine on the host only (`make host-test`), and the wire commands `0x76` to `0x7A` in tfwsim-atecc608a (`make sdk-test`); nothing on the M7 | #50 |
+| `hsm-self-defence` | future | not run | 2026-11-20 | the SUIT reader, payload reader and decision engine on the host only (`make host-test`), and the wire commands `0x76` to `0x7A` and `0x7C` (`HSM_RECORD_READ`) in tfwsim-atecc608a (`make sdk-test`); the M7's port, `src/hal/cortex-m/imx95/hsm_port.c`, host-tested (`test_imx95_hsm_port.c`); not linked into this board's image (no `HSM := 1` in its `profile.mk`) | #50 |
 | `device-security-event-evidence` | planned | not this board's | 2026-11-20 | carried by `xkms-adapter`, the AVR backend | — |
 | `application-sdk` | in progress | not run | 2026-11-20 | applications are board-independent; nothing board-specific built | #49 |
 | `ota` | in progress | not run | 2026-11-20 | AHAB plus our trailer v1 and SUIT gate, designed (the design, section 5); not started | #52 |

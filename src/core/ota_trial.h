@@ -29,10 +29,10 @@
  * In any other state, or with no valid platform block, arms nothing. */
 void tfw_ota_trial_start(void);
 
-/* After the runner's start, once. In TRIAL, asks the runner for
- * tfw_app_after_update's answer (tfw_app_runner_after_update) and resets into
- * tfw-boot on a refusal, so the trial ends at once as failed. TFW_OK, or any
- * other state, changes nothing. */
+/* After the runner's start, once. In TRIAL, resets into tfw-boot when the
+ * runner's state is FAILED or UNSUPPORTED or tfw_app_runner_after_update
+ * (tfw_app_after_update's answer) refuses, so the trial ends at once as
+ * failed. Otherwise, or outside TRIAL, changes nothing. */
 void tfw_ota_trial_after_init(void);
 
 /* From the superloop: during the trial, pets the watchdog and, once

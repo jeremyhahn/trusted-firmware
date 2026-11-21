@@ -72,7 +72,7 @@ between two of its attempts.
 |---|---|
 | `0` | the command succeeded |
 | `1` | any failure, printed as `tfwctl: <error>` on stderr: a `netcfg` usage error, a flag a parser rejects, `--dhcp` beside `--ip`, `--mask` or `--gateway`, the SDK's `*tfw.NetConfigError`, a device refusal, a `tcp://` address that is not `host:port`, an address that cannot be bound, or `no device connected to <addr> within <timeout>` |
-| `2` | fewer than two arguments: the usage text is printed |
+| `2` | fewer than two arguments, other than `tfwctl ports` (which lists the serial ports and exits 0): the usage text is printed |
 
 Tests: `sdk/go/cmd/tfwctl/netcfg_test.go`, `tcp_test.go`,
 `e2e_netcfg_test.go` and `e2e_ethernet_test.go`, all in `make sdk-test`

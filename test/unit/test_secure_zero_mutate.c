@@ -6,7 +6,8 @@
  * byte outside it -- before, after, and the guard bands either side -- is the
  * byte it was. And a buffer of exactly n bytes on the heap is cleared without
  * a single access past it, which ASan sees in the sanitised build.
- * test_secure_zero.c pins the plain call; this suite pins the edges.
+ * No other suite tests secure_zero.c on its own; this suite pins the plain
+ * call and the edges.
  *
  * Deterministic: xorshift32 seeded with a literal; a failure prints the seed,
  * the length, the alignment and the first wrong byte.

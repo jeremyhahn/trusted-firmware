@@ -14,7 +14,8 @@
  *     channel configured, a channel that will not configure internal, and
  *     neither leaving a tone to stop;
  *   - a stop as the last channel stopped low, once, only while a tone runs,
- *     and successful even when the driver's stop fails;
+ *     and a failed driver stop reported as internal with the tone left
+ *     running, so a retry stops it;
  *   - a tone of 0 Hz a stop.
  *
  * The unit's running flag is static, so the tests run in the order main()

@@ -4,8 +4,8 @@
  * The nRF54L15 DK's pin table, checked on x86.
  *
  * The table is the DK's four LEDs and four buttons on the SoC's three GPIO
- * banks; LED1 and LED3 are PWM20's channels 0 and 1, and no pin offers a
- * converter yet. The pins are
+ * banks, then AIN2-AIN5 (P1.6, P1.7, P1.11, P1.12) as SAADC channels 0-3;
+ * LED1 and LED3 are PWM20's channels 0 and 1. The pins are
  * the board's (Zephyr's nrf54l15dk_common.dtsi); a slip here lights the wrong
  * LED on a board nobody is watching.
  *

@@ -301,6 +301,22 @@ static void test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_read(17u, &b, 0u));
 }
 
+/* A descriptor whose config_len overruns the part: a span inside the declared
+ * length that passes the end of the EEPROM is refused without the HAL, and the
+ * part's last byte stays erased. */
+static void test_a_config_call_past_the_part_is_out_of_range_inside_the_declared_length(void)
+{
+    uint8_t        buf[2] = { 0x5Au, 0xA5u };
+    const uint16_t off    = (uint16_t)(TFW_EEPROM_SIZE - TFW_APP_CONFIG_BASE - 1u);
+
+    tfw_mock_app_descriptor()->config_len =
+        (uint16_t)(TFW_EEPROM_SIZE - TFW_APP_CONFIG_BASE + 1u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_write(off, buf, 2u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_read(off, buf, 2u));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[TFW_EEPROM_SIZE - 1u]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, buf[0]);
+}
+
 /* ---- APP_INFO ---- */
 
 static tfw_status_t app_info(uint8_t payload_len)
@@ -491,6 +507,7 @@ int main(void)
     RUN_TEST(test_configuration_lands_after_the_boot_block);
     RUN_TEST(test_configuration_past_the_declared_length_is_out_of_range);
     RUN_TEST(test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not);
+    RUN_TEST(test_a_config_call_past_the_part_is_out_of_range_inside_the_declared_length);
     RUN_TEST(test_app_info_reports_the_runner_and_the_descriptor);
     RUN_TEST(test_app_info_reports_a_refused_descriptor_as_written);
     RUN_TEST(test_app_info_takes_no_payload);

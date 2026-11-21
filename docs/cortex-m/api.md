@@ -1,6 +1,6 @@
 # Cortex-M — API
 
-> **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-10-22
+> **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-11-21
 
 The port adds no command, no status code and no frame. A Cortex-M image speaks
 the [wire protocol](../wire-protocol/) unchanged, and the host SDK talks to it
@@ -47,28 +47,29 @@ layer in `boot/boot_hal.h`.
 | `tfw_hal_adc_read` | S `hal_adc.c` | `TFW_ERR_RANGE`: the boards have no channel |
 | `tfw_hal_i2c_init`, `_xfer` | S `hal_bus.c` over `sbcon.c` | `I2C=1` only: a bit-banged master on the shield 0 SBCon ([README](README.md)) |
 | `tfw_hal_spi_init`, `_xfer` | S `hal_bus.c` over `pl022.c` | `SPI=1` only: the shield 0 PL022, its select in the FPGA I/O MISC register ([README](README.md)) |
-| `tfw_hal_ow_reset`, `_write`, `_read` | S `hal_bus.c` | `TFW_ERR_UNSUPPORTED` |
+| `tfw_hal_ow_reset`, `_write`, `_read` | S `hal_bus.c` | `ONEWIRE=1` only: bit-banged on GPIO block 0 bit 0 (pin 3, `board.c`); another pin `TFW_ERR_RANGE` |
+| `tfw_hal_pwm_write`, `_stop` | S `hal_pwm.c` | `PWM=1` only: software PWM on the CMSDK dual timer, the two LEDs, 256 steps; another pin `TFW_ERR_BAD_PIN` |
+| `tfw_hal_tone_start`, `_stop` | S `hal_tone.c` | `TONE=1` only: LED1 toggled from TIMER0's interrupt |
+| `tfw_hal_pulse_in`, `_capture` | C `hal_pulse.c` | `PULSE=1` only: SysTick timing; QEMU drives no pin, so it times out |
 
 `tfw_hal_tick_init` is not in `hal.h`; `src/main.c` declares it and calls it
 first, and `hal_tick.c` defines it.
 
-### Left to a later slice
+### Optional rows
 
-Not defined by this port. The board turns each feature off and
-`mk/firmware.mk` drops the files that call them, so nothing references them
-and the link needs none.
-
-| Functions | Feature switch | Dropped |
-|---|---|---|
-| `tfw_hal_pwm_write`, `_stop` | `TFW_FEATURE_PWM 0` | `src/caps/pwm.c` |
-| `tfw_hal_tone_start`, `_stop` | `TFW_FEATURE_TONE 0` | `src/caps/tone.c` |
-| `tfw_hal_pulse_in`, `_capture` | `TFW_FEATURE_PULSE 0` | `src/caps/pulse.c` |
+PWM, tone, pulse timing and 1-Wire are each 0 by default and on only in the
+board's `soft:<FEATURE>=1` row (`BOARD_ROWS` in `boards/<board>/profile.mk`):
+`soft:PWM=1`, `soft:TONE=1`, `soft:PULSE=1` and `soft:ONEWIRE=1`.
+`mk/firmware.mk` links the cap file (`src/caps/pwm.c`, `tone.c`, `pulse.c`,
+`bus.c`) and the HAL file only when the feature is on, so the default image
+references none of the functions above.
 
 `TFW_FEATURE_EEPROM` is 0 as well on the silicon boards, so `src/caps/storage.c`
 and the EEPROM commands are dropped and `hal_eeprom.c` serves only the stager.
 The MPS2 boards turn it on: `TFW_EEPROM_SIZE` is the platform window's 4 KiB,
 tfw-boot's span refused to `EEPROM_WRITE` by `hal_eeprom.c` as on the AVR. With I2C, SPI and
-1-Wire all 0, the base image links `bus_none.c` instead of `src/caps/bus.c`.
+1-Wire all 0, the base image links `bus_none.c` instead of `src/caps/bus.c`;
+the `ONEWIRE=1` row links `src/caps/bus.c` and `hal_bus.c`.
 
 ## tfw-boot's hardware layer (`boot/boot_hal.h`)
 

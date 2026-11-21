@@ -3215,12 +3215,14 @@ $(HOST_DIR)/test_rp2350_tone: test/unit/test_rp2350_tone.c test/model/cortex-m/r
                               src/hal/cortex-m/rp2350/hal_tone.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m/rp2350/tone $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The application UART (#621), not tfw-boot's: the test stands in for
-# cm_regs.h with its own register file and PL011 receive FIFO and includes
-# hal_uart.c unchanged, on the Pico 2 W's profile.
+# The application UART (#621), not tfw-boot's: its cm_regs.h, in
+# test/model/cortex-m/rp2350/uart/, comes ahead of $(HOST_RP2350_CFLAGS) so
+# soc_regs.h sends TFW_CM_REG to the test's register file and PL011 receive
+# FIFO and the NVIC to two counting stubs; the test includes hal_uart.c
+# unchanged, on the Pico 2 W's profile.
 $(HOST_DIR)/test_rp2350_uart: test/unit/test_rp2350_uart.c src/hal/cortex-m/rp2350/hal_uart.c \
-                              $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ test/unit/test_rp2350_uart.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+                              test/model/cortex-m/rp2350/uart/cm_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/uart $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ test/unit/test_rp2350_uart.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)

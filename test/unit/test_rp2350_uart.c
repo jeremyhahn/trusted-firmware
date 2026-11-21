@@ -4,35 +4,14 @@
  * The RP2350's application UART, src/hal/cortex-m/rp2350/hal_uart.c, on the
  * Pico 2 W's profile against the suite's own register file (#621).
  *
- * This file stands in for cm_regs.h: TFW_CM_REG goes to reg(), each address
- * its own cell, with RESETS_DONE preset to UART0's bit so init's wait ends,
- * and the PL011's receive FIFO modelled on FR and DR: FR reads RXFE while the
- * FIFO is empty, and each DR read takes the FIFO's next byte. The NVIC is two
- * stubs that count. hal_uart.c is included unchanged.
+ * The model's cm_regs.h, in test/model/cortex-m/rp2350/uart/, sends
+ * TFW_CM_REG to reg() below, each address its own cell, with RESETS_DONE
+ * preset to UART0's bit so init's wait ends, and the PL011's receive FIFO
+ * modelled on FR and DR: FR reads RXFE while the FIFO is empty, and each DR
+ * read takes the FIFO's next byte. Its NVIC is two stubs that count.
+ * hal_uart.c is included unchanged.
  */
-#define TFW_CM_REGS_H
-
 #include <stdint.h>
-
-static volatile uint32_t *reg(uintptr_t addr);
-
-#define TFW_CM_REG(addr) (*reg((uintptr_t)(addr)))
-
-static uint32_t nvic_enabled;
-static uint32_t nvic_disabled;
-static uint32_t nvic_last_irq;
-
-static inline void tfw_cm_nvic_enable(uint32_t irq)
-{
-    nvic_enabled++;
-    nvic_last_irq = irq;
-}
-
-static inline void tfw_cm_nvic_disable(uint32_t irq)
-{
-    nvic_disabled++;
-    nvic_last_irq = irq;
-}
 
 #include "unity.h"
 #include "hal_uart.c"

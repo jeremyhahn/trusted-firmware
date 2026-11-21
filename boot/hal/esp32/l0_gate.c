@@ -98,7 +98,8 @@ tfw_status_t tfw_l0_gate(uint32_t base, uint32_t slot_size, uint32_t esp_len,
      * layout and CRC before any field is believed. It is SHA-256 over the
      * 64-byte key in the slot, checked here rather than through
      * tfw_boot_check_pubkey_pin, which asks the backend for a 32-byte key --
-     * p256-soft keeps a 64-byte one and answers TFW_ERR_UNSUPPORTED. The pin is
+     * p256-soft, or the P4's ROM verify (verify_p256_rom.c), keeps a 64-byte
+     * one and answers TFW_ERR_UNSUPPORTED. The pin is
      * what stops a rewritten bootloader from bringing its own key.
      * NOT_PROVISIONED for the reason that function gives: the pairing is
      * wrong, not the image. */
@@ -114,7 +115,8 @@ tfw_status_t tfw_l0_gate(uint32_t base, uint32_t slot_size, uint32_t esp_len,
         return TFW_ERR_NOT_PROVISIONED;
     }
 
-    /* The key goes NULL: p256-soft verifies with its own slot only. */
+    /* The key goes NULL: p256-soft, or the P4's ROM verify
+     * (verify_p256_rom.c), verifies with its own slot only. */
     st = tfw_boot_verify(raw, TFW_BOOT_TR_SIGNED_LEN, out->signature, 0);
     if (st != TFW_OK) {
         return st;

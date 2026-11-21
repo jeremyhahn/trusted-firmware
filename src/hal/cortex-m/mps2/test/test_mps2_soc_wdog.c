@@ -24,6 +24,9 @@
 
 #if !defined(TEST_WDOG_BASE) || !defined(TEST_SPI_BASE) || \
     !defined(TEST_I2C_BASE) || !defined(TEST_FPGAIO_BASE)
+/* make lint's cppcheck run has no test rule and so no bases: the guard is for
+ * the build, not the analysis. */
+// cppcheck-suppress preprocessorErrorDirective
 #error "TEST_*_BASE: the make rule states the profile's bases"
 #endif
 

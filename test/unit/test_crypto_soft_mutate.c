@@ -8,7 +8,7 @@
  * branch that falls through to the local UDS, a state not reset by init.
  *
  * Mutants tried, each killed by the test named:
- *   init: drop `provisioned = 0u` (line 69)    -> a_mismatched_handoff_after_a_uds_init_unprovisions,
+ *   init: drop `provisioned = 0u` (line 71)    -> a_mismatched_handoff_after_a_uds_init_unprovisions,
  *                                                 the_handoff_cdi_is_taken_once
  *   init: tier test `==` -> `!=`               -> the_software_handoff_signs_with_its_cdi
  *   init: `else if (handoff_tier)` narrowed to the element tier
@@ -37,7 +37,7 @@
  *                                              -> the_refusals_read_and_write_nothing
  *   algorithms reports none                    -> the_refusals_read_and_write_nothing
  * Equivalent, so not killable from outside: tfw_secure_zero of the drained
- * mismatched CDI (line 126) clears a stack buffer never read again; dropping
+ * mismatched CDI (line 128) clears a stack buffer never read again; dropping
  * sign's own `!provisioned` check (line 202) leaves the identical refusal to
  * tfw_crypto_hmac, which answers before writing; dropping its `st != TFW_OK`
  * check (line 206) is dead once that check passed, as slot 0 is never refused.

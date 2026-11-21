@@ -2016,10 +2016,23 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 # test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
 # verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
 # bootloader-check builds, as a string; host-test runs it as boot-test does.
+#
+# The string is compiled in, so the binary depends on BOOT_SUPPORTED's value
+# through a stamp holding it (#640). The stamp is rewritten on every run, as
+# mk/platform-bake.mk's block is, and replaced only when its bytes differ: an
+# edited or overridden matrix rebuilds the binary, an unchanged one rebuilds
+# nothing (`make -q` still answers not up to date, the stamp being forced).
+# BOOT_SUPPORTED is set in mk/boot.mk, read after this file, so it is compared
+# in the recipe and never at parse time.
+BOOT_ROWS_STAMP := $(HOST_DIR)/boot/boot-supported.txt
+$(BOOT_ROWS_STAMP): FORCE | $(HOST_DIR)/boot
+	@printf '%s\n' '$(strip $(BOOT_SUPPORTED))' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
-                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+                                      $(HOST_DIR)/unity.o $(BOOT_ROWS_STAMP) | $(HOST_DIR)/boot
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
 # The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,
@@ -2899,6 +2912,13 @@ header-deps-check:
 # the shield's pins D10-D13 marked in use, so tone's refusal of D11 runs. It
 # stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The application runner on an ETH=1 image (#640): the network block and the
+# application's configuration share TFW_BOOT_EE_LEN, so the runner refuses an
+# application that owns configuration. It stays in TEST_SRCS; this explicit
+# rule takes the place of the pattern rule.
+$(HOST_DIR)/test_app_netcfg: test/unit/test_app_netcfg.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The Cortex-M reset marker's decode and fault record (row cortex-m), each

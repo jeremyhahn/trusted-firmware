@@ -100,7 +100,7 @@ static void test_an_element_lost_after_init_is_a_crypto_error(void)
 }
 
 /* A part with no UDS refuses HMAC_START with execution error 0x0F. The tier
- * returns the driver's status as it is (cdi_atecc.c:93, `return st`), and the
+ * returns the driver's status as it is (cdi_atecc.c:96, `return st`), and the
  * driver maps 0x0F to TFW_ERR_UNSUPPORTED. */
 static void test_an_unprovisioned_element_refuses_the_hmac(void)
 {
@@ -190,7 +190,7 @@ static void test_the_floor_is_raised_by_the_whole_permitted_step(void)
 
 /* One past the step: the loop makes MAX_STEP + 1 increments, so the counter
  * does reach the value, but the loop ends before the read that would see it
- * and the write answers TFW_ERR_RANGE (cdi_atecc.c:145, :169). */
+ * and the write answers TFW_ERR_RANGE (cdi_atecc.c:156, :180). */
 static void test_a_step_past_the_bound_is_a_range_error(void)
 {
     element_present(5u);

@@ -39,6 +39,11 @@ class NanoRowsTest(unittest.TestCase):
         self.assertNotEqual(0, got.returncode)
         self.assertIn("CRYPTO=soft is refused on atmega328p", got.stderr)
 
+    def test_crypto_auto_on_the_nano_is_refused(self):
+        got = make("board-tiers", "BOARD=atmega328p", "CRYPTO=auto")
+        self.assertNotEqual(0, got.returncode)
+        self.assertIn("CRYPTO=auto is refused on atmega328p", got.stderr)
+
     def test_the_mega_keeps_its_soft_and_auto_tiers(self):
         got = make("board-tiers", "BOARD=atmega2560", "CRYPTO=soft")
         self.assertEqual(0, got.returncode, got.stderr)

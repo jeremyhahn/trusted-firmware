@@ -6,11 +6,14 @@ On the soft tier the 2560's OTA and store rows do not fit, and they shed OTA
 and the store, never the verifier (OTA requirement 37, CA m467): the one soft
 row is atmega2560:soft:soft:p256-soft:0:0, and a row naming OTA or the store
 is refused at parse time. These tests read what make decides, without
-building. The rows are literals, as the caller types them.
+building: the dry run keeps make from remaking the ELF (-o), runs true for
+MAKE and ARCH_CC, and points BUILD_DIR at a scratch directory. The rows are literals, as the caller types them.
 """
 
 import os
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +38,19 @@ def supported_rows(out):
     if lead not in out or tail not in out:
         raise AssertionError(out)
     return out.split(lead, 1)[1].split(tail, 1)[0].split()
+
+
+def tree_state(root):
+    """Every file under root with its mtime and bytes; None if root is absent."""
+    if not os.path.isdir(root):
+        return None
+    state = {}
+    for top, _, files in os.walk(root):
+        for name in files:
+            path = os.path.join(top, name)
+            with open(path, "rb") as f:
+                state[path] = (os.stat(path).st_mtime_ns, f.read())
+    return state
 
 
 class BootShedOta(unittest.TestCase):
@@ -62,9 +78,24 @@ class BootShedOta(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(out.strip(), BASE_ROW)
         # And the gate takes it: a dry run plans the ota0-store0 build.
-        _, out = make("-n", "bootloader", "BOARD=atmega2560", *SOFT)
+        # GNU make runs a recipe holding $(MAKE) even under -n, and the ELF
+        # recipe links and recurses in one line: -o keeps make from remaking
+        # the ELF, MAKE and ARCH_CC are true, and BUILD_DIR is scratch, so
+        # nothing is linked and nothing under build/ is touched.
+        before = tree_state(os.path.join(REPO, "build", "atmega2560", "boot"))
+        scratch = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, scratch)
+        cfg = os.path.join(scratch, "atmega2560", "boot",
+                           "soft-soft-p256-soft-ota0-store0")
+        rc, out = make("-n", "bootloader", "BOARD=atmega2560", *SOFT,
+                       "BUILD_DIR=" + scratch, "MAKE=true", "ARCH_CC=true",
+                       "-o", os.path.join(cfg, "tfw-boot.elf"))
+        self.assertEqual(rc, 0, out)
         self.assertNotIn("is not a supported configuration", out)
-        self.assertIn("build/atmega2560/boot/soft-soft-p256-soft-ota0-store0/", out)
+        self.assertIn(cfg + "/", out)
+        self.assertEqual(os.listdir(scratch), [], out)
+        self.assertEqual(
+            tree_state(os.path.join(REPO, "build", "atmega2560", "boot")), before)
 
 
 if __name__ == "__main__":

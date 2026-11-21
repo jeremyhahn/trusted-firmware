@@ -54,9 +54,10 @@ open the operator auth session it writes in; without them the device answers
 `TFW_ERR_AUTH_REQUIRED` (17) and writes nothing (the network peer-binding ADR,
 `adr-network-peer-binding.md`, option B, owner ruling 130).
 
-`netcfg get` reads the block back. Every other flag is required; a missing or
-malformed value is refused by the SDK with the field it names, and nothing is
-written. On an image built with `DHCP=1`, `--dhcp` takes the place of `--ip`,
+`netcfg get` reads the block back. Every other flag is required: a value tfwctl
+cannot parse is refused naming the flag (`--mac: ...`), a missing one, or one
+the encoder cannot carry (an IPv6 address), by the SDK's `*tfw.NetConfigError`
+naming the field, and nothing is written. On an image built with `DHCP=1`, `--dhcp` takes the place of `--ip`,
 `--mask` and `--gateway`, and the device leases them; `--dhcp` beside any of
 the three is refused:
 

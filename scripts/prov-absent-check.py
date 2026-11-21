@@ -4,7 +4,7 @@
 Row device-provisioning (docs/SPEC.md): provisioning commands are absent from
 every production image. The gate is file selection -- mk/firmware.mk adds
 src/caps/provision.c and its backend to the object list only for PROVISION=1,
-and src/core/commands.def emits the 0x70-0x75 entries only under
+and src/core/commands.def emits the 0x70-0x75 and 0x7B entries only under
 TFW_FEATURE_PROVISION -- so this check reads the object lists the build links,
 asked of make itself, and holds every one of them to that:
 

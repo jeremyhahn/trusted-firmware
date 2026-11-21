@@ -1,6 +1,6 @@
 # Wire protocol — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## Exported surface
@@ -76,13 +76,35 @@ transport refuses without dispatching it is recorded through
 `tfw_dispatch_refused`, so OTA_AUTH's signature counts only for the command
 right after it (#137).
 
+### C — `include/tfw/link.h`
+
+```c
+void    tfw_link_poll(void);
+uint8_t tfw_link_rx(uint8_t *out, uint8_t hold);
+uint8_t tfw_link_tx_try(uint8_t byte, uint8_t serial);
+void    tfw_link_tx_done(uint8_t serial);
+uint8_t tfw_link_admits(uint8_t cmd);
+uint8_t tfw_link_take_reset(void);
+```
+
+The transport's byte link, the seam `transport.c` calls, substituted at link
+time like the HAL: a UART-only image links `src/proto/link_serial.c`, an
+Ethernet image links `src/proto/link_eth.c`, which serves the UART and a W5x00
+socket to the one framer. `hold` keeps a partly received frame on the wire it
+arrived on; a reply goes back on the wire its request came from, and `serial`
+sends on the UART regardless, which is where events go; `tfw_link_admits`
+says whether that wire may run `cmd`; `tfw_link_take_reset` reports, once, a
+peer change, after which the transport drops any partial frame and owed
+reply. Nothing here blocks.
+
 ### Go — `sdk/go` (package `tfw`)
 
 ```go
 func EncodeRequest(seq Seq, cmd Cmd, payload []byte) ([]byte, error)
 func EncodeResponse(seq Seq, cmd Cmd, st Status, payload []byte) ([]byte, error)
 func Decode(b []byte) (Frame, int, error)
-func CRC16(buf []byte) uint16   // crc.go
+func CRC16(b []byte) uint16     // crc.go
+func CRC16Update(crc uint16, b byte) uint16
 
 type Frame struct{ Seq Seq; Op byte; Status Status; Payload []byte }
 func (f Frame) IsResponse() bool

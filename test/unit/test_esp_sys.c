@@ -70,6 +70,21 @@ static void test_irq_enable_and_the_watchdog_touch_nothing(void)
                                + mock_sys.timer_calls + mock_sys.delay_calls);
 }
 
+/* The bench self-check (hal_selfcheck.c) runs once, after the board is held,
+ * and not at all when the board init was refused: a C6 enable that is not held
+ * low is no state to drive pins in. */
+static void test_hal_init_runs_the_selfcheck_only_after_the_board_init(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_init());
+    TEST_ASSERT_EQUAL_UINT(1u, mock_sys.board_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, mock_sys.selfcheck_calls);
+
+    mock_sys_reset();
+    mock_sys.board_status = TFW_ERR_INTERNAL;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_hal_init());
+    TEST_ASSERT_EQUAL_UINT(0u, mock_sys.selfcheck_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -77,5 +92,6 @@ int main(void)
     RUN_TEST(test_reset_restarts_through_esp_idf);
     RUN_TEST(test_the_tick_is_esp_timers_and_needs_no_start);
     RUN_TEST(test_irq_enable_and_the_watchdog_touch_nothing);
+    RUN_TEST(test_hal_init_runs_the_selfcheck_only_after_the_board_init);
     return UNITY_END();
 }

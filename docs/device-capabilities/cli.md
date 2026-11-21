@@ -1,28 +1,37 @@
 # Device capabilities: CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 >
 > Conflicts with this document are defects. Fix them here first.
 
 `tfwctl` (`sdk/go/cmd/tfwctl/main.go`) is the reference client:
-`tfwctl [flags] <port> <command> [args]`. It talks to one board over serial;
-`ports` lists what the host can see and takes no port argument.
+`tfwctl [flags] <port> <command> [args]`. It talks to one board at a time;
+`ports` lists the serial ports the host can see and takes no port argument.
+`<port>` is one of three transports (`main.go` lines 157-185):
+
+| `<port>` | transport |
+|---|---|
+| a device path, e.g. `/dev/ttyACM0` | serial, at `--baud` |
+| `tcp://host:port` | Ethernet: `tfwctl` listens at that address, the device's network-block endpoint, and runs the command on the first device to connect within `--timeout` (`main.go` line 165). Over Ethernet the device answers only CAPS, APP_INFO, the attestation commands and OTA staging |
+| `unix:<path>` | an emulator's UART on a Unix socket (QEMU `-serial unix:<path>,server=on`): `tfwctl` dials it within `--timeout` (`main.go` line 172) |
 
 ```sh
-tfwctl --baud 115200 --timeout 10s --json <port> <command> [args]
+tfwctl --baud 115200 --timeout 10s --boot-wait 2s --json <port> <command> [args]
 ```
 
 | flag | default | does |
 |---|---|---|
-| `--baud` | 115200 | serial baud rate |
+| `--baud` | 115200 (`serialport.DefaultBaud`) | serial baud rate |
 | `--json` | off | emit JSON instead of text |
 | `--timeout` | 10s | how long to wait for a reply |
+| `--boot-wait` | 2s (`tfw.DefaultBootWait`) | how long to wait for the firmware's BOOT event after opening a serial or Unix port, before the first command; `0` turns the wait off. Raise it for a tfw-boot `BOOT_MEASURE=atecc608a` image, which can take several seconds to measure a large application (`main.go` line 131) |
 
 ## Verbs this feature exposes today
 
-Every command in this capability set has a verb. The GPIO and scheduler verbs
-are in `sdk/go/cmd/tfwctl/main.go`; the rest are in
-`sdk/go/cmd/tfwctl/peripherals.go`.
+Every command in this capability set has a verb. `ports` is handled in
+`main()` before a port is opened; ping, caps, pin, sys, app and reset and the
+GPIO and scheduler verbs are dispatched in `run()` in
+`sdk/go/cmd/tfwctl/main.go`.
 
 | verb | args | does |
 |---|---|---|
@@ -54,6 +63,8 @@ tfwctl /dev/ttyACM0 timer-cancel 7 apply
 tfwctl --json /dev/ttyACM0 sys
 tfwctl /dev/ttyACM0 ping hello
 tfwctl /dev/ttyACM0 reset soft
+tfwctl unix:/tmp/uart.sock caps
+tfwctl --boot-wait 0 /dev/ttyACM0 caps     # no BOOT wait: the adapter does not reset the board
 tfwctl ports
 ```
 
@@ -66,6 +77,10 @@ default.
 
 `../host-sdk/architecture.md`: "if a command exists on the wire and is not
 reachable from `tfwctl`, that is a gap in `tfwctl`."
+
+The peripheral verbs below are dispatched in `runPeripheral` in
+`sdk/go/cmd/tfwctl/peripherals.go`, which `run()` falls through to; `netcfg`
+is dispatched in `run()` to `runNetcfg` in `sdk/go/cmd/tfwctl/netcfg.go`.
 
 | verb | args | does |
 |---|---|---|
@@ -91,7 +106,11 @@ reachable from `tfwctl`, that is a gap in `tfwctl`."
 Addresses and counts accept `0x` prefixes. Payloads are hex without
 separators. `--json` applies to every verb.
 
-`sdk/go/cmd/tfwctl/peripherals_test.go` holds the regression: it drives every
-verb against `tfwsim` and fails on "unknown command", which is what a verb
-silently losing its dispatch would otherwise look like — the SDK method keeps
-working and only the CLI loses it.
+The other verbs `tfwctl` has (`ota-*`, `hsm-*`, `attest`, `attest-cert`,
+`attest-csr`, `auth`) belong to other features and are documented there.
+
+`TestEveryPeripheralVerbIsDispatched` in `sdk/go/cmd/tfwctl/sim_test.go`
+(line 92, built with `-tags tfwsim`) holds the regression: it drives every
+verb against `tfwsim` and fails on `unknown command "<verb>"`, which is what a
+verb silently losing its dispatch would otherwise look like — the SDK method
+keeps working and only the CLI loses it.

@@ -435,8 +435,8 @@ type Option func(*Device)
 // WithTimeout sets how long to wait for a reply.
 //
 // The default is generous on purpose. On the element tier, ATTEST and
-// ATTEST_CERT wait out the ATECC608A's datasheet maximum execution time for a
-// signature, and ATTEST_CERT also hashes the whole certificate body in
+// ATTEST_CERT wait out the ATECC608's maximum Sign execution time
+// (TFW_ATECC_T_SIGN, cryptoauthlib's table), and ATTEST_CERT also hashes the whole certificate body in
 // software on a 16 MHz part. A host that gave up after the usual serial
 // timeout would declare a working device dead during provisioning.
 func WithTimeout(d time.Duration) Option { return func(x *Device) { x.timeout = d } }
@@ -456,9 +456,10 @@ func WithTimeout(d time.Duration) Option { return func(x *Device) { x.timeout = 
 // Sized for a bootloader that runs briefly and jumps -- the stock Arduino
 // bootloader on the boards this project targets does. It is NOT sized for
 // tfw-boot built with BOOT_MEASURE=atecc608a: that measures the application
-// through the element at up to 36 ms per 64-byte block, the datasheet's own
-// maximum for one SHA command (boot/measure/measure_atecc608a.c), which for
-// anything but a small image outruns this default several times over. A host
+// through the element at up to 36 ms per 64-byte block, the bound
+// tfw_atecc_exec waits for one SHA command (TFW_ATECC_T_SHA,
+// src/crypto/atecc608a/atecc.h, from cryptoauthlib's ATECC608 table; the loop
+// is boot/measure/measure_atecc608a.c), which for anything but a small image outruns this default several times over. A host
 // talking to such a build should pass a larger WithBootWait sized to the
 // image it flashed, rather than rely on the default.
 const DefaultBootWait = 2 * time.Second

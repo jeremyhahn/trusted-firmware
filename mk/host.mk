@@ -1987,6 +1987,16 @@ $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
+# The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,
+# unchanged, on mps2-an505's profile. The mps2 boot test directory's cm_regs.h,
+# ahead of src/hal/cortex-m, sends TFW_CM_REG to tfw_cm_model_reg(), which the
+# suite defines as the FPGA I/O LED and button words.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mps2_hsm_port
+$(HOST_DIR)/test_mps2_hsm_port: src/hal/cortex-m/mps2/test/test_mps2_hsm_port.c \
+                                src/hal/cortex-m/mps2/hsm_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Iboot/hal/cortex-m/mps2/test \
+	   -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.

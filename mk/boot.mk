@@ -1054,6 +1054,17 @@ $(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(call BOOT_TEST_MPS2_CFLAGS,mps2-$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# tfw-boot's MPS2 UART over a register model of UART0, under each MPS2 profile
+# (#628). The test sits in boot/hal/cortex-m/mps2/test/ for the reasons the
+# RP2350's does, and takes that test's cm_regs.h, which names no SoC, ahead of
+# the real one.
+BOOT_TEST_MPS2_UART_BINS := $(BOOT_TEST_DIR)/test_boot_mps2_uart-an505 $(BOOT_TEST_DIR)/test_boot_mps2_uart-an500
+BOOT_TEST_BINS += $(BOOT_TEST_MPS2_UART_BINS)
+$(BOOT_TEST_MPS2_UART_BINS): $(BOOT_TEST_DIR)/test_boot_mps2_uart-%: boot/hal/cortex-m/mps2/test/test_boot_mps2_uart.c \
+        boot/hal/cortex-m/mps2/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-$*,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   -Iboot/hal/cortex-m/rp2350/test -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \

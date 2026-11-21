@@ -48,7 +48,12 @@
   else reads as power-on.
 - **tfw-boot enables no interrupt.** Its UART polls and it starts no timer,
   so its vector table has no live entry the application could inherit, and
-  the jump has only the UART to turn off.
+  the jump has only the UART to turn off. On mps2 it is pinned twice: end to
+  end in QEMU, and on the host by
+  `boot/hal/cortex-m/mps2/test/test_boot_mps2_uart.c`, whose register model
+  holds UART0 alone and fails any interrupt enable written to CTRL, even one
+  cleared again, under each refusal (baud 0, a divisor under 16, TX or the
+  hand-over on a UART never enabled, RX with nothing waiting).
 - **The UART's first byte is written by `tfw_hal_uart_tx_try`.** The CMSDK
   UART interrupts when a byte leaves its one-byte buffer, not while it is
   empty, so `tx_busy` and the ring are read under the one critical section in

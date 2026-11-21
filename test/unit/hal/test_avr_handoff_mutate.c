@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * src/hal/avr/hal_handoff.c (#163): the application's handle on the block
- * tfw-boot writes. On the device mk/avr.mk pins the section `.handoff` to the
- * address the bootloader also derives, so what the unit owns is that the
+ * tfw-boot writes. On the device mk/arch/avr.mk pins the section `.handoff` to
+ * the address the bootloader also derives, so what the unit owns is that the
  * block IS that section: the whole of it, from its first byte, never NULL and
  * never a fresh copy.
  *

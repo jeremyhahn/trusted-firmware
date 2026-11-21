@@ -1328,8 +1328,10 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
      * ATTEST, over the wire, through the WHOLE stack -- issues #6/#7. This
      * board's bootloader is BOOT_TIER=atecc608a (the row simavr runs, and the
      * one that fits the Mega's boot section per BOOT_SUPPORTED); $(TARGET).elf
-     * here is CRYPTO=soft, mk/avr.mk's own independent default -- a MISMATCH
-     * this harness carries rather than resolves, because it is exactly the
+     * here is CRYPTO=soft because integration-test-boot asks for it by name
+     * (mk/boot.mk); the 2560's own default is CRYPTO=auto
+     * (boards/atmega2560/profile.mk) -- a MISMATCH this harness carries
+     * rather than resolves, because it is exactly the
      * case src/crypto/soft/provider.c must now refuse rather than sign with.
      * tfw-boot hands off a real, non-zero CDI derived from the ELEMENT's UDS,
      * tagged TFW_CRYPTO_SECURE_ELEMENT; the software tier has no way to

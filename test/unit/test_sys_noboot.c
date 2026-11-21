@@ -3,9 +3,10 @@
 /*
  * RESET on a board with no boot section.
  *
- * Linked against src/core/update_request_none.c -- what mk/avr.mk links when the
- * board profile defines no RAM_END -- instead of the real request module, so
- * this is the ATtiny85's behaviour and not a simulation of it.
+ * Linked against src/core/update_request_none.c -- what mk/firmware.mk links
+ * when the board profile defines neither RAM_END nor ARCH_HANDOFF -- instead of
+ * the real request module, so this is the ATtiny85's behaviour and not a
+ * simulation of it.
  */
 
 #include <string.h>

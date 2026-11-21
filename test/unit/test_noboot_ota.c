@@ -2,8 +2,8 @@
  * OTA_INFO on a no-boot build (#130, owner ruling m496): the OTA link with
  * handoff_none.c and platform_id_none.c where handoff.c and platform_id.c would
  * be. With no tfw-boot there is no platform block, and OTA_INFO reads it before
- * anything else (src/core/ota_ctl.c:73, load): the magic check at
- * boot/boot_platform.c:65-66 answers NOT_PROVISIONED, not the BAD_STATE of owner
+ * anything else (src/core/ota_ctl.c:78, load): the magic check at
+ * boot/boot_platform.c:68-69 answers NOT_PROVISIONED, not the BAD_STATE of owner
  * ruling m496, and no reply bytes are written. Pinned as it is; not changed here.
  */
 #include <string.h>

@@ -124,7 +124,7 @@ static void test_no_handoff_derives_the_cdi_from_the_local_uds(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(FALLBACK_HMAC_ABC, out, 32);
 }
 
-/* init starts unprovisioned every time (provider.c:69): a UDS withdrawn
+/* init starts unprovisioned every time (provider.c:71): a UDS withdrawn
  * between two inits leaves nothing behind. */
 static void test_a_second_init_without_a_uds_unprovisions(void)
 {

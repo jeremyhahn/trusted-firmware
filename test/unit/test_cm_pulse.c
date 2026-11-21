@@ -25,6 +25,8 @@ static uint8_t  wave_start;
 static const uint32_t *wave_edges;      /* toggle times, microseconds, rising */
 static size_t   wave_n;
 static uint64_t wave_t0;                /* the model time the waveform starts */
+static unsigned read_fail_at;           /* the read that fails, 1-based; 0 = none */
+static unsigned read_count;
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
@@ -34,6 +36,11 @@ tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 
     (void)p;
     model_gpio_read_advance();
+    /* One read fails, not every one after it: a pulse timer that skipped
+     * the failure would carry on to a result instead of polling forever. */
+    if (++read_count == read_fail_at) {
+        return TFW_ERR_BAD_PIN;
+    }
     us = (model_now - wave_t0) / CYC_PER_US;
     for (i = 0; i < wave_n && wave_edges[i] <= us; i++) {
         lv ^= 1u;
@@ -59,6 +66,8 @@ void setUp(void)
     model_now  = 12345u;
     model_step        = 7u;
     model_read_cycles = 0u;
+    read_fail_at      = 0u;
+    read_count        = 0u;
     wave(0u, NULL, 0u);
 }
 
@@ -328,6 +337,53 @@ static void test_capture_bounded_by_one_overall_deadline(void)
     TEST_ASSERT_UINT32_WITHIN(100u, 29000u, got[0]);
 }
 
+static void test_pulse_in_passes_up_a_failed_read(void)
+{
+    static const uint32_t e[] = {50u, 150u};
+    uint32_t us = 77u;
+
+    wave(0u, e, 2u);
+    read_fail_at = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_pulse_in(&pin, 1u, 1000u, &us));
+    TEST_ASSERT_EQUAL_UINT32(77u, us);
+}
+
+static void test_pulse_in_read_failing_during_the_pulse(void)
+{
+    /* Reads at ~100 (low), ~200 (high: the pulse opens), ~300 us: the
+     * third read, the one that would close the pulse, fails. */
+    static const uint32_t e[] = {150u, 250u};
+    uint32_t us = 77u;
+
+    reads_take_100us();
+    wave(0u, e, 2u);
+    read_fail_at = 3u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_pulse_in(&pin, 1u, 10000u, &us));
+    TEST_ASSERT_EQUAL_UINT32(77u, us);
+}
+
+static void test_capture_read_failing_after_edges_reports_none(void)
+{
+    /* test_capture_stops_at_max_edges' wave; the read before the one that
+     * closes the fourth interval fails, after three edges are recorded. */
+    static const uint32_t e[] = {10u, 60u, 160u, 190u, 240u, 300u};
+    uint16_t got[4];
+    uint8_t  n = 0u;
+    unsigned reads;
+
+    wave(0u, e, 6u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, got, 4u, 500u, &n));
+    TEST_ASSERT_EQUAL_UINT8(4u, n);
+    reads = read_count;
+
+    setUp();
+    wave(0u, e, 6u);
+    read_fail_at = reads - 1u;
+    n            = 9u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_pulse_capture(&pin, 0u, got, 4u, 500u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -350,5 +406,8 @@ int main(void)
     RUN_TEST(test_pulse_in_closing_edge_seen_after_the_deadline);
     RUN_TEST(test_capture_edge_seen_after_the_interval_timeout);
     RUN_TEST(test_capture_bounded_by_one_overall_deadline);
+    RUN_TEST(test_pulse_in_passes_up_a_failed_read);
+    RUN_TEST(test_pulse_in_read_failing_during_the_pulse);
+    RUN_TEST(test_capture_read_failing_after_edges_reports_none);
     return UNITY_END();
 }

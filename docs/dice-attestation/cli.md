@@ -6,9 +6,22 @@
 ## `tfwctl attest` and `tfwctl attest-cert`
 
 ```
-tfwctl [-baud N] [-timeout D] [-json] <port> attest      <16 hex bytes>
-tfwctl [-baud N] [-timeout D] [-json] <port> attest-cert <32 hex bytes>
+tfwctl [-baud N] [-timeout D] [-boot-wait D] [-json] <port> attest      <16 hex bytes>
+tfwctl [-baud N] [-timeout D] [-boot-wait D] [-json] <port> attest-cert <32 hex bytes>
 ```
+
+`-boot-wait` is how long tfwctl waits for the firmware's BOOT event before the
+first command (default `tfw.DefaultBootWait`, 0 disables it); raise it for a
+`BOOT_MEASURE=atecc608a` image, which can take seconds to measure a large
+application. `<port>` is a serial port, `tcp://host:port` or `unix:<path>`
+(`sdk/go/cmd/tfwctl/main.go`). With `tcp://` tfwctl listens there, the
+endpoint in the device's network block, and runs the command on the first
+device to connect within `-timeout`; `unix:<path>` is an emulator's UART on a
+Unix socket (QEMU `-serial unix:<path>,server=on`). Over Ethernet the device
+answers only CAPS, APP_INFO, ATTEST, ATTEST_CERT, ATTEST_CSR and OTA staging
+(OTA_BEGIN, OTA_DATA, OTA_END, OTA_STATUS), the list in
+`src/proto/link_eth.h` `tfw_link_eth_allows`, so every verb on this page works
+over it and `tfwprov` does not.
 
 `attest` returns the 164-byte evidence frame as hex; `attest-cert` returns the
 alias certificate as DER hex. Both are `sdk/go/cmd/tfwctl/peripherals.go` over
@@ -23,7 +36,7 @@ because they answer different questions, and are documented in `api.md`.
 ## `tfwctl attest-csr`
 
 ```
-tfwctl [-baud N] [-timeout D] [-json] <port> attest-csr --nonce <32 hex bytes>
+tfwctl [-baud N] [-timeout D] [-boot-wait D] [-json] <port> attest-csr --nonce <32 hex bytes>
 ```
 
 Prints the 64-byte `r‖s` signature the device's DeviceID key made for that
@@ -49,7 +62,7 @@ offer the command fails with `TFW_ERR_UNSUPPORTED`; `tfwctl caps` lists
 ## `tfwctl caps` — see the root of trust before trusting anything it says
 
 ```
-tfwctl [-baud N] [-timeout D] [-json] <port> caps
+tfwctl [-baud N] [-timeout D] [-boot-wait D] [-json] <port> caps
 ```
 
 Relevant fields of the text output (`sdk/go/cmd/tfwctl/main.go`):

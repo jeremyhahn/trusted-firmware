@@ -8,9 +8,9 @@
 # changed between them, and the images must be byte-identical: the HEX a
 # programmer writes and the measurement scripts/fwhash.py takes of it.
 #
-# A clean copy is the tree without build/ and .git: nothing a previous build
-# left behind can be reused, so each image is compiled and linked here. `make
-# reproducible-check` and `make bootloader-reproducible` build from `git archive
+# A clean copy is the tree without build/, coverage/, .git and __pycache__:
+# nothing a previous build left behind can be reused, so each image is compiled
+# and linked here. `make reproducible-check` and `make bootloader-reproducible` build from `git archive
 # HEAD` (scripts/repro_build.py, tested by scripts/test_repro_build.py).
 #
 # Needs the AVR toolchain, as `make build` does: run it in the toolchain image

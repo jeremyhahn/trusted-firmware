@@ -3,7 +3,7 @@
 #
 #   usage: scripts/reap-stale-ci-stacks.sh <prefix> [min-age-seconds]
 #
-# v1 (ci-template v1.18, 2026-10-12); v2 and v3 below. An integration job's
+# v1 (ci-template v1.18, 2026-10-12); v2 to v5 below. An integration job's
 # `if: always()` teardown runs only while the job process lives. When the host
 # or its Docker daemon dies mid-job, the job is gone and so is its teardown: the
 # compose stack stays behind, exited, with its networks and volumes (11 stacks
@@ -37,7 +37,7 @@
 # a parallel job's reaper removed it between its build and its lease
 # (go-quicraft main runs 57389 and 57484).
 # v4 (ci-template v1.25.2, 2026-10-21, from a Codex review): a tag is kept
-# while any container, running or created, uses its image id. Two trees that
+# while any container, in any state, uses its image id. Two trees that
 # differ only in a file the build ignores get two <prefix>it tags on one cached
 # image id. `docker image rm <tag>` on such an image only untags it, and it
 # succeeds even while a lease holds the id, so v3 could remove the tag a leased

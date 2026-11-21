@@ -19,7 +19,7 @@ REPO = os.path.dirname(HERE)
 SCRIPT = os.path.join(REPO, "test", "integration", "cortex-m", "qemu_wire_test.sh")
 USAGE = "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|tone|onewire|pulse|pwm]\n"
 
-# The row the recipe passes, and the first boot the script starts for it.
+# Each row the recipe passes but pwm, and the first boot the script starts for it.
 ROWS = (
     ((), "provisioned"),
     (("store",), "staging"),

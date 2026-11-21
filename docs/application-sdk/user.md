@@ -1,6 +1,6 @@
 # Application SDK — user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 For someone writing a `trusted-firmware-<application>` repository. The
@@ -136,7 +136,9 @@ versions.
 ## Configure it at run time
 
 Declare how many bytes you need in `config_len`. Your region starts at
-`TFW_APP_CONFIG_BASE` (byte 192 of EEPROM). Read it in `init`:
+`TFW_APP_CONFIG_BASE` (`TFW_BOOT_EE_LEN`, byte 0x140 = 320 of EEPROM; the
+bootloader's block and, on the ATmega2560, its swap journal lie below it).
+Read it in `init`:
 
 ```c
 uint8_t cfg[4];
@@ -145,8 +147,13 @@ if (tfw_app_config_read(0u, cfg, sizeof cfg) != TFW_OK || cfg[0] != 1u) {
 }
 ```
 
-A host writes the same bytes with the SDK's EEPROM write at address
-`192 + offset`. Put a layout version in the first byte, and validate
+Both calls take an offset into your region, `[0, config_len)`, and return
+`TFW_ERR_RANGE` outside it. The application writes the region with
+`tfw_app_config_write(off, buf, len)`: in `run`, one byte per call, as above.
+
+A host writes the same bytes with the Go SDK's `Device.EEPROMWrite`
+(`sdk/go/commands.go`) at address `0x140 + offset`; the device refuses a write
+below 0x140. Put a layout version in the first byte, and validate
 everything you read: any host with wire access can write the region. Do not
 store secrets there.
 

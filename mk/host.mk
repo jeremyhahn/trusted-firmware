@@ -1783,6 +1783,16 @@ $(HOST_DIR)/test_esp_board_nocoproc_mutate: test/unit/test_esp_board_nocoproc_mu
 	    -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_board_mutate $(HOST_DIR)/test_esp_board_nocoproc_mutate
 
+# The bench self-check (#48) built on, on the PoE board's profile, over
+# stand-in gpio and LEDC drivers, the real hal_eeprom.c on the test's NOR
+# partition model, and the suite's own other HAL calls.
+$(HOST_DIR)/test_esp_selfcheck: test/unit/test_esp_selfcheck.c src/hal/esp32/hal_selfcheck.c \
+                                src/hal/esp32/hal_eeprom.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/esp32p4-poe $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 \
+	    -Itest/mock/esp32/selfcheck -Itest/mock/esp32 -DCONFIG_TFW_PERIPH_SELFCHECK=1 \
+	    -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_selfcheck
+
 # The HMAC/P-256 crypto tier on the real SHA-256, DeviceID derivation and
 # micro-ecc, over stand-in eFuse, HMAC, RNG and log headers; the handoff and
 # tfw_secure_zero are the suite's own (#163).

@@ -44,7 +44,12 @@ void app_main(void)
  * here, first, before any capability can drive a pin. */
 tfw_status_t tfw_hal_init(void)
 {
-    return tfw_esp_board_init();
+    tfw_status_t st = tfw_esp_board_init();
+
+    if (st == TFW_OK) {
+        tfw_esp_selfcheck();
+    }
+    return st;
 }
 
 /*

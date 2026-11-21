@@ -710,6 +710,98 @@ The boot log, the two summaries and the wirecheck output stay outside the tree
 was not run: **the board is left on this image, up at its static address on
 the development VLAN.**
 
+### Row 48: the HAL peripherals with no external wiring, 2026-11-15
+
+Ruling 625 (1) and CA 581/582: burn no eFuse, record the factory state before
+any write. The peripheral commands are not on the Ethernet allow-list
+(`src/proto/link_eth.c`), and the P4's wire is TCP only, so the checks run in
+the image itself: a self-check that runs once in `app_main()` before the wire
+starts, only in a build that sets `CONFIG_TFW_PERIPH_SELFCHECK=y` (default
+off, so main's image is unchanged), and prints one `tfw-selfcheck:` line per
+check on the console. The pins are ones the board leaves unconnected; nothing
+is wired to the board.
+
+| Check | What runs | Pass |
+|---|---|---|
+| `hal_gpio.c` | a free pin as an output, driven high then low, read back each time | the read equals the level driven, both times |
+| `hal_adc.c` | one reading of a free ADC pin | the read returns OK and a value in the converter's range |
+| `hal_pwm.c` | PWM on a free pin at a set duty, then 0 | each call returns OK and the LEDC duty read back equals the duty set |
+| `hal_tone.c` | a 1 kHz tone on a free pin, then stopped | start and stop return OK |
+| `hal_pulse_rmt.c` | a pulse measurement on a free pin, nothing driving it | returns the no-pulse (timeout) result, not an error |
+| `hal_eeprom.c` | the whole 4 KB sector of `tfw_eeprom` saved; a pattern written at a test offset in it, read back; the whole sector written back whatever that test's status | the read equals the pattern, the whole sector reads back equal to the saved one |
+| C6 enable | GPIO 54's level after `hal_board.c` | low |
+| `hal_bus.c` | added after these runs, no bench run yet: an I2C probe of address 0x08, which no device on the board's bus uses; a two-byte SPI transfer with the chip select on a free pin; a 1-Wire reset and one byte read on a free pulled-up pin | NACK; the transfer returns OK; no presence pulse and the byte reads 0xff |
+
+Steps, each over the by-id port, no break:
+
+1. `espefuse --port $ESP_PORT summary > build/…/efuse-before.txt` (read
+   only; a venv in the lane's home, nothing installed on the host).
+2. `make esp32-build BOARD=esp32p4-poe CRYPTO=none
+   ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <overlay>"`, the
+   untracked overlay setting the static address and
+   `CONFIG_TFW_PERIPH_SELFCHECK=y`.
+3. HIL-0 step 3's writes; console for 60 s after one reset; the
+   `tfw-selfcheck:` lines.
+4. `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0` still passes.
+5. `espefuse summary` after; the diff against step 1 must show no eFuse line.
+6. Recovery and what the board is left on: rebuild without the self-check
+   (main's configuration, the static overlay only) and repeat step 3, then
+   step 4 again.
+
+The run. esptool / espefuse v5.6.0 in a venv and ESP-IDF `v5.5.5`
+(`install.sh esp32p4`) in the lane's home; the overlays are
+`build/p4hal/p4-static.defaults` and `build/p4hal/p4-selfcheck.defaults`
+(gitignored, `192.0.2.80` below for the real address). Writes: five times
+the one erase region and the four images of HIL-0 step 3. No `espefuse`
+command other than `summary`.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged (`SECURE_BOOT_EN` False, `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`, `KEY_PURPOSE_0` `USER`, `DIS_DOWNLOAD_MODE` False, `WR_DIS` 0, `RD_DIS` 0, `SECURE_VERSION` 0); SHA-256 `9453f49f…0703`, byte-identical to the 2026-11-14 summaries |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <selfcheck overlay>"` | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_TFW_ETH_STATIC_IP=y`, `CONFIG_TFW_PERIPH_SELFCHECK=y` |
+| 3 | erase region and write-flash, console 60 s after one reset | four `Hash of data verified.`; layer 0 `verified`, `App version: …-g78fb3be9`; `hal_pwm` **FAIL** (`LEDC duty at 128: 0`), every other check PASS. The HAL's `ledc_channel_config` sets the duty; the check read LEDC's duty register straight after the write, before the next period latches it: a fault of the check, fixed in the next commit |
+| 3 | the same, the check waiting 20 ms before each read | four `Hash of data verified.`; layer 0 `verified`; the lines below, then `tfw-eth: link up, address 192.0.2.80, wire on tcp/21574` |
+| 4 | `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0` | **pass**, exit 0: ping, `caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff`, sysinfo, `wirecheck: ok` |
+| 6 | rebuild with the static overlay only (`# CONFIG_TFW_PERIPH_SELFCHECK is not set`), write, console, `wirecheck` | four `Hash of data verified.`; layer 0 `verified`, `App version: …-gff4b5ca7` (this branch's tip, the self-check empty); no `tfw-selfcheck` line; link up at the static address; `wirecheck: ok` |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | **empty diff**, exit 0; `efuse-after.txt` SHA-256 `9453f49f…0703`, the same as before: no eFuse moved |
+| 1–6 again | after review: the C6 check reads the pad with its input buffer on, the EEPROM restore runs whatever the test's status; steps 1 to 6 repeated on main merged in | `efuse-before` byte-identical to the first run's; four `Hash of data verified.` per image; the lines below; the restored image (self-check off) up at the static address, `wirecheck: ok`; `efuse-after` against `efuse-before`: **empty diff** |
+
+The first two images' `c6_enable` line was read with `gpio_get_level()` on
+the pad `hal_board.c` leaves an output with its input buffer off, which reads 0
+whatever the pin's level; review found it, and that PASS is withdrawn. The
+check now releases the hold, turns the pad to input-and-output with the output
+still low, reads it and holds it again (`test_esp_selfcheck`). The console
+lines, the image after review:
+
+```text
+tfw-selfcheck: start
+tfw-selfcheck: c6_enable PASS GPIO 54, pad level 0
+tfw-selfcheck: hal_gpio PASS high read 1, low read 0
+tfw-selfcheck: hal_adc PASS status 0, raw 1949
+tfw-selfcheck: hal_pwm PASS LEDC duty at 128: 128, at 0: 0
+tfw-selfcheck: hal_tone PASS start 0, stop 0
+tfw-selfcheck: hal_pulse_rmt PASS status (timeout expected) 9, us 0
+tfw-selfcheck: hal_eeprom PASS status 0, pattern read back 1
+tfw-selfcheck: hal_eeprom_restore PASS status 0, old bytes restored 1
+tfw-selfcheck: hal_bus NOT RUN wiring needed
+tfw-selfcheck: done
+```
+
+| Check | Result |
+|---|---|
+| C6 enable | **PASS**: GPIO 54's pad, read with its input buffer on and the output still driven low and held, reads 0 after `hal_board.c`. It is the pad's level, not a probe of the C6's `CHIP_PU` |
+| `hal_gpio.c` | **PASS**: GPIO32 driven high read 1, driven low read 0 |
+| `hal_adc.c` | **PASS**: ADC1 channel 4 (GPIO20, floating) returns OK, raw 1962 then 1949 of 4095 |
+| `hal_pwm.c` | **PASS**: LEDC channel 0 (GPIO2) duty 128 then 0 read back, `tfw_hal_pwm_stop` OK |
+| `hal_tone.c` | **PASS**: 1 kHz on GPIO6 started and stopped, both OK (nothing measured the frequency) |
+| `hal_pulse_rmt.c` | **PASS**: GPIO33 pulled up, no pulse in 50 ms is `TFW_ERR_TIMEOUT` (9) |
+| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written and read back equal; the old bytes, written back whatever that test's status, read back equal (`hal_eeprom_restore`, its own line). Review then widened the save and restore to the whole 4 KB sector the test writes in (the table above); that change is pinned on the host by `test_esp_selfcheck` and has not run on the board |
+| `hal_bus.c` | **NOT RUN** in these images. Review asked for it: the bus lines in the table above, which need no wiring, are in the self-check since, pinned on the host by `test_esp_selfcheck`, and wait for the next bench run of the self-check image |
+
+**The board is left on this branch's tip built with the static overlay and no
+self-check** (main's configuration plus the address), up at its static
+address on the development VLAN.
+
 ## Restore
 
 ```sh

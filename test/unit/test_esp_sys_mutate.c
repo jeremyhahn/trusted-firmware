@@ -104,6 +104,11 @@ tfw_status_t tfw_esp_board_init(void)
     return board_st;
 }
 
+/* The bench self-check (hal_selfcheck.c) is not this test's subject. */
+void tfw_esp_selfcheck(void)
+{
+}
+
 void setUp(void)
 {
     reason          = ESP_RST_UNKNOWN;

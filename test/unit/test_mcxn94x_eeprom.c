@@ -124,7 +124,6 @@ static const tfw_mcxn_flash_api_t model_api = {
 };
 
 #define TFW_MCXN_EE_FLASH  ((const uint8_t *)model)
-#define TFW_MCXN_EE_WINDOW (&model[PLATFORM_OFF])
 #define TFW_MCXN_EE_API    (&model_api)
 #include "../../src/hal/cortex-m/mcxn94x/hal_eeprom.c"
 
@@ -221,15 +220,35 @@ static void test_a_write_into_the_bootloaders_span_is_range_and_erases_nothing(v
     TEST_ASSERT_EQUAL_HEX8(0xFF, model[PLATFORM_OFF + 0x10u]);
 }
 
-static void test_the_confirm_request_keeps_the_store_path_and_erases_nothing(void)
+static void test_the_confirm_request_is_programmed_into_the_platform_sector(void)
 {
     uint8_t req[TFW_BOOT_CONFIRM_LEN];
+    uint8_t back[TFW_BOOT_CONFIRM_LEN];
+    uint32_t i;
 
-    memset(req, 0x00, sizeof req);
-    req[0] = 0x42;
+    for (i = 0u; i < TFW_CM_PLATFORM_SIZE; i++) {
+        model[PLATFORM_OFF + i] = (uint8_t)(0xA5u ^ i);
+    }
+    for (i = 0u; i < sizeof req; i++) {
+        req[i] = (uint8_t)(0x10u + i);
+    }
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    /* Reached flash through the ROM driver, not a store into the window. */
+    TEST_ASSERT_EQUAL_UINT(1u, erases);
+    TEST_ASSERT_EQUAL_UINT(1u, platform_erases);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(req, &model[PLATFORM_OFF + TFW_BOOT_CONFIRM_ADDR], sizeof req);
-    TEST_ASSERT_EQUAL_UINT(0u, erases);
+    for (i = 0u; i < TFW_CM_PLATFORM_SIZE; i++) {
+        if (i < TFW_BOOT_CONFIRM_ADDR || i >= TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN) {
+            TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xA5u ^ i), model[PLATFORM_OFF + i]);
+        }
+    }
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, &model[USER_OFF], TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_CONFIRM_ADDR, back, sizeof back));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, back, sizeof back);
+    /* The one erase outside the user sector this case asks for; tearDown
+     * checks there is no other. */
+    TEST_ASSERT_EQUAL_UINT(1u, other_erases);
+    platform_erases = other_erases = 0u;
 }
 
 static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)
@@ -375,7 +394,7 @@ int main(void)
     RUN_TEST(test_the_same_bytes_again_erase_nothing);
     RUN_TEST(test_the_user_spans_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_bootloaders_span_is_range_and_erases_nothing);
-    RUN_TEST(test_the_confirm_request_keeps_the_store_path_and_erases_nothing);
+    RUN_TEST(test_the_confirm_request_is_programmed_into_the_platform_sector);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_back_mismatch_is_an_error);
     RUN_TEST(test_a_mismatch_outside_the_written_span_is_an_error);

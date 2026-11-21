@@ -148,6 +148,20 @@ static void test_deadline_keeps_what_arrived(void)
     TEST_ASSERT_EQUAL_UINT16(600u, iv[1]);
 }
 
+/* The driver's last buffer ends the capture even without an end marker. */
+static void test_the_last_chunk_ends_the_capture_at_once(void)
+{
+    static const rmt_symbol_word_t a[] = { SYM(1, 400, 0, 600) };
+
+    mock_rmt_chunk(a, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 8u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(2u, n);
+    TEST_ASSERT_EQUAL_UINT16(400u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT16(600u, iv[1]);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[2]);
+    TEST_ASSERT_TRUE(mock_rmt.now <= 2 * mock_rmt.step);
+}
+
 /* Only the level before the quiet line: no edge-to-edge interval. */
 static void test_held_level_is_no_interval(void)
 {
@@ -364,6 +378,7 @@ int main(void)
     RUN_TEST(test_capture_stops_at_max_edges);
     RUN_TEST(test_quiet_pin_times_out);
     RUN_TEST(test_deadline_keeps_what_arrived);
+    RUN_TEST(test_the_last_chunk_ends_the_capture_at_once);
     RUN_TEST(test_held_level_is_no_interval);
     RUN_TEST(test_long_timeout_ticks_2us);
     RUN_TEST(test_tick_boundary);

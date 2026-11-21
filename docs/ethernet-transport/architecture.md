@@ -66,8 +66,9 @@ the Ethernet link sits in the whole onboarding sequence is
    MAC, IP, mask and gateway, open socket 0 as TCP and connect to the endpoint.
    While connected, the link asks `tfw_dhcp_due()` on each poll and, when it
    says so, `tfw_dhcp_renew()` renews the lease at T1 or rebinds it at T2 on
-   socket 1. The connection stays up. A DHCPNAK, or a lease that runs out,
-   drops the connection, and the next attempt asks again.
+   socket 1. The connection stays up. A DHCPNAK, a lease that runs out, or a
+   network block that no longer loads at renewal drops the connection, and the
+   next attempt asks again at once, without the backoff.
 2. On each `tfw_transport_poll` the link reads the socket's state. Once it is
    established, received bytes are offered to the framer exactly as UART bytes
    are.
@@ -94,5 +95,6 @@ the Ethernet link sits in the whole onboarding sequence is
   API over a real TCP socket. Given a network block, it connects to the endpoint
   and carries frames over it, so the cross-implementation suite exercises the real
   link and allow-list code.
-- `sdk/go` adds `tfw.Listen` and `tfw.Listener.Accept`, which return a `Device`
-  on the accepted connection.
+- `sdk/go` adds `tfw.Listen`, which returns a `*tfw.Listener`, whose `Accept`
+  returns a `*tfw.TCPDevice`: a `Device` on the accepted connection, with its
+  `RemoteAddr`.

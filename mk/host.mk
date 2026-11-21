@@ -139,7 +139,8 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines. test_mps2_bus too: it links
 # the MPS2 bus driver itself, over a simulated SBCon, and test_mps2_spi_row links
-# it with bus.c over a modelled PL022, on the MPS2 board table.
+# it with bus.c over a modelled PL022, on the MPS2 board table; test_mps2_adc
+# links the MPS2 ADC under mps2-an505's profile.
 # test_cm_hal_eeprom links the Cortex-M EEPROM and NVM HAL in the mock's place.
 # test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
@@ -152,7 +153,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_tier_atecc608a_mutate.c \
                             test/unit/test_tfwsim_main_mutate.c \
                            test/unit/test_suit_emit_main_mutate.c \
-                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c \
+                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_mps2_adc.c test/unit/test_cm_hal_eeprom.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -515,13 +516,41 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c with the suite's
-# simulated SBCon bus and delay in place of sbcon.c and hal_tick.c, so it
-# links no mock HAL, which defines the same bus entry points.
+# The MPS2 bus registers (#628): the image's sbcon.c and pl022.c, built under
+# mps2-an505's profile for its bases, over the register model in
+# test/model/mps2_bus_model.c, whose cortex-m/mps2/cm_regs.h comes ahead of
+# src/hal/cortex-m/'s. Each suite that links them gives its bus as the model's
+# tfw_mps2_model_* hooks and links with MPS2_BUS_REGS_WRAP, which tells the
+# model whether an accessor reads or writes (mps2_bus_model.h).
+MPS2_BUS_REGS_DIR    := $(HOST_DIR)/mps2_bus_regs
+MPS2_BUS_REGS_CFLAGS  = -Itest/model/cortex-m/mps2 -Itest/model -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+                        -Iboards/mps2-an505 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+MPS2_BUS_REGS_OBJS   := $(MPS2_BUS_REGS_DIR)/sbcon.o $(MPS2_BUS_REGS_DIR)/pl022.o $(MPS2_BUS_REGS_DIR)/mps2_bus_model.o
+MPS2_BUS_REGS_WRAP   := $(foreach f,sb_lines sb_release sb_drive_low ssp_read ssp_write misc_read misc_write,-Wl,--wrap=tfw_mps2_$(f))
+$(MPS2_BUS_REGS_DIR):
+	@mkdir -p $@
+$(MPS2_BUS_REGS_DIR)/%.o: src/hal/cortex-m/mps2/%.c src/hal/cortex-m/mps2/%.h src/hal/cortex-m/mps2/soc_regs.h \
+                          test/model/cortex-m/mps2/cm_regs.h test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+$(MPS2_BUS_REGS_DIR)/mps2_bus_model.o: test/model/mps2_bus_model.c test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+
+# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c over the image's
+# sbcon.c and pl022.c with the suite's simulated SBCon bus behind the register
+# model, and its delay in place of hal_tick.c, so it links no mock HAL, which
+# defines the same bus entry points.
 $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_bus.c \
-                           $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                           $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
+
+# The image's MPS2 ADC (src/hal/cortex-m/mps2/hal_adc.c): no channel on either
+# profile, built under mps2-an505's and linked with the bus register model,
+# whose hooks the suite fails, so a register access from it fails the test.
+$(HOST_DIR)/test_mps2_adc: test/unit/test_mps2_adc.c src/hal/cortex-m/mps2/hal_adc.c \
+                           $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
 # TFW_CM_SPI, as its profile.mk's SPI=1 builds them, and SPI_XFER from
@@ -531,9 +560,9 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
                                src/hal/cortex-m/mps2/hal_bus.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/mps2-an505/board.c \
-                               $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -DTFW_CM_SPI=1 \
-	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+                               $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Itest/model -DTFW_CM_SPI=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
 # names: HOST_LIB_SRCS carries the software provider, and this suite is
@@ -1183,7 +1212,7 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
-                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_mps2_adc $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
@@ -2389,9 +2418,9 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
 # the pattern rule.
 $(HOST_DIR)/test_mps2_optiga: test/unit/test_mps2_optiga.c src/crypto/optiga/optiga_i2c.c \
                               src/hal/cortex-m/mps2/hal_bus.c \
-                              $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                              $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
 # the transport faked in the suite at the APDU, so each command's bytes are

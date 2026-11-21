@@ -100,8 +100,12 @@ tfw_frame_event_t tfw_framer_push(tfw_framer_t *f, uint8_t byte)
          * body holds only SEQ and OP is malformed: tfw_frame_payload_len would
          * compute want - 3 on a want of 2 and wrap to 255, handing the
          * dispatcher a length longer than the buffer. The CRC does not catch
-         * this, because a sender can be internally consistent and still wrong. */
-        if (has_status(f) && f->want < 3u) {
+         * this, because a sender can be internally consistent and still wrong.
+         * A request whose LEN is TFW_MAX_LEN, room a response needs for its
+         * STATUS byte, would carry TFW_MAX_PAYLOAD + 1 bytes, which no encoder
+         * produces, so it is refused here too. */
+        if ((has_status(f) && f->want < 3u) ||
+            (!has_status(f) && f->want > (uint8_t)(TFW_MAX_PAYLOAD + 2u))) {
             bump(&f->err_format);
             return TFW_FRAME_BAD_FORMAT;
         }

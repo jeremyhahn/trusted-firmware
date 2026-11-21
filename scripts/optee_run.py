@@ -33,8 +33,8 @@ import sys
 LOGIN = b"login:"
 PROMPT = b"# "
 PANIC = b"Kernel panic"
-STATUS = re.compile(rb"TFW-GUEST-STATUS=(\d+)")
-ERROR = re.compile(rb"TFW-GUEST-ERROR=([a-z-]+)")
+STATUS = re.compile(rb"TFW-GUEST-STATUS=(\d+)\r?\n")
+ERROR = re.compile(rb"TFW-GUEST-ERROR=([a-z-]+)\r?\n")
 
 # The console's text is matched in a window this long: past every prompt and
 # marker, and it bounds what a chatty boot keeps in memory.

@@ -237,6 +237,34 @@ static void test_independent_deadlines_fire_independently(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
+/*
+ * A revert the HAL refused at the deadline must not drop the timer: the pin
+ * is still held, and the next sweep is the only thing left to drive it back.
+ */
+static void test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries(void)
+{
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(5000u);
+    tfw_mock_gpio_io_fails(TFW_ERR_TIMEOUT);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* still active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* still held high */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(0u, remaining);
+
+    tfw_mock_gpio_io_fails(TFW_OK);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -251,5 +279,6 @@ int main(void)
     RUN_TEST(test_query_reports_the_remaining_time);
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);
+    RUN_TEST(test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries);
     return UNITY_END();
 }

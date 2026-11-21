@@ -9,7 +9,10 @@ refs marked in use, and `image rm <ref>` by logging the ref and failing for the
 refs marked as refusing. The cases assert on that log and on the script's
 output lines: the newest CI_IMAGE_KEEP hash tags kept, the image named on the
 command line and any image a container uses never removed, REAP_DRY_RUN=1
-removing nothing, and a refused removal never failing the job.
+removing nothing, and a refused removal never failing the job. The fake
+answers only that exact `ps -aq --filter ancestor=<ref>` form (without `-a`
+Docker omits stopped containers); any other invocation is logged to other.log
+and fails, and every case that reaches the summary asserts other.log is empty.
 
 TRIM_CI_IMAGES_SCRIPT points the suite at another copy of the script; it is
 set only to prove the suite fails on a mutated copy.
@@ -55,8 +58,8 @@ if a[:2] == ["image", "ls"]:
     for t in tags.get(a[-1], []):
         print(t)
     sys.exit(0)
-if a[:1] == ["ps"] and a[-1].startswith("ancestor="):
-    if a[-1][len("ancestor="):] in lines("inuse"):
+if len(a) == 4 and a[:3] == ["ps", "-aq", "--filter"] and a[3].startswith("ancestor="):
+    if a[3][len("ancestor="):] in lines("inuse"):
         print("c0ffee000001")
     sys.exit(0)
 if a[:2] == ["image", "rm"]:
@@ -112,6 +115,9 @@ class Trim(unittest.TestCase):
     def assert_summary(self, out, removed, keep=3):
         self.assertEqual(out[-1], "trim: %d image tag(s) removed, the newest %d kept "
                          "per repository" % (removed, keep))
+        # An unexpected docker invocation must fail the case, not read as
+        # "not in use".
+        self.assertEqual(self.log("other.log"), [])
 
     def test_no_argument_is_a_usage_error(self):
         rc, out, err = self.run_trim()
@@ -142,7 +148,6 @@ class Trim(unittest.TestCase):
         self.assert_summary(out, 2)
         for tag in NOT_HASH:
             self.assertNotIn(ref(tag), self.log())
-        self.assertEqual(self.log("other.log"), [])
 
     def test_keep_moves_the_cut(self):
         for keep, gone in (("0", [H2, H3, H4, H5]), ("1", [H2, H3, H4, H5]),

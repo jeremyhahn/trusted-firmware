@@ -23,6 +23,8 @@ BUILT = "sha256:" + "a4" * 32
 OTHER = "sha256:" + "5e" * 32
 INPUTS = "fe80181c9f4b1d12"
 OTHER_INPUTS = "0123456789abcdef"
+# The class name each rule tags; the build-id name is IMAGE + "-leg-1".
+IMAGE = "trusted-firmware-x:0123456789abcdef-main"
 
 # Each rule, and the variable naming its image.
 RULES = (
@@ -45,7 +47,7 @@ class DockerTagRace(unittest.TestCase):
                 env["STUB_TAG_ERROR"] = tag_error
             r = subprocess.run(
                 ["make", "--no-print-directory", "-C", ROOT, rule,
-                 "DOCKER=" + STUB, var + "=trusted-firmware-x:0123456789abcdef-main",
+                 "DOCKER=" + STUB, var + "=" + IMAGE,
                  "IMAGE_BUILD_ID=leg-1"],
                 env=env, capture_output=True, text=True, timeout=120)
             r.calls = ""
@@ -103,6 +105,51 @@ class DockerTagRace(unittest.TestCase):
                 r = self.build(rule, var, OTHER)
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn("AlreadyExists", r.stderr)
+
+    def test_the_check_runs_the_build_id_name_before_its_removal(self):
+        built = IMAGE + "-leg-1"
+        for target_id, labels in ((BUILT, {}),
+                                  (OTHER, dict(built_label=INPUTS, target_label=INPUTS))):
+            with self.subTest(target_id=target_id):
+                r = self.build("docker-build-toolchain", "TOOLCHAIN_IMAGE", target_id, **labels)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                calls = r.calls.splitlines()
+                runs = [i for i, c in enumerate(calls) if c.startswith("run ")]
+                rms = [i for i, c in enumerate(calls)
+                       if c in ("image rm " + built, "rmi " + built)]
+                self.assertEqual([calls[i].split()[2] for i in runs], [built], r.calls)
+                self.assertEqual(len(rms), 1, r.calls)
+                self.assertLess(runs[0], rms[0], r.calls)
+
+    def test_no_rule_runs_the_class_name_or_a_removed_name(self):
+        for rule, var in RULES:
+            with self.subTest(rule=rule):
+                r = self.build(rule, var, BUILT)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                removed = set()
+                for c in r.calls.splitlines():
+                    words = c.split()
+                    if c.startswith(("image rm ", "rmi ")):
+                        removed.add(words[-1])
+                    elif words and words[0] == "run":
+                        ref = next(w for w in words[1:] if not w.startswith("-"))
+                        self.assertNotEqual(ref, IMAGE, r.calls)
+                        self.assertNotIn(ref, removed, r.calls)
+
+    def test_the_stub_rejects_a_run_of_the_class_name_or_a_removed_name(self):
+        built = IMAGE + "-leg-1"
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "calls")
+            env = dict(os.environ, IMAGE_BUILD_ID="leg-1", STUB_LOG=log)
+
+            def docker(*args):
+                return subprocess.run([STUB, *args], env=env, capture_output=True,
+                                      text=True, timeout=30).returncode
+
+            self.assertEqual(docker("run", "--rm", built, "true"), 0)
+            self.assertNotEqual(docker("run", "--rm", IMAGE, "true"), 0)
+            self.assertEqual(docker("image", "rm", built), 0)
+            self.assertNotEqual(docker("run", "--rm", built, "true"), 0)
 
     def test_a_name_that_holds_no_image_fails(self):
         for rule, var in RULES:

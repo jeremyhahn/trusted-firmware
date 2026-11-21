@@ -52,8 +52,15 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     /* Double-speed mode: at 16 MHz and 115200 the normal divisor has 3.5%
      * error, which is outside what a UART tolerates over a full frame. U2X
-     * halves it to 2.1% and the link works. */
-    uint16_t ubrr = (uint16_t)((F_CPU / (8UL * baud)) - 1UL);
+     * halves it to 2.1% and the link works. UBRRn is 12 bits (UBRRnH 7:4
+     * are reserved), so a rate whose divisor exceeds 4096, a rate above
+     * F_CPU/8 and baud 0 are refused before any register is written. */
+    uint16_t ubrr;
+
+    if (baud == 0u || baud > F_CPU / 8UL || F_CPU / (8UL * baud) > 4096UL) {
+        return TFW_ERR_RANGE;
+    }
+    ubrr = (uint16_t)((F_CPU / (8UL * baud)) - 1UL);
 
     TFW_UBRRH = (uint8_t)(ubrr >> 8);
     TFW_UBRRL = (uint8_t)(ubrr & 0xFFu);

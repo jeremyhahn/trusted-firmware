@@ -13,6 +13,9 @@
 #   RELEASABILITY_ROOT      the git work tree to scan (default: the current directory)
 #   RELEASABILITY_PATTERNS  the pattern list (default: releasability.patterns beside this script)
 #
+# A list line the gate cannot use (an unknown class, an empty pattern, a regex
+# grep -E refuses) exits 2.
+#
 # A line is waived by `lab-string-ok:` followed by a reason, in the file's own
 # comment syntax, on the line itself or the line above. The marker with no
 # reason is not a waiver.
@@ -37,10 +40,14 @@ done < <(git ls-files -z | git check-attr -z --stdin export-ignore)
 hits=$(mktemp)
 trap 'rm -f "$hits"' EXIT
 
-while IFS=$'\t' read -r class re _; do
+# `|| [ -n "$class" ]`: read fails on a last line with no newline, which is still a rule.
+while IFS=$'\t' read -r class re _ || [ -n "$class" ]; do
   case "$class" in ''|'#'*) continue ;; esac
   case "$classes" in *" $class "*) ;; *) echo "releasability: unknown class '$class' in $patterns" >&2; exit 2 ;; esac
   [ -n "$re" ] || { echo "releasability: empty pattern for $class in $patterns" >&2; exit 2; }
+  # The scan below ignores grep's status, so a regex grep -E refuses would match nothing.
+  rerc=0; grep -E -e "$re" /dev/null 2> /dev/null || rerc=$?
+  [ "$rerc" -lt 2 ] || { echo "releasability: pattern grep -E refuses for $class in $patterns" >&2; exit 2; }
   [ ${#published[@]} -gt 0 ] || continue
   # -Z ends the file name with NUL, so the line number and text follow it.
   printf '%s\0' "${published[@]}" \

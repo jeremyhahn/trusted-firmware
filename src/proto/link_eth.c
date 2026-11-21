@@ -10,8 +10,9 @@
  *              the controller's socket buffer. Between frames the wire that did
  *              not carry the last one is read first, so neither starves.
  *   Events.    Serial only. They are for the bench host that owns the pins.
- *   Allow-list Ethernet runs the attestation and enrolment commands and nothing
- *              else. Everything else is answered as a command the image does
+ *   Allow-list Ethernet runs the attestation and enrolment commands and the
+ *              OTA staging four (0x68-0x6B, link_eth.h) and nothing else.
+ *              Everything else is answered as a command the image does
  *              not have -- which, from the network, it does not.
  *   Reconnect. On a deadline in tfw_hal_millis() time, never a delay: 1 s after
  *              a failure, doubling to 64 s, back to 1 s once connected. A blank

@@ -424,18 +424,14 @@ static void test_i2c_address_nack(void)
 static void test_i2c_data_nack_stops_writing(void)
 {
     static const uint8_t  wr[] = { 0x12u, 0x34u, 0x56u };
-    static const uint16_t want[] = { 0xA400u, 0x84A0u, 0x8412u, 0x8434u };
-    unsigned              i;
+    static const uint16_t want[] = { 0xA400u, 0x84A0u, 0x8412u, 0x8434u, 0x9400u };
 
+    /* The second byte is refused: no third byte, and STOP releases SCL. */
     fill();
     tw_nack_data = 1u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, tfw_hal_i2c_xfer(0x50u, wr, 3u, 0, 0u));
     tw_settle();
-    TEST_ASSERT_TRUE(tw_n >= 4u);
-    TEST_ASSERT_EQUAL_HEX16_ARRAY(want, tw_log, 4u);
-    for (i = 4u; i < tw_n; i++) {
-        TEST_ASSERT_EQUAL_HEX16_MESSAGE(0x9400u, tw_log[i], "wrote on after a NACK");
-    }
+    expect_log(want, 5u);
 }
 
 static void test_i2c_stalled_bus_times_out_at_the_bound(void)

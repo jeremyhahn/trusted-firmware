@@ -156,7 +156,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
                             test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
-                            test/unit/test_mps2_bus_regs.c \
+                            test/unit/test_mps2_bus_regs.c test/unit/test_mps2_adc.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -560,6 +560,13 @@ $(HOST_DIR)/test_mps2_bus_regs: test/unit/test_mps2_bus_regs.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_CM_MODEL_REGFILE \
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 ADC HAL (#628): src/hal/cortex-m/mps2/hal_adc.c, unchanged, on
+# mps2-an505's profile (TFW_ADC_COUNT 0), in the mock HAL's place.
+$(HOST_DIR)/test_mps2_adc: test/unit/test_mps2_adc.c src/hal/cortex-m/mps2/hal_adc.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
@@ -1599,7 +1606,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
-                    $(HOST_DIR)/test_mps2_bus_regs \
+                    $(HOST_DIR)/test_mps2_bus_regs $(HOST_DIR)/test_mps2_adc \
                     $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \

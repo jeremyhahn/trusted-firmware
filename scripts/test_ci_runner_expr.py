@@ -10,6 +10,11 @@
 2. In nightly.yml, both misconfiguration-scan steps after the Trivy
    vulnerability gate carry a status function (`!cancelled()`), so a failed
    gate does not skip them, and each checks its scanner prerequisite.
+3. ci-template v1.49 (ruling 1051, handbook #83): ci.yml's preflight job
+   alone may read vars.CI_PREFLIGHT_RUNS_ON. Its runs-on is checked unset,
+   where exactly [self-hosted, linux, x64, bigdisk] passes too, and set to
+   the fallback `"ubuntu-latest"`, where it must give a standard image; the
+   schedule guard's AGENT_TOKEN is passed off github.com only.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -44,19 +49,19 @@ def policy_script():
     return "\n".join(lines[start + 1:lines.index("PY", start)]) + "\n"
 
 
-def run_policy(workflow):
+def run_policy(workflow, name="x.yml"):
     """Run the runner-label step on a repository holding only this workflow."""
     with tempfile.TemporaryDirectory() as d:
         wf = os.path.join(d, ".github", "workflows")
         os.makedirs(wf)
-        with open(os.path.join(wf, "x.yml"), "w", encoding="utf-8") as f:
+        with open(os.path.join(wf, name), "w", encoding="utf-8") as f:
             f.write(workflow)
         return subprocess.run(["python3", "-I", "-"], input=policy_script(), cwd=d,
                               capture_output=True, text=True, timeout=60)
 
 
-def job(runs_on, cond=None):
-    text = "on:\n  push:\n  pull_request:\njobs:\n  j:\n    runs-on: %s\n" % runs_on
+def job(runs_on, cond=None, name="j"):
+    text = "on:\n  push:\n  pull_request:\njobs:\n  %s:\n    runs-on: %s\n" % (name, runs_on)
     if cond:
         text += "    if: %s\n" % cond
     return text + "    steps:\n      - run: true\n"
@@ -97,6 +102,52 @@ class RunnerExpression(unittest.TestCase):
         r = subprocess.run(["python3", "-I", "-"], input=policy_script(), cwd=REPO,
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout)
+
+
+PRE_RO = (OPEN + " github.server_url == 'https://github.com' && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
+          " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
+
+
+class PreflightRunsOn(unittest.TestCase):
+    """The template's testdata/runner-labels-tests.py part F, mirrored."""
+
+    def test_preflight_bigdisk_or_fallback_passes(self):
+        r = run_policy(job(PRE_RO, name="preflight"), "ci.yml")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_other_job_reading_the_variable_reads_an_unknown(self):
+        r = run_policy(job(PRE_RO, name="lint"), "ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(c)", r.stdout)
+
+    def test_preflight_outside_ci_yml_reads_an_unknown(self):
+        r = run_policy(job(PRE_RO, name="preflight"), "other.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(c)", r.stdout)
+
+    def test_unset_must_be_exactly_bigdisk(self):
+        ro = PRE_RO.replace('"bigdisk"', '"bigdisk-docker"')
+        r = run_policy(job(ro, name="preflight"), "ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("CI_PREFLIGHT_RUNS_ON unset", r.stdout)
+
+    def test_set_must_give_a_standard_image(self):
+        ro = (OPEN + " fromJSON(vars.CI_PREFLIGHT_RUNS_ON && '\"bigdisk\"'"
+              " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') }}")
+        r = run_policy(job(ro, name="preflight"), "ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn('CI_PREFLIGHT_RUNS_ON set to "ubuntu-latest"', r.stdout)
+
+    def test_repository_preflight_reads_the_variable(self):
+        jobs = load(CI)["jobs"]
+        self.assertEqual(jobs["preflight"]["runs-on"], PRE_RO)
+        bots = [s["env"]["BOT"] for s in jobs["preflight"]["steps"] if "BOT" in s.get("env", {})]
+        self.assertEqual(len(bots), 1)
+        self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
+
+    def test_header_names_v1_49(self):
+        with open(CI, encoding="utf-8") as f:
+            self.assertTrue(f.readline().startswith("# ci-template: v1.49 "))
 
 
 class NightlyMisconfigAfterGate(unittest.TestCase):

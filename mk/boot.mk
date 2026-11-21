@@ -891,6 +891,21 @@ $(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560: test/unit/boot/test_boot_hal_avr
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x3FFFFul -DSPM_PAGESIZE=256 \
 	   '-DEIND=(*tfw_avr_reg(TFW_AVR_EIND))' $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# boot_hal_cortex-m.c alone (#628), under the MPS2 AN505's profile, over
+# boot/hal/cortex-m/test/'s stubs for the SoC's flash write, the factory copy
+# and the early latch. The test and its stubs live there because they name
+# tfw_cm_*, which lint-arch-leak allows only under the Cortex-M HAL directories.
+# boot/hal/cortex-m/ comes ahead of test/mock/ for the real boot_slots.h, and
+# test/model/cortex-m/ ahead of src/hal/cortex-m/ for the host's cm_regs.h.
+CM_BOOT_TEST_DIR := boot/hal/cortex-m/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_cortex-m
+$(BOOT_TEST_DIR)/test_boot_hal_cortex-m: $(CM_BOOT_TEST_DIR)/test_boot_hal_cortex-m.c \
+        $(CM_BOOT_TEST_DIR)/boot_hal_cortex-m_stubs.c boot/hal/cortex-m/boot_hal_cortex-m.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot/hal/cortex-m -Itest/model/cortex-m -Isrc/hal/cortex-m \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds
 # links the same source with the slot patched after compilation, as the

@@ -333,6 +333,29 @@ static void test_init_rates(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(0uL));
 }
 
+static void test_a_refused_rate_leaves_a_running_block_as_it_was(void)
+{
+    const uint8_t wr[] = { 0x01u };
+    uint32_t      gpio[10];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
+    done();
+    memcpy(gpio, m.gpio, sizeof gpio);
+    m.log[0] = '\0';
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(99999uL));
+    TEST_ASSERT_EQUAL_UINT(0u, m.pending);                          /* no register handed out */
+    done();
+    TEST_ASSERT_EQUAL_STRING("", m.log);                            /* PE never cleared */
+    TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);
+    TEST_ASSERT_EQUAL_HEX32(0x10A11626u, m.timingr);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(gpio, m.gpio, 10);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);                   /* the bus still works */
+}
+
 static void test_write(void)
 {
     const uint8_t wr[] = { 0x01u, 0x02u };
@@ -500,6 +523,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_init_routes_i2c4_and_loads_the_timing);
     RUN_TEST(test_init_rates);
+    RUN_TEST(test_a_refused_rate_leaves_a_running_block_as_it_was);
     RUN_TEST(test_write);
     RUN_TEST(test_write_then_read_is_a_repeated_start);
     RUN_TEST(test_read_only);

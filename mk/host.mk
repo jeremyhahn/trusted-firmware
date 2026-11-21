@@ -1646,6 +1646,13 @@ $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
 $(HOST_DIR)/test_main: test/unit/main/test_main.c $(HOST_DIR)/test_main.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# tfwsim's bootloader options (#629): tools/tfwsim/boot_host.c alone, the rest
+# of the boot path stood in by the test.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_tfwsim_boot_option
+$(HOST_DIR)/test_tfwsim_boot_option: test/unit/main/test_tfwsim_boot_option.c tools/tfwsim/boot_host.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -Iboot/hal/host -Iboot -Itest/mock \
+	  -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
 HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate

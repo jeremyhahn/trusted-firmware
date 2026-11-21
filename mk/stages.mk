@@ -45,7 +45,8 @@ endef
 # so the flash budgets are build gates; platform-bake-build-check holds the bake
 # image's flash ceiling. header-deps-check is here because it is about what
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
-# itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
+# through make build, in the image job, so there is no workflow matrix to keep
+# in step.
 # app-firmware-check builds for the ATmega2560 and one Cortex-M board, QEMU's
 # mps2-an505, whatever BOARD is: the example application does not fit the 328P,
 # element-only since owner ruling 2026-10-17 (m522), and applications target
@@ -183,8 +184,8 @@ integration-test-tools:
 #        firmware has no package manifest, its only third-party code is vendored
 #        and pinned by hash (verify-vendor).
 #   trivy fs --scanners vuln  finds no C manifest for the same reason; for the
-#        Go modules it duplicates govulncheck, and §8a runs it nightly during
-#        alpha (nightly.yml), so it is not here.
+#        Go modules it duplicates govulncheck, which scans.yml runs daily
+#        (make vuln), so it is not here.
 #   trivy image  needs a docker daemon and a built image: `make trivy-image`,
 #        run where the integration image is built.
 security: security-novuln vuln
@@ -235,9 +236,9 @@ secrets-scan:
 	@echo "secrets-scan: no secret in the tree"
 
 ## trivy-image: build and scan the integration image (needs docker; devops.md §8)
-# CI's `image-security` job runs the same scan on the image it builds at the commit under
-# test. TRIVY_IMAGE_FLAGS are that step's flags, word for word (the CUSTOMIZE
-# block in .github/workflows/ci.yml): exclusions live there, in the template
+# scans.yml's Scheduled scans job runs the same scan on the image it builds on
+# main. TRIVY_IMAGE_FLAGS are that step's flags, word for word (its "Scans"
+# step in .github/workflows/scans.yml): exclusions live there, in the template
 # form, never in a .trivyignore (CA m269). Change both together.
 TRIVY_IMAGE_FLAGS := --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICAL,HIGH --exit-code 1
 

@@ -150,9 +150,10 @@ ARCH_BOOT_PLACEMENT_LDFLAGS := $(ARCH_BOOT_START_LDFLAGS) -Wl,-T,mk/handoff.ld \
 # overflowed" -- and .text runs on past the top of flash. The application
 # links the crt (mk/firmware.mk has no -nostartfiles), so it needs no copy.
 
-# Writing an image. Recipes, not rules: mk/firmware.mk owns the targets, so the
-# one `flash` and the one `boot-flash` exist for every architecture and only the
-# programmer differs. The AVRDUDE_* settings come from the board's profile.mk.
+# Writing an image. Recipes, not rules: mk/firmware.mk and mk/boot.mk own the
+# targets, so the one `flash` and the one `boot-flash` exist for every
+# architecture and only the programmer differs. The AVRDUDE_* settings come
+# from the board's profile.mk.
 ARCH_FLASH = avrdude -v -p$(AVRDUDE_PART) -c$(AVRDUDE_PROG) -P$(AVRDUDE_PORT) \
              -b$(AVRDUDE_BAUD) -D -Uflash:w:$<:i
 

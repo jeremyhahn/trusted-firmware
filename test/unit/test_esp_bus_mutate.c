@@ -588,6 +588,31 @@ static void test_an_spi_init_remakes_the_device_at_its_settings(void)
     }
 }
 
+static void test_an_spi_init_at_the_same_settings_keeps_the_device(void)
+{
+    long h;
+
+    /* a device at known settings: the HAL's state outlives setUp */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(1u, 1u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 1u));
+    h = find_op(E_SPI_XFER)->a;
+
+    /* the same mode, clock and bit order: kept */
+    ntrace = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(1u, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, ntrace);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, count_op(E_SPI_ADD));
+    TEST_ASSERT_EQUAL_INT(h, find_op(E_SPI_XFER)->a);
+
+    /* one setting changed: that device is removed */
+    ntrace = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(1u, 2u, 0u));
+    TEST_ASSERT_EQUAL_UINT(1u, ntrace);
+    TEST_ASSERT_EQUAL_INT(E_SPI_RM, trace[0].op);
+    TEST_ASSERT_EQUAL_INT(h, trace[0].a);
+}
+
 /* ------------------------------------------------------------------- 1-wire */
 
 static ev_t     want_tr[TRACE_MAX];
@@ -737,6 +762,7 @@ int main(void)
     RUN_TEST(test_a_failed_spi_transfer_is_internal_with_cs_released);
     RUN_TEST(test_spi_settings_out_of_range_are_refused_and_kept);
     RUN_TEST(test_an_spi_init_remakes_the_device_at_its_settings);
+    RUN_TEST(test_an_spi_init_at_the_same_settings_keeps_the_device);
     RUN_TEST(test_a_reset_is_its_slot_and_the_presence);
     RUN_TEST(test_a_write_is_each_bit_lsb_first);
     RUN_TEST(test_a_read_is_each_bit_lsb_first);

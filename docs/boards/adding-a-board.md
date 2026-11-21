@@ -1,7 +1,7 @@
 # Adding a board
 
 > **Status: NORMATIVE** · Scope: `boards/`, `include/tfw/board.h`,
-> `src/core/board_lookup.c` · Last verified: 2026-09-23
+> `src/core/board_lookup.c` · Last verified: 2026-11-21
 >
 > The claim this document makes is falsifiable: adding a board touches nothing
 > under `src/`. Where that stopped being true, the fix belonged in `src/`, and
@@ -17,7 +17,7 @@ The four files:
 ```
 boards/<board>/board_profile.h   constants: what the part is
 boards/<board>/board.c           three tables: where its pins are
-boards/<board>/profile.mk        the toolchain's view: MCU, clock, budgets
+boards/<board>/profile.mk        the toolchain's view: MCU (or QEMU_MACHINE), clock, budgets
 test/unit/test_board_<short>.c   what you assert is true about the above
 ```
 
@@ -104,7 +104,27 @@ timers are the millisecond tick and the software UART's bit clock.
 ## `profile.mk`
 
 `ARCH`, `MCU`, `F_CPU`, the avrdude part and programmer, and four numbers:
-`FLASH_BUDGET`, `RAM_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`.
+`FLASH_BUDGET`, `RAM_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`. That is an AVR
+profile; the parts after `ARCH` and the four numbers are what board-check reads
+on every architecture.
+
+An emulated board states `QEMU_MACHINE`, the machine its emulator models, in
+place of `MCU`: board-check takes the part from `MCU`, else `QEMU_MACHINE`
+(board-check line 426), and a budget with neither fails "a budget names no
+part" (line 428).
+
+A budget's part must have a row in `PARTS` in `scripts/board-check.py`, or the
+check fails "part X is not one board-check knows" (line 431). `FLASH_TOTAL`,
+`RAM_TOTAL`, `TFW_FLASH_TOTAL` and `TFW_EEPROM_SIZE` are then the part's
+numbers from that row, not free choices (lines 434-442); `TFW_FLASH_TOTAL` is
+the end of the flash span, so on a part whose flash starts above 0 it is an
+address (line 438). Each budget is at most its total, and a budget with no
+total fails (lines 417-422).
+
+A non-AVR `ARCH` must also have an entry in `PORT_BITS`, the bit width of one
+port (`avr` 8, `cortex-m` 32, `esp32` 32; line 132), or the check fails
+"board-check knows no port width" (line 495), and its board id must lie in that
+family's range in the registry (line 395).
 
 `ARCH := avr` is **required**, and it is how the build finds everything that is
 not the board's: the toolchain, flags, programmer and linker placement come from
@@ -137,11 +157,14 @@ A board with a boot section states `BOOT_BASE`, the address tfw-boot links at,
 alongside `BOOT_SECTION`. It must equal `TFW_BOOT_REGION_BASE` in
 `board_profile.h`. On AVR, `mk/arch/avr.mk` also checks that `BOOT_BASE` plus
 `BOOT_SECTION` is `FLASH_TOTAL`, because BOOTRST puts the boot section at the
-top of flash.
+top of flash. board-check checks the same sum on every part with a boot section, against the end of
+the part's boot region where `PARTS` gives one (`boot_end`, a region apart
+from the top of flash), else against the top of flash (lines 461-466), and
+checks that `RAM_END` is the part's last SRAM address (lines 453-457).
 
 A board with no boot section also states no `BOOT_BASE`, `BOOT_SECTION`,
 `BOOT_BUDGET` or `RAM_END`, and does not appear in `BOOT_SUPPORTED` in
-`mk/boot.mk`.
+`mk/boot.mk`. Its `BOARD_TIERS` is exactly `none` (board-check lines 446-449).
 
 ## The test
 

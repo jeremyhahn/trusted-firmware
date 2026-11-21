@@ -1543,6 +1543,17 @@ $(HOST_DIR)/test_mcxn94x_eeprom: test/unit/test_mcxn94x_eeprom.c boot/hal/cortex
 	@$(HOST_CC) -Iboards/frdm-mcxn947 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter %.o,$^) $(filter-out %/mcxn94x/hal_eeprom.c %/hal_tick.c,$(filter %.c,$^)) $(EXTRA_LDFLAGS)
 
+# test_mcxn_boot_flash compiles tfw-boot's MCXN947 flash write,
+# boot/hal/cortex-m/mcxn94x/boot_flash.c, unchanged and without mcxn_flash.c:
+# the suite records tfw_mcxn_flash_update and the model mask, so the ROM
+# tree's driver, the flash span and the mask given back are pinned. Its
+# HOST_EXTRA_BINS line sits after the list's := below.
+$(HOST_DIR)/test_mcxn_boot_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_boot_flash.c \
+                                  boot/hal/cortex-m/mcxn94x/boot_flash.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m -Itest/model -Iboards/frdm-mcxn947 -Iboot/hal/cortex-m \
+	  -Iboot/hal/cortex-m/mcxn94x $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The STM32H5's EEPROM (SPEC row stm32h5) on stm32h573i-dk's layout, over
 # the application's flash write, ee_flash.c over h5_flash.c: the suite maps
 # the flash at the part's own address and is the hardware, at the wait
@@ -1556,9 +1567,9 @@ $(HOST_DIR)/test_stm32h5_eeprom: test/unit/test_stm32h5_eeprom.c src/hal/cortex-
 	@$(HOST_CC) -Iboards/stm32h573i-dk -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_stm32h5_ee_flash_port includes ee_flash_port.c unchanged behind
-# test/unit/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the fixed
-# flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
-$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/unit/stm32h5_ee_port_stubs.h \
+# test/model/cortex-m/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the
+# fixed flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
+$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/model/cortex-m/stm32h5_ee_port_stubs.h \
                                         src/hal/cortex-m/stm32h5/ee_flash_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_ee_flash_port.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
@@ -1656,10 +1667,18 @@ $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
 $(HOST_DIR)/test_main: test/unit/main/test_main.c $(HOST_DIR)/test_main.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# tfwsim's bootloader options (#629): tools/tfwsim/boot_host.c alone, the rest
+# of the boot path stood in by the test.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_tfwsim_boot_option
+$(HOST_DIR)/test_tfwsim_boot_option: test/unit/main/test_tfwsim_boot_option.c tools/tfwsim/boot_host.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -Iboot/hal/host -Iboot -Itest/mock \
+	  -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
 HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate
 HOST_EXTRA_BINS += $(HOST_DIR)/test_ota_begin_budget
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mcxn_boot_flash
 
 # The handoff block over a stand-in RTC-retained block sized as sdkconfig sizes it (#163).
 $(HOST_DIR)/test_esp_handoff_mutate: test/unit/test_esp_handoff_mutate.c src/hal/esp32/hal_handoff.c \
@@ -1896,6 +1915,14 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The Cortex-M hal_handoff.c (#628): as test_avr_handoff_mutate, the suite
+# finds the block's section in its own ELF headers.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_handoff
+$(HOST_DIR)/test_cm_handoff: test/unit/hal/test_cm_handoff.c src/hal/cortex-m/hal_handoff.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/mps2-an505 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The M7's MPU region table (src/hal/cortex-m/hal_mpu.c, row 482): the pure
 # table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu
@@ -1996,6 +2023,16 @@ $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
+
+# The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,
+# unchanged, on mps2-an505's profile. The mps2 boot test directory's cm_regs.h,
+# ahead of src/hal/cortex-m, sends TFW_CM_REG to tfw_cm_model_reg(), which the
+# suite defines as the FPGA I/O LED and button words.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mps2_hsm_port
+$(HOST_DIR)/test_mps2_hsm_port: src/hal/cortex-m/mps2/test/test_mps2_hsm_port.c \
+                                src/hal/cortex-m/mps2/hsm_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Iboot/hal/cortex-m/mps2/test \
+	   -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the

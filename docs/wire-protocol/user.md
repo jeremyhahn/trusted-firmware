@@ -1,6 +1,6 @@
 # Wire protocol — user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented usage of the wire protocol from a host. For the reference
@@ -66,20 +66,26 @@ tfwctl /dev/ttyUSB0 timer-cancel 13   # stop it early
 nothing. `OTA_ACTIVATE` is the separate step that does: the device re-verifies
 the staged image, writes the store's `MARK`, and takes the image at the next
 reset, or resets now. Activating is the control plane's call, so the two are
-separate verbs (`../ota/user.md`).
+separate verbs (`../ota/user.md`). Since #137 the device answers
+`OTA_ACTIVATE` with `TFW_ERR_AUTH_REQUIRED` unless an `OTA_AUTH` carrying the
+row key's ES256 signature (64 bytes r||s; `../ota/api.md`, "Authorization by
+the row key") immediately precedes it, or an activation is already pending.
+tfwctl sends that `OTA_AUTH` from `--sig=<128 hex digits>` or
+`--sig-file=<path>` (raw bytes or hex) and signs nothing; without one it sends
+nothing and exits 1.
 
 ```sh
 tfwctl /dev/ttyUSB0 ota-stage image.bin              # stage only
-tfwctl /dev/ttyUSB0 ota-activate                     # taken at the next reset
-tfwctl /dev/ttyUSB0 ota-activate now                 # the device resets now
-tfwctl /dev/ttyUSB0 ota-stage --activate=now image.bin
+tfwctl /dev/ttyUSB0 ota-activate --sig-file=<sig>    # taken at the next reset
+tfwctl /dev/ttyUSB0 ota-activate --sig-file=<sig> now  # the device resets now
+tfwctl /dev/ttyUSB0 ota-stage --activate=now --sig-file=<sig> image.bin
 ```
 
 The session's verified state lives in RAM, so a board that resets when its
 port is opened (the Mega 2560 over USB serial) has lost it by the time a
 separate `ota-activate` run speaks, and answers `TFW_ERR_BAD_STATE`. There,
-stage with `--activate` or `--activate=now`, which sends `OTA_ACTIVATE` on the
-same connection.
+stage with `--activate` or `--activate=now` and a signature, which sends
+`OTA_AUTH` and `OTA_ACTIVATE` on the same connection.
 
 ## Handle events
 

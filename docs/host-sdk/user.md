@@ -1,6 +1,6 @@
 # Host SDK — using it
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented. Full flag reference: `cli.md`. Design rationale: `architecture.md`.
@@ -63,6 +63,25 @@ nothing else, so it cannot be tuned into discarding a genuine event no
 matter how fast a board answers — which several boards this project supports
 do, the ATtiny85 (no bootloader at all) among them.
 
+## Talk to a device over Ethernet, or to an emulator's UART
+
+```sh
+tfwctl -timeout 90s tcp://:<port> caps
+```
+
+Over `tcp://` tfwctl does not dial: it **listens** on that address, which is
+the endpoint you wrote into the device's network block (`netcfg set
+--endpoint`), and runs the command on the first device to connect within
+`-timeout`, because the device opens the connection. Over Ethernet the device
+answers only its allow-list — `caps`, `app`, the attestation verbs and OTA
+staging — so pins, timers and provisioning stay on serial. Port forms:
+[cli.md](cli.md#ports); setting the device up:
+[the Ethernet transport guide](../ethernet-transport/user.md).
+
+`unix:<path>` dials an emulator's UART on a Unix socket (QEMU `-serial
+unix:<path>,server=on`) and talks to it as to a serial port, with
+`-boot-wait` ([cli.md](cli.md#ports)).
+
 ## Try it with no hardware at all
 
 `tfwsim` is the real firmware, compiled to run on this machine. Build it once,
@@ -82,6 +101,11 @@ simulator instead, `make tfwsim-atecc608a`, and start it with an identity. From 
 Go test, `tfwsim.StartElement(t)` does both; see `api.md` and
 `docs/dice-attestation/user.md`. Its evidence is a TEST identity and no
 signature in it verifies.
+
+For the Ethernet link, `tfwsim --eth` is the peer: it dials the endpoint in its
+network block and serves the allow-list there, as an Ethernet build does; from
+a Go test, `tfwsim.StartElementEthernet(t)` listens, starts it and returns both
+links ([cli.md](cli.md#tfwsim--the-firmware-built-for-the-host)).
 
 ## Drive an output for a fixed time, safely
 
@@ -107,9 +131,9 @@ inside the element, and locks the data zone — irreversibly, once you pass
 `-commit -yes-i-mean-it`. Always in this order:
 
 ```sh
-tfwprov -dry-run -config templates/atecc608a-dice.conf /dev/ttyUSB0
-tfwprov -commit  -config templates/atecc608a-dice.conf /dev/ttyUSB0 -yes-i-mean-it   # spare part first
-tfwprov -verify  -config templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov -dry-run -config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov -commit  -config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 -yes-i-mean-it   # spare part first
+tfwprov -verify  -config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
 ```
 
 The device must be running a provisioning-jig image; a production build

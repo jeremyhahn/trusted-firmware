@@ -1,6 +1,6 @@
 # Device provisioning — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Seven command ids, `0x70`–`0x75` and `0x7B`, reserved permanently on the wire (see
@@ -136,10 +136,17 @@ usable only by the SHA/HMAC command (the UDS).
 ## What is out of scope for this surface
 
 The device serial, the operator public key (issue #4, element tier) and the
-rest of the platform-reserved EEPROM region (`include/tfw/boot.h`, offsets
-`0x00`–`0xBE`) are **not** written by any command on this page. `EEPROMWrite`
-(`0x41`, the general storage capability, `src/caps/storage.c`) unconditionally
-refuses every address below `0xC0` regardless of build — see
-[`engineering.md`](engineering.md)'s "known gap" note. There is currently no
+rest of the platform-reserved EEPROM region (`include/tfw/boot.h`,
+`[0x000, 0x140)`, `TFW_BOOT_EE_LEN`) are **not** written by any command on this
+page. `EEPROMWrite` (`0x41`, the general storage capability, `src/caps/storage.c`)
+refuses, `TFW_ERR_PROTECTED_REGION`, any write that overlaps
+`[0x000, TFW_BOOT_EE_LEN)` (0x140) on every build (`TFW_EEPROM_RESERVED_END`
+and `boot_owned`), and any write overlapping a board's own reserved range
+(`TFW_BOOT_EE_EXTRA_BASE`, `TFW_BOOT_EE_EXTRA_LEN`). A write overlapping the
+network block, `[TFW_NETCFG_ADDR, TFW_NETCFG_ADDR + TFW_NETCFG_LEN)` (0x140, 32
+bytes, `include/tfw/eth.h`), needs the operator auth session on the element
+tier (`tfw_auth_gate`, a no-op on the soft tier); see
+[`../ethernet-transport/`](../ethernet-transport/) for why. There is currently no
 wire command that writes the device serial or the operator public key; both
-are baked into the `.eep` image before flashing, by `tfwprov --bake-eeprom`.
+are baked into the `.eep` image before flashing, by `tfwprov --bake-eeprom`
+(`--serial`, `--operator-pubkey`).

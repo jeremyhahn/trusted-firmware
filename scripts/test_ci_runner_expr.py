@@ -91,6 +91,22 @@ class RunnerExpression(unittest.TestCase):
         r = run_policy(job(ro, cond))
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_waived_evaluated_release_is_checked_as_release(self):
+        # #613 round 4: format() evaluates to `release` though its text names none.
+        ro = OPEN + " format('{0}{1}', 're', 'lease') }}   # self-hosted: hardware: bench"
+        r = run_policy(job(ro))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("names `release`", r.stdout)
+        r = run_policy(job(ro, OPEN + " github.event_name == 'pull_request' }}"))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(a)", r.stdout)
+
+    def test_waived_evaluated_release_passes_when_restricted(self):
+        ro = OPEN + " format('{0}{1}', 're', 'lease') }}   # self-hosted: hardware: bench"
+        cond = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+        r = run_policy(job(ro, cond))
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_known_operands_still_pass(self):
         for ro in ("ubuntu-latest",
                    OPEN + " github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}"):

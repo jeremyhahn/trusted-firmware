@@ -4,8 +4,8 @@
  * The application's side of the CDI handoff address.
  *
  * tfw-boot places its handoff block at a FIXED SRAM address it derives from
- * the board's RAM_END (mk/boot.mk's BOOT_HANDOFF_AT), because there is no
- * shared linker script between the two images for it to name a symbol in
+ * the board's RAM_END (mk/arch/avr.mk's ARCH_BOOT_HANDOFF_AT), because there
+ * is no shared linker script between the two images for it to name a symbol in
  * instead. The application has to land on the identical address by the same
  * arithmetic, or it reads whatever else happens to be at the top of its own
  * SRAM rather than what the bootloader wrote -- silently, since a wrong
@@ -14,12 +14,13 @@
  * Uninitialised-but-not-zeroed, exactly as the bootloader's copy is: the C
  * runtime zeroes .bss before main(), and zeroing this before it is read would
  * erase the CDI a moment before the one thing that needs it. The address
- * itself comes from mk/avr.mk's --section-start=.handoff, which uses the SAME
- * formula mk/boot.mk does -- one number, derived once, is the only way the
- * two images cannot drift apart on it.
+ * itself comes from mk/arch/avr.mk's
+ * --section-start=.handoff=$(ARCH_HANDOFF_AT), the SAME formula as its
+ * ARCH_BOOT_HANDOFF_AT -- one number, derived once, is the only way the two
+ * images cannot drift apart on it.
  *
  * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked in by both
- * mk/avr.mk and mk/boot.mk) splices `.handoff (NOLOAD) : { *(.handoff) }`
+ * images' placement flags in mk/arch/avr.mk) splices `.handoff (NOLOAD) : { *(.handoff) }`
  * into the default script, the same SHT_NOBITS treatment `.bss` already
  * gets. That is what keeps this array's 112 bytes out of every derived
  * image -- the *.hex files, and mk/release.mk's provenance .bin -- rather
@@ -38,7 +39,7 @@
 /*
  * `.handoff`, a section of its own -- NOT the generic `.noinit` other
  * uninitialised-but-not-zeroed data (src/hal/avr/hal_early.c's
- * tfw_hal_early_flags, notably) also lives in. mk/avr.mk pins THIS section to
+ * tfw_hal_early_flags, notably) also lives in. mk/arch/avr.mk pins THIS section to
  * a fixed address with `--section-start`; pinning the generic `.noinit`
  * output section would move every OTHER object assigned to it there too,
  * which is exactly the collision that shipped once, briefly, in this file's

@@ -32,13 +32,16 @@ volatile uint32_t *regfile_model_reg(uintptr_t addr);
 static uint32_t busy_polls;   /* MB reads that see it set, then it clears */
 static uint32_t polls;        /* MB-set reads since the last command */
 static uint32_t issued;       /* MACMDIOAR as the last command wrote it */
+static uint32_t issued_dr;    /* MACMDIODR as the last command found it */
 static uint32_t seen;         /* MB-set reads in all */
 static uint32_t reply;        /* MACMDIODR a read's completion publishes */
 
 /*
  * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
  * A read's result reaches MACMDIODR only as MB clears, so a driver that
- * reads the data register before its wait gets the stale value.
+ * reads the data register before its wait gets the stale value. A write's
+ * data is read as the command is first seen, so a driver that loads
+ * MACMDIODR after issuing the command sends the stale value.
  */
 volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
 {
@@ -47,6 +50,7 @@ volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
     if (addr == MACMDIOAR && (*r & MB) != 0u) {
         if (polls == 0u) {
             issued = *r;
+            issued_dr = *regfile_model_reg(MACMDIODR);
         }
         if (busy_polls != NEVER && polls >= busy_polls) {
             *r &= ~MB;
@@ -68,6 +72,7 @@ void setUp(void)
     busy_polls = 3u;
     polls = 0u;
     issued = 0u;
+    issued_dr = 0u;
     seen = 0u;
     reply = 0u;
 }
@@ -91,8 +96,10 @@ void test_a_read_names_the_phy_and_register_and_waits_on_mb(void)
 
 void test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb(void)
 {
+    TFW_CM_REG(MACMDIODR) = 0x5A5A5A5Au; /* stale */
     TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x1Fu, 0x00u, 0x8000u));
     TEST_ASSERT_EQUAL_HEX32((0x1Fu << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
     TEST_ASSERT_EQUAL_HEX32(0x8000u, regfile_model_peek(MACMDIODR));
     TEST_ASSERT_EQUAL_UINT32(3u, seen);
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIOAR) & MB);

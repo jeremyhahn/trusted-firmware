@@ -39,8 +39,9 @@
 void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
     /*
-     * The public-key hash goes through the element too, for one reason: if it
-     * did not, the software SHA-256 would still be linked into the boot section
+     * The signature digest of the trailer's signed bytes (verify_atecc608a.c)
+     * goes through the element too -- on this tier no public key is hashed,
+     * the pin is skipped (boot_policy.c) -- for one reason: if it did not, the software SHA-256 would still be linked into the boot section
      * and this file would save nothing at all. One hash implementation per
      * image, and on this configuration it is the element's.
      */

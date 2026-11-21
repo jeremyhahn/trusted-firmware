@@ -5,8 +5,10 @@
  * (SPEC row `imx95`): one request out through a Messaging Unit's transmit
  * registers, one response back through its receive registers, polled with a
  * bounded wait. The commands here are GET_INFO, the open and close of the
- * session, the key store and the key management service, and KEY_GENERATE
- * for one NIST P-256 key; no key is used.
+ * session, the key store and the key management service, KEY_GENERATE for
+ * one NIST P-256 key, the signature generation and verification services and
+ * their SIGN_GENERATE and SIGN_VERIFY, PUB_KEY_EXPORT, key delete, get event
+ * and device attestation.
  *
  * NXP RM00284 Rev. 4.5, "EdgeLock Enclave Hardware Security Module API", is
  * the library's API and holds none of this: it names no message header,

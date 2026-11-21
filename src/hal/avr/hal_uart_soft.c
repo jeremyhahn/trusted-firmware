@@ -40,7 +40,8 @@
  * rather than on a scope.
  *
  * This file lives under src/hal/avr, one of the four places a preprocessor
- * conditional is permitted. It contains none.
+ * conditional is permitted. It contains none beyond the two ring-size
+ * defaults (TFW_UART_RX_RING, TFW_UART_TX_RING).
  */
 
 #include <avr/io.h>
@@ -274,7 +275,8 @@ ISR(PCINT0_vect)
      * counter runs 0..OCR1C, which is 0..207 here -- NOT 0..255 -- so the sum
      * has to wrap at OCR1C+1 and not at the byte. Done in eight bits, a start
      * edge arriving late in the period wraps at 256 and the sample lands at a
-     * phase off by the difference: 48 ticks into the bit instead of 96. The
+     * phase off by the difference: 48 ticks early, 56 ticks into the bit
+     * instead of 104. The
      * link then works for most bytes and fails for the ones that arrive in the
      * last quarter of a period, which is the kind of fault that gets blamed on
      * the cable.

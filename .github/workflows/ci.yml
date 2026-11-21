@@ -1767,16 +1767,18 @@ jobs:
               return ("default", "overflow")
 
 
-          def unknown_runner(path, job, ro):
+          def may_be_release(path, job, ro):
               # v1.49 (#613): a runs-on whose value this step cannot know on some
               # github.com event (`vars.CI_RUNNER || 'ubuntu-latest'`) may name any
-              # runner, `release` too, though its text names none.
+              # runner, `release` too, though its text names none. Codex round 4 (#613): so
+              # does one that evaluates to `release` (`format('{0}{1}', 're', 'lease')`).
               for ev, ref, head in HOSTED_CTX:
                   for sel in sels_of(path, job, ro):
                       try:
-                          if runs_on_labels(ro, ev, ref, head, sel) is None:
-                              return True
+                          got = runs_on_labels(ro, ev, ref, head, sel)
                       except ValueError:
+                          return True
+                      if got is None or any(names_release(label) for label in got):
                           return True
               return False
 
@@ -1815,10 +1817,10 @@ jobs:
                                   bad.append(rf)
                                   continue
                               if WAIVER.search(ro_line):
-                                  if not unknown_runner(path, job, ro):
+                                  if not may_be_release(path, job, ro):
                                       continue
-                                  # v1.49 (#613): a waived runs-on whose value is unknown may
-                                  # be `release`, so its `if:` is checked as one below.
+                                  # v1.49 (#613): a waived runs-on whose value is unknown, or
+                                  # (round 4) evaluates to `release`, is checked as one below.
                               else:
                                   off = []
                                   for ev, ref, head in HOSTED_CTX:
@@ -3336,6 +3338,11 @@ jobs:
       # with it as the cache; it never builds the toolchain image itself.
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      # #613 (Codex round 4): Integration and Soak share a Docker pool and build
+      # this image at once on a schedule or dispatch run; each builds under its
+      # own temporary tag, and docker.mk's tag to IT_IMAGE is the one write of
+      # the shared name.
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -3495,6 +3502,7 @@ jobs:
       SOAK_TARGET: integration-test   # CUSTOMIZE: a make target of the integration image
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       IT_PROJECT: ${{ github.event.repository.name }}-ci-${{ github.run_id }}-${{ github.run_attempt }}-soak
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}   # #613, as integration
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 

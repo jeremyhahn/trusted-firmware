@@ -6,7 +6,9 @@ STM32H573I-DK's stm32h5, the PKA and HASH provider of #544). Only the
 CRYPTO=soft image was built in CI, so a missing include in the stm32h5
 provider broke `make firmware` on the bench and not in CI (#566). This test
 holds .github/workflows/ci.yml to a `make firmware BOARD=<board>
-CRYPTO=<tier>` step for each declared tier.
+CRYPTO=<tier>` step for each declared tier. Only a real make invocation
+counts, bare or through scripts/in-toolchain-image.sh, parsed as shell: a
+comment or an echo naming the build does not.
 
 The scan reads boards/*/profile.mk only, not mk/arch/*.mk: the one arch
 tier there, ESP32's hmac-p256 (mk/arch/esp32.mk), belongs to boards that set
@@ -17,12 +19,15 @@ demand a ci.yml step no ESP32 board can run.
 
 import os
 import re
+import shlex
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CI_YML = os.path.join(ROOT, ".github", "workflows", "ci.yml")
 TIERS_RE = re.compile(r"^ARCH_CRYPTO_TIERS\s*:?=\s*(.*)$", re.MULTILINE)
 RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:(.*)$")
+ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+SEPARATOR_CHARS = ";&|()"
 
 
 def declared_tiers():
@@ -43,20 +48,30 @@ def run_commands(text):
     """The executable lines of every `run:` in the ci.yml text.
 
     A `run: <cmd>` line gives its command; a `run: |` (or `>`) block gives
-    the lines indented deeper than its key. Step names and `#` comments
-    are not commands, so they never count as a build. The YAML is read as
-    text: PyYAML is not in the image.
+    the lines indented deeper than its key, a line ending in a backslash joined
+    with the next. Step names and `#` comment lines are not commands, so
+    they never count as a build; a trailing comment stays here and
+    simple_commands() strips it. The YAML is read as text: PyYAML is not in
+    the image.
     """
     commands = []
     block_indent = None
+    pending = ""
     for line in text.splitlines():
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
         if block_indent is not None:
             if not stripped or indent > block_indent:
-                if stripped and not stripped.startswith("#"):
-                    commands.append(stripped)
+                if pending or (stripped and not stripped.startswith("#")):
+                    if stripped.endswith("\\"):
+                        pending += stripped[:-1] + " "
+                    else:
+                        commands.append(pending + stripped)
+                        pending = ""
                 continue
+            if pending:
+                commands.append(pending)
+                pending = ""
             block_indent = None
         m = RUN_RE.match(line)
         if not m:
@@ -66,13 +81,75 @@ def run_commands(text):
             block_indent = len(m.group(1))
         elif value and not value.startswith("#"):
             commands.append(value)
+    if pending:
+        commands.append(pending)
     return commands
 
 
+def simple_commands(command):
+    """The word lists of the simple commands in one shell command line.
+
+    The line is tokenized as the shell would, so a `#` comment and quotes
+    are stripped, and split at `;`, `&&`, `||`, `|`, `&` and parentheses.
+    A line shlex cannot parse (an open quote) gives nothing: it is not a
+    build.
+    """
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    words, out = [], []
+    for token in tokens:
+        if token and all(c in SEPARATOR_CHARS for c in token):
+            if words:
+                out.append(words)
+            words = []
+        else:
+            words.append(token)
+    if words:
+        out.append(words)
+    return out
+
+
+def make_firmware_build(words):
+    """(board, tier) if the simple command runs `make firmware`, else None.
+
+    The words, after leading NAME=value assignments, start with `make` or
+    with `scripts/in-toolchain-image.sh <image> make`, and the words after
+    make include `firmware`, `BOARD=<board>` and `CRYPTO=<tier>`.
+    """
+    while words and ASSIGN_RE.match(words[0]):
+        words = words[1:]
+    if words[:1] == ["make"]:
+        args = words[1:]
+    elif (words[:1] == ["scripts/in-toolchain-image.sh"]
+          and words[2:3] == ["make"]):
+        args = words[3:]
+    else:
+        return None
+    boards = [a[len("BOARD="):] for a in args if a.startswith("BOARD=")]
+    tiers = [a[len("CRYPTO="):] for a in args if a.startswith("CRYPTO=")]
+    if "firmware" not in args or not boards or not tiers:
+        return None
+    return boards[-1], tiers[-1]
+
+
 def ci_firmware_builds(text):
-    """(board, tier) for every `make firmware BOARD= CRYPTO=` ci.yml runs."""
-    return set(re.findall(r"make firmware BOARD=(\S+) CRYPTO=(\S+)",
-                          "\n".join(run_commands(text))))
+    """(board, tier) for every `make firmware BOARD= CRYPTO=` ci.yml runs.
+
+    Only a simple command that invokes make counts: a comment, an echo or
+    any other command that merely names the build does not.
+    """
+    builds = set()
+    for command in run_commands(text):
+        for words in simple_commands(command):
+            build = make_firmware_build(words)
+            if build:
+                builds.add(build)
+    return builds
 
 
 def missing_builds(text):

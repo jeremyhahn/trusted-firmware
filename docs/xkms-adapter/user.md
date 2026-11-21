@@ -85,10 +85,28 @@ device says about its own root of trust.
 
 ## When an attestation is refused
 
-- `avr backend: device echoed a different challenge` — the certificate answers
-  some other challenge. The device has no clock, so that nonce is the only thing
+The backend checks the alias certificate with go-xkms's `dice.Verify` and hands
+its error back unwrapped (`checkAliasCertificate`,
+[`xkms/avr/attestation.go`](../../xkms/avr/attestation.go)). The message is
+go-xkms's, not this backend's; what each check means to you:
+
+- **The nonce.** The certificate answers some other challenge, compared in
+  constant time. The device has no clock, so that nonce is the only thing
   separating a live answer from a recording; this is refused and never
   downgraded to a warning.
+- **The device-resident key.** The certificate's key or signature is not what an
+  ATECC608A makes. It holds a key only on P-256 and signs only ECDSA-SHA256; the
+  backend requires the leaf itself to be device-signed, so an alias signed any
+  other way is refused.
+- **The chain.** You configured roots and this device does not descend from
+  them.
+- **The operational flags.** The certificate claims a state outside the flags
+  you permitted (`PermittedFlags` in the attestation configuration).
+
+The backend's own refusals here are these:
+
+- `avr backend: device returned an unparseable certificate` — the bytes the
+  device sent are not DER this host can parse.
 - `avr backend: attestation nonce is not the enrolment width` — the challenge is
   not 32 bytes. Most likely a raw key authorization instead of
   `DICENonce` of one, or the device's *other* nonce: the 16-byte one belongs in
@@ -96,14 +114,21 @@ device says about its own root of trust.
 - `avr backend: unsupported on this build or part` — a software-tier
   ATmega328P or ATmega32U4, whose HMAC signer has no public half to certify. This
   is a part to change, not a build.
-- `avr backend: the alias certificate was not produced by the device's element`
-  — the certificate's key or signature is not what an ATECC608A makes. It holds
-  a key only on P-256 and signs only ECDSA-SHA256.
-- `avr backend: certificate chain verification failed` — you configured roots
-  and this device does not descend from them.
-- `dice: tcg-dice-UCCS-evidence extension not found` — the device put its
-  challenge somewhere other than where the specification says. There is no
-  fallback to another field, deliberately.
+
+Once the chain verifies, the device's evidence is read by the SDK
+(`tfw.AliasUCCS` and `tfw.ApplicationEvidence`,
+[`sdk/go/appevidence.go`](../../sdk/go/appevidence.go)), whose errors begin
+`tfw: malformed evidence:`:
+
+- `no tcg-dice-UCCS-evidence extension` — the device put its challenge
+  somewhere other than where the specification says. There is no fallback to
+  another field, deliberately.
+- `tcg-dice-UCCS-evidence is not a UccsEvidence`,
+  `trailing bytes after the UccsEvidence` — the extension is there and is not
+  what the specification says it holds.
+- `no measurements claim (273)` and the other claims-set reasons — the
+  evidence does not carry exactly one SHA-256 measurement of the application
+  in the shape the firmware emits.
 
 ## A note about time
 

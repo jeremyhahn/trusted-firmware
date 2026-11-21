@@ -1,6 +1,6 @@
 # Wire protocol — API reference
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Every frame and every command, on every transport. Source of truth:
@@ -148,7 +148,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x33 | `PULSE_COUNT_STOP` | `TFW_FEATURE_PULSE` (defined, no table entry) | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x34 | `PULSE_CAPTURE` | `TFW_FEATURE_PULSE` | `[pin:1][start_high:1][max_edges:1][timeout_us:4]` | `[count:1][interval_us:2]*count` |
 | 0x40 | `EEPROM_READ` | `TFW_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]`; any byte below `EEPROMReservedEnd` (0x140, `TFW_BOOT_EE_LEN`) additionally requires an authenticated session on a tier that enforces one (`TFW_FEATURE_AUTH_SESSION`) — `TFW_ERR_AUTH_REQUIRED` otherwise, unconditional on other tiers |
-| 0x41 | `EEPROM_WRITE` | `TFW_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0x140, `TFW_BOOT_EE_LEN`) is `TFW_ERR_PROTECTED_REGION`, unconditionally on every tier |
+| 0x41 | `EEPROM_WRITE` | `TFW_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0x140, `TFW_BOOT_EE_LEN`) is `TFW_ERR_PROTECTED_REGION`, unconditionally on every tier; a range overlapping the network block takes the auth gate first, `TFW_ERR_AUTH_REQUIRED` outside an operator session on the element tier ([ota/api.md](../ota/api.md#eeprom_write-on-the-network-block-233)) |
 | 0x50 | `I2C_XFER` | `TFW_FEATURE_I2C` | `[addr7:1][read_len:1]bytes[write...]` | `bytes[read_len]`; `addr7 == 0x60` (`TFW_I2C_RESERVED_ADDR`) or the board profile's element address (`0x36` on the Nano and Mega), or `0x30` on a build that links the OPTIGA Trust M transport, is `TFW_ERR_PROTECTED_REGION` |
 | 0x51 | `SPI_XFER` | `TFW_FEATURE_SPI` | `[cs:1]bytes[write...]` | `bytes[len(write)]`, full duplex, CS held throughout |
 | 0x52 | `ONEWIRE_RESET` | `TFW_FEATURE_ONEWIRE` | `[pin:1]` | `[presence:1]` |
@@ -175,7 +175,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x73 | `PROV_GENKEY` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the DeviceID slot) | `bytes[64]`, the public point; private key never leaves the element |
 | 0x74 | `PROV_PUBKEY` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` | `bytes[64]`, the public point recomputed, not regenerated |
 | 0x75 | `PROV_SEED_UDS` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the UDS slot) | none; UDS crosses the element's internal bus only, never the serial link |
-| 0x76 | `HSM_HEARTBEAT` | `TFW_FEATURE_HSM` (tfwsim-atecc608a only today) | `[]` | the state `[flags:1][selected:1][refused:4]`; restarts the one-second S6 period. `flags` bit 0 a verified policy set is held, bit 1 locked down, bit 2 wiped. Every HSM_* handler applies the time first, so a late heartbeat is S6 at the next message ([hsm-self-defence](../hsm-self-defence/architecture.md)) |
+| 0x76 | `HSM_HEARTBEAT` | `TFW_FEATURE_HSM` (`tfwsim-atecc608a`, and a firmware image built `HSM=1 CRYPTO=soft`, `mk/firmware.mk`) | `[]` | the state `[flags:1][selected:1][refused:4]`; restarts the one-second S6 period. `flags` bit 0 a verified policy set is held, bit 1 locked down, bit 2 wiped. Every HSM_* handler applies the time first, so a late heartbeat is S6 at the next message ([hsm-self-defence](../hsm-self-defence/architecture.md)) |
 | 0x77 | `HSM_REPORT` | `TFW_FEATURE_HSM` | `[signal:1]`, S4 (4, IMA) or S5 (5, hotplug) only | the state; any other signal, the M7's own S1-S3 and S6 included, is `TFW_ERR_RANGE` |
 | 0x78 | `HSM_VERDICT` | `TFW_FEATURE_HSM` | `[verdict:1]`, 0 clear or 1 compromised | the state; any other value is `TFW_ERR_RANGE`, never read as clear |
 | 0x79 | `HSM_SELECT` | `TFW_FEATURE_HSM` | `[index:1]` | the state; an index past the held set, or any index with no set held, is `TFW_ERR_RANGE` |
@@ -190,12 +190,17 @@ before a host ever sends `I2C_CONFIG` or `SPI_CONFIG`. Those two exist to let
 a host ask for something else once it knows what is on the bus, not to make
 the bus usable in the first place; see `src/main.c` and `src/caps/bus.c`.
 
-`OTA_*` and `PROV_*` ids appear in no build's `commands.def` entry for the
-application image — never a mode of `tfw_dispatch`, on purpose. `OTA_*` is
-answered only by `tfw-boot`; an application build must answer
-`TFW_ERR_UNKNOWN_CMD`, which tells a host to reset into the bootloader.
-`PROV_*` is present only in a provisioning-jig build
-(`TFW_FEATURE_PROVISION`, default 0); a fielded device has no handler at all.
+`OTA_*` and `PROV_*` are entries of `commands.def` like any other, each
+under its own gate. `OTA_BEGIN` to `OTA_STATUS` (0x68-0x6B) are answered by
+`tfw-boot` always, and by the application only when it is built with the
+stager (`TFW_FEATURE_OTA_STAGE`, `OTA_STAGE=1`), which streams the image into
+the external store instead of flash. An application built without it answers
+`TFW_ERR_UNKNOWN_CMD`, which tells a host to reset into the bootloader and ask
+there. `OTA_INFO` to `OTA_AUTH` (0x6C-0x6F) are the application's only, on
+serial only: the Ethernet allow-list stays 0x68-0x6B. `PROV_*` is present only
+in a provisioning-jig build (`TFW_FEATURE_PROVISION`, default 0, so 0 in every
+fielded image); a fielded device has no handler at all and answers
+`TFW_ERR_UNKNOWN_CMD`.
 `WDT_SET`, `SLEEP` and `PULSE_COUNT_*` are defined ids with **no handler in
 any current build** — reserved, and refused as `TFW_ERR_UNKNOWN_CMD`
 everywhere today; see `include/tfw/protocol.h` for the one-line note against

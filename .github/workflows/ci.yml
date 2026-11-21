@@ -1755,6 +1755,22 @@ jobs:
           ]
 
 
+          def hosted_ctx(text):
+              # #613 round 6 sweep: like release_runs for a job's `if`, a runs-on is
+              # tried on every branch and tag a string in it names, not only on
+              # HOSTED_CTX's main and feature (`github.ref_name == 'develop' && ...`).
+              ctxs = list(HOSTED_CTX)
+              for s in sorted({m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", text)}):
+                  if not s or s.startswith("refs/pull/"):
+                      continue
+                  refs = [s] if s.startswith(("refs/heads/", "refs/tags/")) else ["refs/heads/" + s, "refs/tags/" + s]
+                  for ref in refs:
+                      for ev in ("push", "workflow_dispatch"):
+                          if (ev, ref, None) not in ctxs:
+                              ctxs.append((ev, ref, None))
+              return ctxs
+
+
           def hosted_get(ev, ref, head, sel=None):
               def get(path):
                   p = path.lower()
@@ -1802,7 +1818,7 @@ jobs:
               # The review-only labels a runs-on names, in its text or in what an
               # expression there yields on any github.com event.
               found = {m.lower() for m in REVIEW_TOKEN.findall(text)}
-              for ev, ref, head in HOSTED_CTX:
+              for ev, ref, head in hosted_ctx(text):
                   try:
                       got = runs_on_labels(text, ev, ref, head)
                   except ValueError:
@@ -1849,7 +1865,7 @@ jobs:
               # github.com event (`vars.CI_RUNNER || 'ubuntu-latest'`) may name any
               # runner, `release` too, though its text names none. Codex round 4 (#613): so
               # does one that evaluates to `release` (`format('{0}{1}', 're', 'lease')`).
-              for ev, ref, head in HOSTED_CTX:
+              for ev, ref, head in hosted_ctx(ro):
                   for sel in sels_of(path, job, ro):
                       try:
                           got = runs_on_labels(ro, ev, ref, head, sel)
@@ -1900,7 +1916,7 @@ jobs:
                                   # (round 4) evaluates to `release`, is checked as one below.
                               else:
                                   off = []
-                                  for ev, ref, head in HOSTED_CTX:
+                                  for ev, ref, head in hosted_ctx(ro):
                                       for sel in sels_of(path, job, ro):
                                           try:
                                               got = runs_on_labels(ro, ev, ref, head, sel)

@@ -13,6 +13,14 @@
 > no board profile, no board id and no wire vector, and it decides nothing the
 > owner has not ruled: every choice is an open question below.
 
+> **Ruling 935 (owner queue 236)** closes this ADR's open questions 1, 2 and
+> 5 and the `stm32h5` row's open decision: the secure world on this board is
+> our own TrustZone-M firmware holding the DICE layer, the DeviceID and the
+> alias keys, with evidence through go-xkms device-attest-01. ST's Secure
+> Manager and a PSA token verifier are **not taken**; see
+> [`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md). The hardware
+> facts below stand; the passages that offered the Secure Manager are marked.
+
 ## The question
 
 The STM32H573I-DK has arrived (CA m311). Before any port starts, the project
@@ -108,17 +116,17 @@ started.
    ethernet-transport row does; it needs an owner ruling first, since that row
    states no IP stack of ours runs on the device and the MCU's MAC, unlike a
    W5x00, has no hardware TCP/IP stack.
-6. The M33 secure world on this board under ADR #15 (b1): TF-M Profile Medium
-   with our DICE attestation partition and MCUboot as BL2; blocked on the
-   owner's answer to open question 1 (Secure Manager or upstream TF-M) and, for
-   the Secure Manager, open question 5 (licence and export control).
-7. DICE layer 0 and the UDS on the part (open questions 2 and 3), then
-   enrolment (device-attest-01) over Ethernet; blocked on slices 5 and 6 and
-   on the owner's rulings.
+6. The M33 secure world on this board: our own TrustZone-M firmware with the
+   DICE layer, per ruling 935
+   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md), slices (a)
+   to (d)); not ST's Secure Manager, not TF-M (b1) on this part.
+7. DICE layer 0 and the UDS on the part (open question 3), then
+   enrolment (device-attest-01) over Ethernet; blocked on slices 5 and 6.
 8. Hardware crypto (PKA, HASH, RNG) as a tier beside `soft`, under the secure
    world slice 6 chooses; blocked on it.
-9. The factory device certificate (open question 4): if ST's chain endorses
-   the DeviceID, go-xkms must accept it, which is another project's gap.
+9. The factory device certificate (open question 4): not the identity root
+   under ruling 935, which derives the DeviceID in our secure world; whether
+   the part carries one stays a hardware fact to confirm.
 10. Align the SPEC row's NUCLEO-H563ZI clause ("our own TrustZone secure
     world") with ADR #15 (b1), or rule it a named exception for parts without
     a TF-M port; an owner or CA change to `docs/SPEC.md`, not a lane's.
@@ -126,9 +134,11 @@ started.
 ## 1. What the board is for
 
 The board serves the SPEC row **`stm32h5`** (future), as its **reference
-board**: the Cortex-M33 target with ST's Secure Manager, hardware crypto and,
-as the row states, a factory device certificate (not confirmed from any ST
-document; board page). It enrols over Ethernet on board, so it needs no W5x00
+board**: the Cortex-M33 target with hardware crypto. The row also names ST's
+Secure Manager and a factory device certificate (the latter not confirmed
+from any ST document; board page); under ruling 935 neither is the secure
+world or the identity root
+([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)). It enrols over Ethernet on board, so it needs no W5x00
 module. Its sibling target in the same row, the NUCLEO-H563ZI, proves a secure
 world of our own on a part without ST's secure services; that board is not
 onboarded by this ADR. Through ADR #14 the board also serves the `cortex-m`
@@ -145,9 +155,15 @@ row, as its second target and first M33.
 | Product state | the part's lifecycle, held in option bytes, which sets what debug and flash access remain. Its states, which transitions are allowed, and which of them erase or are irreversible, are **to confirm** from RM0481 | RM0481, section to confirm |
 | HDP | the hide-protection area: boot code that hides itself from later code before handing over, so later stages cannot read it. Its levels and how they advance are **to confirm** | RM0481, section to confirm |
 | Secure firmware install (SFI) | ST's encrypted install of firmware and option bytes into a part in the provisioning state, driven by STM32CubeProgrammer | RM0481 and UM2237, sections to confirm; the SFI application note's number is to confirm |
-| Secure Manager | ST's PSA-compatible secure world (secure boot, crypto, internal trusted storage, initial attestation, firmware update), whose access kit is export-controlled | UM3254, section to confirm; board page |
+| Secure Manager | ST's PSA-compatible secure world (secure boot, crypto, internal trusted storage, initial attestation, firmware update), whose access kit is export-controlled. **Not taken** as our secure world (ruling 935, [`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)) | UM3254, section to confirm; board page |
 
 ### The map onto DICE, as candidates only
+
+Ruling 935 settles the rows that named the Secure Manager: the DICE layer,
+the measurement of the next layer and the DeviceID and alias keys are in our
+own TrustZone-M secure world
+([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)). The table is
+kept as the candidates first recorded.
 
 TCG's DICE hardware requirements (Revision 78) ask for a Unique Device Secret
 readable only by the DICE engine, and for a first-layer CDI derived from that
@@ -184,10 +200,14 @@ and decides nothing.
   open question 2, which is the `stm32h5` row's open decision). Our own secure
   world, ADR #15 (a), is held in reserve for M33 parts TF-M has no port for; it
   is not an option on this board.
-- **No tension remains.** Under (b1) MCUboot, not tfw-boot, boots this board
+- **Ruling 935** (after both ADRs) names our own TrustZone-M firmware as the
+  secure world on the STM32H5, not ST's Secure Manager
+  ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)); on this
+  board that replaces both the Secure Manager option and (b1).
+- **Before ruling 935**: Under (b1) MCUboot, not tfw-boot, boots this board
   (ADR #15: "Under (b1), tfw-boot runs on neither bench board"), so ADR #14's
-  HAL table and ADR #15 agree. Under the Secure Manager the boot chain is ST's.
-  Open question 1 carries only the choice between the two.
+  HAL table and ADR #15 agree. The Secure Manager option, under which the boot
+  chain would have been ST's, is not taken.
 
 ## 4. Onboarding on the bench host
 
@@ -229,12 +249,11 @@ None is decided here. Owner ruling 632 item 208 a (2026-11-14) accepted ADRs
 attestation partition (ADR #15 (b1)), so our own secure world (ADR #15 (a)) is
 no longer offered for this board.
 
-1. **Which TF-M build carries our partition.** ST's Secure Manager, with its PSA
-   token on go-xkms's EAT path, or upstream TF-M? This is the `stm32h5` row's
-   open decision and ADR #15's open question 2.
-2. **DICE layer 0.** Is the immutable layer ST's (STiRoT, or the Secure Manager's
-   boot) or ours (an OEMiRoT, or MCUboot as BL2 under HDP)? It decides who measures
-   the next layer and derives the CDI.
+1. **Closed by ruling 935: which secure world.** Neither ST's Secure Manager
+   with its PSA token nor a TF-M build: our own TrustZone-M firmware
+   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)).
+2. **Closed by ruling 935: DICE layer 0.** Ours, in our secure world, which
+   measures the next layer and derives the CDI; not the Secure Manager's.
 3. **The UDS.** Which secret is the UDS, who provisions it (ST at the factory, or
    our bench through SFI and `tfwprov`), and does HDP alone isolate it from the
    layers after layer 0?
@@ -242,7 +261,8 @@ no longer offered for this board.
    one; no ST document read confirms it. If it exists, is it the DeviceID's
    endorsement, and does go-xkms have to accept ST's chain? That would be a gap
    filed against go-xkms, not worked here.
-5. **The Secure Manager's licence and export control.** The access kit
+5. **Moot under ruling 935: the Secure Manager's licence and export
+   control.** The Secure Manager is not taken. As first asked: the access kit
    X-CUBE-SEC-M-H5 is export-controlled. May the project take it, and do its
    non-secure interface libraries pass the field-of-use check against
    AGPL-3.0-or-later (ADR #15 open question 2)?

@@ -34,16 +34,24 @@
 #include "esp_hmac.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "uECC.h"
 
 #include "tfw/crypto.h"
 #include "tfw/config.h"
 #include "tfw/protocol.h"
+#include "tfw/boot.h"
+#include "tfw/hal.h"
 #include "crypto/sha256.h"
 #include "crypto/deviceid_p256.h"
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
 #include "hal_esp32.h"
+
+/* The operator-session binding's label (row #606), beside the DeviceID's. */
+#define TFW_OPSESS_LABEL     "tfw-opsess-v1"
+#define TFW_OPSESS_LABEL_LEN (sizeof TFW_OPSESS_LABEL - 1u)
 
 static const char *TAG = "tfw-id";
 
@@ -77,6 +85,19 @@ static int deviceid_seed(uint8_t seed[32])
 {
     return esp_hmac_calculate(uds_key, TFW_DEVICEID_LABEL, TFW_DEVICEID_LABEL_LEN,
                               seed) == ESP_OK;
+}
+
+/* operator_bind for `pubkey`: HMAC(UDS, "tfw-opsess-v1" || pubkey) from the
+ * peripheral, domain-separated from the DeviceID's label. The message is
+ * public; the tag is zeroed by the caller after its one compare. */
+static int operator_bind(const uint8_t pubkey[TFW_BOOT_OPERATOR_PUBKEY_LEN],
+                         uint8_t tag[TFW_BOOT_OPERATOR_BIND_LEN])
+{
+    uint8_t msg[TFW_OPSESS_LABEL_LEN + TFW_BOOT_OPERATOR_PUBKEY_LEN];
+
+    memcpy(msg, TFW_OPSESS_LABEL, TFW_OPSESS_LABEL_LEN);
+    memcpy(&msg[TFW_OPSESS_LABEL_LEN], pubkey, TFW_BOOT_OPERATOR_PUBKEY_LEN);
+    return esp_hmac_calculate(uds_key, msg, sizeof msg, tag) == ESP_OK;
 }
 
 /* Finds the UDS, the eFuse key block whose purpose is HMAC_UP -- the one layer 0
@@ -149,10 +170,22 @@ uint16_t tfw_crypto_algorithms(void)
                       (have_cdi ? TFW_ALGBIT_HMAC_SHA256 : 0u));
 }
 
-/* The part's hardware RNG. */
+/* The operator nonce (#607). ESP-IDF v5.5.5 switches the SAR ADC noise
+ * source off before the application and this board runs no radio, so
+ * esp_fill_random alone is not fresh entropy here: the source goes on around
+ * the draw, under the ADC unit lock it shares, and with the lock held
+ * elsewhere the draw is refused (fail closed: auth_session refuses the
+ * challenge). The same five steps as tfw_prov_uds_random in prov_uds.c,
+ * duplicated rather than shared to keep this file free of a new header. */
 tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
 {
+    if (adc_lock_try_acquire(ADC_UNIT_1) != ESP_OK) {
+        return TFW_ERR_BUSY;
+    }
+    bootloader_random_enable();
     esp_fill_random(out, len);
+    bootloader_random_disable();
+    (void)adc_lock_release(ADC_UNIT_1);
     return TFW_OK;
 }
 
@@ -220,8 +253,32 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
                                        const uint8_t sig[64],
                                        const uint8_t pubkey[64])
 {
-    (void)digest; (void)sig; (void)pubkey;
-    return TFW_ERR_UNSUPPORTED;
+    uint8_t      stored[TFW_BOOT_OPERATOR_BIND_LEN];
+    uint8_t      tag[TFW_BOOT_OPERATOR_BIND_LEN];
+    uint8_t      diff = 0u;
+    tfw_status_t st   = TFW_ERR_CRYPTO;
+
+    /* The key is the operator's only if this part's UDS bound it (row #606,
+     * docs/multi-arch/esp32-p4-design.md 2.5): a key rewritten in flash
+     * without the peripheral has no tag that matches. The tag is checked
+     * before any curve arithmetic, and compared in constant time. */
+    if (!have_uds) {
+        return TFW_ERR_CRYPTO;
+    }
+    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE + TFW_BOOT_EE_O_OPERATOR_BIND, stored,
+                         (uint8_t)sizeof stored) != TFW_OK) {
+        return TFW_ERR_CRYPTO;
+    }
+    if (operator_bind(pubkey, tag)) {
+        for (uint8_t i = 0u; i < (uint8_t)sizeof tag; i++) {
+            diff = (uint8_t)(diff | (tag[i] ^ stored[i]));
+        }
+        if (diff == 0u && uECC_verify(pubkey, digest, 32u, sig, uECC_secp256r1())) {
+            st = TFW_OK;
+        }
+    }
+    tfw_secure_zero(tag, sizeof tag);
+    return st;
 }
 
 tfw_status_t tfw_crypto_verify_image(const uint8_t digest[32], const uint8_t sig[64])

@@ -10,7 +10,10 @@
 
 #include "driver/gpio.h"
 
+#include "tfw/config.h"
 #include "tfw/hal.h"
+
+#include "hal_esp32.h"
 
 /* GPIO_IS_VALID_GPIO shifts 1ULL by the pin number, which is undefined at 64
  * or more, so a pin past the part is refused before the mask is consulted. */
@@ -36,6 +39,9 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
     default:
         return TFW_ERR_RANGE;
     }
+#if TFW_FEATURE_TONE
+    tfw_esp_tone_release((int)n);   /* the reset below takes the pin off LEDC */
+#endif
     err = gpio_reset_pin(n);
     if (mode == TFW_PIN_OUTPUT) {
         err |= gpio_set_direction(n, GPIO_MODE_INPUT_OUTPUT);

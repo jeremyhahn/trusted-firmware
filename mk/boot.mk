@@ -145,7 +145,9 @@ ifeq ($(BOOT_OTA),1)
 BOOT_OTA_SRCS := boot/recovery/recovery_ota.c boot/boot_ota.c boot/boot_session.c src/proto/frame.c
 BOOT_OTA_DEFS :=
 else
-BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c
+# The Cortex-M halt names its refusal in an EVENT frame (#542), so it takes the
+# framer; the AVR halt has no room for it and stops mute.
+BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c $(if $(filter cortex-m,$(ARCH)),src/proto/frame.c)
 BOOT_OTA_DEFS :=
 endif
 
@@ -322,11 +324,14 @@ $(BOOT_DIR_OUT)/%.o: %.S
 # BOOT_SECTION + N bytes; it fits once N bytes go. The recovery below runs
 # boot-core-size and bootloader-budget, which answer the two questions the
 # failure actually raises: how big is the core, and how big is the backend.
+#
+# Only a size failure gets that recovery (#530): scripts/boot_link_report.sh
+# exits 0 when link.err has a region overflow or "will not fit" line, and
+# otherwise prints the real error lines (an -Werror=frame-larger-than at the
+# LTO link, a vla, an alloca, an undefined reference) and exits 1.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	@$(ARCH_CC) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
-	  echo "tfw-boot does not link for $(BOARD): it does not fit in the boot section."; \
-	  echo; \
-	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps|undefined reference' || true; \
+	  sh scripts/boot_link_report.sh $(BOOT_DIR_OUT)/link.err '$(BOARD)' || exit 1; \
 	  echo; \
 	  $(MAKE) --no-print-directory boot-core-size || true; \
 	  echo; \
@@ -449,7 +454,7 @@ BOOT_SUPPORTED := \
 
 # A row's optional seventh field, ab, is BOOT_AB=1; a row without it leaves
 # BOOT_AB to the board's profile.mk (1 on the 2560, 0 on the MPS2 boards).
-bootloader-check:
+bootloader-check: cm-frame-bound-check
 	@fail=0; \
 	for row in $(BOOT_SUPPORTED); do \
 	  b=$${row%%:*}; r=$${row#*:}; \

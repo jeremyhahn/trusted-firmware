@@ -21,6 +21,12 @@ CRYPTO       ?= hmac-p256
 # not fit the P4 bootloader's iram_loader_seg.
 ESP_L0_VERIFY := p256-rom
 
+# The operator session (row #606): the operator key in the platform block is
+# bound to the eFuse UDS through the HMAC peripheral
+# (docs/multi-arch/esp32-p4-design.md 2.5), so OTAActivate and OTAConfirm
+# need an operator signature here.
+BOARD_FEATURES_ON += AUTH_SESSION
+
 # Pulse timing on the RMT receiver, not the poll (mk/arch/esp32.mk).
 ESP_PULSE := rmt
 

@@ -34,3 +34,8 @@ uint8_t tfw_link_admits(uint8_t cmd)
     (void)cmd;
     return 1u;
 }
+
+uint8_t tfw_link_take_reset(void)
+{
+    return 0u;                  /* one UART, one peer */
+}

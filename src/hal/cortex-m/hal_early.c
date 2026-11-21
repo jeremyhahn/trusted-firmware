@@ -29,6 +29,7 @@
 #include "cm_regs.h"
 #include "hal_early.h"
 #include "hal_fault_frame.h"
+#include "hal_mpu.h"
 
 extern uint32_t __stack, __tfw_ram_base;
 extern uint32_t __data_load_start, __data_start, __data_end;
@@ -171,6 +172,7 @@ _Noreturn void tfw_cm_reset(void)
     for (dst = &__bss_start; (uintptr_t)dst < (uintptr_t)&__bss_end; ) {
         *dst++ = 0u;
     }
+    tfw_cm_mpu_arm();   /* hal_mpu.h: a no-op off a TFW_CM_MPU board */
 
     latched = tfw_cm_soc_reset_cause(mark);
     (void)main();

@@ -72,16 +72,18 @@ static tfw_status_t i2c_up(void)
     return TFW_OK;
 }
 
-/* Only the driver's "no ACK" (ESP_ERR_NOT_FOUND) is a NACK: any other failure
- * is the driver's, not an address nobody answered. */
-static tfw_status_t i2c_status(esp_err_t err)
+/* Only the call's own "no ACK" is a NACK (ESP_ERR_NOT_FOUND from a probe,
+ * ESP_ERR_INVALID_RESPONSE from a transfer): any other failure is the
+ * driver's, not an address nobody answered. */
+static tfw_status_t i2c_status(esp_err_t err, esp_err_t nack)
 {
-    switch (err) {
-    case ESP_OK:            return TFW_OK;
-    case ESP_ERR_TIMEOUT:   return TFW_ERR_TIMEOUT;
-    case ESP_ERR_NOT_FOUND: return TFW_ERR_NACK;
-    default:                return TFW_ERR_INTERNAL;
+    if (err == ESP_OK) {
+        return TFW_OK;
     }
+    if (err == ESP_ERR_TIMEOUT) {
+        return TFW_ERR_TIMEOUT;
+    }
+    return err == nack ? TFW_ERR_NACK : TFW_ERR_INTERNAL;
 }
 
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
@@ -100,7 +102,8 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         return st;
     }
     if (wlen == 0u && rlen == 0u) {
-        return i2c_status(i2c_master_probe(i2c_bus, addr7, I2C_TIMEOUT_MS));
+        return i2c_status(i2c_master_probe(i2c_bus, addr7, I2C_TIMEOUT_MS),
+                          ESP_ERR_NOT_FOUND);
     }
     if (i2c_master_bus_add_device(i2c_bus, &dcfg, &dev) != ESP_OK) {
         return TFW_ERR_INTERNAL;
@@ -113,7 +116,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         err = i2c_master_receive(dev, rd, rlen, I2C_TIMEOUT_MS);
     }
     (void)i2c_master_bus_rm_device(dev);
-    return i2c_status(err);
+    return i2c_status(err, ESP_ERR_INVALID_RESPONSE);
 }
 
 /* ------------------------------------------------------------------ spi */

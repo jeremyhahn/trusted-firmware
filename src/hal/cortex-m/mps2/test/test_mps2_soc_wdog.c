@@ -46,6 +46,7 @@ tfw_reset_cause_t tfw_cm_mark_decode(uint32_t mark)
 /* Each access in order: the register, and its value after the access. */
 static uint32_t log_addr[LOG_MAX];
 static uint32_t log_val[LOG_MAX];
+static uint32_t log_mark[LOG_MAX];
 static uint32_t log_used;
 
 /* The registers' values between accesses. */
@@ -86,6 +87,7 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
     }
     log_addr[log_used] = addr;
     log_val[log_used] = *model_slot(addr);
+    log_mark[log_used] = tfw_cm_reset_mark;
     return &log_val[log_used++];
 }
 
@@ -122,12 +124,15 @@ static void test_early_disarms_inside_the_unlock(void)
 }
 
 /* The marker first, so a bite reads as the watchdog's; then the four-second
- * period, the interrupt cleared, the reset enabled, all inside the unlock. */
+ * period, the interrupt cleared, the reset enabled, all inside the unlock.
+ * The marker is checked as it stood at the first register access: a store
+ * after CTRL would leave a window where a bite carries the wrong cause. */
 static void test_arm_marks_then_loads_and_enables_inside_the_unlock(void)
 {
     tfw_cm_soc_watchdog_arm();
     TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
     TEST_ASSERT_EQUAL_UINT32(5u, accesses());
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, log_mark[0]);
     expect_access(0u, WDOG_LOCK, TFW_MPS2_WDOG_UNLOCK);
     expect_access(1u, WDOG_LOAD, (uint32_t)(TFW_CM_CPU_HZ * 4u));
     expect_access(2u, WDOG_INTCLR, 1u);
@@ -135,15 +140,18 @@ static void test_arm_marks_then_loads_and_enables_inside_the_unlock(void)
     expect_access(4u, WDOG_LOCK, 0u);
 }
 
-/* A pet reloads through INTCLR alone: a LOAD write would change the period. */
+/* A pet reloads through INTCLR alone: a LOAD write would change the period.
+ * The watchdog is marked as armed first, and the pet must keep that marker
+ * so a later timeout still reads as the watchdog's. */
 static void test_pet_clears_inside_the_unlock_and_nothing_else(void)
 {
+    tfw_cm_reset_mark = TFW_CM_MARK_WATCHDOG;
     tfw_cm_soc_watchdog_pet();
     TEST_ASSERT_EQUAL_UINT32(3u, accesses());
     expect_access(0u, WDOG_LOCK, TFW_MPS2_WDOG_UNLOCK);
     expect_access(1u, WDOG_INTCLR, 1u);
     expect_access(2u, WDOG_LOCK, 0u);
-    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
 }
 
 static void test_reset_cause_decodes_each_mark(void)

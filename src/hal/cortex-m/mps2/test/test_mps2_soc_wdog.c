@@ -10,7 +10,8 @@
  *
  * TEST_WDOG_BASE is the profile's watchdog by literal (the AN505's Secure
  * one, the AN500's APB one), set by the make rule, not read from the
- * profile, so a moved base fails here.
+ * profile, so a moved base fails here; TEST_SPI_BASE, TEST_I2C_BASE and
+ * TEST_FPGAIO_BASE likewise for the real pl022.c and sbcon.c accessors.
  */
 #include <stdint.h>
 #include "unity.h"
@@ -18,9 +19,12 @@
 #include "cm_regs.h"
 #include "hal_early.h"
 #include "soc_regs.h"
+#include "pl022.h"
+#include "sbcon.h"
 
-#ifndef TEST_WDOG_BASE
-#error "TEST_WDOG_BASE: the make rule states the profile's watchdog base"
+#if !defined(TEST_WDOG_BASE) || !defined(TEST_SPI_BASE) || \
+    !defined(TEST_I2C_BASE) || !defined(TEST_FPGAIO_BASE)
+#error "TEST_*_BASE: the make rule states the profile's bases"
 #endif
 
 #define LOG_MAX   32u
@@ -152,6 +156,86 @@ static void test_reset_cause_decodes_each_mark(void)
     TEST_ASSERT_EQUAL_UINT32(0u, accesses());
 }
 
+/* A register's value before the call, as the part would hold it. */
+static void preset(uint32_t addr, uint32_t val)
+{
+    *model_slot(addr) = val;
+}
+
+/* The PL022's registers at their documented offsets (DDI 0194): a wrong
+ * offset in pl022.h or a wrong base reaches another register here. */
+static void test_ssp_offsets_are_the_pl022s(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x00u, TFW_SSP_CR0);
+    TEST_ASSERT_EQUAL_HEX32(0x04u, TFW_SSP_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0x08u, TFW_SSP_DR);
+    TEST_ASSERT_EQUAL_HEX32(0x0Cu, TFW_SSP_SR);
+    TEST_ASSERT_EQUAL_HEX32(0x10u, TFW_SSP_CPSR);
+}
+
+static void test_ssp_read_returns_the_register_at_its_offset(void)
+{
+    preset(TEST_SPI_BASE + 0x0Cu, TFW_SSP_SR_TFE | TFW_SSP_SR_TNF);
+    preset(TEST_SPI_BASE + 0x08u, 0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(TFW_SSP_SR_TFE | TFW_SSP_SR_TNF, tfw_mps2_ssp_read(TFW_SSP_SR));
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, tfw_mps2_ssp_read(TFW_SSP_DR));
+    TEST_ASSERT_EQUAL_UINT32(2u, accesses());
+    expect_access(0u, TEST_SPI_BASE + 0x0Cu, TFW_SSP_SR_TFE | TFW_SSP_SR_TNF);
+    expect_access(1u, TEST_SPI_BASE + 0x08u, 0xA5u);
+}
+
+static void test_ssp_write_stores_the_value_at_its_offset(void)
+{
+    tfw_mps2_ssp_write(TFW_SSP_CR1, TFW_SSP_CR1_SSE);
+    tfw_mps2_ssp_write(TFW_SSP_CPSR, 0x02u);
+    TEST_ASSERT_EQUAL_UINT32(2u, accesses());
+    expect_access(0u, TEST_SPI_BASE + 0x04u, TFW_SSP_CR1_SSE);
+    expect_access(1u, TEST_SPI_BASE + 0x10u, 0x02u);
+}
+
+/* The chip select rides the FPGA I/O block's MISC register, at 0x4C. */
+static void test_misc_reads_and_writes_the_fpgaio_misc_register(void)
+{
+    preset(TEST_FPGAIO_BASE + 0x4Cu, 0x123u);
+    TEST_ASSERT_EQUAL_HEX32(0x123u, tfw_mps2_misc_read());
+    tfw_mps2_misc_write(0x023u);
+    TEST_ASSERT_EQUAL_UINT32(2u, accesses());
+    expect_access(0u, TEST_FPGAIO_BASE + 0x4Cu, 0x123u);
+    expect_access(1u, TEST_FPGAIO_BASE + 0x4Cu, 0x023u);
+}
+
+/* SB_CONTROL reads the lines at 0x0; only SCL and SDA are the lines. */
+static void test_sb_lines_reads_control_and_keeps_only_the_lines(void)
+{
+    preset(TEST_I2C_BASE + 0x0u, 0xFFFFFFFFu);
+    TEST_ASSERT_EQUAL_HEX32(0x3u, tfw_mps2_sb_lines());
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses());
+    expect_access(0u, TEST_I2C_BASE + 0x0u, 0xFFFFFFFFu);
+}
+
+/* A low SCL reads low: the line is the register's, not a constant. */
+static void test_sb_lines_reads_a_low_scl(void)
+{
+    preset(TEST_I2C_BASE + 0x0u, 0xFFFFFFFEu);
+    TEST_ASSERT_EQUAL_HEX32(TFW_SB_SDA, tfw_mps2_sb_lines());
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses());
+}
+
+/* Release sets through SB_CONTROLS (0x0), drive-low clears through
+ * SB_CONTROLC (0x4), each with the caller's mask as it came. */
+static void test_sb_release_and_drive_low_write_set_and_clear(void)
+{
+    tfw_mps2_sb_release(TFW_SB_SCL);
+    tfw_mps2_sb_drive_low(TFW_SB_SDA);
+    tfw_mps2_sb_release(TFW_SB_SCL | TFW_SB_SDA);
+    tfw_mps2_sb_drive_low(TFW_SB_SCL | TFW_SB_SDA);
+    TEST_ASSERT_EQUAL_UINT32(4u, accesses());
+    expect_access(0u, TEST_I2C_BASE + 0x0u, 0x1u);
+    expect_access(1u, TEST_I2C_BASE + 0x4u, 0x2u);
+    expect_access(2u, TEST_I2C_BASE + 0x0u, 0x3u);
+    expect_access(3u, TEST_I2C_BASE + 0x4u, 0x3u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -159,5 +243,12 @@ int main(void)
     RUN_TEST(test_arm_marks_then_loads_and_enables_inside_the_unlock);
     RUN_TEST(test_pet_clears_inside_the_unlock_and_nothing_else);
     RUN_TEST(test_reset_cause_decodes_each_mark);
+    RUN_TEST(test_ssp_offsets_are_the_pl022s);
+    RUN_TEST(test_ssp_read_returns_the_register_at_its_offset);
+    RUN_TEST(test_ssp_write_stores_the_value_at_its_offset);
+    RUN_TEST(test_misc_reads_and_writes_the_fpgaio_misc_register);
+    RUN_TEST(test_sb_lines_reads_control_and_keeps_only_the_lines);
+    RUN_TEST(test_sb_lines_reads_a_low_scl);
+    RUN_TEST(test_sb_release_and_drive_low_write_set_and_clear);
     return UNITY_END();
 }

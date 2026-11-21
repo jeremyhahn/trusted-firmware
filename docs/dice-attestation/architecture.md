@@ -127,7 +127,7 @@ Three structures, and only these:
 | | Command | Host contributes | Built in |
 |---|---|---|---|
 | the evidence frame, bytes `[0, 73)` | `ATTEST` 0x60 | a 16-byte nonce | `src/caps/attest.c` |
-| the alias `TBSCertificate`, 383 bytes | `ATTEST_CERT` 0x63 | a 32-byte nonce | `src/caps/alias.c` |
+| the alias `TBSCertificate`, 400 bytes (a 249-byte template prefix and the 151-byte UCCS claims set, `src/caps/alias.c`); 401 under the software root, whose 24-byte DiceTcbInfo Extension takes the place of 23 template bytes | `ATTEST_CERT` 0x63 | a 32-byte nonce | `src/caps/alias.c` |
 | a PKCS#10 `CertificationRequestInfo`, 365 bytes | `ATTEST_CSR` 0x64 | a 32-byte `b` | `src/caps/csr.c` |
 
 **The rule: only fixed templates with fixed-width host fields are ever
@@ -142,8 +142,12 @@ host field of variable width, is a threat-model change first
 The three are mutually unparseable, so a signature over one can never be
 presented as a signature over another: the frame opens `0x01`, which is not a
 SEQUENCE; the TBS carries its `[0]` version (`A0`) at offset 4, where the
-CRI must have INTEGER 0; and the CRI's empty subject `30 00` at offset 7 sits
-where a TBS needs its signature AlgorithmIdentifier, whose OID is mandatory.
+CRI must have INTEGER 0; and a CRI read as a TBS fails as well: with no `[0]`
+its INTEGER 0 at offset 4 would be the serialNumber, and the next field, at
+offset 7, the signature AlgorithmIdentifier, whose OID is mandatory, where the
+CRI has its empty subject `30 00`. In the TBS itself offset 7 is inside the
+version (`A0 03 02 01 02`, offsets 4 to 8), the 8-byte serial follows at 11
+(`TBS_OFF_SERIAL`), and the AlgorithmIdentifier is at 19 (`TBS_OFF_SIG_ALG`).
 
 `ATTEST_CSR` exists because ACME finalize wants a CSR signed by the key being
 certified, and the device never sees the finalize request
@@ -298,7 +302,7 @@ OTA, never verification (CA m467).
 
 **Not wired up: an Alias keypair on the software tier.** Issue #7 asked for
 one, Ed25519, derived from the CDI, held in SRAM, certified by
-`ATTEST_CERT`. It is not implemented: the alias certificate's fixed 232-byte
+`ATTEST_CERT`. It is not implemented: the alias certificate's fixed 249-byte
 TBS template (`src/caps/alias.c`) hard-codes an ECDSA P-256
 `subjectPublicKeyInfo` (a 65-byte uncompressed point at a fixed offset) and
 an `ecdsa-with-SHA256` `signatureAlgorithm` — an Ed25519 key (32-byte raw

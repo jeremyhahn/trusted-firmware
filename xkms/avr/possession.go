@@ -36,9 +36,11 @@ import (
 // itself from its own identity and b; it never signs bytes the host sends,
 // so the protocol stays free of a signing oracle. Sign asks the device for that
 // signature and returns it only if it verifies over the digest it was asked
-// to sign, under the attested key. Any other digest -- another document,
-// another nonce, a request built for another identity -- is refused with
-// ErrPossessionMismatch, never answered with a signature over something else.
+// to sign, under the attested key. A digest that is not SHA-256 width is
+// refused with ErrSigningUnsupported before the device is asked; any other
+// SHA-256 digest -- another document, another nonce, a request built for
+// another identity -- is refused with ErrPossessionMismatch, never answered
+// with a signature over something else.
 //
 // The public key is the alias certificate's subject key, which in this profile
 // is the DeviceID key itself.

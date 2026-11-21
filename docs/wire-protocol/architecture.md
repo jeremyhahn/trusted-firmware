@@ -6,16 +6,30 @@
 The framed binary protocol between a host and the device: framing, the codec,
 dispatch, the command table, status codes, and the golden vectors that hold the
 C and Go implementations to the same bytes. Covers `include/tfw/protocol.h`,
-`src/proto/`, `src/core/dispatch.c`, `src/core/commands.def`,
-`testdata/vectors.h`, `sdk/go/internal/vectors` and the Go codec in `sdk/go`.
+`src/proto/` (with the links `src/proto/link_serial.c` and
+`src/proto/link_eth.c` behind `include/tfw/link.h`), `src/core/dispatch.c`,
+`src/core/commands.def`, `testdata/vectors.h`, `sdk/go/internal/vectors` and
+the Go codec in `sdk/go`.
 
 ## Component boundaries
 
 ```
-L5  TRANSPORT   src/proto/transport.c   the only layer that touches a link (UART, W5x00)
+L5  TRANSPORT   src/proto/transport.c   one framer, one response buffer, the link's admit check
+    LINK        src/proto/link_serial.c | link_eth.c (include/tfw/link.h)   the only code that touches a wire (UART, W5x00)
 L4  FRAMING     src/proto/frame.c       pure function of bytes; no I/O, no registers
 L3  DISPATCH    src/core/dispatch.c     reader/writer + capability entry points
 ```
+
+The link is chosen at link time, like the HAL: a UART-only image links
+`link_serial.c`, an Ethernet image links `link_eth.c`, which serves the UART
+and one W5x00 socket to the same transport (the STM32H5 `ETH_MAC=1` image links
+`src/hal/cortex-m/stm32h5/hal_eth_wire.c` in their place). The transport keeps
+one framer and one response buffer either way and touches no wire itself: it
+reads with `tfw_link_rx`, writes with `tfw_link_tx_try`/`tfw_link_tx_done` and
+asks `tfw_link_admits` before dispatch. On `link_eth.c` a frame belongs to the
+wire that delivered its first byte, its reply goes back on that wire, and
+Ethernet admits only the commands `tfw_link_eth_allows`
+(`src/proto/link_eth.h`) lists; `../ethernet-transport/` has the reasons.
 
 Full layering, including what sits below L3, is in
 `../device-capabilities/architecture.md`. What matters here: **framing performs no I/O**

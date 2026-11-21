@@ -104,19 +104,27 @@ With BOD enabled the part halts below the threshold instead of writing.
 
 ## Order matters, and one of these is a trap
 
-1. Fuses first — `BOOTRST`, `BOOTSZ`, `BODLEVEL`, `DWEN` off.
-2. Before the first `make boot-flash`, `EESAVE` must read programmed. The boot
-   flash reads the fuse byte and bit the board's profile names
-   (`BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT`) before its chip erase, and refuses
-   unless the bit reads 0. `BOOT_FIRST_FLASH=1` is the board's first boot
-   flash: it writes the factory record under `build/`, programs `EESAVE` alone,
-   reads it back and flashes only if it held. `BOOT_EEPROM_RESTORE=1` instead
-   saves the EEPROM, flashes, writes it back and compares (`mk/arch/avr.mk`
-   lines 166-291).
-3. Flash the bootloader, then the application.
-4. Write the platform-reserved EEPROM region.
-5. Provision the element (see `provisioning.md`) and **verify by reading back**.
-6. Lock bits last.
+1. Record the part before writing anything to it. On a board as it left the
+   factory (`EESAVE` not programmed), the first write is
+   `make boot-flash BOOT_FIRST_FLASH=1`: it reads `lfuse hfuse efuse lock`, the
+   EEPROM and the flash into the factory record under `build/`, then programs
+   `EESAVE` alone, reads it back, and flashes only if it held (`mk/arch/avr.mk`
+   lines 201-247, 260-261). Do not program `EESAVE` or any other fuse by hand
+   first: when `EESAVE` already reads programmed, `BOOT_FIRST_FLASH=1` flashes
+   at once and writes no record (lines 257-259, pinned by
+   `test_first_flash_on_a_programmed_part_writes_no_fuse_and_no_record` in
+   `scripts/test_boot_flash_eesave.py`), and a record taken after a fuse write
+   holds the changed value, not the factory one.
+2. Fuses next — `BOOTRST`, `BOOTSZ`, `BODLEVEL`, `DWEN` off.
+3. Every later `make boot-flash` reads the fuse byte and bit the board's
+   profile names (`BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT`) before its chip erase,
+   and refuses unless that bit reads 0 (`EESAVE` programmed).
+   `BOOT_EEPROM_RESTORE=1` is the only other opt-in: it saves the EEPROM,
+   flashes, writes it back and compares (`mk/arch/avr.mk` lines 249-291).
+4. Flash the bootloader, then the application.
+5. Write the platform-reserved EEPROM region.
+6. Provision the element (see `provisioning.md`) and **verify by reading back**.
+7. Lock bits last.
 
 **The trap:** lock bits can only be cleared by a chip erase, and a chip erase
 also erases the flash. So setting them before the image is final costs a full
@@ -166,7 +174,10 @@ writes them to its record under `build/`), carried as `FACTORY_LFUSE`, `FACTORY_
 profile (today `boards/atmega2560/profile.mk` lines 45-53 only); it flashes the
 stock bootloader behind the same `EESAVE` guard, then writes the fuses and the
 factory lock byte last, and reads each back (`mk/board-restore.mk`,
-`mk/arch/avr.mk` lines 320-345).
+`mk/arch/avr.mk` lines 320-345). The record exists only if the board's first
+boot flash ran with `BOOT_FIRST_FLASH=1` on a part whose `EESAVE` was not yet
+programmed; a board with no record has no `FACTORY_*` lines, and
+`make board-restore` cannot put it back.
 
 ## Verification
 

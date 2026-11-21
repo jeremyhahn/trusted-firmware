@@ -817,6 +817,22 @@ static void test_s3_a_mismatch_or_failed_measurement_raises_s3(void)
     }
 }
 
+/* S3 is measured when a policy set loads, and then only: a script load leaves
+ * SET_E's expected values in place, and a refused envelope loads nothing, so
+ * neither measures again. */
+static void test_s3_a_script_or_a_refused_envelope_measures_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_E, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL(TFW_OK, script(SCRIPT_A, sizeof SCRIPT_A));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, SET(SET_E, 0u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+}
+
 /* --- A6: what the engine saw, decided and did (slice 11b-2) ------------- */
 
 /* Entry `i` of the record is exactly this. */
@@ -1074,6 +1090,7 @@ int main(void)
     RUN_TEST(test_s3_a_measurement_that_matches_raises_nothing);
     RUN_TEST(test_s3_a_port_that_cannot_measure_raises_nothing);
     RUN_TEST(test_s3_a_mismatch_or_failed_measurement_raises_s3);
+    RUN_TEST(test_s3_a_script_or_a_refused_envelope_measures_nothing);
     RUN_TEST(test_a6_nothing_is_recorded_without_a_signal);
     RUN_TEST(test_a6_a_verdict_with_no_signal_is_recorded_and_acts_on_nothing);
     RUN_TEST(test_a6_r3_a_clear_verdict_records_the_decision_and_wipes_nothing);

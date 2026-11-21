@@ -74,7 +74,7 @@ class LinkedImage(unittest.TestCase):
         self.assertEqual(_run(["app_symbols.py", self.elf, "kep"]), (1, []))
 
 
-def _elf(wide, big):
+def _elf(wide, big, link=3):
     """A minimal ELF: a loaded .text holding 'loaded', a not-loaded .note
     holding 'unloaded', and an undefined 'undef'. No program, only the
     header fields and tables app_symbols.py reads."""
@@ -97,7 +97,7 @@ def _elf(wide, big):
         (23, 1, app_symbols.SHF_ALLOC | 0x4, 0, 0, 0, 0, 0, 1, 0),  # .text
         (29, 7, 0, 0, 0, 0, 0, 0, 1, 0),  # .note, not SHF_ALLOC
         (0, 3, 0, 0, str_off, len(strtab), 0, 0, 1, 0),  # .strtab
-        (0, app_symbols.SHT_SYMTAB, 0, 0, sym_off, len(symtab), 3, 1, 8, sym_size),
+        (0, app_symbols.SHT_SYMTAB, 0, 0, sym_off, len(symtab), link, 1, 8, sym_size),
     ]
     shentsize = struct.calcsize(sec_fmt)
     header = bytearray(ehsize)
@@ -132,6 +132,20 @@ class NotElf(unittest.TestCase):
             path = os.path.join(d, "app.bin")
             with open(path, "wb") as f:
                 f.write(b"not an image")
+            self.assertEqual(_run(["app_symbols.py", path, "kept"]), (2, []))
+
+    def test_missing_file_exits_2(self):
+        # rc 1 is "no symbol" to esp32-targets.mk's check: an image never read must not pass it.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "never-built.elf")
+            self.assertEqual(_run(["app_symbols.py", path, "kept"]), (2, []))
+
+    def test_symtab_link_out_of_range_exits_2(self):
+        # rc 1 is "no symbol" to esp32-targets.mk's check: a symtab with no string table must not pass it.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "app.elf")
+            with open(path, "wb") as f:
+                f.write(_elf(False, False, link=9))
             self.assertEqual(_run(["app_symbols.py", path, "kept"]), (2, []))
 
 

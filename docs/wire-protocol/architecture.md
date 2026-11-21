@@ -1,6 +1,6 @@
 # Wire protocol — architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 The framed binary protocol between a host and the device: framing, the codec,
@@ -76,9 +76,9 @@ hands a capability handler a length longer than the buffer it points into.
 ## Data flow
 
 ```
-bytes in -> tfw_framer_push (L4) -> TFW_FRAME_READY
-         -> tfw_dispatch (L3): table lookup, arity check, handler call
-         -> tfw_frame_encode_response (L4) -> bytes out (L5)
+tfw_link_rx (L5) -> tfw_framer_push (L4) -> TFW_FRAME_READY
+         -> tfw_link_admits (L5) -> tfw_dispatch (L3): table lookup, arity check, handler call
+         -> tfw_frame_encode_response (L4) -> tfw_link_tx_try (L5)
 ```
 
 `tfw_dispatch` checks payload length against the command table's
@@ -135,7 +135,8 @@ AddressSanitizer (`test/unit/test_frame.c`) and mirrored by `FuzzDecode` in
 queue one — returning 0 — while a response is still draining; the caller
 retries on a later poll. That keeps the device a strict request/response
 state machine: the host never has to reassemble a reply with an event landing
-in the middle of it.
+in the middle of it. On an Ethernet image events go on serial only, whichever
+wire carried the last request: they are for the bench host that owns the pins.
 
 ## Trust boundaries
 
@@ -144,8 +145,16 @@ in the middle of it.
 - Dispatch (L3) trusts the framer's structural check (a response-shaped OP
   with no room for STATUS is rejected before dispatch ever sees it) but
   re-validates every argument itself via the bounded reader/writer.
-- The transport (L5) is the only layer that decides a byte came from the
-  wire; nothing above it can be reached except through a decoded frame.
+- The link under the transport (L5) is the only code that decides a byte came
+  from a wire, which wire it came from and which one the reply goes back on;
+  nothing above it can be reached except through a decoded frame. The link
+  also decides which commands a wire may run: the transport dispatches a
+  command only if `tfw_link_admits` says so and answers any other as
+  `TFW_ERR_UNKNOWN_CMD`, the reply an image without that command gives.
+  `link_serial.c` admits every command; `link_eth.c` admits over Ethernet only
+  `CAPS`, `APP_INFO`, `ATTEST`, `ATTEST_CERT`, `ATTEST_CSR`, `OTA_BEGIN`,
+  `OTA_DATA`, `OTA_END` and `OTA_STATUS` (`tfw_link_eth_allows`), and
+  everything on serial.
 - A response frame arriving at a device (`OP` with the response bit set) is
   silently dropped by `handle()` in `transport.c` — it is either a host bug
   or the device's own echo on a shared line, and answering it would make two

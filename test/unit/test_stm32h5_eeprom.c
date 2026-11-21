@@ -47,6 +47,8 @@ static struct {
     unsigned platform_erases;
     unsigned violations;
     int      drop;                     /* the next program does not take */
+    int      lock_stuck;               /* a wrong key sequence: LOCK stays set */
+    int      wrperr;                   /* the next program reports WRPERR */
     uint32_t masked;                   /* PRIMASK as the hooks hold it */
     unsigned masked_saves;             /* stores run under the mask */
     unsigned unmasked_stores;          /* stores the mask did not cover */
@@ -100,6 +102,11 @@ static uint32_t do_program(void)
             hw.violations++;
             return TFW_H5_FLASH_SR_WRPERR << 1;  /* PGSERR */
         }
+        if (hw.wrperr) {
+            memcpy(MEM + q, shadow + q, TFW_H5_FLASH_QWORD);
+            hw.wrperr = 0;
+            return TFW_H5_FLASH_SR_WRPERR;       /* the quad-word keeps its old value */
+        }
         if (hw.drop) {
             memcpy(MEM + q, shadow + q, TFW_H5_FLASH_QWORD);
             hw.drop = 0;
@@ -117,7 +124,7 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     (void)f;
     REG(TFW_H5_FLASH_NSSR_OFF) &= ~REG(TFW_H5_FLASH_NSCCR_OFF);
     REG(TFW_H5_FLASH_NSCCR_OFF) = 0u;
-    if (REG(TFW_H5_FLASH_NSKEYR_OFF) == TFW_H5_FLASH_KEY2) {
+    if (REG(TFW_H5_FLASH_NSKEYR_OFF) == TFW_H5_FLASH_KEY2 && !hw.lock_stuck) {
         REG(TFW_H5_FLASH_NSCR_OFF) &= ~TFW_H5_FLASH_CR_LOCK;
     }
     REG(TFW_H5_FLASH_NSKEYR_OFF) = 0u;
@@ -284,6 +291,35 @@ static void test_data_that_does_not_read_back_is_internal(void)
     TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u]);
 }
 
+/* hal_eeprom.c: a locked or write-protected interface is h5_flash.c's
+ * TFW_ERR_PROTECTED_REGION, handed through, not read back into INTERNAL. */
+static void test_a_locked_interface_is_protected_region_and_writes_nothing(void)
+{
+    static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
+    uint32_t i;
+
+    hw.lock_stuck = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_hal_eeprom_write(USER_LO + 32u, data, sizeof data));
+    for (i = 0u; i < sizeof data; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u + i]);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+}
+
+static void test_a_write_protect_error_is_protected_region_not_internal(void)
+{
+    static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
+    uint32_t i;
+
+    hw.wrperr = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_hal_eeprom_write(USER_LO + 32u, data, sizeof data));
+    for (i = 0u; i < sizeof data; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u + i]);
+    }
+}
+
 static void test_a_rewrite_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t first[4]  = { 0x00u, 0x00u, 0x00u, 0x00u };
@@ -428,6 +464,8 @@ int main(void)
     RUN_TEST(test_a_write_into_the_span_is_range_and_touches_no_flash);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
+    RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
+    RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);
     RUN_TEST(test_a_rewrite_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_rewrite_that_loses_another_value_is_internal);
     RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);

@@ -5,7 +5,8 @@
  * src/hal/cortex-m/nrf54l/rram_write.h) over the nRF54L register model
  * (test/model/nrf54l_model.h). The RRAM stores go to the test's hooks, named
  * before boot_rram.c is included: each records the RRAMC CONFIG it was made
- * under and stores nothing, so no address of the DK's needs mapping.
+ * under and its address, value and width, and stores nothing, so no address
+ * of the DK's needs mapping.
  */
 #include <stdint.h>
 
@@ -22,8 +23,25 @@ static void store(void)
     }
 }
 
-#define TFW_NRF54L_RRAM_STORE32(addr, word) ((void)(addr), (void)(word), store())
-#define TFW_NRF54L_RRAM_STORE8(addr, byte)  ((void)(addr), (void)(byte), store())
+/* Each store's address, value and width, in the order made. */
+static struct {
+    uint32_t addr, value;
+    uint8_t width;
+} log_[8];
+static unsigned logged;
+
+static void record(uint32_t addr, uint32_t value, uint8_t width)
+{
+    if (logged < sizeof log_ / sizeof log_[0]) {
+        log_[logged].addr  = addr;
+        log_[logged].value = value;
+        log_[logged].width = width;
+    }
+    logged++;
+}
+
+#define TFW_NRF54L_RRAM_STORE32(addr, word) (record((uint32_t)(addr), (uint32_t)(word), 4u), store())
+#define TFW_NRF54L_RRAM_STORE8(addr, byte)  (record((uint32_t)(addr), (uint32_t)(byte), 1u), store())
 
 #include "../boot_rram.c"
 
@@ -35,6 +53,7 @@ void setUp(void)
 {
     tfw_nrf54l_model_reset();
     stores = stores_with_wen = 0u;
+    logged = 0u;
 }
 
 void tearDown(void) {}
@@ -95,6 +114,54 @@ static void test_a_failed_wait_puts_wen_back(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_RRAMC_CONFIG);
 }
 
+static void assert_store(unsigned i, uint32_t addr, uint32_t value, uint8_t width)
+{
+    TEST_ASSERT_EQUAL_HEX32(addr, log_[i].addr);
+    TEST_ASSERT_EQUAL_HEX32(value, log_[i].value);
+    TEST_ASSERT_EQUAL_UINT8(width, log_[i].width);
+}
+
+/* An unaligned start is bytes up to the word boundary, each at its own
+ * address, then aligned words. */
+static void test_each_byte_lands_at_its_address(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(base + 1u, data, 7u));
+    TEST_ASSERT_EQUAL_UINT(4u, logged);
+    assert_store(0u, base + 1u, 0x01u, 1u);
+    assert_store(1u, base + 2u, 0x02u, 1u);
+    assert_store(2u, base + 3u, 0x03u, 1u);
+    assert_store(3u, base + 4u, 0x07060504u, 4u);
+}
+
+/* A source that is not word-aligned is still stored as one whole word. */
+static void test_an_unaligned_source_is_stored_whole(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(base, data + 1, 4u));
+    TEST_ASSERT_EQUAL_UINT(1u, logged);
+    assert_store(0u, base, 0x05040302u, 4u);
+}
+
+/* A write that starts exactly at tfw-boot's region end is taken; one byte
+ * below it is refused with nothing stored. */
+static void test_a_write_at_the_region_end_is_accepted(void)
+{
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(BOOT_REGION_END, data, 4u));
+    TEST_ASSERT_EQUAL_UINT(1u, logged);
+    assert_store(0u, BOOT_REGION_END, 0x04030201u, 4u);
+
+    logged = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_cm_boot_flash_write(BOOT_REGION_END - 1u, data, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -104,5 +171,8 @@ int main(void)
     RUN_TEST(test_a_refused_span_stores_nothing);
     RUN_TEST(test_a_wait_that_never_ends_fails_the_write);
     RUN_TEST(test_a_failed_wait_puts_wen_back);
+    RUN_TEST(test_each_byte_lands_at_its_address);
+    RUN_TEST(test_an_unaligned_source_is_stored_whole);
+    RUN_TEST(test_a_write_at_the_region_end_is_accepted);
     return UNITY_END();
 }

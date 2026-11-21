@@ -116,7 +116,7 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
   empty success is indistinguishable from "the document ended here" to a
   host that has lost count.
 - **The TBS template is size-asserted, not trusted.** `_Static_assert
-  (TBS_PREFIX_LEN == 232)`, `_Static_assert(TBS_LEN == 383)` in
+  (TBS_PREFIX_LEN == 249)`, `_Static_assert(TBS_LEN == 400)` in
   `src/caps/alias.c`. `TFW_UCCS_LEN` (151) is asserted equal to the envelope
   (67) plus the CoSWID (84) in `src/caps/uccs.c`. A claims set of any other
   length would produce DER length fields that disagree with the bytes that

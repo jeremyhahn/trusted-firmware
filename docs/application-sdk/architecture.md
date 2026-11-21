@@ -191,7 +191,7 @@ Where no application runs, or its hook returns anything but `TFW_OK`, they are
 the firmware hash `tfw-boot` measured. The claim is never absent: go-xkms's
 possession template requires `{10, 256, 273}`, and refuses a claims set
 without 273. Because the width is fixed, the claims set stays 151 bytes and
-the TBS 383; nothing about the certificate's shape changes. The host reads the
+the TBS 400 (`TBS_LEN`, `src/caps/alias.c`); nothing about the certificate's shape changes. The host reads the
 bytes with `tfw.ApplicationEvidence`; `tfwctl -json <port> attest-cert <nonce>` prints them
 as `app_evidence`. The image's own measurement stays in `ATTEST`'s `FWHash`,
 so a verifier appraises both.
@@ -233,7 +233,7 @@ as one EAT submodule:
   This project emits the claims and never interprets them. Anything go-xkms
   lacks for this is filed against go-xkms.
 
-The claims set is today a fixed 151 bytes inside a fixed 383-byte TBS
+The claims set is today a fixed 151 bytes inside a fixed 400-byte TBS
 template, with `_Static_assert`s on both lengths. A submodule makes both
 lengths variable, which is why this is a follow-up with its own vectors and
 not part of this interface.

@@ -167,6 +167,10 @@ def arch_leak_files(root):
     run = subprocess.run(["make", "--no-print-directory", "lint-arch-leak", "ARCH_LEAK_ROOT=" + root],
                          cwd=ROOT, env=make_env(), capture_output=True, text=True)
     files = sorted({l.split(":")[0] for l in run.stdout.splitlines() if l.endswith(": arch-leak (ESP-IDF)")})
+    if run.returncode != 0 and not files:
+        # A failure that names no ESP-IDF file failed for another reason; say which.
+        raise AssertionError("make lint-arch-leak exited %d\n--- stdout\n%s--- stderr\n%s"
+                             % (run.returncode, run.stdout, run.stderr))
     return run.returncode, files
 
 
@@ -279,8 +283,28 @@ class EspIdfStaysBehindTheHal(unittest.TestCase):
                 f.write(text)
         return tmp, plant
 
+    def tracked_tree(self):
+        # The gate finds its files and then reads them one by one, so a file
+        # unlinked in between (a checkout, a merge, an editor's save) fails it
+        # with "cannot strip comments". It reads a copy of the tree's files,
+        # tracked or not yet added (not ignored), which nothing else writes; a
+        # file deleted in the working tree is not in the tree and is not copied.
+        tmp, _ = self.plant_tree()
+        ls = ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+              "--", "src", "boot", "include", "tools", "test", "boards"]
+        names = subprocess.run(ls, cwd=ROOT, check=True, capture_output=True, text=True).stdout.split("\0")
+        for path in names:
+            if not path.endswith((".c", ".h", "/profile.mk")):
+                continue
+            os.makedirs(os.path.join(tmp, os.path.dirname(path)), exist_ok=True)
+            try:
+                shutil.copyfile(os.path.join(ROOT, path), os.path.join(tmp, path))
+            except FileNotFoundError:
+                continue
+        return tmp
+
     def test_this_tree(self):
-        self.assertEqual((0, []), arch_leak_files(ROOT))
+        self.assertEqual((0, []), arch_leak_files(self.tracked_tree()))
 
     def test_the_header_list_covers_what_the_port_includes(self):
         # Every header the port includes is ours, the C library's or matches
@@ -331,6 +355,19 @@ class EspIdfStaysBehindTheHal(unittest.TestCase):
                 tmp, plant = self.plant_tree()
                 plant("src/core/plant.c", "int ok;\n" + leak + "\n")
                 self.assertEqual(arch_leak_files(tmp), (2, ["src/core/plant.c"]))
+
+    def test_cortex_m_lwip_is_its_own(self):
+        # The Cortex-M Ethernet ports build lwIP themselves: lwip/ there is
+        # not ESP-IDF, but every other ESP-IDF prefix still fails, and lwip/
+        # outside src/hal/cortex-m/ still fails.
+        tmp, plant = self.plant_tree()
+        plant("src/hal/cortex-m/stm32h5/net.c", '#include "lwip/tcp.h"\n')
+        plant("src/hal/cortex-m/stm32h5/bad.c", '#include "esp_log.h"\n')
+        plant("src/core/bad.c", '#include "lwip/tcp.h"\n')
+        self.assertEqual(arch_leak_files(tmp), (2, [
+            "src/core/bad.c",
+            "src/hal/cortex-m/stm32h5/bad.c",
+        ]))
 
 
 if __name__ == "__main__":

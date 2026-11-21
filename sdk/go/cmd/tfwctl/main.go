@@ -72,6 +72,14 @@ commands
                      the same, with the address, mask and gateway leased by
                      DHCP (a DHCP=1 build; any other refuses the block)
   netcfg get         read the network block back
+  hsm-heartbeat                    the A55 is alive; the engine's state
+  hsm-report <ima|hotplug|n>       report signal S4 or S5
+  hsm-verdict <clear|compromised|n>
+                                   the verifier's verdict
+  hsm-select <index>               apply that policy of the held set
+  hsm-load <envelope file>         a signed policy set or script envelope
+  hsm-record <index>               one entry of the A6 record
+  hsm-records                      the A6 record, first entry to last
   ports              list the serial ports this host can see
 
   analog <pin>                     one conversion, raw counts
@@ -555,6 +563,9 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 
 	case "netcfg":
 		return runNetcfg(ctx, dev, args, asJSON, out)
+
+	case "hsm-heartbeat", "hsm-report", "hsm-verdict", "hsm-select", "hsm-load", "hsm-record", "hsm-records":
+		return runHSM(ctx, dev, cmd, args, asJSON, out)
 
 	default:
 		return runPeripheral(ctx, dev, cmd, args, asJSON, out)

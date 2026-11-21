@@ -116,6 +116,11 @@ tfw_frame_event_t tfw_framer_push(tfw_framer_t *f, uint8_t byte)
     }
 }
 
+uint8_t tfw_framer_in_frame(const tfw_framer_t *f)
+{
+    return (f->state != TFW_FRAME_WAIT_SOF) ? 1u : 0u;
+}
+
 uint8_t tfw_frame_seq(const tfw_framer_t *f)
 {
     return f->body[0];

@@ -36,7 +36,7 @@
  * comparison fails and says so.
  *
  * Nothing here is measured itself. The harness sets the program counter to one
- * of these functions, so main() below is only a resting state -- and the four
+ * of these functions, so main() below is only a resting state -- and the five
  * calls inside it are never executed, because tfw_bench_trigger is never
  * written. They exist so the linker can see a reference.
  */
@@ -157,7 +157,7 @@ uint8_t tfw_bench_sched_active(void)
 /* --------------------------------------------------------------- keep-alive */
 
 /*
- * The linker's view of the four functions above.
+ * The linker's view of the five functions above.
  *
  * volatile, so the compiler may not fold the indirection away and decide it can
  * inline the callee after all; extern, and read by main(), so --gc-sections

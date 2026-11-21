@@ -287,6 +287,30 @@ static void test_tx_irq_sends_the_queued_byte_and_clears_tx(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_TX, w[0]);   /* TX only cleared */
 }
 
+/* The ordinary acknowledgement: INTCLEAR written with exactly INTSTATUS's
+ * bits, so the cell holds the same value after the store as before it. */
+static void test_tx_irq_acknowledges_exactly_the_pending_tx_bit(void)
+{
+    uint32_t w[4];
+
+    init_ok();
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_TX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_INT, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_TX, w[0]);
+}
+
+static void test_rx_irq_acknowledges_exactly_the_pending_rx_bit(void)
+{
+    uint32_t w[4];
+
+    init_ok();
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_RX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_INT, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_RX, w[0]);
+}
+
 /* The ring holds TX_RING - 1 bytes behind the one in DATA; the next is refused
  * and touches no register. */
 static void test_tx_try_refuses_when_the_ring_is_full(void)
@@ -390,6 +414,8 @@ int main(void)
     RUN_TEST(test_init_refuses_zero_and_a_divisor_below_16);
     RUN_TEST(test_tx_try_writes_the_first_byte_to_data);
     RUN_TEST(test_tx_irq_sends_the_queued_byte_and_clears_tx);
+    RUN_TEST(test_tx_irq_acknowledges_exactly_the_pending_tx_bit);
+    RUN_TEST(test_rx_irq_acknowledges_exactly_the_pending_rx_bit);
     RUN_TEST(test_tx_try_refuses_when_the_ring_is_full);
     RUN_TEST(test_tx_idle_waits_for_the_ring_the_irq_and_tx_full);
     RUN_TEST(test_rx_irq_moves_data_to_the_ring_while_rx_full);

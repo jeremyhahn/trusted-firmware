@@ -286,6 +286,20 @@ class ItcmSlotBoard(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(AssertionError):
                 build_manifest(text, "frdm-imx95-m7")
 
+    def test_an_imx_boot_image_measures_from_the_itcm_base(self):
+        # IMX_BOOT=1 (#473): the boot container's image, linked at ITCM 0.
+        with tempfile.TemporaryDirectory() as build_dir:
+            m, image = build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                      "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+        self.assertIn("(0x00000000 on this board)", m["note"])
+        self.assertEqual(m["image_len"], 1)
+        self.assertEqual(m["fwhash_sha256"], hashlib.sha256(image).hexdigest())
+
+    def test_imx_boot_in_the_default_build_dir_is_refused(self):
+        # make tracks no flag: build/ would reuse the ELF linked at the slot.
+        with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
+            build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7", "IMX_BOOT=1")
+
 
 if __name__ == "__main__":
     unittest.main()

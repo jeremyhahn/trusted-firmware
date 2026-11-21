@@ -1,7 +1,8 @@
 # Reproducible builds
 
-> **Status: NORMATIVE** · Scope: `mk/firmware.mk`, `mk/arch/`, `make reproducible-check`
-> · Last verified: 2026-09-22
+> **Status: NORMATIVE** · Scope: `mk/firmware.mk`, `mk/boot.mk`, `mk/arch/`, `scripts/repro_build.py`,
+> `make reproducible-check`, `make bootloader-reproducible-check`
+> · Last verified: 2026-11-21
 >
 > This is a requirement, not a property we happen to have. It is checked on
 > every commit and a regression fails the build.
@@ -26,10 +27,11 @@ So reproducibility is the difference between attestation and ceremony.
 | | why |
 |---|---|
 | `SOURCE_DATE_EPOCH` | pins anything time-derived in the toolchain |
-| `-ffile-prefix-map` | strips the build directory, so its absolute path does not end up in the image |
+| `-ffile-prefix-map` | strips the build directory, so its absolute path does not end up in the image (`$(CURDIR)=.`, `mk/firmware.mk`) |
+| `APP_PREFIX_MAP` | an application's own `-ffile-prefix-map=$(APP_ABS)=app`, after the build directory's, so the image does not record where the application was built (`mk/app.mk`) |
 | `-frandom-seed=$(notdir $<)` | GCC's internal symbol naming is otherwise seeded per invocation |
-| `$(sort …)` over the object list | link order is deterministic, not filesystem order |
-| no `__DATE__`, no `__TIME__` | greped for in `make lint`; either one makes the image unreproducible by construction |
+| `$(sort …)` over the source list | link order is deterministic, not filesystem order (`FW_SRCS`, `mk/firmware.mk`) |
+| no `__DATE__`, no `__TIME__` | grepped for in `make lint` (`lint-timestamps`); either one makes the image unreproducible by construction |
 | **a pinned toolchain** | the biggest one — see below |
 
 ## The toolchain is the part that bites
@@ -83,8 +85,11 @@ the ATmega2560 row `BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft
 BOOT_OTA=0 BOOT_STORE=0`; `make bootloader-reproducible` checks whatever row
 its `BOOT_*` variables name.
 
-The crypto tier is part of the build path, so the soft and element images are
-separate artifacts with separate measurements. They are different firmware.
+The crypto tier is part of the build path, so on a board with more than one
+tier (`BOARD_TIERS` in its `boards/<board>/profile.mk`) each tier's image is a
+separate artifact with its own measurement: they are different firmware. The
+ATmega328P has one tier, `atecc608a`, and refuses `CRYPTO=soft`
+(`BOARD_REFUSED_TIERS`).
 
 ## What a verifier does with this
 

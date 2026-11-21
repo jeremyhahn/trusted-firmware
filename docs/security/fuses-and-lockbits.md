@@ -34,7 +34,7 @@ voids the BLB read barrier from the inside.
 | `BODLEVEL` | enabled, 2.7 V (or the part's nearest) | **not optional** — see below |
 | `DWEN` | unprogrammed | debugWIRE reads SRAM and defeats everything above |
 | `OCDEN` | unprogrammed | same, for parts with on-chip debug |
-| `EESAVE` | programmed | a chip erase then preserves the EEPROM, including the device serial |
+| `EESAVE` | programmed: the fuse and bit each board's profile names in `BOOT_EESAVE_FUSE` and `BOOT_EESAVE_BIT` (`hfuse` bit 3 on the 328P, the 2560 and the 32U4) | a chip erase then preserves the EEPROM, including the device serial; `make boot-flash` refuses without it (see "Order matters" and [`../development/isp-route.md`](../development/isp-route.md)) |
 
 ## The lock byte, per board
 
@@ -102,10 +102,18 @@ With BOD enabled the part halts below the threshold instead of writing.
 ## Order matters, and one of these is a trap
 
 1. Fuses first — `BOOTRST`, `BOOTSZ`, `BODLEVEL`, `DWEN` off.
-2. Flash the bootloader, then the application.
-3. Write the platform-reserved EEPROM region.
-4. Provision the element (see `provisioning.md`) and **verify by reading back**.
-5. Lock bits last.
+2. Before the first `make boot-flash`, `EESAVE` must read programmed. The boot
+   flash reads the fuse byte and bit the board's profile names
+   (`BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT`) before its chip erase, and refuses
+   unless the bit reads 0. `BOOT_FIRST_FLASH=1` is the board's first boot
+   flash: it writes the factory record under `build/`, programs `EESAVE` alone,
+   reads it back and flashes only if it held. `BOOT_EEPROM_RESTORE=1` instead
+   saves the EEPROM, flashes, writes it back and compares (`mk/arch/avr.mk`
+   lines 166-291).
+3. Flash the bootloader, then the application.
+4. Write the platform-reserved EEPROM region.
+5. Provision the element (see `provisioning.md`) and **verify by reading back**.
+6. Lock bits last.
 
 **The trap:** lock bits can only be cleared by a chip erase, and a chip erase
 also erases the flash. So setting them before the image is final costs a full

@@ -93,7 +93,7 @@ func BuildPlatformBlock(serial [SerialLen]byte, pubkeyHash [PubkeyHashLen]byte,
 `SerialLen` (16), `PubkeyHashLen` (32), `OperatorPubkeyLen` (64, issue #4) and
 `PlatformBlockLen` (192, grew from 128 when `operatorPubkey` was added) mirror
 `include/tfw/boot.h`'s `TFW_BOOT_SERIAL_LEN`/`TFW_BOOT_MEASURE_LEN`/
-`TFW_BOOT_OPERATOR_PUBKEY_LEN`/`TFW_BOOT_EE_LEN`. `operatorPubkey` is the
+`TFW_BOOT_OPERATOR_PUBKEY_LEN`/`TFW_BOOT_EE_BLOCK_LEN`. `operatorPubkey` is the
 `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor — a P-256 point, X‖Y
 — and is meaningful only on the element tier; a soft-tier or `CRYPTO=none`
 image never reads it, so the zero value is correct there. CLI:
@@ -173,7 +173,7 @@ same flags, converts its Intel HEX to binary with the host's GNU `objcopy`
 ihex` fails with "invalid operation"),
 and turns the bytes into a C array (`build/platform-bake/<board>/gen/block.c`).
 Nothing in the image or the build lays out the block a second time. A block of
-any length but `TFW_BOOT_EE_LEN` fails to compile.
+any length but `TFW_BOOT_EE_BLOCK_LEN` fails to compile (the `_Static_assert` in the generated `block.c`, `mk/platform-bake.mk`).
 
 **What it does, once per boot** (`tools/platform-bake/bake.c`,
 `tfw_bake_run`):
@@ -248,21 +248,24 @@ the probe read nothing.
 
 - **`ProvLock` refuses a zero summary CRC.** The element's own no-CRC lock form
   locks without checking the zone contents; a zero CRC is refused in both
-  `tfw_prov_cmd_lock` (`TFW_ERR_BAD_ARGC`) and `Device.ProvLock`
+  the ATECC backend's `tfw_prov_lock` (`TFW_ERR_BAD_ARGC`,
+  `src/caps/provision_atecc.c`) and `Device.ProvLock`
   (`ArgRangeError`), so the check cannot be bypassed from either side of the
   wire.
 - **`ProvWriteConfig` never touches blocks 0 or 1.** They hold the serial
-  number, revision and OTP mode; `tfw_prov_cmd_write_config` returns
-  `TFW_ERR_PROTECTED_REGION` for `block < 2`, so a broken template fails at the
+  number, revision and OTP mode; the ATECC backend's `tfw_prov_write_config`
+  returns `TFW_ERR_PROTECTED_REGION` for `block < 2`, so a broken template fails at the
   firmware boundary rather than as an opaque element execution error.
 - **`ProvGenKey` and `ProvPubKey` are separate commands, not modes of one.**
   `ProvGenKey` replaces the DeviceID; `ProvPubKey` only recomputes the public
   point from the key already in the slot. This split is what makes
   `tfwprov --verify` safe to run against an already-provisioned part — no
   verify path can regenerate the identity it is checking.
-- **`ProvSeedUDS` takes a slot and no key material.** The UDS goes
-  Random → TempKey → slot entirely inside the element (`tfw_prov_cmd_seed_uds`);
-  the host never sees it, and the SRAM copy is scrubbed with `memset` whether
+- **`ProvSeedUDS` takes a slot and no key material.** The UDS comes
+  from the element's RNG and crosses the I2C bus three times through MCU SRAM
+  (Random returns it, Nonce sends it back to set TempKey, the Write carries it
+  in the clear), never the serial link, so the host never sees it
+  (`tfw_prov_seed_uds`, `src/caps/provision_atecc.c`); the SRAM copy is scrubbed with `memset` whether
   or not the write succeeded.
 - **Both slot constants are fixed, not caller-supplied policy.** `ProvGenKey`
   and `ProvPubKey` reject any `slot != SlotDeviceID` (`TFW_ERR_RANGE`);
@@ -293,7 +296,7 @@ reconfigured.
 BEFORE the device is ever flashed, by `tfwprov --bake-eeprom`
 (`sdk/go/cmd/tfwprov/eeprom.go`, `sdk/go/platform.go`) — never over the wire.
 `sdk/go/commands.go`'s `EEPROMWrite` still refuses every address below
-`EEPROMReservedEnd` (`0xC0`) unconditionally, and that refusal was kept
+`EEPROMReservedEnd` (`0x140`) unconditionally, and that refusal was kept
 absolute rather than given a provisioning exemption: a narrower hole is
 still a hole. `--bake-eeprom` opens no serial port and needs no
 `TFW_FEATURE_PROVISION` image; it is a pure file operation, run once, before
@@ -311,10 +314,10 @@ step doing both keeps `tfwprov`'s pre-flash sequence a single operation.
 
 | Status | Meaning here | Raised by |
 |---|---|---|
-| `TFW_ERR_NACK` (10) | the element did not answer the wake | every `tfw_prov_cmd_*` on `tfw_atecc_wake()` failure — not reported as "no element," since a miswired or overclocked bus is indistinguishable from an absent part |
-| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | `tfw_prov_cmd_write_config` (block ≥ 4), `tfw_prov_cmd_lock` (unknown zone), `tfw_prov_cmd_genkey`/`_pubkey` (slot ≠ `SlotDeviceID`), `tfw_prov_cmd_seed_uds` (slot ≠ `SlotUDS`), `tfw_prov_cmd_write_pubkey` (slot not 2 or 15, half > 1) |
-| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, or a zero summary CRC | `tfw_prov_cmd_write_config` (no data), `tfw_prov_cmd_lock` (CRC == 0), `tfw_prov_cmd_write_pubkey` (not 34 bytes) |
-| `TFW_ERR_BAD_STATE` (19) | a data-zone write before the config zone is locked | `tfw_prov_cmd_write_pubkey` |
+| `TFW_ERR_NACK` (10) | the element did not answer the wake | every ATECC backend `tfw_prov_*` (`src/caps/provision_atecc.c`) on `tfw_atecc_wake()` failure — not reported as "no element," since a miswired or overclocked bus is indistinguishable from an absent part |
+| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | the ATECC backend: `tfw_prov_write_config` (block ≥ 4), `tfw_prov_lock` (unknown zone), `tfw_prov_genkey`/`tfw_prov_pubkey` (slot ≠ `SlotDeviceID`), `tfw_prov_seed_uds` (slot ≠ `SlotUDS`), `tfw_prov_write_pubkey` (slot not 2 or 15, half > 1) |
+| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, or a zero summary CRC | `tfw_prov_cmd_write_config` (no data), `tfw_prov_lock` (CRC == 0, ATECC backend), `tfw_prov_cmd_write_pubkey` (not 34 bytes) |
+| `TFW_ERR_BAD_STATE` (19) | a data-zone write before the config zone is locked | `tfw_prov_write_pubkey` (ATECC backend) |
 | `TFW_ERR_PROTECTED_REGION` (16) | write targets config block 0 or 1, or a slot whose SlotLocked bit is clear | `tfw_prov_cmd_write_config`, `tfw_prov_cmd_write_pubkey` |
 | `TFW_ERR_UNSUPPORTED` (7) | a public-key slot write on the UDS backend, which has no element | `tfw_prov_cmd_write_pubkey` |
 | `TFW_ERR_UNKNOWN_CMD` (4) | production image — no provisioning handler compiled in | any `0x70`–`0x75` or `0x7B` command against a device built with `TFW_FEATURE_PROVISION=0` |
@@ -390,7 +393,7 @@ proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 | Tier | Location | Covers |
 |---|---|---|
 | Firmware unit | `test/unit/test_provision.c`, linked against `test/model/atecc608a.c` | every handler against a software model of the element — block refusal, CRC-required lock, slot range checks, out-of-order lock, seeding never exposing key material |
-| Go unit | `sdk/go/provision_test.go` | `ProvInfo` payload decoding (both lock-byte polarities, truncated/missing-lock-byte replies, a production image's `ErrUnknownCommand`), `ProvLock`'s zero-CRC refusal, `ProvWriteConfig`'s size check |
+| Go unit | `sdk/go/provision_test.go` | `ProvInfo` payload decoding (both lock-byte polarities, truncated/missing-lock-byte replies, a production image's `StatusErrUnknownCmd`), `ProvLock`'s zero-CRC refusal, `ProvWriteConfig`'s size check |
 | Go unit | `sdk/go/cmd/tfwprov/writepubkey_test.go` | `--write-pubkey`'s key file: raw X‖Y and PEM `PUBLIC KEY` taken, and each other content refused by name (short, off-curve, private key, other PEM type, two keys, bad DER, Ed25519, P-384); every other mode's flag refused before the port opens; X then Y sent, a read-back that differs and an element refusal reported |
 | Simulator / tfwsim | `sdk/go/cmd/tfwprov/e2e_writepubkey_test.go` | `--write-pubkey`'s path against `tfwsim-prov`: `BAD_STATE` with the config open; after the config lock a PEM then a raw key read back as written into slot 2; a slot-locked slot 15 `PROTECTED_REGION`; the DeviceID slot `RANGE` |
 | Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |

@@ -153,9 +153,90 @@ static void test_init_enables_tx_and_rx_and_no_interrupt(void)
     TEST_ASSERT_EQUAL_UINT32(R_CTRL, log_reg[log_used - 1u]);
 }
 
+/* 2 Mbaud from 20 MHz is a divisor of 10, under the CMSDK UART's 16; a baud of
+ * 0 is no divisor at all. Either way the UART is left off, CTRL starting on as
+ * if something before tfw-boot had left it so. */
+static void test_a_baud_below_the_minimum_divisor_leaves_the_uart_off(void)
+{
+    static const uint32_t bauds[] = { 2000000u, 0u };
+    uint32_t i;
+
+    TEST_ASSERT_TRUE(TFW_CM_CPU_HZ / 2000000u < 16u);
+    for (i = 0u; i < sizeof bauds / sizeof bauds[0]; i++) {
+        setUp();
+        model_set(R_CTRL, CTRL_TXEN | CTRL_RXEN);
+        model_set(R_BAUDDIV, 0xDEAD0000u);
+
+        tfw_boot_uart_init(bauds[i]);
+
+        TEST_ASSERT_EQUAL_HEX32(0u, reg(R_CTRL));
+        TEST_ASSERT_EQUAL_UINT32(0u, stores(R_BAUDDIV));
+        TEST_ASSERT_EQUAL_HEX32(0xDEAD0000u, reg(R_BAUDDIV));
+        TEST_ASSERT_EQUAL_UINT32(0u, stores(R_STATE));
+        TEST_ASSERT_EQUAL_HEX32(0u, model_ever[R_CTRL]);
+    }
+}
+
+/* With TXEN clear, TXFULL would never clear: tx returns without a store, both
+ * on a UART init left off and on one nothing enabled. */
+static void test_tx_on_a_disabled_uart_writes_nothing(void)
+{
+    model_set(R_DATA, 0x5Au);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, stores(R_DATA));
+    TEST_ASSERT_EQUAL_HEX32(0x5Au, reg(R_DATA));
+
+    tfw_boot_uart_init(2000000u);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, stores(R_DATA));
+    TEST_ASSERT_EQUAL_HEX32(0x5Au, reg(R_DATA));
+
+    /* The model's check: an enabled UART does take the byte. */
+    tfw_boot_uart_init(115200u);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(1u, stores(R_DATA));
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, reg(R_DATA));
+}
+
+/* A byte still in the transmitter when tfw-boot hands over: off polls STATE
+ * until the model's transmitter drains, and only then stores CTRL 0, BAUDDIV
+ * 0, both overruns cleared and both interrupts acknowledged. */
+static void test_off_waits_for_tx_then_clears_and_acks_both_interrupts(void)
+{
+    uint32_t i;
+
+    tfw_boot_uart_init(115200u);
+    model_sync();                       /* init's last store, CTRL */
+    model_set(R_STATE, STATE_TXFULL);
+    model_set(R_INT, 0u);
+    log_used = 0u;
+    tx_polls = 3u;
+
+    tfw_cm_boot_uart_off();
+    model_sync();
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tx_drained);
+    TEST_ASSERT_EQUAL_UINT32(0u, tx_polls);
+    TEST_ASSERT_EQUAL_UINT32(4u, log_used);
+    for (i = 0u; i < log_used; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, log_drained[i]);
+    }
+    TEST_ASSERT_EQUAL_UINT32(R_CTRL, log_reg[0]);
+    TEST_ASSERT_EQUAL_HEX32(0u, log_val[0]);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(R_CTRL));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(R_BAUDDIV));
+    TEST_ASSERT_EQUAL_HEX32(STATE_TXOVR | STATE_RXOVR, reg(R_STATE));
+    TEST_ASSERT_EQUAL_HEX32(INT_TX | INT_RX, reg(R_INT));
+    TEST_ASSERT_EQUAL_UINT32(R_INT, log_reg[log_used - 1u]);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_ever[R_CTRL] & (CTRL_TXINT | CTRL_RXINT));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_enables_tx_and_rx_and_no_interrupt);
+    RUN_TEST(test_a_baud_below_the_minimum_divisor_leaves_the_uart_off);
+    RUN_TEST(test_tx_on_a_disabled_uart_writes_nothing);
+    RUN_TEST(test_off_waits_for_tx_then_clears_and_acks_both_interrupts);
     return UNITY_END();
 }

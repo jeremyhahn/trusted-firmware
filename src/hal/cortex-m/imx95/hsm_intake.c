@@ -36,14 +36,17 @@ uint8_t tfw_imx95_hsm_intake_sense(struct tfw_imx95_hsm_intake *in)
     uint32_t s5 = in->s5_seen;
     uint8_t  s  = 0u;
 
-    if (s1 != in->s1_last) {
+    /* A counter that moved while its bit was high last pass is left for the
+     * next one: the loop raises only a rising line. */
+    if (s1 != in->s1_last && (in->high & SIG_BIT(TFW_HSM_SIG_TAMPER_PIN)) == 0u) {
         in->s1_last = s1;
         s |= SIG_BIT(TFW_HSM_SIG_TAMPER_PIN);
     }
-    if (s5 != in->s5_last) {
+    if (s5 != in->s5_last && (in->high & SIG_BIT(TFW_HSM_SIG_HOTPLUG)) == 0u) {
         in->s5_last = s5;
         s |= SIG_BIT(TFW_HSM_SIG_HOTPLUG);
     }
+    in->high = s;
     return s;
 }
 

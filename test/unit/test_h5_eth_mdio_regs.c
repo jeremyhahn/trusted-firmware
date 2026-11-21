@@ -33,8 +33,13 @@ static uint32_t busy_polls;   /* MB reads that see it set, then it clears */
 static uint32_t polls;        /* MB-set reads since the last command */
 static uint32_t issued;       /* MACMDIOAR as the last command wrote it */
 static uint32_t seen;         /* MB-set reads in all */
+static uint32_t reply;        /* MACMDIODR a read's completion publishes */
 
-/* The register file, with MACMDIOAR's MB cleared after busy_polls reads. */
+/*
+ * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
+ * A read's result reaches MACMDIODR only as MB clears, so a driver that
+ * reads the data register before its wait gets the stale value.
+ */
 volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
 {
     volatile uint32_t *r = regfile_model_reg(addr);
@@ -45,6 +50,9 @@ volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
         }
         if (busy_polls != NEVER && polls >= busy_polls) {
             *r &= ~MB;
+            if ((issued & (0x3u << 2)) == GOC_READ) {
+                *regfile_model_reg(MACMDIODR) = reply;
+            }
             polls = 0u;
         } else {
             polls++;
@@ -61,6 +69,7 @@ void setUp(void)
     polls = 0u;
     issued = 0u;
     seen = 0u;
+    reply = 0u;
 }
 
 void tearDown(void)
@@ -71,10 +80,11 @@ void test_a_read_names_the_phy_and_register_and_waits_on_mb(void)
 {
     uint16_t v = 0u;
 
-    TFW_CM_REG(MACMDIODR) = 0xABCD1234u;
+    TFW_CM_REG(MACMDIODR) = 0x5A5A5A5Au;   /* stale until MB clears */
+    reply = 0xABCD1234u;
     TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
     TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x02u << 16) | GOC_READ | MB, issued);
-    TEST_ASSERT_EQUAL_UINT32(3u, seen);   /* DR read only once MB cleared */
+    TEST_ASSERT_EQUAL_UINT32(3u, seen);
     TEST_ASSERT_EQUAL_HEX16(0x1234u, v);
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIOAR) & MB);
 }

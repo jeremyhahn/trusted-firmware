@@ -59,8 +59,9 @@ on is `atecc608a:I2C=1` (`make firmware BOARD=mps2-an505 CRYPTO=atecc608a
 I2C=1`), and `soft:I2C=1` beside it builds the image the QEMU wire row runs,
 so `firmware-matrix` size-checks it too; mps2-an500 has no element, so its
 row is `soft:I2C=1` alone. The SBCon has
-no select, so neither pin table changes. 1-Wire returns
-`TFW_ERR_UNSUPPORTED`. `test/unit/test_mps2_bus.c` runs the master against a
+no select, so neither pin table changes. 1-Wire is the same `hal_bus.c`,
+bit-banged on GPIO block 0 bit 0 as pin 3 in the `ONEWIRE=1` row (below); any
+other pin is `TFW_ERR_RANGE`. `test/unit/test_mps2_bus.c` runs the master against a
 simulated bus and device in `make host-test`. The QEMU I2C wire row (s14)
 boots each board's soft image with `I2C=1` and runs `TestQEMUI2CXfer`
 (`sdk/go/cmd/tfwctl/i2c_qemu_test.go`): `mps2.c` and `mps2-tz.c` attach no
@@ -100,6 +101,31 @@ default and 1 with `SPI=1` (`TFW_CM_SPI` in the board profile, `SPI` in
 `+0x4c` in `mps2-fpgaio.c` (s13). The QEMU SPI wire row (s13) runs
 `TestQEMUSPIXfer` on both boards: every byte reads back `0x00`, and pin 0 is
 refused as `TFW_ERR_BAD_PIN`.
+
+**PWM, tone, pulse and 1-Wire.** Each is off by default and is a
+`soft:<FLAG>=1` row in `BOARD_ROWS` on both boards, which `firmware-matrix`
+size-checks; each flag sets a `TFW_CM_*` define in the board profile that turns
+its `TFW_FEATURE_*` on, and each has a QEMU wire row that boots the base row's
+tfw-boot with the application built with the flag
+(`test/integration/cortex-m/qemu_wire_test.sh`). `PWM=1` (`TFW_CM_PWM`,
+`TFW_FEATURE_PWM`) is software PWM on the CMSDK dual timer
+(`src/hal/cortex-m/mps2/hal_pwm.c`) on the two LEDs, pins 0 and 1;
+`cortex-m-qemu-pwm-wire` runs `TestQEMUPWMWrite`, `PWM_WRITE` at 0, 128 and
+255 on pin 0 and the refusal on pin 2, which has no PWM row. `TONE=1`
+(`TFW_CM_TONE`, `TFW_FEATURE_TONE`) is the tone on LED1, pin 1, toggled from
+the CMSDK timer TIMER0's interrupt (`src/hal/cortex-m/mps2/hal_tone.c`);
+`cortex-m-qemu-tone-wire` runs `TestQEMUTone`: `TONE` and `NOTONE` answer OK
+and a frequency above the driver's bound is refused, and QEMU does not measure
+the pin. `PULSE=1` (`TFW_CM_PULSE`, `TFW_FEATURE_PULSE`) is `PULSE_IN` and
+`PULSE_CAPTURE` on SysTick (`src/hal/cortex-m/hal_pulse.c`);
+`cortex-m-qemu-pulse-wire` runs `TestQEMUPulseTimeout`: both on a pin QEMU does
+not drive, so each times out. `ONEWIRE=1` (`TFW_CM_ONEWIRE`,
+`TFW_FEATURE_ONEWIRE`) is 1-Wire bit-banged on GPIO block 0 bit 0 (`hal_bus.c`,
+`gpio_line.h`), added to the pin table as pin 3; `cortex-m-qemu-onewire-wire`
+runs `TestQEMUOneWire`: the 1-Wire verbs on that line, which QEMU leaves
+unimplemented, so it reads low. The tests are in `sdk/go/cmd/tfwctl/`
+(`pwm_qemu_test.go`, `tone_qemu_test.go`, `pulse_qemu_test.go`,
+`onewire_qemu_test.go`).
 
 The OPTIGA Trust M tier's Cortex-M cost: mps2-an505 carries `optiga:I2C=1` in
 `BOARD_ROWS` beside `atecc608a:I2C=1`, as the ATmega2560 carries

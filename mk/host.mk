@@ -2237,12 +2237,19 @@ lint-test-sleep:
 # _delay_us stays allowed: it is the bus-timing primitive behind
 # tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
 # one transaction, not a wait. A line whose first non-blank is *, /* or // is
-# a comment and is skipped, so prose naming delay() is not a finding.
+# a comment and is skipped, so prose naming delay() is not a finding. The gate
+# fails closed: a root it cannot enter or a grep error (exit 2, an unreadable
+# file) fails it, never passes as no hits (scripts/test_lint_no_delay.py).
 LINT_NO_DELAY_PAT := (^|[^A-Za-z0-9_])(delay|_delay_ms|delayMicroseconds|vTaskDelay)[[:space:]]*\(
 lint-no-delay:
-	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rnE '$(LINT_NO_DELAY_PAT)' src boot \
-	     --include='*.c' --include='*.h' --exclude-dir=third_party \
-	     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|/\*|//)' || true); \
+	@cd $(LINT_GREP_ROOT) || exit 1; \
+	raw=$$(grep -rnE '$(LINT_NO_DELAY_PAT)' src boot \
+	     --include='*.c' --include='*.h' --exclude-dir=third_party); rc=$$?; \
+	if [ $$rc -gt 1 ]; then \
+	  echo "lint-no-delay: grep could not scan the tree (exit $$rc), so it is not clean"; \
+	  exit 1; \
+	fi; \
+	hits=$$(printf '%s\n' "$$raw" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|/\*|//)' || true); \
 	if [ -n "$$hits" ]; then \
 	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: delay-call"; done; \
 	  echo "a wait is a poll that returns at once, never a blocking delay (SPEC device-capabilities)"; \

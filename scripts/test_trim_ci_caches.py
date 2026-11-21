@@ -121,6 +121,7 @@ class TrimCiCachesTest(unittest.TestCase):
     def test_bad_arguments_exit_2_and_run_nothing(self):
         cases = [
             ((), {}),
+            (("", IMAGE), {}),
             (("tf/ci-", IMAGE), {}),
             (("tf ci-", IMAGE), {}),
             ((PREFIX, ""), {}),
@@ -135,8 +136,7 @@ class TrimCiCachesTest(unittest.TestCase):
                 self.log.unlink(missing_ok=True)
                 p = self.run_trim(*args, **env)
                 self.assertEqual(p.returncode, 2, p.stderr)
-                self.assertEqual(self.runs(), [])
-                self.assertEqual(self.removed(), [])
+                self.assertEqual(self.calls(), [])
 
     # (2) the du container is locked down. An empty IN_IMAGE_UID is unset to
     # ${IN_IMAGE_UID:-10001}, so it runs as 10001, never as root.

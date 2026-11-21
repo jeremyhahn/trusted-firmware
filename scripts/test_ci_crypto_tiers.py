@@ -22,6 +22,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CI_YML = os.path.join(ROOT, ".github", "workflows", "ci.yml")
 TIERS_RE = re.compile(r"^ARCH_CRYPTO_TIERS\s*:?=\s*(.*)$", re.MULTILINE)
+RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:(.*)$")
 
 
 def declared_tiers():
@@ -38,9 +39,40 @@ def declared_tiers():
     return rows
 
 
+def run_commands(text):
+    """The executable lines of every `run:` in the ci.yml text.
+
+    A `run: <cmd>` line gives its command; a `run: |` (or `>`) block gives
+    the lines indented deeper than its key. Step names and `#` comments
+    are not commands, so they never count as a build. The YAML is read as
+    text: PyYAML is not in the image.
+    """
+    commands = []
+    block_indent = None
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if block_indent is not None:
+            if not stripped or indent > block_indent:
+                if stripped and not stripped.startswith("#"):
+                    commands.append(stripped)
+                continue
+            block_indent = None
+        m = RUN_RE.match(line)
+        if not m:
+            continue
+        value = m.group(2).strip()
+        if value[:1] in ("|", ">"):
+            block_indent = len(m.group(1))
+        elif value and not value.startswith("#"):
+            commands.append(value)
+    return commands
+
+
 def ci_firmware_builds(text):
-    """(board, tier) for every `make firmware BOARD= CRYPTO=` in ci.yml."""
-    return set(re.findall(r"make firmware BOARD=(\S+) CRYPTO=(\S+)", text))
+    """(board, tier) for every `make firmware BOARD= CRYPTO=` ci.yml runs."""
+    return set(re.findall(r"make firmware BOARD=(\S+) CRYPTO=(\S+)",
+                          "\n".join(run_commands(text))))
 
 
 def missing_builds(text):

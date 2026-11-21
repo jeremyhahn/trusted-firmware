@@ -2,8 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The channel (docs/hsm-self-defence/architecture.md section 2, slice 4): the
- * five commands the A55 sends the M7's response engine, wired to hsm_engine.c
- * and through it to hsm_port.h. The payloads are architecture.md's decisions
+ * six commands the A55 sends the M7: five to the response engine, wired to
+ * hsm_engine.c and through it to hsm_port.h, and HSM_RECORD_READ, which reads
+ * the A6 record. The payloads are architecture.md's decisions
  * (section 8): every command first lets the engine see the time, so a late
  * heartbeat is S6 at the next message; every reply that is not a refusal is
  * the engine's state, [flags:1][selected:1][refused:4].

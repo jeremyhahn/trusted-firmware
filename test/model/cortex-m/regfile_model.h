@@ -16,4 +16,7 @@ void regfile_model_reset(void);
 /* The word at addr, zero if nothing wrote it; allocates nothing. */
 uint32_t regfile_model_peek(uintptr_t addr);
 
+/* Set the word at addr to val, allocating it as TFW_CM_REG would. */
+void regfile_model_poke(uintptr_t addr, uint32_t val);
+
 #endif /* TFW_REGFILE_MODEL_H */

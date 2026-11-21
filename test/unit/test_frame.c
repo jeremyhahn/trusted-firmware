@@ -278,6 +278,35 @@ static void test_encoder_refuses_an_oversize_payload(void)
         tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, pay, (uint8_t)sizeof pay));
 }
 
+/* LEN may reach TFW_MAX_LEN because a response carries a STATUS byte. A
+ * request of that LEN, built by hand with a good CRC, would hand the
+ * dispatcher TFW_MAX_PAYLOAD + 1 bytes, which no encoder produces. */
+static void test_a_request_longer_than_the_maximum_payload_is_refused(void)
+{
+    uint8_t  pay[TFW_MAX_PAYLOAD];
+    uint8_t  wire[TFW_MAX_LEN + 4u];
+    uint16_t crc;
+    uint16_t n;
+
+    wire[0] = TFW_SOF;
+    wire[1] = TFW_MAX_LEN;
+    wire[2] = 1u;
+    wire[3] = TFW_CMD_PING;
+    memset(&wire[4], 0x5Au, TFW_MAX_PAYLOAD + 1u);
+    crc = tfw_crc16(&wire[1], (uint16_t)(TFW_MAX_LEN + 1u));
+    wire[TFW_MAX_LEN + 2u] = (uint8_t)(crc & 0xFFu);
+    wire[TFW_MAX_LEN + 3u] = (uint8_t)(crc >> 8);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
+
+    /* A response of the same LEN is the full payload plus its STATUS. */
+    memset(pay, 0x5Au, sizeof pay);
+    n = tfw_frame_encode_response(wire, sizeof wire, 1u, TFW_CMD_PING, TFW_OK, pay, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_LEN, wire[1]);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
+}
+
 static void test_encoder_refuses_a_buffer_it_would_overrun(void)
 {
     uint8_t small[4];
@@ -430,6 +459,7 @@ int main(void)
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);
     RUN_TEST(test_encoder_refuses_an_oversize_payload);
+    RUN_TEST(test_a_request_longer_than_the_maximum_payload_is_refused);
     RUN_TEST(test_encoder_refuses_a_buffer_it_would_overrun);
     RUN_TEST(test_a_corrupted_payload_byte_is_caught_by_the_crc);
     RUN_TEST(test_a_corrupted_length_byte_is_caught);

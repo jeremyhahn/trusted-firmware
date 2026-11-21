@@ -57,6 +57,18 @@ class LintNoDelayTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn("boot/plant.c:2: delay-call", r.stdout)
 
+    def test_delay_call_split_by_a_line_comment_fails(self):
+        self.write("src/core/plant.c", "void f(void) {\n  delay\n  // explanation\n(10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:2: delay-call", r.stdout)
+
+    def test_delay_call_split_by_a_block_comment_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  delay\n  /* note */\n  (10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
     def test_comment_and_bus_timing_pass(self):
         self.write("src/core/prose.c",
                    "// a poll, never delay()\n"

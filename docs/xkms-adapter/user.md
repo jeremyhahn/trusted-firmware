@@ -1,6 +1,6 @@
 # AVR Device Backend — User Guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-20
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is for
@@ -82,6 +82,30 @@ device says about its own root of trust.
 - `avr backend: unrecognised crypto tier` — the firmware is newer than this
   host. The device still attaches; its keys are reported `unattested` until the
   host learns the tier, which is the safe direction to be wrong in.
+- `avr backend: device has no crypto provider` — the device reports no crypto
+  provider at all, so there is no identity key to address.
+- `avr backend: command requires an authenticated session` — the firmware
+  answers this command only inside an authenticated session.
+- `avr backend: target is platform-reserved on the device` — the write names a
+  region the firmware reserves for the platform, and it refuses it.
+- `avr backend: secure element did not answer its bus` — the element did not
+  acknowledge on its bus: unpowered, absent, or clocked too fast for the wake
+  pulse. Look at the bus, not the host.
+- `avr backend: device peripheral busy` — a peripheral on the device was busy.
+  Try again.
+- `avr backend: device refused the command` — the device answered with a status
+  this host has no name for: the firmware is newer than this host.
+- `avr backend: unreadable reply from device` — a truncated reply, a bad
+  checksum or a malformed frame. Usually the link: noise, the wrong baud rate,
+  or another reader on the port.
+- `avr backend: device crypto provider failed` and
+  `avr backend: device reported an internal error` — the device answered and
+  says it failed. Note its `Health` and look at the board.
+- `avr backend: device returned an invalid public point` — the key the device
+  reported is not on P-256. It is refused rather than stored.
+- `avr backend: argument outside the range the wire carries` — the call's
+  argument cannot be carried, refused before it left the host or by the device
+  on arrival.
 
 ## When an attestation is refused
 

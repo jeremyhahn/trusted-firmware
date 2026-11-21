@@ -17,6 +17,9 @@ implementation, one transport, in `sdk/go`, and every command
 | `sdk/go` (package `tfw`) | frame codec, CRC, `Device`, commands, provisioning, attestation, errors | stdlib only |
 | `sdk/go/serialport` | opening a physical port | `go.bug.st/serial` |
 | `sdk/go/internal/vectors` | published wire vectors, mirrored from `testdata/vectors.h` | stdlib only |
+| `sdk/go/internal/simproc` | the one launcher of the host firmware builds (`tfwsim`, `tfwsim-atecc608a`) as subprocesses spoken to over stdio: where the binary is, and failing when it is not there | stdlib only |
+| `sdk/go/internal/peer` | the one seam between the cross-implementation suite and the firmware it talks to: `tfwsim` through `simproc` by default, a real board on a serial port for `make hw-test`, an Ethernet listener when a row needs one | `internal/simproc`, `serialport` |
+| `sdk/go/tfwsim` | the supported way for another module's tests to start the host firmware (`Start`, `StartElement`, `StartProvisioningWith`, `StartElementEthernet`) and its published TEST identity | `tfw`, `internal/simproc` |
 | `sdk/go/templates` | reviewable provisioning templates (data, not code) | — |
 | `sdk/go/cmd/tfwctl` | reference client: every command, human output and `--json` | `tfw`, `serialport` |
 | `sdk/go/cmd/tfwprov` | provisioning with a commit guard | `tfw`, `serialport` |

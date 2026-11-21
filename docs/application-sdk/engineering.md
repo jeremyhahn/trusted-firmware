@@ -223,7 +223,10 @@ The descriptor check fails, in this order, when:
    (`tfw_update_slots()`): `TFW_OTA_SLOTS` where tfw-boot serves one, 2 on
    ESP32 (ESP-IDF's ota_0 and ota_1, answered by `src/hal/esp32/hal_ota.c`),
    0 on a board with neither;
-6. `TFW_APP_CONFIG_BASE + config_len` exceeds `TFW_EEPROM_SIZE`.
+6. `TFW_APP_CONFIG_BASE + config_len` exceeds `TFW_EEPROM_SIZE`;
+7. `config_len` is not 0 on an image that links the Ethernet network block
+   (ETH=1 or ETH_MAC=1), which starts at the same EEPROM byte; where the
+   configuration lives there is a TA layout decision.
 
 FAILED and UNSUPPORTED both mean firmware-only mode. The firmware answers
 every command, attests and accepts an update as if no application were
@@ -233,7 +236,9 @@ them; an `init` that fails puts its outputs back to safe first.
 `tfw_app_config_read` and `tfw_app_config_write` return `TFW_ERR_RANGE` when
 `off + len` exceeds `config_len`, and otherwise whatever the HAL's EEPROM call
 returned. They work in any state, so a FAILED application's configuration is
-still readable by a later image.
+still readable by a later image. On an image that links the Ethernet network
+block they return `TFW_ERR_PROTECTED_REGION` for any span within `config_len`,
+and touch no EEPROM byte.
 
 `TFW_APP_STATIC_CHECK` turns checks 4 and 5 into compile errors where the
 application uses it. The runtime check still runs. It is the one that holds

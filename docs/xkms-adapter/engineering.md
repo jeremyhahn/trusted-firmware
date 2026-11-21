@@ -1,6 +1,6 @@
 # AVR Device Backend — Engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-10-20
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
@@ -380,8 +380,9 @@ root; a test is `file: name`.
    quoted there.
 2. **Firmware: the digest claim.** After slice 1: the claims set takes the
    digest of the A6 record (`src/caps/uccs.c`, `src/caps/uccs.h`,
-   `src/caps/csr.c` or `src/caps/alias.c` per slice 1, a digest helper beside
-   `src/core/hsm_record.c`), new pinned vectors in
+   `src/caps/alias.c`'s `mint()` taking the digest per `ATTEST_CERT`, and
+   `src/caps/csr.c` too if slice 1 has the CSR take its own, a digest
+   helper beside `src/core/hsm_record.c`), new pinned vectors in
    `testdata/uccs_vectors.h` and their Go mirror in `sdk/go/`; proved by new
    cases in `test/unit/test_uccs.c` and `test/unit/test_uccs_mutate.c` (an
    empty record, one entry, a full record with its dropped count, and a

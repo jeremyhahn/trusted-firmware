@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -397,6 +398,86 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 	require.True(t, errorsAsStatus(err, &st), "got %v", err)
 	assert.Equal(t, tfw.StatusErrUnsupported, st)
 	assert.False(t, asked.Load(), "the host sent ATTEST_CSR to a device whose caps does not offer it")
+}
+
+// The caps-bit refusal row on a peer that never sends a BOOT, as a TCP
+// board's connect: with the boot wait off (openPeer on a target that does
+// not reset), and with a boot wait only the meddler's SetReadDeadline can
+// end, the host refuses ATTEST_CSR as unsupported and never sends it (#48).
+// The watchdog fails a hung run instead of waiting for the test timeout.
+func TestMeddlerRefusesAttestCSRWithoutABoot(t *testing.T) {
+	const featuresOff, bit15 = 10, 0x80
+	for name, wait := range map[string]time.Duration{
+		"no boot wait":         0,
+		"a boot wait, no BOOT": 10 * time.Millisecond,
+	} {
+		t.Run(name, func(t *testing.T) {
+			host, board := net.Pipe()
+			t.Cleanup(func() { _ = host.Close(); _ = board.Close() })
+			var asked atomic.Bool
+			go capsOnlyBoard(board, &asked)
+			m := &meddler{conn: host, reply: func(f tfw.Frame) []byte {
+				if f.Cmd() != tfw.CmdCaps {
+					return nil
+				}
+				p := append([]byte(nil), f.Payload...)
+				p[featuresOff+1] &^= bit15
+				return p
+			}}
+
+			done := make(chan error, 1)
+			go func() {
+				d := tfw.New(m, tfw.WithTimeout(10*time.Second), tfw.WithBootWait(wait))
+				var out bytes.Buffer
+				done <- run(context.Background(), d, "attest-csr", []string{"--nonce", hex.EncodeToString(aliasNonce(0x50))}, true, &out)
+			}()
+			var err error
+			select {
+			case err = <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("attest-csr through the meddler did not return: a read with no BOOT blocked")
+			}
+			var st tfw.Status
+			require.True(t, errorsAsStatus(err, &st), "got %v", err)
+			assert.Equal(t, tfw.StatusErrUnsupported, st)
+			assert.False(t, asked.Load(), "the host sent ATTEST_CSR to a device whose caps does not offer it")
+		})
+	}
+}
+
+// capsOnlyBoard is a device that sends no BOOT and answers CAPS alone, with
+// the ATTEST_CSR bit set, until its end of the wire closes. It records an
+// ATTEST_CSR request and leaves it unanswered.
+func capsOnlyBoard(c net.Conn, asked *atomic.Bool) {
+	caps := make([]byte, 14)
+	caps[0], caps[1] = tfw.ProtoVersionMajor, tfw.ProtoVersionMinor
+	binary.LittleEndian.PutUint32(caps[10:], uint32(tfw.FeatureAttestCSR))
+	for {
+		hdr := make([]byte, 2)
+		if _, err := io.ReadFull(c, hdr); err != nil {
+			return
+		}
+		frame := append(hdr, make([]byte, int(hdr[1])+frameOverhead-2)...)
+		if _, err := io.ReadFull(c, frame[2:]); err != nil {
+			return
+		}
+		f, _, err := tfw.Decode(frame)
+		if err != nil {
+			continue
+		}
+		switch f.Cmd() {
+		case tfw.CmdAttestCSR:
+			asked.Store(true)
+		case tfw.CmdCaps:
+			reply, err := tfw.EncodeResponse(f.Seq, tfw.CmdCaps, tfw.StatusOK, caps)
+			if err != nil {
+				return
+			}
+			if _, err := c.Write(reply); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // caps names the feature, so a person can see before asking whether the

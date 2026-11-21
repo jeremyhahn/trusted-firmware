@@ -220,11 +220,16 @@ BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(B
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
+# Cortex-M's jump to the application, apart from boot_hal_cortex-m.c because
+# its msr and bx are the one Arm instruction there, and the host compiles that
+# file (#628). mk/arch/cortex-m.mk's ARCH_BOOT_SRCS does not name it.
+BOOT_JUMP_SRCS := $(if $(filter cortex-m,$(ARCH)),$(BOOT_HAL_DIR)/boot_jump.c)
+
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
-  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) $(BOOT_JUMP_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
@@ -769,6 +774,17 @@ $(BOOT_TEST_DIR)/test_boot_rp2350_rom: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_
         boot/hal/cortex-m/rp2350/rp_flash_rom.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# tfw-boot's mps2 UART the RP2350's way, under mps2-an505's profile: its own
+# cm_regs.h in boot/hal/cortex-m/mps2/test/ comes ahead of src/hal/cortex-m, so
+# every TFW_CM_REG goes to the test's model of UART0, which sees each store.
+MPS2_BOOT_TEST_DIR := boot/hal/cortex-m/mps2/test
+BOOT_TEST_MPS2_AN505_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,\
+                                $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_mps2_uart
+$(BOOT_TEST_DIR)/test_boot_mps2_uart: $(MPS2_BOOT_TEST_DIR)/test_boot_mps2_uart.c \
+        boot/hal/cortex-m/mps2/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_MPS2_AN505_CFLAGS) -I$(MPS2_BOOT_TEST_DIR) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # tfw-boot's STM32H5 UART (#599), the RP2350's way, under the STM32H573I-DK's
 # profile, over the register file test_stm32h5_uart uses: test/model/cortex-m/
 # comes ahead of src/hal/cortex-m/ so its cm_regs.h, under
@@ -813,12 +829,13 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
-# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
-# STM32H5 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L,
+# mps2 and STM32H5 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make
 # asked for both host-test and boot-test still runs each binary once.
 BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
                            $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram \
+                           $(BOOT_TEST_DIR)/test_boot_mps2_uart \
                            $(BOOT_TEST_DIR)/test_boot_h5_uart $(BOOT_TEST_DIR)/test_boot_h5_flash_entry
 .PHONY: boot-soc-host-test
 boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
@@ -921,6 +938,21 @@ $(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560: test/unit/boot/test_boot_hal_avr
         boot/hal/avr/boot_hal_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x3FFFFul -DSPM_PAGESIZE=256 \
 	   '-DEIND=(*tfw_avr_reg(TFW_AVR_EIND))' $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_hal_cortex-m.c alone (#628), under the MPS2 AN505's profile, over
+# boot/hal/cortex-m/test/'s stubs for the SoC's flash write, the factory copy
+# and the early latch. The test and its stubs live there because they name
+# tfw_cm_*, which lint-arch-leak allows only under the Cortex-M HAL directories.
+# boot/hal/cortex-m/ comes ahead of test/mock/ for the real boot_slots.h, and
+# test/model/cortex-m/ ahead of src/hal/cortex-m/ for the host's cm_regs.h.
+CM_BOOT_TEST_DIR := boot/hal/cortex-m/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_cortex-m
+$(BOOT_TEST_DIR)/test_boot_hal_cortex-m: $(CM_BOOT_TEST_DIR)/test_boot_hal_cortex-m.c \
+        $(CM_BOOT_TEST_DIR)/boot_hal_cortex-m_stubs.c boot/hal/cortex-m/boot_hal_cortex-m.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot/hal/cortex-m -Itest/model/cortex-m -Isrc/hal/cortex-m \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds

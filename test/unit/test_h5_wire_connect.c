@@ -39,6 +39,8 @@ static unsigned         sent_len;
 static unsigned         close_calls, abort_calls;
 static unsigned         sent_at_close;
 static unsigned         recved_total;
+static uint8_t          fail_new;               /* tcp_new: out of pcbs */
+static err_t            fail_connect, fail_write, fail_close;
 
 /* The netif (hal_eth_netif.c), faked: what the wire asks it before a dial. */
 static unsigned reconcile_calls;
@@ -57,6 +59,9 @@ int tfw_h5_eth_reconcile(const tfw_netcfg_t *cfg)
 struct tcp_pcb *tcp_new(void)
 {
     new_calls++;
+    if (fail_new) {
+        return NULL;
+    }
     memset(&conn, 0, sizeof conn);
     conn.snd_buf = 4096u;
     return &conn;
@@ -70,6 +75,9 @@ err_t tcp_connect(struct tcp_pcb *pcb, const ip_addr_t *ipaddr, u16_t port,
     connect_ip = ip4_addr_get_u32(ip_2_ip4(ipaddr));
     connect_port = port;
     connected_cb = connected;
+    if (fail_connect != ERR_OK) {
+        return fail_connect;
+    }
     dialing = 1u;
     return ERR_OK;
 }
@@ -99,6 +107,9 @@ err_t tcp_output(struct tcp_pcb *pcb) { (void)pcb; return ERR_OK; }
 err_t tcp_write(struct tcp_pcb *pcb, const void *dataptr, u16_t len, u8_t apiflags)
 {
     (void)apiflags;
+    if (fail_write != ERR_OK) {
+        return fail_write;
+    }
     memcpy(sent + sent_len, dataptr, len);
     sent_len += len;
     pcb->snd_queuelen++;                /* in flight until the test acks it */
@@ -110,7 +121,7 @@ err_t tcp_close(struct tcp_pcb *pcb)
     (void)pcb;
     close_calls++;
     sent_at_close = sent_len;
-    return ERR_OK;
+    return fail_close;
 }
 
 void tcp_abort(struct tcp_pcb *pcb) { (void)pcb; abort_calls++; }
@@ -157,6 +168,8 @@ static tfw_ms_t epoch;
 
 void setUp(void)
 {
+    fail_new = 0u;
+    fail_connect = fail_write = fail_close = ERR_OK;
     tfw_mock_reset();
     tfw_sys_reset_state();
     tfw_transport_init(&t);
@@ -380,6 +393,169 @@ static void test_a_silent_peer_is_found_dead_by_keepalive_and_redialled(void)
     connect_answers(ERR_OK);
 }
 
+/* Drop setUp's connection and wait out the backoff it begins. */
+static void drop_and_wait(void)
+{
+    tfw_h5_wire_abort();
+    abort_calls = 0u;
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+}
+
+/* hal_eth_wire_tcp.c:155-156: tcp_new out of pcbs, the next try after the wait. */
+static void test_no_pcb_from_lwip_dials_nothing_until_the_backoff(void)
+{
+    drop_and_wait();
+    fail_new = 1u;
+    tfw_h5_wire_dial_poll();
+    fail_new = 0u;
+    tfw_h5_wire_dial_poll();            /* the wait began at the first try */
+    TEST_ASSERT_EQUAL_UINT(1, new_calls);
+    TEST_ASSERT_EQUAL_UINT(0, connect_calls);
+
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    connect_answers(ERR_OK);
+    request_is_answered(11u);
+}
+
+/* hal_eth_wire_tcp.c:162-165: tcp_connect refused at once. */
+static void test_a_connect_lwip_refuses_aborts_the_pcb_and_doubles_the_wait(void)
+{
+    drop_and_wait();
+    fail_connect = ERR_MEM;
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+    TEST_ASSERT_NULL(err_cb);           /* not armed on the freed pcb */
+    fail_connect = ERR_OK;
+
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(2, connect_calls);
+    connect_answers(ERR_OK);
+    request_is_answered(12u);
+}
+
+/* hal_eth_wire_tcp.c:38-39: the wait doubles up to REDIAL_MAX_MS, no further. */
+static void test_the_redial_wait_stops_doubling_at_its_cap(void)
+{
+    static const uint32_t waits[] = { 1000u, 2000u, 4000u, 8000u, 16000u, 16000u };
+
+    TEST_ASSERT_EQUAL_UINT32(1000u, TFW_H5_WIRE_REDIAL_MS);
+    TEST_ASSERT_EQUAL_UINT32(16000u, TFW_H5_WIRE_REDIAL_MAX_MS);
+    err_cb(cb_arg, ERR_RST);
+    for (unsigned i = 0u; i < sizeof waits / sizeof waits[0]; i++) {
+        tfw_mock_advance(waits[i] - 1u);
+        tfw_h5_wire_dial_poll();
+        TEST_ASSERT_EQUAL_UINT(i, connect_calls);
+        tfw_mock_advance(1u);
+        tfw_h5_wire_dial_poll();
+        TEST_ASSERT_EQUAL_UINT(i + 1u, connect_calls);
+        connect_answers(ERR_RST);
+    }
+}
+
+/* hal_eth_wire_tcp.c:108-112: the connected callback reports an error. */
+static void test_a_connected_callback_with_an_error_aborts_and_backs_off(void)
+{
+    drop_and_wait();
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    dialing = 0u;
+    TEST_ASSERT_EQUAL(ERR_ABRT, connected_cb(cb_arg, &conn, ERR_CONN));
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+    TEST_ASSERT_NULL(err_cb);
+
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(2, connect_calls);
+    connect_answers(ERR_OK);
+}
+
+/* hal_eth_wire_tcp.c:104-105: a connected callback for a pcb not being dialled. */
+static void test_a_connected_callback_for_another_pcb_is_refused(void)
+{
+    struct tcp_pcb other;
+
+    memset(&other, 0, sizeof other);
+    TEST_ASSERT_EQUAL(ERR_VAL, connected_cb(cb_arg, &other, ERR_OK));
+    TEST_ASSERT_EQUAL_UINT(0, abort_calls);
+    request_is_answered(13u);
+}
+
+/* hal_eth_wire_tcp.c:88-90: data on a pcb that is not the connection. */
+static void test_data_on_another_pcb_is_dropped(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 14u, TFW_CMD_CAPS, 0, 0u);
+    struct tcp_pcb other;
+    struct pbuf p;
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    memset(&other, 0, sizeof other);
+    memset(&p, 0, sizeof p);
+    p.payload = wire;
+    p.len     = len;
+    p.tot_len = len;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &other, &p, ERR_OK));
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_FALSE(answered(14u));
+    TEST_ASSERT_EQUAL_UINT(0, close_calls);
+    TEST_ASSERT_EQUAL_UINT(0, recved_total);
+    request_is_answered(15u);
+}
+
+/* hal_eth_wire_tcp.c:78-85 with p == NULL, then 173-174: no connection. */
+static void test_an_error_with_no_data_closes_and_later_sends_are_dropped(void)
+{
+    static const uint8_t bytes[3] = { 1u, 2u, 3u };
+
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &conn, NULL, ERR_ABRT));
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+    TEST_ASSERT_EQUAL_UINT16(3u, tfw_h5_wire_send(bytes, 3u));
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+}
+
+/* hal_eth_wire_tcp.c:177-179: no send buffer, then a full send queue. */
+static void test_a_full_send_window_sends_nothing(void)
+{
+    static const uint8_t bytes[4] = { 1u, 2u, 3u, 4u };
+
+    conn.snd_buf = 0u;
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_h5_wire_send(bytes, 4u));
+    conn.snd_buf = 4096u;
+    conn.snd_queuelen = TCP_SND_QUEUELEN;
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_h5_wire_send(bytes, 4u));
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+}
+
+/* hal_eth_wire_tcp.c:184-186: tcp_write refuses the bytes. */
+static void test_a_write_lwip_refuses_sends_nothing(void)
+{
+    static const uint8_t bytes[4] = { 1u, 2u, 3u, 4u };
+
+    fail_write = ERR_MEM;
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_h5_wire_send(bytes, 4u));
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+}
+
+/* hal_eth_wire_tcp.c:221-222: tcp_close fails, so the pcb is aborted. */
+static void test_a_close_with_no_memory_for_the_fin_resets(void)
+{
+    fail_close = ERR_MEM;
+    tcp_input(NULL, 0u, 1u);
+    tfw_transport_poll(&t);
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -392,5 +568,15 @@ int main(void)
     RUN_TEST(test_a_redial_reconciles_the_netif_with_the_block_it_dials);
     RUN_TEST(test_no_dial_while_the_netif_is_not_ready_on_the_block);
     RUN_TEST(test_a_silent_peer_is_found_dead_by_keepalive_and_redialled);
+    RUN_TEST(test_no_pcb_from_lwip_dials_nothing_until_the_backoff);
+    RUN_TEST(test_a_connect_lwip_refuses_aborts_the_pcb_and_doubles_the_wait);
+    RUN_TEST(test_the_redial_wait_stops_doubling_at_its_cap);
+    RUN_TEST(test_a_connected_callback_with_an_error_aborts_and_backs_off);
+    RUN_TEST(test_a_connected_callback_for_another_pcb_is_refused);
+    RUN_TEST(test_data_on_another_pcb_is_dropped);
+    RUN_TEST(test_an_error_with_no_data_closes_and_later_sends_are_dropped);
+    RUN_TEST(test_a_full_send_window_sends_nothing);
+    RUN_TEST(test_a_write_lwip_refuses_sends_nothing);
+    RUN_TEST(test_a_close_with_no_memory_for_the_fin_resets);
     return UNITY_END();
 }

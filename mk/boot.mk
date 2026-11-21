@@ -1065,6 +1065,18 @@ $(BOOT_TEST_MPS2_UART_BINS): $(BOOT_TEST_DIR)/test_boot_mps2_uart-%: boot/hal/co
 	@$(HOST_CC) $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-$*,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
 	   -Iboot/hal/cortex-m/rp2350/test -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The core's half of tfw-boot's Cortex-M HAL, boot_hal_cortex-m.c, under each
+# MPS2 profile on its one-slot geometry (#628), with the SoC's half and the
+# early HAL stood in by the test. boot_jump.c, the one part that needs the
+# core, is not linked. The Cortex-M boot HAL directory comes first for its
+# boot_slots.h, as for the slots test above.
+BOOT_TEST_CM_HAL_BINS := $(BOOT_TEST_DIR)/test_boot_hal_cortex-m-an505 $(BOOT_TEST_DIR)/test_boot_hal_cortex-m-an500
+BOOT_TEST_BINS += $(BOOT_TEST_CM_HAL_BINS)
+$(BOOT_TEST_CM_HAL_BINS): $(BOOT_TEST_DIR)/test_boot_hal_cortex-m-%: boot/hal/cortex-m/test/test_boot_hal_cortex-m.c \
+        boot/hal/cortex-m/boot_hal_cortex-m.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot/hal/cortex-m $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-$*,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \

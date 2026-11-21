@@ -21,7 +21,6 @@
 #include "../../boot_hal.h"
 #include "boot_slots.h"     /* TFW_APP_WRITE_END on the A/B rows */
 #include "boot_soc.h"
-#include "cm_regs.h"
 #include "hal_early.h"   /* the latch, the reset and the watchdog: shared with the application */
 
 /* --------------------------------------------------------------- flash */
@@ -38,14 +37,18 @@ uint16_t tfw_boot_flash_page_size(void)
 
 /* The application region and nothing else, as on AVR and for its reason: an
  * OTA image one page too long must not overwrite tfw-boot, and here tfw-boot's
- * region is writable memory, so this check is the only thing that stops it. */
+ * region is writable memory, so this check is the only thing that stops it.
+ * The end is compared as the last page's start, not as addr plus a page: the
+ * last page of the address space ends at a wrapped 0, under any end. */
+_Static_assert((uint32_t)TFW_APP_WRITE_END >= (uint32_t)TFW_APP_REGION_BASE + TFW_OTA_PAGE_MAX,
+               "the application region must hold a page");
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
     if ((addr % (uint32_t)TFW_OTA_PAGE_MAX) != 0u) {
         return TFW_ERR_RANGE;
     }
     if (addr < (uint32_t)TFW_APP_REGION_BASE ||
-        addr + (uint32_t)TFW_OTA_PAGE_MAX > (uint32_t)TFW_APP_WRITE_END) {
+        addr > (uint32_t)TFW_APP_WRITE_END - (uint32_t)TFW_OTA_PAGE_MAX) {
         return TFW_ERR_PROTECTED_REGION;
     }
     return tfw_cm_boot_flash_write(addr, data, (uint32_t)TFW_OTA_PAGE_MAX);
@@ -103,25 +106,9 @@ tfw_reset_cause_t tfw_boot_reset_cause(void)
     return tfw_hal_early_reset_cause();
 }
 
-/* The application's vector table is the first thing in its region (the
- * linker script's .vectors): its stack top, then its reset handler. tfw-boot
- * enabled no interrupt and started no timer, so the UART is the only
- * peripheral to put back. The application's reset handler points VTOR at its
- * own table, as it does after a bare reset, so nothing here touches VTOR. */
-void tfw_boot_jump_application(void)
-{
-    const volatile uint32_t *vt = (const volatile uint32_t *)(uintptr_t)TFW_BOOT_APP_BASE;
-    uint32_t sp = vt[0];
-    uint32_t pc = vt[1];
-
-    tfw_cm_boot_uart_off();
-    tfw_cm_dsb();
-    tfw_cm_isb();
-    __asm__ volatile ("msr msp, %0\n\t"
-                      "bx  %1"
-                      : : "r"(sp), "r"(pc) : "memory");
-    for (;;) { }   /* unreachable */
-}
+/* tfw_boot_jump_application is boot_jump.c's: the one function here that
+ * needs the core, so the rest of this file builds and runs on the host
+ * (boot/hal/cortex-m/test/test_boot_hal_cortex-m.c). */
 
 /* A system reset request, which marks itself as the application's
  * tfw_hal_reset does (src/hal/cortex-m/hal_early.c). */

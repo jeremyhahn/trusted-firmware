@@ -815,6 +815,19 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
+# The MCXN947's early clock and WWDT0, src/hal/cortex-m/mcxn94x/hal_soc.c,
+# which both images link, the RP2350's way under the FRDM-MCXN947's profile:
+# the RP2350's test cm_regs.h comes ahead of the real one, so every SYSCON,
+# SCG and WWDT access lands in the test's register model and the interrupt
+# mask is the test's; the test stands in for soc_reset.c.
+MCXN_SOC_TEST_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/frdm-mcxn947,\
+                         $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_mcxn_hal_soc
+$(BOOT_TEST_DIR)/test_mcxn_hal_soc: src/hal/cortex-m/mcxn94x/test/test_mcxn_hal_soc.c \
+        src/hal/cortex-m/mcxn94x/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(MCXN_SOC_TEST_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m/mcxn94x \
+	  -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
 # mps2 halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make

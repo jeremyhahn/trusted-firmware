@@ -19,7 +19,7 @@
    short queued list is a lower bound for the overflow, every runs-on is
    also read under pull_request_target, and code-review.yml's new-head
    cancel step cancels only older runs on another head.
-5. ci-template v1.52, code-review-template v5.12.9 (DS-9857, DS-9862): a
+5. ci-template v1.52, code-review-template v5.12.10 (DS-9857, DS-9862, DS-9887): a
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
@@ -293,9 +293,9 @@ CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
 class CodeReviewSupersede(unittest.TestCase):
     """code-review-template v5.12.8: a new head cancels only older runs."""
 
-    def test_header_names_v5_12_9(self):
+    def test_header_names_v5_12_10(self):
         with open(CODE_REVIEW, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.9 "))
+            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.10 "))
 
     def test_supersede_cancels_only_older_runs_on_other_heads(self):
         jobs = load(CODE_REVIEW)["jobs"]

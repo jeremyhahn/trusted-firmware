@@ -73,6 +73,38 @@ class CiCryptoTiersTest(unittest.TestCase):
         self.assertIn(("stm32h573i-dk", "stm32h5"),
                       missing_builds("".join(kept)))
 
+    def _stm32h5_run_lines(self, lines):
+        hits = [i for i, l in enumerate(lines)
+                if l.lstrip().startswith("run:") and "CRYPTO=stm32h5" in l]
+        self.assertTrue(hits, "ci.yml has no stm32h5 run command")
+        return hits
+
+    def test_dropping_only_the_run_command_is_reported(self):
+        lines = self.ci.splitlines(keepends=True)
+        hits = self._stm32h5_run_lines(lines)
+        kept = [l for i, l in enumerate(lines) if i not in hits]
+        self.assertIn("CRYPTO=stm32h5", "".join(kept), "step name gone too")
+        self.assertIn(("stm32h573i-dk", "stm32h5"),
+                      missing_builds("".join(kept)))
+
+    def test_a_run_command_without_crypto_is_reported(self):
+        lines = self.ci.splitlines(keepends=True)
+        for i in self._stm32h5_run_lines(lines):
+            indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+            lines[i] = indent + "run: make firmware BOARD=stm32h573i-dk\n"
+        self.assertIn(("stm32h573i-dk", "stm32h5"),
+                      missing_builds("".join(lines)))
+
+    def test_a_comment_naming_the_build_does_not_count(self):
+        text = ("    steps:\n"
+                "      # make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5\n"
+                "      - name: make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5\n"
+                "        run: |\n"
+                "          # make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5\n"
+                "          make firmware BOARD=stm32h573i-dk CRYPTO=soft\n")
+        self.assertEqual(ci_firmware_builds(text),
+                         {("stm32h573i-dk", "soft")})
+
 
 if __name__ == "__main__":
     unittest.main()

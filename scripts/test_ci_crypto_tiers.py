@@ -137,6 +137,30 @@ class CiCryptoTiersTest(unittest.TestCase):
         self.assertEqual(ci_firmware_builds(text),
                          {("stm32h573i-dk", "soft")})
 
+    def _replace_stm32h5_runs(self, command):
+        lines = self.ci.splitlines(keepends=True)
+        for i in self._stm32h5_run_lines(lines):
+            indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+            lines[i] = indent + "run: " + command + "\n"
+        return "".join(lines)
+
+    def test_an_inline_comment_naming_the_build_is_reported(self):
+        text = self._replace_stm32h5_runs(
+            "echo skipped # make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5")
+        self.assertIn(("stm32h573i-dk", "stm32h5"), missing_builds(text))
+
+    def test_an_echoed_build_is_reported(self):
+        text = self._replace_stm32h5_runs(
+            "echo make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5")
+        self.assertIn(("stm32h573i-dk", "stm32h5"), missing_builds(text))
+
+    def test_the_wrapper_and_chained_forms_count(self):
+        for run in ('run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" '
+                    'make firmware BOARD=b CRYPTO=t\n',
+                    "run: make firmware BOARD=b CRYPTO=t && echo ok\n"):
+            with self.subTest(run=run):
+                self.assertEqual(ci_firmware_builds(run), {("b", "t")})
+
 
 if __name__ == "__main__":
     unittest.main()

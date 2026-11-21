@@ -42,6 +42,32 @@ static void test_the_image_has_no_bootloader_session(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_update_request_supported());
 }
 
+static tfw_status_t reset_with(uint8_t mode)
+{
+    uint8_t inbuf[1] = {mode};
+    uint8_t outbuf[8];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_reader_init(&r, inbuf, 1u);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    return tfw_sys_cmd_reset(&r, &w);
+}
+
+/* RESET(1) asks for a tfw-boot session this image's bootloader never opens. */
+static void test_reset_into_the_bootloader_is_unsupported_on_this_image(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, reset_with(1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_update_request_session());
+}
+
+/* The refusal is about mode 1, not RESET itself. */
+static void test_a_plain_reset_is_still_accepted(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_OK, reset_with(0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
+}
+
 static void test_an_application_relying_on_one_slot_starts(void)
 {
     starts_with_slots(TFW_APP_OTA_SINGLE);
@@ -70,6 +96,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_image_has_no_bootloader_session);
+    RUN_TEST(test_reset_into_the_bootloader_is_unsupported_on_this_image);
+    RUN_TEST(test_a_plain_reset_is_still_accepted);
     RUN_TEST(test_an_application_relying_on_one_slot_starts);
     RUN_TEST(test_an_application_relying_on_a_b_starts);
     RUN_TEST(test_an_application_relying_on_no_update_starts);

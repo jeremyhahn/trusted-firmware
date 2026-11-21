@@ -15,6 +15,9 @@
  * reset, and one that drove an RMII line would take the wire down under
  * itself.
  *
+ * The tone's LEDC timer and channel stay off the PWM table, and every PWM
+ * row is on the P4's one speed mode.
+ *
  * Runs under `make board-sweep`, against this board's own profile.
  */
 
@@ -136,6 +139,25 @@ static void test_every_pwm_row_drives_the_pin_that_names_it(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_PWM_COUNT, pwm_pins);
 }
 
+/*
+ * The tone takes the last LEDC timer and channel on the low-speed mode
+ * (src/hal/esp32/hal_tone.c), so no PWM row may name either. The P4 has
+ * four timers, eight channels and one speed mode (mode 0): the tone's are
+ * timer 3 and channel 7. Host keys: bit is the timer, wide the mode.
+ */
+static void test_no_pwm_row_names_the_tones_timer_or_channel(void)
+{
+    for (uint8_t i = 0u; i < TFW_PWM_COUNT; i++) {
+        const tfw_pwm_desc_t *row = &tfw_board_pwms[i];
+
+        TEST_ASSERT_NOT_EQUAL_UINT8(3u, row->bit);
+        TEST_ASSERT_LESS_THAN_UINT8(3u, row->bit);
+        TEST_ASSERT_NOT_EQUAL_UINT16(7u, row->ctl);
+        TEST_ASSERT_LESS_THAN_UINT16(8u, row->ctl);
+        TEST_ASSERT_EQUAL_UINT8(0u, row->wide);
+    }
+}
+
 static void test_the_page_carries_bank_and_offset(void)
 {
     uint8_t page[TFW_PIN_PAGE_LEN];
@@ -179,6 +201,7 @@ int main(void)
     RUN_TEST(test_no_two_pins_share_a_gpio);
     RUN_TEST(test_adc1_channel_n_is_gpio_16_plus_n);
     RUN_TEST(test_every_pwm_row_drives_the_pin_that_names_it);
+    RUN_TEST(test_no_pwm_row_names_the_tones_timer_or_channel);
     RUN_TEST(test_the_page_carries_bank_and_offset);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_attest_is_on_with_the_p256_deviceid);

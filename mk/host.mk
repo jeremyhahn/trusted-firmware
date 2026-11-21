@@ -156,7 +156,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
                             test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
-                            test/unit/test_mps2_bus_regs.c test/unit/test_mps2_adc.c \
+                            test/unit/test_mps2_adc.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -554,8 +554,10 @@ $(HOST_DIR)/test_mps2_soc: test/unit/test_mps2_soc.c test/model/cortex-m/mps2_so
 # The MPS2 bus registers (row cortex-m, #628): sbcon.c and pl022.c, the image's,
 # unchanged, on the register file (test/model/cortex-m/regfile_model.c), so
 # their offsets from mps2-an505's bases are checked. Include order as
-# test_mps2_soc: the board ahead of HOST_CFLAGS, then test/model/cortex-m.
-$(HOST_DIR)/test_mps2_bus_regs: test/unit/test_mps2_bus_regs.c src/hal/cortex-m/mps2/sbcon.c \
+# test_mps2_soc: the board ahead of HOST_CFLAGS, then test/model/cortex-m. The
+# suite lives in src/hal/cortex-m/mps2/test/: it pokes the register file by
+# address, which lint-arch-leak allows only under the Cortex-M HAL.
+$(HOST_DIR)/test_mps2_bus_regs: src/hal/cortex-m/mps2/test/test_mps2_bus_regs.c src/hal/cortex-m/mps2/sbcon.c \
                                 src/hal/cortex-m/mps2/pl022.c test/model/cortex-m/regfile_model.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_CM_MODEL_REGFILE \

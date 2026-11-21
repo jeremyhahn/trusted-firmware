@@ -147,8 +147,8 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x32 | `PULSE_COUNT_READ` | `TFW_FEATURE_PULSE` (defined, no table entry) | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x33 | `PULSE_COUNT_STOP` | `TFW_FEATURE_PULSE` (defined, no table entry) | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x34 | `PULSE_CAPTURE` | `TFW_FEATURE_PULSE` | `[pin:1][start_high:1][max_edges:1][timeout_us:4]` | `[count:1][interval_us:2]*count` |
-| 0x40 | `EEPROM_READ` | `TFW_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]`; any byte below `EEPROMReservedEnd` (0xC0) additionally requires an authenticated session on a tier that enforces one (`TFW_FEATURE_AUTH_SESSION`) — `TFW_ERR_AUTH_REQUIRED` otherwise, unconditional on other tiers |
-| 0x41 | `EEPROM_WRITE` | `TFW_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0xC0) is `TFW_ERR_PROTECTED_REGION`, unconditionally on every tier |
+| 0x40 | `EEPROM_READ` | `TFW_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]`; any byte below `EEPROMReservedEnd` (0x140, `TFW_BOOT_EE_LEN`) additionally requires an authenticated session on a tier that enforces one (`TFW_FEATURE_AUTH_SESSION`) — `TFW_ERR_AUTH_REQUIRED` otherwise, unconditional on other tiers |
+| 0x41 | `EEPROM_WRITE` | `TFW_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0x140, `TFW_BOOT_EE_LEN`) is `TFW_ERR_PROTECTED_REGION`, unconditionally on every tier |
 | 0x50 | `I2C_XFER` | `TFW_FEATURE_I2C` | `[addr7:1][read_len:1]bytes[write...]` | `bytes[read_len]`; `addr7 == 0x60` (`TFW_I2C_RESERVED_ADDR`) or the board profile's element address (`0x36` on the Nano and Mega), or `0x30` on a build that links the OPTIGA Trust M transport, is `TFW_ERR_PROTECTED_REGION` |
 | 0x51 | `SPI_XFER` | `TFW_FEATURE_SPI` | `[cs:1]bytes[write...]` | `bytes[len(write)]`, full duplex, CS held throughout |
 | 0x52 | `ONEWIRE_RESET` | `TFW_FEATURE_ONEWIRE` | `[pin:1]` | `[presence:1]` |
@@ -161,10 +161,14 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x62 | `AUTH_RESPONSE` | `TFW_FEATURE_AUTH_SESSION` (element tier only) | `[sig:64]` — P-256 over `domain\|\|device_serial\|\|nonce` under the operator public key | none; grants a session lasting until reset |
 | 0x63 | `ATTEST_CERT` | `TFW_FEATURE_ALIAS_CERT` | `[nonce:32]` (mint) or `[page:1]` | `[page:1][total:2 LE][bytes:0..60]` — DER cert, 488-490 bytes total, paged |
 | 0x64 | `ATTEST_CSR` | `TFW_FEATURE_ATTEST_CSR` (ATmega2560 element tier only) | `[b:32]` | `[sig:64]` r‖s — the DeviceID key's P-256 signature over the 365-byte CertificationRequestInfo the device builds and the host rebuilds; nothing paged, nothing kept. Any other length is `TFW_ERR_BAD_ARGC` |
-| 0x68 | `OTA_BEGIN` | **tfw-boot only** | `[total_len:4]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
-| 0x69 | `OTA_DATA` | **tfw-boot only** | `[offset:4]bytes[1..]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
-| 0x6A | `OTA_END` | **tfw-boot only** | `[]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
-| 0x6B | `OTA_STATUS` | **tfw-boot only** | `[]` | `[state:1][received:4]`; in the application: `TFW_ERR_UNKNOWN_CMD` |
+| 0x68 | `OTA_BEGIN` | tfw-boot; the application with `TFW_FEATURE_OTA_STAGE` | `[total_len:4]` | none; the stager erases the store's `MARK` and opens a session into its `STAGE` area ([ota/api.md](../ota/api.md#wire)) |
+| 0x69 | `OTA_DATA` | tfw-boot; the application with `TFW_FEATURE_OTA_STAGE` | `[offset:4]bytes[1..]`, 5 to `MaxPayload` bytes in all | none; `offset` must be the received count |
+| 0x6A | `OTA_END` | tfw-boot; the application with `TFW_FEATURE_OTA_STAGE` | `[]` | none; the stager checks the trailer and the image's SHA-256, not the signature or the floor (tfw-boot does, at the next reset) |
+| 0x6B | `OTA_STATUS` | tfw-boot; the application with `TFW_FEATURE_OTA_STAGE` | `[]` | `[state:1][received:4]`, state 0 idle, 1 receiving, 2 complete, 3 failed |
+| 0x6C | `OTA_INFO` | `TFW_FEATURE_OTA_INFO` (follows `TFW_FEATURE_OTA_CTL`); serial only | `[slot:1]`, 0 running or 1 staged | `[slots:1][active:1][flags:1][floor:4][state:1][image_version:4][measurement:32]`, 44 bytes; `slot` above 1 is `TFW_ERR_RANGE`. The ESP32 answers `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM` itself, over ESP-IDF's trial (`src/hal/esp32/hal_ota.c`) ([ota/api.md](../ota/api.md#activate-confirm-and-info)) |
+| 0x6D | `OTA_ACTIVATE` | `TFW_FEATURE_OTA_ACTIVATE` (every stager); serial only | `[mode:1]`, 0 at the next reset, 1 reset now | none; re-verifies the staged image and writes `MARK`, after an `OTA_AUTH`. `mode` above 1 is `TFW_ERR_RANGE` |
+| 0x6E | `OTA_CONFIRM` | `TFW_FEATURE_OTA_CTL` (an image whose tfw-boot runs the trial); serial only | `[]` | none; writes the confirm request for the running image with the held `OTA_AUTH` signature, which tfw-boot verifies at the next reset. No held signature is `TFW_ERR_AUTH_REQUIRED`; no trial running is `TFW_ERR_BAD_STATE` |
+| 0x6F | `OTA_AUTH` | `TFW_FEATURE_OTA_ACTIVATE`; serial only | `[sig:64]`; the table admits 0 to 64 bytes | none; holds the signature for the next `OTA_ACTIVATE` or `OTA_CONFIRM`. Any length but 64 drops a held signature and is `TFW_ERR_BAD_ARGC` ([ota/api.md](../ota/api.md#authorization-by-the-row-key-137-design-code-in-slice-2)) |
 | 0x70 | `PROV_INFO` | `TFW_FEATURE_PROVISION` (jig only) | `[]` | `[revision:4][config_block0:32][lock_value:1][lock_config:1]`, 38 bytes |
 | 0x71 | `PROV_WRITE_CONFIG` | `TFW_FEATURE_PROVISION` (jig only) | `[block:1]bytes[32]` | none; blocks 0-1 refused as `TFW_ERR_PROTECTED_REGION` |
 | 0x72 | `PROV_LOCK` | `TFW_FEATURE_PROVISION` (jig only) | `[zone:1][crc:2]` | none; irreversible, and the CRC over the zone's expected contents is required nonzero |

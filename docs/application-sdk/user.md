@@ -1,6 +1,6 @@
 # Application SDK — user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 For someone writing a `trusted-firmware-<application>` repository. The
@@ -146,6 +146,10 @@ if (tfw_app_config_read(0u, cfg, sizeof cfg) != TFW_OK || cfg[0] != 1u) {
     /* erased (0xFF) or an old layout: use defaults */
 }
 ```
+
+Both calls take an offset into your region, `[0, config_len)`, and return
+`TFW_ERR_RANGE` outside it. The application writes the region with
+`tfw_app_config_write(off, buf, len)`: in `run`, one byte per call, as above.
 
 A host writes the same bytes with the Go SDK's `Device.EEPROMWrite`
 (`sdk/go/commands.go`) at address `0x140 + offset`; the device refuses a write

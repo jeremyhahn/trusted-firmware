@@ -11,6 +11,7 @@
 void             tfw_framer_init(tfw_framer_t *f);
 void             tfw_framer_abort(tfw_framer_t *f);
 tfw_frame_event_t tfw_framer_push(tfw_framer_t *f, uint8_t byte);
+uint8_t          tfw_framer_in_frame(const tfw_framer_t *f);
 
 uint8_t        tfw_frame_seq(const tfw_framer_t *f);
 uint8_t        tfw_frame_op(const tfw_framer_t *f);
@@ -36,6 +37,7 @@ TFW_FRAME_BAD_FORMAT`. The accessors are valid only immediately after
 ```c
 uint16_t tfw_crc16_update(uint16_t crc, uint8_t byte);
 uint16_t tfw_crc16(const uint8_t *buf, uint16_t len);
+uint16_t tfw_crc16_from(uint16_t crc, const uint8_t *buf, uint16_t len);
 
 void    tfw_transport_init(tfw_transport_t *t);
 void    tfw_transport_poll(tfw_transport_t *t);
@@ -62,8 +64,17 @@ uint8_t tfw_writer_ok(const tfw_writer_t *w);
 
 typedef tfw_status_t (*tfw_cmd_handler_t)(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w);
+void        tfw_dispatch_refused(uint8_t cmd);
+uint8_t     tfw_dispatch_last(void);
+uint8_t     tfw_dispatch_last_ok(void);
 uint8_t     tfw_dispatch_knows(uint8_t cmd);
 ```
+
+`tfw_dispatch_last` and `tfw_dispatch_last_ok` record the last command
+finished, known or not, and whether it finished `TFW_OK`; a request the
+transport refuses without dispatching it is recorded through
+`tfw_dispatch_refused`, so OTA_AUTH's signature counts only for the command
+right after it (#137).
 
 ### Go — `sdk/go` (package `tfw`)
 

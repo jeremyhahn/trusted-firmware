@@ -19,6 +19,10 @@
    short queued list is a lower bound for the overflow, every runs-on is
    also read under pull_request_target, and code-review.yml's new-head
    cancel step cancels only older runs on another head.
+5. ci-template v1.52, code-review-template v5.12.9 (DS-9857, DS-9862): a
+   fork's pull request, under pull_request as under pull_request_target,
+   never reaches a self-hosted runner, so preflight's runs-on names the
+   fork clause before the variable.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -181,8 +185,13 @@ class ReleaseGuardBranches(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
-PRE_RO = (OPEN + " github.server_url == 'https://github.com' && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
+PRE_RO = (OPEN + " github.server_url == 'https://github.com' && (!startsWith(github.event_name, 'pull_request')"
+          " || github.event.pull_request.head.repo.full_name == github.repository)"
+          " && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
+# v1.51's runs-on: no fork clause, so a fork's pull request took the Dells.
+PRE_RO_V151 = (OPEN + " github.server_url == 'https://github.com' && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
+               " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
 
 
 class PreflightRunsOn(unittest.TestCase):
@@ -191,6 +200,13 @@ class PreflightRunsOn(unittest.TestCase):
     def test_preflight_bigdisk_or_fallback_passes(self):
         r = run_policy(job(PRE_RO, name="preflight"), "ci.yml")
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_v1_51_preflight_fails_for_a_fork(self):
+        # v1.52: without the fork clause a fork's head under pull_request
+        # reaches the bigdisk pool, and the check names it.
+        r = run_policy(job(PRE_RO_V151, name="preflight"), "ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("pull_request: a fork never reaches a self-hosted runner", r.stdout)
 
     def test_other_job_reading_the_variable_reads_an_unknown(self):
         r = run_policy(job(PRE_RO, name="lint"), "ci.yml")
@@ -222,9 +238,9 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_51(self):
+    def test_header_names_v1_52(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.51 (customized)\n")
+            self.assertEqual(f.readline(), "# ci-template: v1.52 (customized)\n")
 
 
 def step_run(path, name):
@@ -277,9 +293,9 @@ CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
 class CodeReviewSupersede(unittest.TestCase):
     """code-review-template v5.12.8: a new head cancels only older runs."""
 
-    def test_header_names_v5_12_8(self):
+    def test_header_names_v5_12_9(self):
         with open(CODE_REVIEW, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.8 "))
+            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.9 "))
 
     def test_supersede_cancels_only_older_runs_on_other_heads(self):
         jobs = load(CODE_REVIEW)["jobs"]

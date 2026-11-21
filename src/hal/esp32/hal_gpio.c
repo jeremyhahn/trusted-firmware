@@ -61,6 +61,9 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
+    if (!gpio_pin_valid((gpio_num_t)p->gpio)) {
+        return TFW_ERR_BAD_PIN;
+    }
     *out = (uint8_t)(gpio_get_level((gpio_num_t)p->gpio) ? 1u : 0u);
     return TFW_OK;
 }

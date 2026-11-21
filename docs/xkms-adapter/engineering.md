@@ -1,6 +1,6 @@
 # AVR Device Backend — Engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-10-20
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
@@ -363,18 +363,26 @@ root; a test is `file: name`.
    which claim carries the Detached Submodule Digest (RFC 9711 `submods`),
    its hash algorithm, and which bytes of the record it digests (the 10-byte
    `HSM_RECORD_READ` replies in index order, or the store's own image). Two
-   choices are this project's and the owner's once that lands: whether the
-   digest rides in the alias certificate's claims set (built at boot, so it
-   would bind the record as it stood then) or in a per-request evidence
-   (`ATTEST_CSR` over the Verifier nonce, so it binds the record at the
-   request); and whether the 151-byte template, pinned by
-   `testdata/uccs_vectors.h` and parsed at fixed offsets, may grow. Touches
+   choices are this project's and the owner's once that lands. The alias
+   certificate is not built at boot: each `ATTEST_CERT` mints and signs its
+   UCCS claims set over that request's Verifier nonce (`mint()`,
+   `src/caps/alias.c`), so a digest in that claims set would bind the record
+   as it stood at that request. `ATTEST_CSR` signs a possession request over
+   the same nonce with the measurement that mint kept
+   (`tfw_alias_measurement_for`, `src/caps/alias.c`, read by
+   `src/caps/csr.c`), so a digest there would be the one snapshotted at the
+   preceding `ATTEST_CERT` unless the CSR takes its own. The first choice is
+   when the digest is taken: at the `ATTEST_CERT` mint and kept for the CSR
+   as the measurement is, or taken again at the `ATTEST_CSR`. The second is
+   whether the 151-byte template, pinned by `testdata/uccs_vectors.h` and
+   parsed at fixed offsets, may grow. Touches
    `docs/xkms-adapter/architecture.md` only; proved by the ruling being
    quoted there.
 2. **Firmware: the digest claim.** After slice 1: the claims set takes the
    digest of the A6 record (`src/caps/uccs.c`, `src/caps/uccs.h`,
-   `src/caps/csr.c` or `src/caps/alias.c` per slice 1, a digest helper beside
-   `src/core/hsm_record.c`), new pinned vectors in
+   `src/caps/alias.c`'s `mint()` taking the digest per `ATTEST_CERT`, and
+   `src/caps/csr.c` too if slice 1 has the CSR take its own, a digest
+   helper beside `src/core/hsm_record.c`), new pinned vectors in
    `testdata/uccs_vectors.h` and their Go mirror in `sdk/go/`; proved by new
    cases in `test/unit/test_uccs.c` and `test/unit/test_uccs_mutate.c` (an
    empty record, one entry, a full record with its dropped count, and a

@@ -45,6 +45,26 @@ class LintNoDelayTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn("src/core/plant.c:1: delay-call", r.stdout)
 
+    def test_delay_call_split_before_paren_fails(self):
+        self.write("src/core/plant.c", "void f(void) {\n  delay\n(10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:2: delay-call", r.stdout)
+
+    def test_delay_call_split_after_paren_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  delay (\n10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_comment_and_bus_timing_pass(self):
+        self.write("src/core/prose.c",
+                   "// a poll, never delay()\n"
+                   " * nor delay\n"
+                   "void g(void) { _delay_us\n(5); }\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_missing_root_fails(self):
         r = lint(os.path.join(self.root, "no-such-dir"))
         self.assertNotEqual(r.returncode, 0, r.stdout)

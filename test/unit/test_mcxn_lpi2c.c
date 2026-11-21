@@ -320,6 +320,35 @@ static void test_a_rate_out_of_reach_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
 }
 
+/* The 5 % bound itself, on a rate the search does find a setting for. From
+ * 12 MHz at prescale 0 the nearest period is 4 + 1 + 1 + 1 + 2 = 9 clocks
+ * (CLKLO + 1, CLKHI + 1, the latency): 12e6 / 9 = 1333333 Hz. Asked for
+ * 1403508 Hz that misses by 70175 Hz, hz / 20 exactly, and is accepted;
+ * 1403509 Hz misses by 70176 > 70175 and is refused with *out left alone.
+ * Nothing else refuses 1403509 Hz: every other check passes on that setting.
+ * (1263158 Hz would not do: its best setting, prescale 1, has CLKHI 0 and
+ * the field check refuses it whatever the bound.) */
+static void test_the_five_percent_bound_is_inclusive(void)
+{
+    tfw_mcxn_lpi2c_timing_t t;
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_mcxn_lpi2c_timing(12000000u, 1403508u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0x01030104u, t.mccr0);
+    TEST_ASSERT_EQUAL_UINT32(4u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_CLKLO_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(1u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_CLKHI_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(3u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_SETHOLD_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(1u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_DATAVD_SHIFT));
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 1403509u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+}
+
 /* ---- init */
 
 static void test_init_routes_clocks_pins_and_the_unit(void)
@@ -591,6 +620,7 @@ int main(void)
     RUN_TEST(test_1m_from_fro12m);
     RUN_TEST(test_a_slow_rate_takes_a_prescale);
     RUN_TEST(test_a_rate_out_of_reach_is_refused);
+    RUN_TEST(test_the_five_percent_bound_is_inclusive);
     RUN_TEST(test_init_routes_clocks_pins_and_the_unit);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_time);
     RUN_TEST(test_a_write_is_start_bytes_and_stop);

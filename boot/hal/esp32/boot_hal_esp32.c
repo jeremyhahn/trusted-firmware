@@ -202,7 +202,8 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
  * software reset is named, but the ROM cannot tell a requested restart from a
  * panic -- both end in a software reset -- so it reports TFW_RESET_SOFTWARE and
  * the application refines it from ESP-IDF's own record (#48). Deep-sleep wakes
- * have no wire value and read as unknown. */
+ * have no wire value and read as unknown. Timer group 1 is ESP-IDF's interrupt
+ * watchdog, whose last stage resets the system. */
 tfw_reset_cause_t tfw_boot_reset_cause(void)
 {
     switch (esp_rom_get_reset_reason(0)) {
@@ -220,6 +221,7 @@ tfw_reset_cause_t tfw_boot_reset_cause(void)
 #else
     case RESET_REASON_CPU0_SW:       return TFW_RESET_SOFTWARE;
     case RESET_REASON_CORE_MWDT0:
+    case RESET_REASON_CORE_MWDT1:
     case RESET_REASON_CORE_RTC_WDT:
     case RESET_REASON_CPU0_MWDT0:
     case RESET_REASON_CPU0_RTC_WDT:

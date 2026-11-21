@@ -16,10 +16,11 @@
  * ELEMENT TIER ONLY. The obvious software-tier primitive, ed25519-donna, does
  * not fit this device family -- see docs/security/threat-model.md and
  * changelog.d/ for the measurement. auth_session.c (this contract's real
- * implementation) links only on CRYPTO=atecc608a; auth_session_none.c links
- * everywhere else and answers every gate check permissively, which is why
- * tfw_auth_gate() below is safe to call unconditionally from storage.c
- * without a single #if in either.
+ * implementation) links on CRYPTO=atecc608a and auto, on optiga, and on an
+ * architecture tier whose board turns AUTH_SESSION on (mk/firmware.mk
+ * AUTH_SRCS); auth_session_none.c links everywhere else and answers every
+ * gate check permissively, which is why tfw_auth_gate() below is safe to
+ * call unconditionally from storage.c without a single #if in either.
  */
 #ifndef TFW_CORE_AUTH_SESSION_H
 #define TFW_CORE_AUTH_SESSION_H
@@ -27,8 +28,9 @@
 #include "tfw/status.h"
 #include "dispatch.h"
 
-/* Clears any session state. Called once at startup and nowhere else in this
- * build -- RESET restarts the whole part, which re-runs this the same way. */
+/* Clears any session state. Called once at startup (main.c) and, on the
+ * ESP32, again from hal_uart.c's drop_peer() whenever the TCP peer changes.
+ * RESET restarts the whole part, which re-runs this the same way. */
 void tfw_auth_session_init(void);
 
 /* TFW_OK if a command gated on the session may proceed, TFW_ERR_AUTH_REQUIRED
@@ -38,7 +40,7 @@ void tfw_auth_session_init(void);
 tfw_status_t tfw_auth_gate(void);
 
 /* AUTH_CHALLENGE and AUTH_RESPONSE, wired into commands.def only when
- * TFW_FEATURE_AUTH_SESSION is on (mk/avr.mk, CRYPTO=atecc608a). */
+ * TFW_FEATURE_AUTH_SESSION is on (mk/firmware.mk's AUTH_DEFS). */
 tfw_status_t tfw_auth_cmd_challenge(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_auth_cmd_response(tfw_reader_t *r, tfw_writer_t *w);
 

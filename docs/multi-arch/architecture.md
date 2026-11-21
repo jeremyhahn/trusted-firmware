@@ -68,7 +68,9 @@ The board id is one byte (`TFW_BOARD_ID` in `boards/*/board_profile.h`). Ranges:
 Current ids: `0x01` ATmega328P, `0x02` ATmega2560, `0x03` ATmega32U4, `0x04` ATtiny85,
 `0x40` Arm AN505 (Cortex-M33) as QEMU's `mps2-an505` models it, `0x41` NXP i.MX 95
 Cortex-M7 on the FRDM-IMX95-PRO (provisional: [`imx95-design.md`](imx95-design.md)
-question 20), `0x80` ESP32-P4 PoE board, `0x81` Espressif QEMU.
+question 20), `0x42` Arm AN500 (`mps2-an500`), `0x43` STM32H573I-DK, `0x44` RP2350
+Pico 2 W, `0x45` nRF54L15-DK, `0x46` FRDM-MCXN947, `0x47` NUCLEO-H563ZI, `0x80`
+ESP32-P4 PoE board, `0x81` Espressif QEMU.
 Ids extend; they never renumber. The registry is [`../boards/board-id-registry.md`](../boards/board-id-registry.md).
 
 ## 6. Roots of trust per architecture
@@ -109,6 +111,6 @@ Each choice is an ADR before any code.
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
 | Cortex-M33 | Arm AN505 on QEMU `mps2-an505` (`boards/mps2-an505`, id `0x40`) | soft | in progress ([#161](../../../../issues/161)): tfw-boot verifies a P-256 signature in software and boots the firmware; CI runs `make integration-test-cortex-m` |
 | Cortex-M7 | NXP i.MX 95 M7 on the FRDM-IMX95-PRO (`boards/frdm-imx95-m7`, provisional id `0x41`) | soft root; the EdgeLock enclave tier is not started | in progress ([#49](../../../../issues/49)): built in CI, not run; [`imx95-design.md`](imx95-design.md) (Row status) |
-| Cortex-M33 | STM32H573I-DK; nRF54L15-DK | ADR [#14](../../../../issues/14), accepted | planned ([#22](../../../../issues/22); onboarding ADRs [#126](../../../../issues/126), [#129](../../../../issues/129)); the STM32H5 port waits for [#79](../../../../issues/79) |
-| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:13`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
+| Cortex-M33 | STM32H573I-DK; nRF54L15-DK | ADR [#14](../../../../issues/14), accepted | in progress ([#22](../../../../issues/22); onboarding ADRs [#126](../../../../issues/126), [#129](../../../../issues/129)): `boards/stm32h573i-dk/profile.mk`, `boards/nrf54l15-dk/profile.mk`, `boot/hal/cortex-m/stm32h5/boot_flash.c`, `boot/hal/cortex-m/nrf54l/boot_rram.c`, `src/crypto/stm32h5/` |
+| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:16`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
 | Other | | | planned ([#17](../../../../issues/17)) |

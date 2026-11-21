@@ -218,6 +218,7 @@ void test_a_wrong_argument_count_or_verb_is_the_usage_and_writes_nothing(void)
  * refuses version 0 too, so the message is what tells the two apart. */
 #define CLI_VERSION_BOUND "image_version must be 1..4294967295"
 #define CLI_FLAGS_BOUND   "image_flags must be 0..255"
+#define CLI_SEAL_UNSUPPORTED "image flag trailer v1 does not define"
 
 void test_a_version_or_flags_out_of_bounds_is_refused_and_writes_no_span(void)
 {
@@ -247,13 +248,19 @@ void test_the_version_and_flags_bounds_themselves_are_spanned(void)
 }
 
 /* 255 is in the command line's bound; seal.c refuses a flag trailer v1 does
- * not define, so what tbs returns is seal.c's verdict, not a cast's. */
+ * not define, so what tbs returns is seal.c's verdict, not a cast's. Both
+ * refusals return 1 and write no span, so the message is what tells them
+ * apart: never the bound's, and seal.c's where seal.c refuses. */
 void test_flags_255_pass_the_bound_and_reach_seal_c(void)
 {
     uint8_t      tbs[TFW_BOOT_TR_SIGNED_LEN];
     tfw_status_t st = tfw_seal_tbs(cli_image, CLI_IMAGE_LEN, 1u, 0xFFu, tbs);
 
     TEST_ASSERT_EQUAL_INT(st == TFW_OK ? 0 : 1, cli_tbs("1", "255"));
+    TEST_ASSERT_FALSE(cli_said(CLI_FLAGS_BOUND));
+    if (st == TFW_ERR_UNSUPPORTED) {
+        TEST_ASSERT_TRUE(cli_said(CLI_SEAL_UNSUPPORTED));
+    }
     TEST_ASSERT_EQUAL_INT32(st == TFW_OK ? (long)TFW_BOOT_TR_SIGNED_LEN : -1L, cli_size(p_tbs));
 }
 

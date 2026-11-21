@@ -36,7 +36,7 @@ functions, Go `Test` functions or Python methods in the files named.
 
 | # | Requirement | Status | Code | Test |
 |---|---|---|---|---|
-| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM does not reach tfw-boot (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
+| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM's request reaches tfw-boot's platform block since #500, host-tested only (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
 | R2 | The core's boot stage on the board (tfw-boot, row `rp2350-pico2w:soft:soft:p256-soft:0:0`) | **partial**: built and size-checked in CI, host-tested; never run on the board | `mk/boot.mk` (`BOOT_SUPPORTED`); `boot/hal/cortex-m/rp2350/rp_flash_rom.c`, `rp_flash.c`, `boot_uart.c` | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` `test_a_sector_is_erased_and_programmed_in_the_roms_order`; `test/unit/boot/test_boot_rp2350_map.c` `test_the_platform_block_is_the_last_sector`; `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` `test_init_releases_uart0_and_sets_115200_8n1` |
 | R3 | DICE evidence on the part's OTP | **not started**: tfw-boot's row is the soft tier, holding the soft DeviceID seed; no OTP is read, and the UDS page, layer 0 and the lock are the owner's (ADR open questions 1-3) | `boot/boot_cdi.h` (the generic CDI the board would feed); no RP2350 OTP code | none for the RP2350; the generic derivation is `test/unit/boot/test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_device_seed` |
 | R4 | Secure boot | **not started** for the boot ROM's own secure boot (the key fingerprint in OTP); tfw-boot verifies the application's P-256 signature in software (R2), and the IMAGE_DEF block is unsigned by design | `src/hal/cortex-m/rp2350/soc_calc.h` (IMAGE_DEF), `mk/arch/cortex-m/rp2350.ld` | `test/unit/test_rp2350_soc.c` `test_image_def_is_the_minimal_secure_arm_exe_block` (pins the unsigned block) |
@@ -46,7 +46,9 @@ functions, Go `Test` functions or Python methods in the files named.
 
 ### Remaining slices
 
-1. **OTA_CONFIRM to tfw-boot** (no hardware): route the confirm request at
+1. **OTA_CONFIRM to tfw-boot** (no hardware): **done** by #500, proven by
+   `test/unit/test_rp2350_eeprom.c`
+   `test_the_confirm_request_is_programmed_into_the_platform_sector`. It was to route the confirm request at
    `TFW_BOOT_CONFIRM_ADDR` through the flash helper in
    `src/hal/cortex-m/rp2350/hal_eeprom.c` so it lands in the platform block,
    proven by a new test in `test/unit/test_rp2350_eeprom.c` that reads the
@@ -258,10 +260,13 @@ count, carrying the part of a millisecond to the next write, so
 `tfw_hal_millis` (scheduled GPIO holds, execution time) stays right across a
 write. `tfw_cm_soc_early` starts TIMER0's 1 µs tick and takes it out of reset.
 
-OTA_CONFIRM. The confirm request is stored as the generic Cortex-M file stores
-it, into the XIP window, which on this part writes nothing to flash. Until a
-slice routes it through the flash helper, OTA_CONFIRM's request does not reach
-tfw-boot on this board, and a trial image is not confirmed by it.
+OTA_CONFIRM. Since #500 the confirm request (`TFW_BOOT_CONFIRM_ADDR`,
+`TFW_BOOT_CONFIRM_LEN`) is a read-modify-write of the platform block's first
+sector through the same flash helper, so it reaches tfw-boot on this board;
+any other write into the platform window is refused. Host-tested
+(`test/unit/test_rp2350_eeprom.c`
+`test_the_confirm_request_is_programmed_into_the_platform_sector`), not run on
+the board.
 
 Not validated on the board: no bench run has erased, written or read back the
 user sector, or timed a write, on a Pico 2 W.

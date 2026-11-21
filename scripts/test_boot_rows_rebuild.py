@@ -63,8 +63,11 @@ class BootRowsRebuild(unittest.TestCase):
 
     def test_an_unchanged_matrix_rebuilds_nothing(self):
         self.build_rows()
-        rc, out = make("-q", self.target, self.build_arg)
-        self.assertEqual(rc, 0, "a second make would rebuild the binary: " + out)
+        stamp = os.path.join(os.path.dirname(self.binary), "boot-supported.txt")
+        before = (os.stat(self.binary).st_mtime_ns, os.stat(stamp).st_mtime_ns)
+        self.build_rows()
+        after = (os.stat(self.binary).st_mtime_ns, os.stat(stamp).st_mtime_ns)
+        self.assertEqual(before, after, "a second make rewrote the stamp or the binary")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
 # Every SoC fact below is marked TO CONFIRM against IMX95RM until a lane has
 # read it; none is a section number we have seen.
 #
-# Board id 0x41 is PROVISIONAL, as mps2-an505's 0x40 is: the next id of the
+# Board id 0x41 is PROVISIONAL: the next id of the
 # Cortex-M range, recorded in docs/boards/board-id-registry.md and
 # sdk/go/boardid.go until the owner allocates it (docs/multi-arch/imx95-design.md
 # question 20).
@@ -71,10 +71,6 @@ RAM_END        := 0x2003FFFF
 # ITCM 0, which is tfw-boot's region.
 FWHASH_BASE    := $(APP_BASE)
 FWHASH_SIZE    := $(FLASH_BUDGET)
-
-# The core clock, TFW_CM_CPU_HZ in board_profile.h, TO CONFIRM there against the
-# System Manager configuration. The build does not read it (the clock is the
-# header's); the provenance manifest's f_cpu_hz does.
 
 # tfw-boot's geometry, reserved for its port; mk/arch/cortex-m.mk computes the
 # load limit from it.

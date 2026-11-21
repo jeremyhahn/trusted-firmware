@@ -900,6 +900,19 @@ $(BOOT_TEST_DIR)/test_boot_recovery_halt_avr_mutate: test/unit/boot/test_boot_re
         boot/hal/avr/recovery_halt.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/avr_regs $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# boot/hal/cortex-m/recovery_halt.c alone (#628), with the framer it sends its
+# EVENT through, under the MPS2 AN505's profile. The suite defines the boot
+# UART and the host model's mask, so the endless loop is left by longjmp; it
+# names tfw_cm_*'s model hooks, so it lives under boot/hal/cortex-m/test/.
+# test/model/cortex-m/ goes ahead of src/hal/cortex-m/ for the host cm_regs.h.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_cm_recovery_halt
+$(BOOT_TEST_DIR)/test_boot_cm_recovery_halt: boot/hal/cortex-m/test/test_boot_cm_recovery_halt.c \
+        boot/hal/cortex-m/recovery_halt.c src/proto/frame.c src/proto/crc16.c src/proto/crc16_update.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot -Itest/model/cortex-m -Itest/model -Isrc/hal/cortex-m -Isrc/proto \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # boot_hal_avr.c alone (#163): the part's FLASHEND, SPM_PAGESIZE and, on the
 # 2560, EIND come from -D, as avr-libc brings them from the part's header. The
 # EEPROM address is a 16-bit pointer on the part, narrower than the host's.

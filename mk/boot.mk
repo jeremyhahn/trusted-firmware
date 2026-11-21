@@ -220,11 +220,16 @@ BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(B
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
+# Cortex-M's jump to the application, apart from boot_hal_cortex-m.c because
+# its msr and bx are the one Arm instruction there, and the host compiles that
+# file (#628). mk/arch/cortex-m.mk's ARCH_BOOT_SRCS does not name it.
+BOOT_JUMP_SRCS := $(if $(filter cortex-m,$(ARCH)),$(BOOT_HAL_DIR)/boot_jump.c)
+
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
-  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) $(BOOT_JUMP_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
@@ -897,6 +902,21 @@ $(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560: test/unit/boot/test_boot_hal_avr
         boot/hal/avr/boot_hal_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x3FFFFul -DSPM_PAGESIZE=256 \
 	   '-DEIND=(*tfw_avr_reg(TFW_AVR_EIND))' $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_hal_cortex-m.c alone (#628), under the MPS2 AN505's profile, over
+# boot/hal/cortex-m/test/'s stubs for the SoC's flash write, the factory copy
+# and the early latch. The test and its stubs live there because they name
+# tfw_cm_*, which lint-arch-leak allows only under the Cortex-M HAL directories.
+# boot/hal/cortex-m/ comes ahead of test/mock/ for the real boot_slots.h, and
+# test/model/cortex-m/ ahead of src/hal/cortex-m/ for the host's cm_regs.h.
+CM_BOOT_TEST_DIR := boot/hal/cortex-m/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_cortex-m
+$(BOOT_TEST_DIR)/test_boot_hal_cortex-m: $(CM_BOOT_TEST_DIR)/test_boot_hal_cortex-m.c \
+        $(CM_BOOT_TEST_DIR)/boot_hal_cortex-m_stubs.c boot/hal/cortex-m/boot_hal_cortex-m.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot/hal/cortex-m -Itest/model/cortex-m -Isrc/hal/cortex-m \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds

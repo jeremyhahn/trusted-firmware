@@ -125,6 +125,12 @@ it takes in the swap journal at `0x0E0`-`0x0E9`) is refused
 needs an authenticated session on a build that has one
 (`TFW_ERR_AUTH_REQUIRED` otherwise).
 
+A read with `len` 0 returns `TFW_OK` and an empty `data`; `addr` is still
+checked (`TFW_ERR_RANGE` at or past `TFW_EEPROM_SIZE`), and an `addr` below
+`TFW_EEPROM_RESERVED_END` still passes `tfw_auth_gate`. A write with no `data`
+(a 2-byte payload) is below the 3-byte minimum and is refused at dispatch with
+`TFW_ERR_BAD_ARGC`.
+
 > Corrected 2026-10-16: this said `addr` below `0x080` was refused on write and
 > permitted on read. The bound is `TFW_EEPROM_RESERVED_END` = `TFW_BOOT_EE_LEN`
 > (`src/caps/storage.c`, `boot_owned`), checked over the whole span.

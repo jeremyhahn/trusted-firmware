@@ -51,7 +51,7 @@ starts only once the ESP32-P4 has proven the composed vendor-boot model (#79).
 |---|---|
 | 1. Reference part | decided against the two bench boards, the STM32H573I-DK and the nRF54L15-DK. This revision also made the Cortex-M33 the reference part, which the ruling does not say; corrected 2026-10-20 (see above) |
 | 2. Layout | the QEMU board is `mps2-an505` (`CPU := cortex-m33`), not `mps2-an500` |
-| 3. CI emulation | `mps2-an505` is the CI target now, not "the M33 later". `mps2-an500` is no longer in CI; it is kept only as an option for the M7 (question 8) |
+| 3. CI emulation | `mps2-an505` is the CI target now, not "the M33 later". `mps2-an500` was kept only as an option for the M7 (question 8); as built, it runs in CI beside `mps2-an505` (`mk/arch/cortex-m-targets.mk` `CM_QEMU_BOARDS`) |
 | 4. HAL table | the QEMU column is `mps2-an505`; the M7 column is unchanged |
 | 5. QEMU placement | the map is on `mps2-an505`'s SSRAM, not `mps2-an500`'s PSRAM |
 | 7. Budgets | the QEMU board carries the smallest board's figures; the M7 TCM size is now known for the family |
@@ -109,8 +109,8 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
 - **A board with no tfw-boot has a precedent.** The ATtiny85's `profile.mk`
   defines no `BOOT_SECTION` and no `RAM_END`, so it has neither a bootloader nor
   a handoff.
-- **Board ids are one byte.** The Cortex-M range is `0x40`–`0x7F`, and no id in
-  it is allocated yet. Ids are allocated in the registry and in
+- **Board ids are one byte.** The Cortex-M range is `0x40`–`0x7F`; as built,
+  `0x40`–`0x47` are allocated, as `sdk/go/boardid.go` lists them. Ids are allocated in the registry and in
   `sdk/go/boardid.go` in the same change. They never renumber.
 - **The integration tier runs the real image.** It runs under simavr
   (`mk/integration.mk`), and every harness has a hard cycle bound.
@@ -236,8 +236,8 @@ boards/frdm-imx95-m7/        profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC
 ```
 
 - `profile.mk` gains `CPU` and `SOC` beside `ARCH`.
-- `mk/arch/cortex-m.mk` adds `src/hal/cortex-m/$(SOC)/*.c` to the HAL object
-  list. Selection is by make, and the C has no `#if`.
+- `mk/firmware.mk` adds `src/hal/cortex-m/$(SOC)/*.c` to the HAL object
+  list (`HAL_SOC_DIR`, from `SOC`). Selection is by make, and the C has no `#if`.
 - Every other board reuses `src/hal/cortex-m/` unchanged. It adds its SoC
   directory and sets its `CPU`: `cortex-m33` for the two bench boards,
   `cortex-m7` for the i.MX 95.
@@ -348,27 +348,36 @@ Kit's; their addresses are read in the implementing change.
 | Real interrupt latency under load | the bench |
 
 The two FPGAIO LEDs give the board a few real output pins, so the GPIO wire
-path has something to write to; reads come back from the LEDs' own state. The SoC capability files for ADC, PWM, tone,
-pulse, one-wire and EEPROM are left out of the object list for `mps2-an505`, so
-those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
+path has something to write to; reads come back from the LEDs' own state. As built, for `mps2-an505`: the ADC file
+(`src/hal/cortex-m/mps2/hal_adc.c`) is linked with no channel
+(`TFW_ADC_COUNT 0`), so every read is out of range; PWM (`hal_pwm.c`, software
+PWM on the CMSDK dual timer) and tone (`hal_tone.c`) are built in the `PWM=1`
+and `TONE=1` rows, both off by default (`boards/mps2-an505/profile.mk`); pulse
+is the core `src/hal/cortex-m/hal_pulse.c`, built in the `PULSE=1` row; and
+one-wire is `tfw_hal_ow_reset`, `_write` and `_read` in `mps2/hal_bus.c`,
+built in the `ONEWIRE=1` row. EEPROM is left out of the object list. They do
+not pretend.
 
 **How it runs in `make ci` without a skip guard:**
 
 - **Packages.** `docker/packages.txt` gains `gcc-arm-none-eabi`,
   `binutils-arm-none-eabi`, `libnewlib-arm-none-eabi` and `qemu-system-arm`.
   Their versions are recorded in `/etc/ci-toolchain.txt` the way avr-gcc's are.
-- **The target.** A new `integration-test-cortex-m` target lives in its own
-  `mk/integration-cortex-m.mk`, and `ci:` lists it after
-  `integration-test-boot`.
-  - It builds `BOARD=mps2-an505`.
-  - It runs a harness in `test/integration/qemu/`.
+- **The target.** As built, `integration-test-cortex-m` is in
+  `mk/arch/cortex-m-targets.mk`; `make ci` does not list it, and CI runs it in
+  the toolchain image (`.github/workflows/ci.yml`).
+  - It builds `BOARD=mps2-an505`, and as built `mps2-an500` after it.
+  - It runs a harness in `test/integration/cortex-m/` (`qemu_test.sh`).
   - The harness speaks the same frames and makes the same assertions as the
     simavr harness, through the same `src/proto/crc16.c`.
 - **The QEMU command.**
-  `qemu-system-arm -M mps2-an505 -nographic -icount shift=0,sleep=off -kernel <elf>`.
+  As built, `qemu-system-arm -M <machine> -display none -monitor none
+  -serial unix:<sock>,server=on,wait=off`, with a `-device loader` each for
+  `boot.bin`, the application and `platform.bin`, and no `-kernel`.
   UART0 goes to a Unix-socket chardev that the harness owns.
-  - `-icount` makes virtual time a function of instructions retired, so a run
-    is deterministic.
+  - As planned; not built: `-icount` would make virtual time a function of
+    instructions retired, so a run is deterministic. The harness passes no
+    `-icount`.
   - The harness enforces a hard bound on wall-clock time and on virtual time.
     Exceeding either is a failure, as the cycle bound is for simavr.
 - **No skip.** If `qemu-system-arm` or `arm-none-eabi-gcc` is not on `PATH`,
@@ -380,7 +389,11 @@ those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
 
 **`mps2-an500`, kept for the M7 only.** QEMU `mps2-an500` (`hw/arm/mps2.c` at
 v10.0.0; Arm AN500, DAI 0500) is the only Cortex-M7 machine in QEMU 10.0. It
-was this decision's CI target until 2026-10-18. It is no longer in CI. Whether a
+was this decision's CI target until 2026-10-18. As built, it runs in CI again:
+`integration-test-cortex-m` runs both boards (`CM_QEMU_BOARDS` in
+`mk/arch/cortex-m-targets.mk`), `mps2-an500` with `CPU := cortex-m7`
+(`boards/mps2-an500/profile.mk`), so the build question 8 asks about now
+exists. Whether a
 second CI board builds and runs the image with `CPU := cortex-m7`, so that the
 M7's flags are proven before the i.MX 95 port, is question 8. `mps2-an521` is
 the dual-core AN505 (AN521, DAI 0521) and adds nothing a single-core port needs.
@@ -399,16 +412,16 @@ the dual-core AN505 (AN521, DAI 0521) and adds nothing a single-core port needs.
 | `tfw_hal_delay_us` | core | busy-poll of SysTick `VAL` (no DWT: QEMU does not model `CYCCNT`) | the same |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | CMSDK UART0, interrupt-driven RX | the LPUART the SM assigns to the M7 (question 7) |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | FPGAIO LEDs (out; a read returns the LED state) | RGPIO; pin mux from the SM |
-| `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | not linked | SAR ADC, if the SM assigns it |
-| `tfw_hal_pwm_write`, `_stop` | SoC | not linked | TPM |
-| `tfw_hal_tone_start`, `_stop` | SoC | not linked | TPM |
-| `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | SoC | not linked | TPM input capture |
+| `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | `hal_adc.c`, linked with no channel (`TFW_ADC_COUNT 0`): every read is out of range | SAR ADC, if the SM assigns it |
+| `tfw_hal_pwm_write`, `_stop` | SoC | `hal_pwm.c`, software PWM on the CMSDK dual timer, in the `PWM=1` row | TPM |
+| `tfw_hal_tone_start`, `_stop` | SoC | `hal_tone.c`, CMSDK TIMER0 toggling an FPGAIO LED, in the `TONE=1` row | TPM |
+| `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | core | `hal_pulse.c`: the GPIO polled, time counted on SysTick, in the `PULSE=1` row | TPM input capture |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | not linked; `TFW_EEPROM_SIZE 0` |
 | `tfw_hal_nvm_read` | SoC | the platform block in SSRAM-0 (decision 5) | question 7 |
 | `tfw_hal_handoff_block` | core | the linker-placed `.handoff` at `RAM_END - 111` | none: no tfw-boot, so no handoff (as the ATtiny85) |
 | `tfw_hal_i2c_init`, `_xfer` | SoC | SBCon bit-bang | LPI2C |
 | `tfw_hal_spi_init`, `_xfer` | SoC | PL022 | LPSPI |
-| `tfw_hal_ow_reset`, `_write`, `_read` | SoC | not linked | RGPIO and `tfw_hal_delay_us` |
+| `tfw_hal_ow_reset`, `_write`, `_read` | SoC | `hal_bus.c`, in the `ONEWIRE=1` row | RGPIO and `tfw_hal_delay_us` |
 | `tfw_hal_free_ram` | core | the stack pointer less the end of `.bss`, from linker symbols | the same |
 
 "Not linked" means the capability's `.c` file is left out of the object list for

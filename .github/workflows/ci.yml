@@ -383,7 +383,7 @@
 # v1.29.1 (Company Agent ruling 226(15), 108 repair, 2026-10-27): the
 # lint-gates job runs `make lint-gates` without `-k`, so the first failing gate
 # ends the step and reports at once; the gates after it run on the next push.
-# v1.29.0 (Company Agent ruling 220(5) and 221(4), 2026-10-27; handbook #474):
+# v1.29.0 (ruling 220(5) and 221(4), 2026-10-27; handbook #474):
 # the Alpine package index checksum joins the integration image's tag hash,
 # through a "Read the Alpine package index" step (scripts/apk-index-sum.sh)
 # before "Name the integration image". NOT ADOPTED HERE (CUSTOMIZE): this
@@ -2481,7 +2481,7 @@ jobs:
       # v1.42 (ruling 742 (1)): `make deps-check` left this job. It asks
       # upstream for the latest releases, so its answer changes with no change
       # to the tree; scans.yml runs it on main. Ruling 742 (1) supersedes the
-      # dept-software #981 rule that made it block a PR changing xkms/go.mod
+      # Software Department's #981 rule that made it block a PR changing xkms/go.mod
       # or xkms/go.sum: xkms-security (the Security job) checks that module's
       # consistency offline on every PR instead.
 
@@ -3189,8 +3189,8 @@ jobs:
         run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
 
       # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
-      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
-      # github/runner, the pool's env and mounts). A stack lives there under
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (the Infra Department's
+      # runner configuration, the pool's env and mounts). A stack lives there under
       # optee/<release>, renamed into place whole, so the directory existing
       # means it is complete. A hit never touches the Actions cache, which
       # sits in Azure blob storage behind the office's internet line; a miss
@@ -3342,8 +3342,8 @@ jobs:
       # cold here. A miss means optee-stack did not save the key; the step
       # fails at once and its message names the key.
       # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
-      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
-      # github/runner, the pool's env and mounts). A stack lives there under
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (the Infra Department's
+      # runner configuration, the pool's env and mounts). A stack lives there under
       # optee/<release>, renamed into place whole, so the directory existing
       # means it is complete. A hit never touches the Actions cache, which
       # sits in Azure blob storage behind the office's internet line; a miss

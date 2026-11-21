@@ -24,20 +24,21 @@ const (
 	CmdOTAStatus Cmd = 0x6B // - -> [state:1][received:4]
 )
 
-// The rest of ADR decision 8 (#77), answered by an image whose tfw-boot runs
-// the trial and which stages into the store; any other image answers
-// StatusErrUnknownCmd. Serial only: none of the three is on the Ethernet
-// allow-list.
+// The rest of ADR decision 8 (#77). OTA_ACTIVATE and OTA_AUTH are answered
+// by every image that stages into the store; OTA_INFO and OTA_CONFIRM only by
+// one whose tfw-boot runs the trial. An image without them answers
+// StatusErrUnknownCmd. Serial only: the Ethernet allow-list is 0x68-0x6B, so
+// none of the four is on it.
 const (
 	CmdOTAInfo     Cmd = 0x6C // [slot:1] -> 44 bytes, see SlotInfo
 	CmdOTAActivate Cmd = 0x6D // [mode:1] -> -
 	CmdOTAConfirm  Cmd = 0x6E
 	// CmdOTAAuth holds the row key's ES256 authorization (r||s) for the
 	// next OTA_ACTIVATE or OTA_CONFIRM (#137).
-	CmdOTAAuth Cmd = 0x6F
+	CmdOTAAuth Cmd = 0x6F // [sig:64] -> -
 
 	// OTAAuthSigLen is OTA_AUTH's payload, the ES256 r||s (#137).
-	OTAAuthSigLen = 64 // - -> -
+	OTAAuthSigLen = 64
 )
 
 // OTAInfoLen is OTA_INFO's reply length.

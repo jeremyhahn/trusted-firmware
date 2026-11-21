@@ -15,6 +15,10 @@
    where exactly [self-hosted, linux, x64, bigdisk] passes too, and set to
    the fallback `"ubuntu-latest"`, where it must give a standard image; the
    schedule guard's AGENT_TOKEN is passed off github.com only.
+4. ci-template v1.50 and v1.51, code-review-template v5.12.8 (DS-9792): a
+   short queued list is a lower bound for the overflow, every runs-on is
+   also read under pull_request_target, and code-review.yml's new-head
+   cancel step cancels only older runs on another head.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -218,9 +222,74 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_49(self):
+    def test_header_names_v1_51(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# ci-template: v1.49 "))
+            self.assertEqual(f.readline(), "# ci-template: v1.51 (customized)\n")
+
+
+def step_run(path, name):
+    found = [s for job in load(path)["jobs"].values() for s in job.get("steps", [])
+             if s.get("name") == name]
+    if len(found) != 1:
+        raise AssertionError("%s has %d steps named %r" % (path, len(found), name))
+    return found[0]["run"]
+
+
+class OverflowShortList(unittest.TestCase):
+    """ci-template v1.50: a list short of its total_count is a lower bound."""
+
+    def run_text(self):
+        return step_run(CI, "Hosted or overflow runner (ruling 1024)")
+
+    def test_short_list_is_kept_not_fatal(self):
+        run = self.run_text()
+        self.assertNotIn('WHY="$1: $got of $total entries"; return 1', run)
+        self.assertIn('[ "$got" -ge "$total" ] || SHORT="${SHORT:+$SHORT; }$1: $got of $total entries"', run)
+        self.assertIn('SHORT=""', run)
+
+    def test_short_list_still_overflows_and_otherwise_warns(self):
+        run = self.run_text()
+        elif_short = run.index('elif [ -n "$SHORT" ]; then')
+        self.assertLess(run.index('elif [ "$queued" -gt 0 ]; then'), elif_short)
+        self.assertLess(elif_short, run.index('emit "$HOSTED" "$HOSTED"'))
+        self.assertIn('[ -z "$SHORT" ] || why="$why (a lower bound: $SHORT)"', run)
+
+
+class PullRequestTarget(unittest.TestCase):
+    """ci-template v1.51: every runs-on is also read under pull_request_target."""
+
+    def test_self_hosted_only_under_pull_request_target_is_found(self):
+        ro = OPEN + " github.event_name == 'pull_request_target' && 'bigdisk' || 'ubuntu-latest' }}"
+        wf = job(ro).replace("on:\n  push:\n  pull_request:\n", "on:\n  pull_request_target:\n")
+        r = run_policy(wf)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("pull_request_target", r.stdout)
+
+    def test_hosted_under_pull_request_target_passes(self):
+        wf = job("ubuntu-latest").replace("on:\n  push:\n  pull_request:\n", "on:\n  pull_request_target:\n")
+        r = run_policy(wf)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+
+CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
+
+
+class CodeReviewSupersede(unittest.TestCase):
+    """code-review-template v5.12.8: a new head cancels only older runs."""
+
+    def test_header_names_v5_12_8(self):
+        with open(CODE_REVIEW, encoding="utf-8") as f:
+            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.8 "))
+
+    def test_supersede_cancels_only_older_runs_on_other_heads(self):
+        jobs = load(CODE_REVIEW)["jobs"]
+        self.assertIn("supersede", jobs)
+        run = step_run(CODE_REVIEW, "Cancel this PR's runs on an older head")
+        self.assertIn('--argjson me "$GITHUB_RUN_ID"', run)
+        self.assertIn("select($t.n == $pr and $t.h != $sha and .head_sha != $sha and .id < $me)", run)
+        self.assertIn('[ "$live" = "$EVENT_SHA" ]', run)
+        self.assertIn('api POST "/actions/runs/$id/cancel"', run)
+        self.assertEqual(jobs["supersede"]["permissions"], {"actions": "write", "pull-requests": "read"})
 
 
 class NightlyMisconfigAfterGate(unittest.TestCase):

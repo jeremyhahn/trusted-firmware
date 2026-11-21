@@ -2326,6 +2326,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks
@@ -3474,6 +3479,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       # A source check on the runner's shell: no make recipe runs here.
@@ -3588,6 +3598,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks
@@ -3744,6 +3759,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks

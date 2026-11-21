@@ -80,22 +80,45 @@ tfw_status_t tfw_mcxn_uart_start(volatile uint32_t *fc, uint32_t clk_hz, uint32_
     return start_rc;
 }
 
+static uint32_t getc_calls;
+static uint32_t putc_calls;
+static uint8_t putc_byte;
+static uint32_t stop_calls;
+static uintptr_t stop_fc;
+
 uint8_t tfw_mcxn_uart_getc(volatile uint32_t *fc, uint8_t *out)
 {
     (void)fc;
-    (void)out;
-    return 0u;
+    getc_calls++;
+    *out = 0x3Cu;
+    return 1u;
 }
 
 void tfw_mcxn_uart_putc(volatile uint32_t *fc, uint8_t byte)
 {
     (void)fc;
-    (void)byte;
+    putc_calls++;
+    putc_byte = byte;
 }
 
 void tfw_mcxn_uart_stop(volatile uint32_t *fc)
 {
-    (void)fc;
+    stop_calls++;
+    stop_fc = (uintptr_t)fc;
+}
+
+/* Whether the code under test has read or written addr: the model holds only
+ * an address something has touched. */
+static uint8_t touched(uint32_t addr)
+{
+    uint32_t i;
+
+    for (i = 0u; i < model_used; i++) {
+        if (model_addr[i] == addr) {
+            return 1u;
+        }
+    }
+    return 0u;
 }
 
 void setUp(void)
@@ -109,6 +132,11 @@ void setUp(void)
     start_clk1 = 0u;
     start_rst1 = 0u;
     start_clksel = 0u;
+    getc_calls = 0u;
+    putc_calls = 0u;
+    putc_byte = 0u;
+    stop_calls = 0u;
+    stop_fc = 0u;
 }
 
 void tearDown(void)
@@ -136,9 +164,66 @@ static void test_init_clocks_and_releases_fc4_before_it_starts(void)
     TEST_ASSERT_EQUAL_HEX32(2u, start_clksel);
 }
 
+static void test_a_failed_start_muxes_no_pin_and_keeps_rx_and_tx_off(void)
+{
+    uint8_t b = 0u;
+
+    start_rc = TFW_ERR_RANGE;
+    tfw_boot_uart_init(1u);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, start_calls);
+    TEST_ASSERT_FALSE(touched(PORT1_PCR8));
+    TEST_ASSERT_FALSE(touched(PORT1_PCR9));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0u, b);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, getc_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, putc_calls);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(0u, stop_calls);
+    TEST_ASSERT_FALSE(touched(PORT1_PCR8));
+}
+
+static void test_a_good_init_muxes_both_pins_rx_with_its_input_buffer(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+
+    TEST_ASSERT_EQUAL_HEX32((2u << 8) | (1u << 12), reg(PORT1_PCR8)); /* MUX 2, IBE */
+    TEST_ASSERT_EQUAL_HEX32(2u << 8, reg(PORT1_PCR9));                /* MUX 2 */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(1u, putc_calls);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, putc_byte);
+}
+
+static void test_off_stops_the_uart_and_returns_the_pins(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    tfw_cm_boot_uart_off();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, stop_calls);
+    TEST_ASSERT_EQUAL_HEX32(FC4_BASE, (uint32_t)stop_fc);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(PORT1_PCR8));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(PORT1_PCR9));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, getc_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, putc_calls);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(1u, stop_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_clocks_and_releases_fc4_before_it_starts);
+    RUN_TEST(test_a_failed_start_muxes_no_pin_and_keeps_rx_and_tx_off);
+    RUN_TEST(test_a_good_init_muxes_both_pins_rx_with_its_input_buffer);
+    RUN_TEST(test_off_stops_the_uart_and_returns_the_pins);
     return UNITY_END();
 }

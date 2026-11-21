@@ -2008,10 +2008,23 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 # test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
 # verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
 # bootloader-check builds, as a string; host-test runs it as boot-test does.
+#
+# The string is compiled in, so the binary depends on BOOT_SUPPORTED's value
+# through a stamp holding it (#640). The stamp is rewritten on every run, as
+# mk/platform-bake.mk's block is, and replaced only when its bytes differ: an
+# edited or overridden matrix rebuilds the binary, an unchanged one rebuilds
+# nothing (`make -q` still answers not up to date, the stamp being forced).
+# BOOT_SUPPORTED is set in mk/boot.mk, read after this file, so it is compared
+# in the recipe and never at parse time.
+BOOT_ROWS_STAMP := $(HOST_DIR)/boot/boot-supported.txt
+$(BOOT_ROWS_STAMP): FORCE | $(HOST_DIR)/boot
+	@printf '%s\n' '$(strip $(BOOT_SUPPORTED))' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
-                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+                                      $(HOST_DIR)/unity.o $(BOOT_ROWS_STAMP) | $(HOST_DIR)/boot
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
 # The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,

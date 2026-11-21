@@ -191,7 +191,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_eth_socket_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c test/unit/test_hsm_record.c test/unit/test_hsm_record_fail.c \
-                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_app_ota.c test/unit/test_esp_prov_uds_mutate.c \
+                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_wire_auth.c test/unit/test_esp_app_ota.c test/unit/test_esp_prov_uds_mutate.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
@@ -1447,6 +1447,26 @@ $(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_ESP_LIB_SRCS) \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same wire with the operator session the P4 links (#607): auth_session.c
+# in place of auth_session_none.c, against the esp32p4-poe board (profile and
+# board.c), since HOST_BOARD's profile pins TFW_FEATURE_AUTH_SESSION off. The
+# soft provider refuses a nonce and an operator verify, so its two are renamed
+# out of the way and the test stands in for them. The link line names its
+# sources (see HOST_ESP_OTA_SRCS above).
+HOST_ESP_AUTH_CFLAGS = $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32p4-poe ,$(HOST_CFLAGS)) \
+                       $(HOST_APP_DEFS) $(EXTRA_CFLAGS) $(HOST_ESP_OTA_DEFS) \
+                       -DTFW_FEATURE_AUTH_SESSION=1 -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0
+$(HOST_DIR)/wire_auth_soft_provider.o: src/crypto/soft/provider.c | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_ESP_AUTH_CFLAGS) -Dtfw_crypto_random=tfw_soft_random_refused -Dtfw_crypto_verify_operator=tfw_soft_verify_operator_refused -c -o $@ $<
+HOST_ESP_WIRE_AUTH_SRCS = test/unit/test_esp_wire_auth.c \
+                          $(subst boards/$(HOST_BOARD)/board.c,boards/esp32p4-poe/board.c,$(filter-out src/core/auth_session_none.c src/crypto/soft/provider.c,$(HOST_ESP_LIB_SRCS))) \
+                          src/core/auth_session.c src/hal/esp32/hal_uart.c src/hal/esp32/hal_ota.c \
+                          src/core/ota_auth.c boot/boot_image.c \
+                          test/mock/lwip_mock.c test/mock/esp_ota_mock.c \
+                          $(HOST_DIR)/wire_auth_soft_provider.o $(HOST_DIR)/unity.o
+$(HOST_DIR)/test_esp_wire_auth: $(HOST_ESP_WIRE_AUTH_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_ESP_AUTH_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 -o $@ $(HOST_ESP_WIRE_AUTH_SRCS) $(EXTRA_LDFLAGS)
+
 # The SHA-256 mutation suite against sha256_small.c (#163); the generic rule
 # builds the same file against sha256.c as test_sha256_mutate.
 $(HOST_DIR)/test_sha256_small_mutate: test/unit/test_sha256_mutate.c src/crypto/sha256_small.c src/core/secure_zero.c \
@@ -1472,6 +1492,17 @@ $(HOST_DIR)/test_esp_crypto_hmac_p256: test/unit/test_esp_crypto_hmac_p256.c \
                                        src/proto/crc16.c src/proto/crc16_update.c \
                                        $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+# The P4's operator session (row #606): auth_session.c over that provider, the
+# operator key bound to the faked UDS (docs/multi-arch/esp32-p4-design.md 2.5).
+$(HOST_DIR)/test_esp_opsess: test/unit/test_esp_opsess.c src/core/auth_session.c \
+                             src/core/platform_id.c src/core/reader.c src/core/writer.c \
+                             src/hal/esp32/crypto_hmac_p256.c src/crypto/deviceid_p256.c \
+                             src/crypto/sha256.c src/core/handoff.c src/core/handoff_seed_none.c \
+                             src/core/secure_zero.c boot/boot_handoff.c boot/boot_platform.c \
+                             src/proto/crc16.c src/proto/crc16_update.c \
+                             $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_opsess
 
 # The P4's C6 hold (#48, row esp32-p4): src/hal/esp32/hal_board.c over the
 # suite's gpio driver (test/mock/esp32/driver/gpio.h). boards/esp32p4-poe goes
@@ -1609,7 +1640,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/boot/test_boot_rp2350_flash \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
                     $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
-                    $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire $(HOST_DIR)/test_esp_app_ota
+                    $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire $(HOST_DIR)/test_esp_wire_auth $(HOST_DIR)/test_esp_app_ota
 HOST_EXTRA_BINS += $(HOST_DIR)/test_main
 $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
@@ -1635,7 +1666,7 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_eeprom_mutate
 # The byte link alone, over a socket layer in the test itself (#163).
 $(HOST_DIR)/test_esp_uart_mutate: test/unit/test_esp_uart_mutate.c src/hal/esp32/hal_uart.c \
                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/hal/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/hal/esp32 -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_uart_mutate
 
 # The system block over stand-in ESP-IDF calls (#163), once per arm of its one

@@ -431,12 +431,20 @@ else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
 # architecture's own key hardware -- the ESP32's HMAC peripheral, say.
 # mk/arch/$(ARCH).mk names the tier and its sources, which live in the HAL
 # directory and are listed in ARCH_HAL_OPTIONAL so no other tier links them.
-# No alias certificate and no auth session: both are the element tier's.
+# No alias certificate. The auth session only where the board turns it on
+# (BOARD_FEATURES_ON += AUTH_SESSION): the ESP32-P4, whose hmac-p256 provider
+# verifies the operator key bound to its eFuse UDS (row #606,
+# docs/multi-arch/esp32-p4-design.md 2.5). The QEMU C3 keeps the open gate.
 CRYPTO_SRCS := $(ARCH_CRYPTO_SRCS_$(CRYPTO))
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
+ifneq ($(filter AUTH_SESSION,$(BOARD_FEATURES_ON)),)
+AUTH_SRCS   := src/core/auth_session.c
+AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
+else
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
+endif
 else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft, atecc608a, auto or optiga$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif

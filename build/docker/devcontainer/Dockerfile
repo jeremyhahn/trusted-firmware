@@ -119,7 +119,9 @@ WORKDIR /src
 # here, loudly. The template's RUN, over the three modules rather than a root
 # one: there is no go.mod at the root. test/integration/esp32's `replace
 # ../../../sdk/go` lands on the sdk/go/go.mod copied beside it. Requires
-# BuildKit.
+# BuildKit. Each download retries as the tools stage's do: one proxy stream
+# reset (x/text, main 329216b7, run 44795756466) failed the whole image. go.sum
+# still verifies, in the RUN after.
 COPY sdk/go/go.mod sdk/go/go.sum ./sdk/go/
 COPY test/integration/esp32/go.mod test/integration/esp32/go.sum ./test/integration/esp32/
 COPY xkms/go.mod xkms/go.sum ./xkms/
@@ -131,7 +133,8 @@ RUN --mount=type=secret,id=gomodauth \
     else \
       echo "==> go mod download: no module credentials mounted; github.com/jeremyhahn/* resolves from the public proxy only"; \
     fi; \
-    for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && go mod download); done
+    retry() { n=1; until "$@"; do [ "$n" -ge 3 ] && return 1; echo "retry $n: $*" >&2; n=$((n+1)); sleep $((n*5)); done; }; \
+    for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && retry go mod download); done
 RUN for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && go mod verify) || exit 1; done
 
 # ---------------------------------------------------------------------------

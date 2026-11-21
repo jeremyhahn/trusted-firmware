@@ -442,6 +442,44 @@ answered in 2.3. Provisioning is follow-up 4.
    and for the one thing it can be held to without knowing the UDS: the next
    normal boot's DeviceID is the point `PROV_GENKEY` returned.
 
+### 2.5 The operator session, bound to the eFuse UDS (row #606)
+
+Owner decision 11-20 (queue 248 (d), ruling 1024 (b)): "the ESP32-P4 operator
+session binds to a key in the P4 eFuse key storage used through the ECDSA or
+HMAC peripheral, never readable by software."
+
+The session is issue #4's (`src/core/auth_session.c`). It holds no secret of
+its own: AUTH_RESPONSE carries an ES256 signature over `"tfw-auth-v1" ||
+serial || nonce`, checked by `tfw_crypto_verify_operator` against the operator
+public key in the platform block (offset 68). On the ATECC608A the element
+checks it; on the P4 the trust anchor is that public key in flash, which a
+flash rewrite could replace. So what the eFuse binds is the key:
+
+- **Binding tag** `HMAC-SHA256(UDS, "tfw-opsess-v1" || operator_pubkey)`,
+  computed by the HMAC peripheral on the `HMAC_UP` key block layer 0 and the
+  DeviceID (2.1) already use. The label separates it from `"tfw-deviceid-v1"`.
+  No new key block and no burn.
+- **Where it lives**: the platform block's reserved span, offset 132, 32
+  bytes, under the block's CRC (`TFW_BOOT_EE_O_OPERATOR_BIND`). Every other
+  tier leaves it zero and never reads it.
+- **The check**: the hmac-p256 provider's `tfw_crypto_verify_operator`
+  recomputes the tag for the key it is handed, compares it with the stored
+  one in constant time, and only then verifies the signature with micro-ecc.
+  An unbound or rewritten key is `TFW_ERR_CRYPTO` before any curve
+  arithmetic. The computed tag is on the stack for that one call and zeroed.
+- **Never readable**: the key block is read-disabled by `esp_efuse_write_key`
+  for the `HMAC_UP` purpose; the only call that names it is
+  `esp_hmac_calculate`. No file in `src/hal/esp32` reads an eFuse key block
+  (`esp_efuse_read_block` and `esp_efuse_read_field_blob` appear nowhere).
+- **The gap** is the one 2.1 and the ADR state: a signed application on the
+  part can ask the peripheral for the tag of any key. Secure boot keeps that
+  application ours.
+- **Which images**: the P4 board opts in (`BOARD_FEATURES_ON += AUTH_SESSION`
+  in `boards/esp32p4-poe/profile.mk`). The QEMU C3 board keeps the open gate:
+  its OTA rows run without an operator key.
+- **Provisioning** the tag is the row's next slice: the provisioning image
+  asks the peripheral for it and `tfwprov --bake` writes it at offset 132.
+
 ## 3. Slices
 
 Each is one lane (≤300 turns). Each slice's gate is `make esp32-qemu-test`

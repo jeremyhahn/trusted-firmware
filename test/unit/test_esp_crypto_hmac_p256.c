@@ -19,6 +19,8 @@
 #include "esp_efuse.h"
 #include "esp_hmac.h"
 #include "esp_random.h"
+#include "bootloader_random.h"
+#include "esp_private/adc_share_hw_ctrl.h"
 #include "tfw/crypto.h"
 #include "tfw/protocol.h"
 #include "tfw/boot.h"
@@ -85,8 +87,61 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message,
     return ESP_OK;
 }
 
+/* The entropy source around tfw_crypto_random's draw (#607), one letter per
+ * call in order: A lock acquire, E entropy on, F draw, D entropy off,
+ * R lock release. */
+static char      rng_trace[16];
+static unsigned  rng_steps;
+static esp_err_t rng_lock_err;
+static int       rng_entropy_on;
+static int       rng_drawn_with_entropy;
+static adc_unit_t rng_lock_unit = ADC_UNIT_2, rng_release_unit = ADC_UNIT_2;
+
+static void rng_step(char c)
+{
+    if (rng_steps + 1u < sizeof rng_trace) { rng_trace[rng_steps++] = c; }
+}
+
+static void rng_reset(void)
+{
+    memset(rng_trace, 0, sizeof rng_trace);
+    rng_steps              = 0u;
+    rng_lock_err           = ESP_OK;
+    rng_entropy_on         = 0;
+    rng_drawn_with_entropy = 0;
+    rng_lock_unit = rng_release_unit = ADC_UNIT_2;
+}
+
+esp_err_t adc_lock_try_acquire(adc_unit_t adc_unit)
+{
+    rng_step('A');
+    rng_lock_unit = adc_unit;
+    return rng_lock_err;
+}
+
+esp_err_t adc_lock_release(adc_unit_t adc_unit)
+{
+    rng_step('R');
+    rng_release_unit = adc_unit;
+    return ESP_OK;
+}
+
+void bootloader_random_enable(void)
+{
+    rng_step('E');
+    rng_entropy_on = 1;
+}
+
+void bootloader_random_disable(void)
+{
+    rng_step('D');
+    rng_entropy_on = 0;
+}
+
 void esp_fill_random(void *buf, size_t len)
 {
+    rng_step('F');
+    rng_drawn_with_entropy = rng_entropy_on;
     memset(buf, 0xA5, len);
 }
 
@@ -97,6 +152,14 @@ void mock_esp_log(char level, const char *tag, const char *fmt, ...)
 }
 
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
+
+/* No platform block: test_esp_opsess owns operator_bind (row #606). */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    (void)addr;
+    memset(buf, 0, len);
+    return TFW_OK;
+}
 
 /* ---- helpers --------------------------------------------------------------- */
 
@@ -267,6 +330,38 @@ static void test_a_second_init_forgets_the_first_boots_identity(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_crypto_algorithms());
 }
 
+/* #607: ESP-IDF v5.5.5 turns the noise source off before the application and
+ * this board runs no radio, so the operator nonce is drawn with the source on,
+ * under the ADC lock it shares, as tfw_prov_uds_random does. */
+static void test_random_is_drawn_with_the_entropy_source_on(void)
+{
+    uint8_t out[16];
+
+    rng_reset();
+    memset(out, 0, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_random(out, (uint8_t)sizeof out));
+    TEST_ASSERT_EQUAL_STRING("AEFDR", rng_trace);
+    TEST_ASSERT_TRUE(rng_drawn_with_entropy);
+    TEST_ASSERT_FALSE(rng_entropy_on);
+    TEST_ASSERT_EQUAL(ADC_UNIT_1, rng_lock_unit);
+    TEST_ASSERT_EQUAL(ADC_UNIT_1, rng_release_unit);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, out, sizeof out);
+}
+
+/* The ADC held elsewhere: busy, nothing drawn, the buffer untouched. */
+static void test_random_with_the_adc_held_is_busy_and_draws_nothing(void)
+{
+    uint8_t out[16];
+
+    rng_reset();
+    rng_lock_err = ESP_FAIL;
+    memset(out, 0x11, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_crypto_random(out, (uint8_t)sizeof out));
+    TEST_ASSERT_EQUAL_STRING("A", rng_trace);
+    TEST_ASSERT_FALSE(rng_entropy_on);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x11u, out, sizeof out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -279,5 +374,7 @@ int main(void)
     RUN_TEST(test_a_peripheral_that_refuses_at_init_leaves_no_deviceid);
     RUN_TEST(test_a_peripheral_that_refuses_at_sign_is_a_crypto_error);
     RUN_TEST(test_a_second_init_forgets_the_first_boots_identity);
+    RUN_TEST(test_random_is_drawn_with_the_entropy_source_on);
+    RUN_TEST(test_random_with_the_adc_held_is_busy_and_draws_nothing);
     return UNITY_END();
 }

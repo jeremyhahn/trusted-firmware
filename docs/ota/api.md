@@ -35,7 +35,7 @@ Status codes (`include/tfw/status.h`) the stager returns:
 | `OTA_BEGIN` | `TFW_ERR_NO_STORE` (20) | no part answers READ JEDEC ID (0x9F) on the store's select: the manufacturer byte reads 0x00 or 0xFF |
 | `OTA_BEGIN`, `OTA_DATA` | `TFW_ERR_NO_STORE` (20) | the part's status register reads WEL clear after WREN, so it would ignore the erase or program; nothing is sent (#234) |
 | `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | an image is pending: this boot's `OTA_ACTIVATE` wrote the MARK and the device has not reset since (`src/core/ota_stage.c:157`). Nothing is erased or written, and `OTA_STATUS` still reads `complete` |
-| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | `TFW_OTA_BEGIN_BUDGET` begins have been taken since the last reset or successful `OTA_ACTIVATE` (`src/core/ota_stage.c:163`; the peer-binding ADR's decision 1 B, #232). The default is 4 (`include/tfw/config.h:358`), and a board's `board_profile.h` may set another. The count is in RAM only (`src/core/ota_stage.c:180`). A reset clears it (`:139`), and so does a successful `OTA_ACTIVATE` (`:266`). Nothing is erased, and a transfer that is receiving goes on at its count: resuming it with `OTA_DATA` spends no begin |
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | `TFW_OTA_BEGIN_BUDGET` begins have been taken since the last reset or successful `OTA_ACTIVATE` (`src/core/ota_stage.c:163`; the peer-binding ADR's decision 1 B, #232). The default is 4 (`include/tfw/config.h:367`), and a board's `board_profile.h` may set another. The count is in RAM only (`src/core/ota_stage.c:180`). A reset clears it (`:139`), and so does a successful `OTA_ACTIVATE` (`:266`). Nothing is erased, and a transfer that is receiving goes on at its count: resuming it with `OTA_DATA` spends no begin |
 | `OTA_DATA` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
 | `OTA_DATA` | `TFW_ERR_RANGE` (11) | `offset` is not the received count, or the bytes run past `total_len` |
 | `OTA_END` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
@@ -80,7 +80,7 @@ running image, 1 the staged one), and `active` the slot that runs, always 0
 `0x02`, only beside `0x01`, the fall-back followed a refusal at evaluation
 rather than an unconfirmed trial (`INFO_FLAG_REFUSED`, `src/core/ota_ctl.c:54`
 and `:87-88`, from the platform block's `TFW_BOOT_EE_FLAG_REFUSED`,
-`include/tfw/boot.h:231`, which `boot/boot_prev.c:58` writes; `SlotRefused` in
+`include/tfw/boot.h:244`, which `boot/boot_prev.c:58` writes; `SlotRefused` in
 `sdk/go`), so a refusal reads `0x03`; `0x04` a trial is running. `floor` is the rollback floor, the element's where there is one. For
 slot 0, `state` is the platform block's boot state (0 empty, 1 staged, 2 good,
 3 trial, 4 confirmed) and `image_version` and `measurement` are zero. For slot 1 it is
@@ -95,8 +95,8 @@ then `tfw_app_shutdown`) and no update request armed; mode 0 resets nothing,
 and the `RESET` mode 0 that later installs the image stops the application
 the same way (`tfw_stage_install_pending`). While that activation is pending,
 an `OTA_ACTIVATE` with the same `[mode:1]` and no `OTA_AUTH` since the
-pending activation is a retry: it re-verifies and writes nothing and answers
-success. One after a new `OTA_AUTH`, with the same signature or another, is a
+pending activation is a retry: it re-verifies nothing, writes nothing and
+answers success (`src/core/ota_activate.c:76-79`). One after a new `OTA_AUTH`, with the same signature or another, is a
 new activation attempt, and it and any other mode answer `TFW_ERR_BAD_STATE`
 (m1100 (3), m1117 (1)). `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
 running image, bound to its measurement, and leaves the trial deadline

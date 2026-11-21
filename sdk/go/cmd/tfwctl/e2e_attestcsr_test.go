@@ -457,7 +457,8 @@ func capsOnlyBoard(c net.Conn, asked *atomic.Bool) {
 		if _, err := io.ReadFull(c, hdr); err != nil {
 			return
 		}
-		frame := append(hdr, make([]byte, int(hdr[1])+frameOverhead-2)...)
+		frame := make([]byte, int(hdr[1])+frameOverhead)
+		copy(frame, hdr)
 		if _, err := io.ReadFull(c, frame[2:]); err != nil {
 			return
 		}

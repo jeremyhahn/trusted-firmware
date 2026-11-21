@@ -136,7 +136,9 @@ versions.
 ## Configure it at run time
 
 Declare how many bytes you need in `config_len`. Your region starts at
-`TFW_APP_CONFIG_BASE` (byte 192 of EEPROM). Read it in `init`:
+`TFW_APP_CONFIG_BASE` (`TFW_BOOT_EE_LEN`, byte 0x140 = 320 of EEPROM; the
+bootloader's block and, on the ATmega2560, its swap journal lie below it).
+Read it in `init`:
 
 ```c
 uint8_t cfg[4];
@@ -145,8 +147,9 @@ if (tfw_app_config_read(0u, cfg, sizeof cfg) != TFW_OK || cfg[0] != 1u) {
 }
 ```
 
-A host writes the same bytes with the SDK's EEPROM write at address
-`192 + offset`. Put a layout version in the first byte, and validate
+A host writes the same bytes with the Go SDK's `Device.EEPROMWrite`
+(`sdk/go/commands.go`) at address `0x140 + offset`; the device refuses a write
+below 0x140. Put a layout version in the first byte, and validate
 everything you read: any host with wire access can write the region. Do not
 store secrets there.
 

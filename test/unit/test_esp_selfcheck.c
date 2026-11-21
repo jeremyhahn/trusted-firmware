@@ -7,7 +7,9 @@
  * and LEDC drivers (test/mock/esp32/selfcheck), the real EEPROM HAL
  * (src/hal/esp32/hal_eeprom.c) on a modelled NOR partition, and the suite's
  * own other HAL and board calls. Each console line the check
- * logs is kept, so a test asserts the verdict it printed.
+ * logs is kept, so a test asserts the verdict it printed. The board lookups
+ * answer with the PoE board's own rows (boards/esp32p4-poe/board.c) and
+ * record which pin each check asked for.
  */
 
 #include "unity.h"
@@ -209,23 +211,53 @@ static int g_i2c_probe;
 static int g_spi_cs_at_xfer;
 static int g_spi_xfers;
 
+/* The PoE board's own pin rows, copied from boards/esp32p4-poe/board.c lines
+ * 21-37: the file cannot be #included here, since the dependency file then
+ * puts it in the link line of mk/host.mk's rule and its tables link twice.
+ * Then the pins and ADC channel the checks asked for, in order. */
+static const tfw_pin_desc_t g_poe_pins[TFW_PIN_COUNT] = {
+/*  0  GPIO2   LEDC0      */ { TFW_PB(0u,  2u), TFW_ADC_NONE, 0u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  1  GPIO3   LEDC1      */ { TFW_PB(0u,  3u), TFW_ADC_NONE, 1u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  2  GPIO4   LEDC2      */ { TFW_PB(0u,  4u), TFW_ADC_NONE, 2u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  3  GPIO5   LEDC3      */ { TFW_PB(0u,  5u), TFW_ADC_NONE, 3u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  4  GPIO6   C6 IO2     */ { TFW_PB(0u,  6u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  5  GPIO7   I2C SDA    */ { TFW_PB(0u,  7u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  6  GPIO8   I2C SCL    */ { TFW_PB(0u,  8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  7  GPIO20  ADC1_CH4   */ { TFW_PB(0u, 20u), 4u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/*  8  GPIO21  ADC1_CH5   */ { TFW_PB(0u, 21u), 5u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/*  9  GPIO22  ADC1_CH6   */ { TFW_PB(0u, 22u), 6u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 10  GPIO23  ADC1_CH7   */ { TFW_PB(0u, 23u), 7u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 11  GPIO32             */ { TFW_PB(1u,  0u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 12  GPIO33             */ { TFW_PB(1u,  1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 13  GPIO46  SPI MOSI   */ { TFW_PB(1u, 14u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 14  GPIO47  SPI MISO   */ { TFW_PB(1u, 15u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 15  GPIO48  SPI SCK    */ { TFW_PB(1u, 16u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 16  GPIO53  PA_CTRL    */ { TFW_PB(1u, 21u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+};
+
+static tfw_pin_t g_pins_asked[8];
+static unsigned g_pins_n;
+static int g_adc_pin_asked, g_pwm_pin_asked, g_adc_ch_read;
+
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
-    (void)pin;
+    if (g_pins_n < sizeof g_pins_asked / sizeof g_pins_asked[0]) g_pins_asked[g_pins_n] = pin;
+    g_pins_n++;
     memset(out, 0, sizeof *out);
     return TFW_OK;
 }
 
 tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out)
 {
-    (void)pin;
-    *out = 4u;
+    g_adc_pin_asked = pin;
+    if (pin >= TFW_PIN_COUNT) return TFW_ERR_INTERNAL;
+    *out = g_poe_pins[pin].adc_ch;
     return TFW_OK;
 }
 
 tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 {
-    (void)pin;
+    g_pwm_pin_asked = pin;
     memset(out, 0, sizeof *out);
     return TFW_OK;
 }
@@ -255,7 +287,7 @@ tfw_status_t tfw_hal_adc_init(void) { return TFW_OK; }
 
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
-    (void)channel;
+    g_adc_ch_read = channel;
     *out_raw = g_adc_raw;
     return g_adc_st;
 }
@@ -373,6 +405,8 @@ void setUp(void)
     g_i2c_probe = 0;
     g_spi_cs_at_xfer = 0;
     g_spi_xfers = 0;
+    g_pins_n = 0u;
+    g_adc_pin_asked = g_pwm_pin_asked = g_adc_ch_read = -1;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
     memcpy(g_before, g_flash, sizeof g_before);
 }
@@ -394,6 +428,33 @@ static void test_every_check_passes_on_a_good_board(void)
     TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "PASS"));
     TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "PASS"));
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
+/* gpio, tone, pulse, SPI chip select, 1-Wire: each on the header pin its
+ * comment in hal_selfcheck.c names, none claimed by the board or the build;
+ * the ADC reads the channel of its pin's row, and PWM runs LEDC channel 0. */
+static void test_each_check_uses_the_free_header_pin_it_names(void)
+{
+    static const tfw_pin_t want[] = { 11u, TFW_TONE_PIN, 12u, 11u, 12u };
+
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_UINT(sizeof want / sizeof want[0], g_pins_n);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, g_pins_asked, sizeof want / sizeof want[0]);
+    TEST_ASSERT_EQUAL_INT(7, g_adc_pin_asked);
+    TEST_ASSERT_EQUAL_INT(4, g_adc_ch_read);
+    TEST_ASSERT_EQUAL_INT(0, g_pwm_pin_asked);
+    for (unsigned i = 0u; i < g_pins_n; i++) {
+        TEST_ASSERT_TRUE(g_pins_asked[i] < TFW_PIN_COUNT);
+        TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_pins_asked[i]].flags &
+                                       (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    }
+    TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_adc_pin_asked].flags &
+                                   (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    TEST_ASSERT_TRUE(g_poe_pins[g_adc_pin_asked].flags & TFW_PIN_ADC);
+    TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_pwm_pin_asked].flags &
+                                   (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    TEST_ASSERT_TRUE(g_poe_pins[g_pwm_pin_asked].flags & TFW_PIN_PWM);
+    TEST_ASSERT_EQUAL_UINT8(0u, g_poe_pins[g_pwm_pin_asked].pwm_idx);
 }
 
 static void test_the_i2c_check_probes_the_empty_address(void)
@@ -621,6 +682,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_every_check_passes_on_a_good_board);
+    RUN_TEST(test_each_check_uses_the_free_header_pin_it_names);
     RUN_TEST(test_a_high_c6_enable_fails_though_the_held_output_reads_zero);
     RUN_TEST(test_the_c6_check_leaves_the_enable_low_and_held);
     RUN_TEST(test_a_program_failure_after_the_erase_restores_the_whole_sector);

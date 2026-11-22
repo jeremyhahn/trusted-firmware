@@ -11,8 +11,10 @@ group/labels mapping, a flow list or mapping on one line or across several) of
 .github/workflows/*.yml and *.yaml with
 the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
-built-in labels do not accept. A label inside a `${{ }}` expression is skipped,
-as actionlint skips it: its value is known only when the workflow runs.
+built-in labels do not accept. Built-in labels match in any case (`Linux`,
+`X64`), as in actionlint; allowlisted labels match case-sensitively. A label
+with a `${{ }}` expression anywhere in it is skipped, as actionlint skips it:
+its value is known only when the workflow runs.
 """
 
 import pathlib
@@ -60,13 +62,14 @@ def allowlist(path):
 
 
 def _labels(value):
-    """Yield the labels of a scalar or flow-list value, skipping `${{` ones."""
+    """Yield the labels of a scalar or flow-list value, skipping any label with
+    a `${{ ... }}` expression anywhere in it."""
     items = [value]
     if value.startswith("[") and value.endswith("]"):
         items = value[1:-1].split(",")
     for label in items:
         label = _value(label)
-        if label and not label.startswith("${{"):
+        if label and not 0 <= label.find("${{") < label.find("}}"):
             yield label
 
 
@@ -82,7 +85,8 @@ def plain_labels(text):
     mapping that does not close on the `runs-on:` line takes the following
     lines until it closes (an unclosed one yields nothing); its labels carry
     the `runs-on:` line number. A value that starts with `${{` is an
-    expression and yields nothing.
+    expression and yields nothing, and a label with a `${{ ... }}` expression
+    anywhere in it (`runner-${{ matrix.n }}`) is skipped.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -143,7 +147,7 @@ def unknown(workflow_dir, allowed):
         except ValueError:
             name = path.name
         for lineno, label in plain_labels(path.read_text()):
-            if label not in allowed and label not in BUILTIN:
+            if label not in allowed and label.lower() not in BUILTIN:
                 found.append(f"{name}:{lineno}: {label}")
     return found
 

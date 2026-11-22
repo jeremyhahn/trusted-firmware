@@ -10,8 +10,9 @@
  * The client runs on socket 1, so the model's peer calls act on it; socket 0
  * is the link's connection, which renewal must leave as it is.
  *
- * What is pinned is RFC 2131's: the message fields of Table 5, the 1 to 10 s
- * wait before the first DHCPDISCOVER (§4.4.1), the 4 s doubling to 64 s
+ * What is pinned is RFC 2131's: the message fields of Table 5, the unused ones
+ * zero, the 1 to 10 s wait before the first DHCPDISCOVER (§4.4.1), the 4 s
+ * doubling to 64 s
  * retransmission randomised by +-1 s (§4.1), the replies a client must discard,
  * DHCPNAK, the lease counted from the DHCPREQUEST (§4.4.1), the probe of the
  * offered address and DHCPDECLINE with its 10 s wait (§2.2, §3.1, §4.4.1), and
@@ -211,6 +212,8 @@ static uint8_t sent_as(const uint8_t *dst, uint8_t flags, const uint8_t *ci)
     TEST_ASSERT_EQUAL_UINT8(1u, msg[1]);                    /* Ethernet */
     TEST_ASSERT_EQUAL_UINT8(6u, msg[2]);
     TEST_ASSERT_EQUAL_UINT8(0u, msg[3]);
+    TEST_ASSERT_EQUAL_UINT8(0u, msg[8]);                    /* secs */
+    TEST_ASSERT_EQUAL_UINT8(0u, msg[9]);
     TEST_ASSERT_EQUAL_UINT8(flags, msg[10]);                /* BROADCAST */
     TEST_ASSERT_EQUAL_UINT8(0u, msg[11]);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(ci, msg + 12, 4u);        /* ciaddr */
@@ -218,6 +221,9 @@ static uint8_t sent_as(const uint8_t *dst, uint8_t flags, const uint8_t *ci)
         TEST_ASSERT_EQUAL_UINT8(0u, msg[i]);                /* yiaddr .. giaddr */
     }
     TEST_ASSERT_EQUAL_UINT8_ARRAY(mac, msg + 28, 6u);
+    for (i = 34u; i < 236u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, msg[i]);                /* chaddr pad, sname, file */
+    }
     TEST_ASSERT_EQUAL_UINT8(99u,  msg[236]);
     TEST_ASSERT_EQUAL_UINT8(130u, msg[237]);
     TEST_ASSERT_EQUAL_UINT8(83u,  msg[238]);

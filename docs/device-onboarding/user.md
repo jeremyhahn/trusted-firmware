@@ -15,7 +15,8 @@ who owns each, [`api.md`](api.md) for what the device presents.
   ([which parts can enrol](../dice-attestation/architecture.md)). For Ethernet,
   a W5100 or W5500 shield ([what you need](../ethernet-transport/user.md#what-you-need)).
 - An ISP programmer for fuses and lock bits, and a serial connection.
-- `tfwprov` and `tfwctl`: `make sdk-build`, or `go run ./cmd/<name>` from `sdk/go`.
+- `tfwprov` and `tfwctl`: `go build ./cmd/<name>` or `go run ./cmd/<name>` from
+  `sdk/go` (`make sdk-build` only checks it compiles).
 
 ## 1. Bake the platform block and start the record
 
@@ -38,7 +39,7 @@ Set the fuses with `avrdude`, then flash an image built with `PROVISION=1`
 
 ```sh
 tfwprov --dry-run --config sdk/go/templates/atecc608a-dice.conf <port>
-tfwprov --commit  --config sdk/go/templates/atecc608a-dice.conf --record device.json <port> --yes-i-mean-it
+tfwprov --commit  --config sdk/go/templates/atecc608a-dice.conf --record device.json --yes-i-mean-it <port>
 tfwprov --verify  --config sdk/go/templates/atecc608a-dice.conf --record device.json <port>
 ```
 

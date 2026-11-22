@@ -29,7 +29,19 @@
  * tfw_boot_nvm_read reads them back. The bytes are then read back; a mismatch is
  * TFW_ERR_INTERNAL (include/tfw/status.h has no I/O status). A span past
  * TFW_EEPROM_SIZE is TFW_ERR_RANGE. Never a partial write of the span asked
- * for, short of a power loss mid-write, which loses the user sector only.
+ * for, short of a power loss mid-write, which for a user write loses the
+ * user sector only.
+ *
+ * OTA_CONFIRM's write has no such bound: the platform sector is erased and
+ * reprogrammed whole, and its old bytes live only in the helper's RAM buffer
+ * across the erase (tfw_mcxn_flash_update), so a power loss between the
+ * erase and the end of the program can lose the platform block's other
+ * bytes as well as the request. tfw-boot's next boot then loads a block
+ * that tfw_boot_platform_parse (boot/boot_platform.c) refuses, its magic
+ * gone (TFW_ERR_NOT_PROVISIONED) or its CRC wrong (TFW_ERR_CRC), and main
+ * (boot/boot_main.c) goes to tfw_boot_recovery: no pinned key, so nothing
+ * verifies or boots until a programmer provisions the block again. There
+ * is no second copy of it to fall back on.
  *
  * The device's flash and the ROM driver are the two things the
  * host test (test/unit/test_mcxn94x_eeprom.c) replaces with a model, by

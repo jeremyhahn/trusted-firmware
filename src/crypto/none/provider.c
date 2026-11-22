@@ -33,9 +33,10 @@
  * provide a digest with nothing to sign it. A caller that wants a hash and
  * cannot have one gets TFW_ERR_UNSUPPORTED and knows where it stands.
  *
- * Link-time substitution, exactly as the other two tiers are: the Makefile
- * links one provider per image, there is no vtable and no runtime selection, so
- * an image built for this tier cannot be talked into signing anything.
+ * Link-time substitution, as the soft and element tiers are (only CRYPTO=auto,
+ * src/crypto/auto/provider.c, chooses between those two at init): the Makefile
+ * links one provider per image, there is no vtable, so an image built for this
+ * tier cannot be talked into signing anything.
  */
 
 #include "tfw/crypto.h"
@@ -49,8 +50,8 @@ tfw_status_t tfw_crypto_init(void)
      * Drains and discards any CDI tfw-boot handed off, even on a tier that
      * signs with nothing and derives nothing. A board that links this
      * provider still links the real src/core/handoff.c whenever it has a
-     * boot section (mk/avr.mk's IDENTITY_SRCS is chosen by RAM_END, not by
-     * CRYPTO) -- CRYPTO=none is a valid, if unusual, build for any such
+     * boot section (mk/firmware.mk's IDENTITY_SRCS is chosen by RAM_END, not
+     * by CRYPTO) -- CRYPTO=none is a valid, if unusual, build for any such
      * board, not only the ATtiny85's own stubbed-out case. Without this, a
      * CDI that DID get handed off would sit resident in that module's static
      * storage for the process lifetime, honoured by neither of the other two
@@ -127,8 +128,9 @@ tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)
 
 /* issue #4: no operator-signature session on the tier with no crypto at
  * all. AUTH_CHALLENGE/AUTH_RESPONSE are not compiled into a CRYPTO=none image
- * (mk/avr.mk links auth_session_none.c), so this is unreachable in practice --
- * present only because every provider implements the whole contract. */
+ * (mk/firmware.mk links auth_session_none.c), so this is unreachable in
+ * practice -- present only because every provider implements the whole
+ * contract. */
 tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[TFW_SHA256_LEN],
                                       const uint8_t sig[TFW_SIG_LEN],
                                       const uint8_t pubkey[TFW_SIG_LEN])

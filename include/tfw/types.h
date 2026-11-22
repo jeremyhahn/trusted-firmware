@@ -53,7 +53,9 @@ typedef enum {
 typedef enum {
     TFW_CRYPTO_NONE           = 0, /* no provider: unattested */
     TFW_CRYPTO_SOFTWARE       = 1, /* keys in flash behind lock bits; notSecure */
-    TFW_CRYPTO_SECURE_ELEMENT = 2, /* ATECC608A: non-exportable key, real TRNG */
+    TFW_CRYPTO_SECURE_ELEMENT = 2, /* a secure element or a hardware key store
+                                    * (ATECC608A, OPTIGA, ESP32 eFuse HMAC):
+                                    * non-exportable key */
     TFW_CRYPTO_TPM2           = 3  /* discrete TPM: manufacturer EK chain */
 } tfw_crypto_tier_t;
 

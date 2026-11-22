@@ -71,6 +71,9 @@ void     tfw_mock_eeprom_stuck_at(uint16_t addr);
 /* Every tfw_hal_eeprom_read refused, as a bus that never answers. Off until
  * set; tfw_mock_reset turns it off again. */
 void     tfw_mock_eeprom_read_fails(uint8_t on);
+/* Every tfw_hal_eeprom_write refused, as a bus that never answers: no byte
+ * stored or counted. Off until set; tfw_mock_reset turns it off again. */
+void     tfw_mock_eeprom_write_fails(uint8_t on);
 
 /* handoff: the raw TFW_BOOT_HANDOFF_LEN-byte block tfw_hal_handoff_block()
  * returns. Zeroed by tfw_mock_reset(), which reads as "no handoff" -- the same

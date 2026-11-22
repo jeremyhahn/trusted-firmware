@@ -31,6 +31,7 @@ static uint32_t ee_lo, ee_hi;            /* the span [ee_lo, ee_hi) they covered
 #define EE_NOT_STUCK 0xFFFFFFFFuL
 static uint32_t ee_stuck = EE_NOT_STUCK; /* a cell whose writes do not stick */
 static uint8_t  ee_read_fails;           /* every read refused */
+static uint8_t  ee_write_fails;          /* every write refused */
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
@@ -144,7 +145,7 @@ void tfw_mock_reset(void)
     memset(pwm_duty, 0, sizeof pwm_duty);
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
     ee_written = 0u; ee_lo = ee_hi = 0u; ee_stuck = EE_NOT_STUCK;
-    ee_read_fails = 0u;
+    ee_read_fails = 0u; ee_write_fails = 0u;
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
@@ -210,6 +211,7 @@ uint8_t *tfw_mock_eeprom(void) { return eeprom; }
 size_t   tfw_mock_eeprom_size(void) { return sizeof eeprom; }
 void     tfw_mock_eeprom_stuck_at(uint16_t addr) { ee_stuck = addr; }
 void     tfw_mock_eeprom_read_fails(uint8_t on) { ee_read_fails = on; }
+void     tfw_mock_eeprom_write_fails(uint8_t on) { ee_write_fails = on; }
 
 size_t tfw_mock_eeprom_written(uint16_t *lo, uint16_t *hi)
 {
@@ -442,6 +444,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     uint8_t i;
 
     if ((uint32_t)addr + len > EEPROM_SIZE) { return TFW_ERR_RANGE; }
+    if (ee_write_fails) { return TFW_ERR_TIMEOUT; }
     if (len != 0u) {
         if (ee_written == 0u || addr < ee_lo)              { ee_lo = addr; }
         if (ee_written == 0u || (uint32_t)addr + len > ee_hi) { ee_hi = (uint32_t)addr + len; }

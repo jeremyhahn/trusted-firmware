@@ -54,6 +54,8 @@ static struct { uintptr_t addr; uint32_t val; } wlog[LOG];
 static unsigned  nlog;
 static int       last = -1;          /* the cell handed out last ... */
 static uint32_t  presented;          /* ... and what it held then */
+static int       int_read;           /* the access before was a read of INT */
+static int       store_next;         /* the cell handed out last is a store */
 static uint8_t   rxq[16];
 static unsigned  rxq_head, rxq_len;
 static uint32_t  primask;
@@ -73,16 +75,25 @@ static int find(uintptr_t addr)
     return (int)ncell++;
 }
 
-/* The access before this one was a store if its cell changed. */
+/* The access before this one was a store if its cell changed, or if it was
+ * INTCLEAR handed out straight after the driver read INTSTATUS: the
+ * acknowledgement writes back the bits it read, so its cell need not change. */
 static void settle(void)
 {
-    if (last >= 0 && cell[last].val != presented) {
-        TEST_ASSERT_TRUE_MESSAGE(nlog < LOG, "write log full");
-        wlog[nlog].addr = cell[last].addr;
-        wlog[nlog].val  = cell[last].val;
-        nlog++;
+    int stored = 0;
+
+    if (last >= 0) {
+        stored = cell[last].val != presented || store_next;
+        if (stored) {
+            TEST_ASSERT_TRUE_MESSAGE(nlog < LOG, "write log full");
+            wlog[nlog].addr = cell[last].addr;
+            wlog[nlog].val  = cell[last].val;
+            nlog++;
+        }
     }
-    last = -1;
+    int_read   = last >= 0 && cell[last].addr == A_INT && !stored;
+    store_next = 0;
+    last       = -1;
 }
 
 volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
@@ -90,6 +101,7 @@ volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
     int i;
 
     settle();
+    store_next = addr == A_INT && int_read;
     i = find(addr);
     if (addr == A_DATA && rxq_len > 0u) {
         cell[i].val = rxq[rxq_head];
@@ -159,6 +171,7 @@ void setUp(void)
     ncell = 0;
     nlog  = 0;
     last  = -1;
+    int_read = store_next = 0;
     rxq_len = rxq_head = 0u;
     primask = 0u;
 }
@@ -287,6 +300,30 @@ static void test_tx_irq_sends_the_queued_byte_and_clears_tx(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_TX, w[0]);   /* TX only cleared */
 }
 
+/* The ordinary acknowledgement: INTCLEAR written with exactly INTSTATUS's
+ * bits, so the cell holds the same value after the store as before it. */
+static void test_tx_irq_acknowledges_exactly_the_pending_tx_bit(void)
+{
+    uint32_t w[4];
+
+    init_ok();
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_TX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_INT, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_TX, w[0]);
+}
+
+static void test_rx_irq_acknowledges_exactly_the_pending_rx_bit(void)
+{
+    uint32_t w[4];
+
+    init_ok();
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_RX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_INT, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_RX, w[0]);
+}
+
 /* The ring holds TX_RING - 1 bytes behind the one in DATA; the next is refused
  * and touches no register. */
 static void test_tx_try_refuses_when_the_ring_is_full(void)
@@ -390,6 +427,8 @@ int main(void)
     RUN_TEST(test_init_refuses_zero_and_a_divisor_below_16);
     RUN_TEST(test_tx_try_writes_the_first_byte_to_data);
     RUN_TEST(test_tx_irq_sends_the_queued_byte_and_clears_tx);
+    RUN_TEST(test_tx_irq_acknowledges_exactly_the_pending_tx_bit);
+    RUN_TEST(test_rx_irq_acknowledges_exactly_the_pending_rx_bit);
     RUN_TEST(test_tx_try_refuses_when_the_ring_is_full);
     RUN_TEST(test_tx_idle_waits_for_the_ring_the_irq_and_tx_full);
     RUN_TEST(test_rx_irq_moves_data_to_the_ring_while_rx_full);

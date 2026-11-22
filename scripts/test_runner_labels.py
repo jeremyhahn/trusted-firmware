@@ -11,12 +11,16 @@ group/labels mapping, a flow list or mapping on one line or across several) of
 .github/workflows/*.yml and *.yaml with
 the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
-built-in labels do not accept. Built-in labels match in any case (`Linux`,
-`X64`), as in actionlint; allowlisted labels match case-sensitively. A label
-with a `${{ }}` expression anywhere in it is skipped, as actionlint skips it:
+built-in labels do not accept. The built-in labels, the self-hosted ones
+(`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`),
+match in any case (`Linux`, `Windows-Latest`), as in actionlint. Allowlist
+entries are glob patterns (`gpu-*`) matched case-sensitively with fnmatch;
+actionlint's Go path.Match differs only for `/`, `\\` escapes and `[^...]`,
+none of which a runner label uses. A label with a `${{ }}` expression anywhere in it is skipped, as actionlint skips it:
 its value is known only when the workflow runs.
 """
 
+import fnmatch
 import pathlib
 import re
 import tempfile
@@ -28,6 +32,41 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # The labels actionlint accepts on a self-hosted runner without an allowlist.
 BUILTIN = {"self-hosted", "linux", "macos", "windows", "x64", "arm64", "arm"}
+
+# The GitHub-hosted runner labels actionlint accepts without an allowlist:
+# allGitHubHostedRunnerLabels in actionlint v1.7.12 rule_runner_label.go,
+# lines 33-61.
+GITHUB_HOSTED = {
+    "windows-latest",
+    "windows-latest-8-cores",
+    "windows-2025",
+    "windows-2025-vs2026",
+    "windows-2022",
+    "windows-11-arm",
+    "ubuntu-slim",
+    "ubuntu-latest",
+    "ubuntu-latest-4-cores",
+    "ubuntu-latest-8-cores",
+    "ubuntu-latest-16-cores",
+    "ubuntu-24.04",
+    "ubuntu-24.04-arm",
+    "ubuntu-22.04",
+    "ubuntu-22.04-arm",
+    "macos-latest",
+    "macos-latest-xlarge",
+    "macos-latest-large",
+    "macos-26-intel",
+    "macos-26-xlarge",
+    "macos-26-large",
+    "macos-26",
+    "macos-15-intel",
+    "macos-15-xlarge",
+    "macos-15-large",
+    "macos-15",
+    "macos-14-xlarge",
+    "macos-14-large",
+    "macos-14",
+}
 
 RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
@@ -137,7 +176,8 @@ def plain_labels(text):
 
 
 def unknown(workflow_dir, allowed):
-    """Return `file:line: label` for each label neither allowed nor built in."""
+    """Return `file:line: label` for each label neither built in nor matched
+    by an allowlist glob pattern."""
     workflow_dir = pathlib.Path(workflow_dir)
     found = []
     paths = [*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")]
@@ -147,7 +187,9 @@ def unknown(workflow_dir, allowed):
         except ValueError:
             name = path.name
         for lineno, label in plain_labels(path.read_text()):
-            if label not in allowed and label.lower() not in BUILTIN:
+            if label.lower() not in BUILTIN | GITHUB_HOSTED and not any(
+                fnmatch.fnmatchcase(label, p) for p in allowed
+            ):
                 found.append(f"{name}:{lineno}: {label}")
     return found
 

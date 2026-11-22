@@ -122,7 +122,7 @@ def flash_image(chunks, image_len=None, size=MAX_FLASH):
 
 
 def measure(text, image_len=None, base=0, size=MAX_FLASH):
-    """(measurement, image_len) of an Intel HEX, as tfw_boot_measure computes it."""
+    """(measurement, image_len) of an Intel HEX, as tfw_boot_measure_from computes it."""
     image = flash_image(parse_hex(text, base, size), image_len, size)
     return hashlib.sha256(image).digest(), len(image)
 

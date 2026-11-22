@@ -4,8 +4,9 @@
 
 The manifest check stays off the ATmega328P and ATmega32U4 (owner queue 176,
 option (a)). These tests read what make decides, without building: the refusal
-of OTA_MANIFEST=1 at parse time, and the stub both parts link by default. The
-board names and file names are literals, as the caller types them.
+of OTA_MANIFEST=1 at parse time, and that by default neither part links the SUIT
+reader or ota_manifest.c. The board names and file names are literals, as the
+caller types them.
 """
 
 import os

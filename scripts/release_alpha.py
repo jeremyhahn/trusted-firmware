@@ -10,8 +10,8 @@
 # new tag sorts above every tag of its series. It then cuts the annotated,
 # signed tags vX.Y.Z-alpha and sdk/go/vX.Y.Z-alpha on HEAD, with git's
 # configured key, and pushes both to `dev`, never forced. The xkms/ module keeps
-# its own series and is not tagged here. --dry-run prints the tags and changes
-# nothing, neither here nor on `dev`.
+# its own series and is not tagged here. --dry-run fetches dev's main and tags,
+# prints the tags, and cuts and pushes nothing.
 #
 #   release_alpha.py [--repo DIR] [--dry-run]
 

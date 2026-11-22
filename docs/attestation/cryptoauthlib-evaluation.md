@@ -1,6 +1,6 @@
 # CryptoAuthLib evaluation — decision record
 
-> **Status: INFORMATIVE** · Scope: `src/crypto/atecc608a/` · Last verified: 2026-10-16
+> **Status: INFORMATIVE** · Scope: `src/crypto/atecc608a/` · Last verified: 2026-11-21
 > Whether `trusted-firmware` links Microchip's CryptoAuthLib to drive the
 > ATECC608A, or writes a minimal purpose-built driver.
 
@@ -93,7 +93,7 @@ uses (`src/crypto/atecc608a/atecc.h`):
 
 | command | why |
 |---|---|
-| `Wake` / `Idle` | the bit-banged low pulse plus tWHI; standard TWI cannot express it |
+| `Wake` / `Sleep` | a zero byte written to address 0x00 at 100 kHz holds SDA low past the 60 us the part needs, then tWHI; no bit-banging |
 | `Read` | config zone, serial number, lock state |
 | `Write` / `PrivWrite` | provisioning only, behind `tfwprov --commit` |
 | `Lock` | provisioning only, irreversible |

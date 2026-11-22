@@ -3,9 +3,10 @@
 /*
  * The no-session stub, linked instead of auth_session.c on the soft and
  * CRYPTO=none tiers -- issue #4's owner ruling. AUTH_CHALLENGE/AUTH_RESPONSE
- * are not compiled into either tier at all (mk/avr.mk leaves them out of
- * commands.def), so tfw_auth_cmd_challenge/_response are never referenced and
- * --gc-sections drops them from this file's object entirely if they were
+ * are not compiled into either tier at all (mk/firmware.mk's AUTH_DEFS
+ * leaves them out of commands.def), so tfw_auth_cmd_challenge/_response are
+ * never referenced and --gc-sections drops them from this file's object
+ * entirely if they were
  * ever pulled in; only tfw_auth_session_init and tfw_auth_gate are called
  * unconditionally, from main.c and from storage.c respectively, which
  * is why those two stay real symbols here.

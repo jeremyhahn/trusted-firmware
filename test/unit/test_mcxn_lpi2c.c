@@ -91,6 +91,9 @@ static struct {
     unsigned restarts;       /* STARTs on a bus already ours: repeated STARTs */
     unsigned resets;         /* MCR RST writes */
     int      stop_lost;      /* a STOP runs but never ends the transfer */
+    uint32_t after_clear;    /* a flag raised again by the first W1C while this master holds the bus: one shot */
+    uint32_t stop_flag;      /* a flag the next STOP raises in place of SDF, the bus let go without it: one shot */
+    uint32_t rx_flag;        /* a flag the receive raises after its bytes */
 } m;
 
 static uint32_t delayed_us;
@@ -198,8 +201,15 @@ static void model_run(uint32_t v)
         for (uint32_t i = 0; i <= data; i++) {
             m.rx[m.rx_head++ % sizeof m.rx] = m.answer[m.answer_pos++];
         }
+        m.flags |= m.rx_flag;
         break;
     case TFW_MCXN_LPI2C_CMD_STOP:
+        if (m.stop_flag) {
+            m.flags |= m.stop_flag;
+            m.stop_flag = 0u;
+            m.mbf = 0;
+            break;
+        }
         if (m.mbf && !m.stop_lost) {
             m.mbf = 0;
             m.flags |= TFW_MCXN_LPI2C_MSR_SDF;
@@ -216,6 +226,10 @@ static void model_wr(uint32_t off, uint32_t v)
     switch (off) {
     case TFW_MCXN_LPI2C_MSR_OFF:
         m.flags &= ~(v & MSR_W1C);
+        if (m.mbf && m.after_clear) {
+            m.flags |= m.after_clear;
+            m.after_clear = 0u;
+        }
         break;
     case TFW_MCXN_LPI2C_MCR_OFF:
         m.mcr = v & ~(TFW_MCXN_LPI2C_MCR_RTF | TFW_MCXN_LPI2C_MCR_RRF);
@@ -727,6 +741,49 @@ static void test_a_refused_byte_whose_stop_never_shows_is_nack(void)
     TEST_ASSERT_FALSE(m.mbf);
 }
 
+/* hal_bus.c lines 137-152: a flag the bus raises again after the error flush
+ * makes the STOP's push fail busy; the refused byte keeps its NACK. */
+static void test_a_refused_byte_keeps_its_nack_when_the_stop_meets_a_new_flag(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.after_clear = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 154-171: a STOP that loses arbitration after a refusal,
+ * no SDF and the bus let go, leaves the refused byte its NACK. */
+static void test_a_refused_byte_keeps_its_nack_when_its_stop_raises_a_flag(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.stop_flag = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 137-143: a read that fails with its bytes still in the
+ * receive FIFO has them flushed with the error, not left for the next read. */
+static void test_a_failed_read_flushes_the_receive_fifo(void)
+{
+    uint8_t in[2];
+
+    m.lag = 1;
+    m.answer[0] = 0x5A;
+    m.answer[1] = 0xA5;
+    m.rx_flag = TFW_MCXN_LPI2C_MSR_FEF;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, in, 2u));
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(m.rx_head, m.rx_tail);
+}
+
 static void test_an_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, NULL, 0u));
@@ -779,6 +836,9 @@ int main(void)
     RUN_TEST(test_a_stop_that_cannot_be_queued_is_a_timeout_waited_once);
     RUN_TEST(test_a_refused_byte_whose_stop_cannot_be_queued_is_nack);
     RUN_TEST(test_a_refused_byte_whose_stop_never_shows_is_nack);
+    RUN_TEST(test_a_refused_byte_keeps_its_nack_when_the_stop_meets_a_new_flag);
+    RUN_TEST(test_a_refused_byte_keeps_its_nack_when_its_stop_raises_a_flag);
+    RUN_TEST(test_a_failed_read_flushes_the_receive_fifo);
     RUN_TEST(test_an_empty_transfer_touches_nothing);
     RUN_TEST(test_spi_and_onewire_are_unsupported);
     return UNITY_END();

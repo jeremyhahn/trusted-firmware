@@ -100,8 +100,8 @@ When each is called, what it may do and its budget are in
 
 | Call | Returns |
 |---|---|
-| `tfw_app_config_read(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; `TFW_OK` for `len == 0` in range, with no EEPROM access; otherwise the HAL EEPROM read's status |
-| `tfw_app_config_write(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; `TFW_OK` for `len == 0` in range, with no EEPROM access; otherwise the HAL EEPROM write's status |
+| `tfw_app_config_read(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; otherwise, on an image that links the Ethernet network block (`ETH=1` or `ETH_MAC=1`), `TFW_ERR_PROTECTED_REGION` for any span within `config_len`, `len == 0` included, with no EEPROM access ([why](engineering.md#error-semantics)); otherwise `TFW_OK` for `len == 0`, with no EEPROM access, and the HAL EEPROM read's status for the rest |
+| `tfw_app_config_write(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; otherwise, on an image that links the Ethernet network block (`ETH=1` or `ETH_MAC=1`), `TFW_ERR_PROTECTED_REGION` for any span within `config_len`, `len == 0` included, with no EEPROM access ([why](engineering.md#error-semantics)); otherwise `TFW_OK` for `len == 0`, with no EEPROM access, and the HAL EEPROM write's status for the rest |
 
 `off` is relative to the region. The host writes the same bytes with
 `EEPROM_WRITE` at `TFW_APP_CONFIG_BASE + off`.

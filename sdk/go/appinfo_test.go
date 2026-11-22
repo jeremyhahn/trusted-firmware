@@ -93,6 +93,30 @@ func TestAppInfoRejectsAShortReply(t *testing.T) {
 	assert.Equal(t, appInfoLen, se.Need)
 }
 
+// A reply longer than appInfoLen is a newer firmware's appended field:
+// docs/wire-protocol/architecture.md's rule is that new fields are
+// appended, never inserted, so a host reads the prefix it knows. The
+// 32-byte Profile fills its field with no terminator and the tail byte after
+// it is neither refused nor read into Profile.
+func TestAppInfoReadsTheKnownPrefixOfALongerReply(t *testing.T) {
+	p := []byte(vectors.AppInfoHeartbeatReply)
+	copy(p[appInfoProfileOff:appInfoLen], "0123456789abcdef0123456789abcdef")
+	p = append(p, 'Z')
+	require.Len(t, p, MaxPayload)
+
+	ai, err := New(&cannedLink{payload: p}).AppInfo(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, &AppInfo{
+		State:        AppRunning,
+		ABI:          1,
+		VersionMajor: 1,
+		RequiredCaps: 1 << 0,
+		Name:         "heartbeat",
+		Profile:      "0123456789abcdef0123456789abcdef",
+	}, ai)
+}
+
 func TestAppInfoFromADeviceWithNoApplication(t *testing.T) {
 	link := &cannedLink{status: StatusErrUnknownCmd}
 	_, err := New(link).AppInfo(context.Background())

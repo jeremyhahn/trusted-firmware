@@ -307,6 +307,32 @@ void test_a_refused_stop_leaves_a_live_channel_running(void)
     TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(10u));
 }
 
+/* A write clocks the pin's bank, takes the pull off and sets the alternate
+ * function in AFRL for pins 0-7 and AFRH for 8-15; a stop clocks the bank
+ * before it drives the pin low. */
+void test_a_write_and_a_stop_clock_the_bank_and_route_the_pin(void)
+{
+    tfw_pwmref_t lo = ref_of(1u);
+    tfw_pwmref_t b8 = ref_of(1u);
+
+    lo.bit = 7u;
+    b8.bit = 8u;
+    TFW_H5_GPIO_PUPDR(GPIOH) = TFW_H5_PULL_UP << (2u * 7u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&lo, 100u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 7u, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)TFW_H5_PWM_AF << 28u, TFW_H5_GPIO_AFRL(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_AFRH(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_PUPDR(GPIOH));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(7u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&b8, 100u));
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)TFW_H5_PWM_AF << 28u, TFW_H5_GPIO_AFRL(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)TFW_H5_PWM_AF, TFW_H5_GPIO_AFRH(GPIOH));
+    TFW_H5_RCC_AHB2ENR = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&b8));
+    TEST_ASSERT_EQUAL_HEX32(1u << 7u, TFW_H5_RCC_AHB2ENR);
+    assert_low_output(8u);
+}
+
 void test_a_ref_outside_tim5_and_the_banks_is_refused_untouched(void)
 {
     tfw_pwmref_t bad[5];
@@ -352,5 +378,6 @@ int main(void)
     RUN_TEST(test_each_wire_write_gives_the_pin_back_to_the_timer);
     RUN_TEST(test_a_bad_ref_is_refused_untouched);
     RUN_TEST(test_a_refused_stop_leaves_a_live_channel_running);
+    RUN_TEST(test_a_write_and_a_stop_clock_the_bank_and_route_the_pin);
     return UNITY_END();
 }

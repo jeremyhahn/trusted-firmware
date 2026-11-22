@@ -151,7 +151,7 @@ the external SPI NOR store, which keeps a backup of the running image in its
 `PREV` area (`profile.mk:37`–`41`; `board_profile.h:121`–`137`).
 
 The row that ships is `atmega328p:atecc608a:atecc608a:atecc608a:0:0` in
-`BOOT_SUPPORTED`, `mk/boot.mk:262`: the element tier, no boot-side OTA session
+`BOOT_SUPPORTED`, `mk/boot.mk:442`: the element tier, no boot-side OTA session
 and no store driver in the bootloader. The measured sizes and margin are in
 [`../secure-boot/cli.md`](../secure-boot/cli.md) and
 [`../ota/`](../ota/architecture.md#atmega328p-and-atmega32u4-store-staged-one-internal-slot);

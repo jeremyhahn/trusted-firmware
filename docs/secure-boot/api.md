@@ -153,7 +153,7 @@ refused for application writes by `src/caps/storage.c`:
 | 4 | 1 | `layout_version` | `TFW_BOOT_EE_VERSION` = 2 (grew from 1 when `operator_pubkey` below was added — issue #4; an older-layout region parses as unprovisioned rather than partially) |
 | 5 | 1 | `flags` | only the bits named here are defined, and a provisioned block has none set. Bit 0 `TFW_BOOT_EE_FLAG_REFUSED`: the last fall-back followed a refusal at evaluation, clear when the trial ended unconfirmed; written at each fall-back by the 328P's and 32U4's `boot/boot_prev.c`, meaningful only beside `ota_state` `FAILED`; reported as `OTA_INFO` flags bit 1 |
 | 6 | 2 | reserved | |
-| 8 | 32 | `pubkey_hash` | SHA-256 of the 32-byte Ed25519 public key; ignored on the element tier |
+| 8 | 32 | `pubkey_hash` | SHA-256 of the boot public key: the 64-byte P-256 key on the ESP32 layer 0 (`boot/hal/esp32/l0_gate.c`), the 32-byte key on the `ed25519-donna` measuring build; the AVR P-256 backends (`atecc608a`, `p256-soft`) keep their key and skip the pin (`boot/boot_policy.c`) |
 | 40 | 4 | `rollback_floor` | software tier only; the element tier uses its own monotonic counter |
 | 44 | 4 | `boot_count` | |
 | 48 | 1 | `boot_state` | `TFW_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) / `TRIAL`(3) / `CONFIRMED`(4) — the one trial, [../ota/architecture.md](../ota/architecture.md#what-runs-today-77); extended, never renumbered |
@@ -166,11 +166,12 @@ refused for application writes by `src/caps/storage.c`:
 | 190 | 2 | `crc16` | over bytes `[0, 190)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
 The table is the platform block, `TFW_BOOT_EE_BLOCK_LEN` (192) bytes, ending at
-`0x0C0`. The rest of the region, `[0x0C0, 0x140)`, holds on the ATmega2560 the
-swap journal (`0x0E0`-`0x0E9`) and the signed confirm request
-(`0x0EA`-`0x134`); `TFW_BOOT_EE_LEN` grew from `0x0C0` to `0x140` when the
-confirm request took its signature (#231). `EEPROM_WRITE` refuses the whole
-`[0x000, 0x140)` on every board.
+`0x0C0`. The rest of the region, `[0x0C0, 0x140)`, holds on the ATmega2560, and
+on the mps2-an500 and mps2-an505 A/B builds (`TFW_CM_AB`), the swap journal
+(`0x0E0`-`0x0E9`) and the signed confirm request (`0x0EA`-`0x134`);
+`TFW_BOOT_EE_LEN` grew from `0x0C0` to `0x140` when the confirm request took
+its signature (#231). `EEPROM_WRITE` refuses the whole `[0x000, 0x140)` on
+every board.
 
 Parsed by `tfw_boot_platform_parse`, serialised by `tfw_boot_platform_serialise`
 (`boot/boot_platform.c`); accessed through `tfw_boot_platform_load` /

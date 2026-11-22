@@ -6,7 +6,8 @@
 use, and actionlint reports any other label as an unknown runner. `make lint`
 does not run actionlint yet (#615), so no CI check reads the labels, and a
 misspelled self-hosted label would reach main through a green gate. These tests
-read the allowlist and every `runs-on:` line of .github/workflows/*.yml with
+read the allowlist and every `runs-on:` key (scalar, list, or group/labels
+mapping) of .github/workflows/*.yml and *.yaml with
 the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. A label inside a `${{ }}` expression is skipped,
@@ -27,6 +28,8 @@ BUILTIN = {"self-hosted", "linux", "macos", "windows", "x64", "arm64", "arm"}
 
 RUNS_ON = re.compile(r"^(\s*)(?:-\s+)?runs-on:(.*)$")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
+ENTRY = re.compile(r"^(\s*)([\w-]+):(\s.*)?$")
+FLOW_LABELS = re.compile(r"[{,]\s*labels\s*:\s*(\[[^\]]*\]|[^,}]*)")
 
 
 def _value(text):
@@ -55,12 +58,25 @@ def allowlist(path):
     return labels
 
 
+def _labels(value):
+    """Yield the labels of a scalar or flow-list value, skipping `${{` ones."""
+    items = [value]
+    if value.startswith("[") and value.endswith("]"):
+        items = value[1:-1].split(",")
+    for label in items:
+        label = _value(label)
+        if label and not label.startswith("${{"):
+            yield label
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
-    The value is a scalar (`codex`), a flow list (`[self-hosted, linux]`) or a
-    block list on the lines after an empty `runs-on:`. A value that starts with
-    `${{` is an expression and yields nothing.
+    The value is a scalar (`codex`), a flow list (`[self-hosted, linux]`), a
+    block list on the lines after an empty `runs-on:`, or a mapping whose
+    `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
+    `labels:` keys on the lines after `runs-on:`); `group:` is not a label. A
+    value that starts with `${{` is an expression and yields nothing.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -68,33 +84,46 @@ def plain_labels(text):
         if not key:
             continue
         value = _value(key.group(2))
-        if value.startswith("${{"):
-            continue
-        if value.startswith("[") and value.endswith("]"):
-            for label in value[1:-1].split(","):
-                label = _value(label)
-                if label and not label.startswith("${{"):
-                    yield i + 1, label
+        if value.startswith("{") and value.endswith("}"):
+            entry = FLOW_LABELS.search(value)
+            for label in _labels(_value(entry.group(1)) if entry else ""):
+                yield i + 1, label
         elif value:
-            yield i + 1, value
+            for label in _labels(value):
+                yield i + 1, label
         else:
             indent = len(key.group(1))
+            # `- item` lines at or past list_indent are labels; None after a
+            # mapping key whose value is not a block list.
+            list_indent = indent
             for j in range(i + 1, len(lines)):
                 if not lines[j].strip() or lines[j].lstrip().startswith("#"):
                     continue
                 item = ITEM.match(lines[j])
-                if not item or len(item.group(1)) < indent:
+                listed = list_indent is not None
+                if item and listed and len(item.group(1)) >= list_indent:
+                    for label in _labels(_value(item.group(2))):
+                        yield j + 1, label
+                    continue
+                entry = ENTRY.match(lines[j])
+                if not entry or len(entry.group(1)) <= indent:
                     break
-                label = _value(item.group(2))
-                if not label.startswith("${{"):
-                    yield j + 1, label
+                list_indent = None
+                if entry.group(2) == "labels":
+                    value = _value(entry.group(3) or "")
+                    if value:
+                        for label in _labels(value):
+                            yield j + 1, label
+                    else:
+                        list_indent = len(entry.group(1))
 
 
 def unknown(workflow_dir, allowed):
     """Return `file:line: label` for each label neither allowed nor built in."""
     workflow_dir = pathlib.Path(workflow_dir)
     found = []
-    for path in sorted(workflow_dir.glob("*.yml")):
+    paths = [*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")]
+    for path in sorted(paths):
         try:
             name = path.relative_to(ROOT)
         except ValueError:
@@ -130,6 +159,37 @@ class RunnerLabelsTest(unittest.TestCase):
             "    runs-on: ${{ cond && 'ubuntu-latest' || 'nolabel' }}\n"
         )
         self.assertEqual(found, [])
+
+    def test_a_mapping_label_list_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n"
+            "      group: g\n      labels: [self-hosted, qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_mapping_scalar_label_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      group: g\n      labels: qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_flow_mapping_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: {group: g, labels: codex}\n"
+        )
+        self.assertEqual(found, [])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: {group: g, labels: qwne}\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_yaml_workflow_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "w.yaml").write_text(
+                "jobs:\n  review:\n    runs-on: qwne\n"
+            )
+            found = unknown(tmp, allowlist(ACTIONLINT))
+        self.assertEqual(found, ["w.yaml:3: qwne"])
 
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)

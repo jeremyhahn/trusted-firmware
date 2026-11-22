@@ -35,12 +35,19 @@
 9. #653 Codex round 3: a runs-on that computes a value (format, join, toJSON,
    fromJSON of a literal) is refused unless waived, and a waived one is
    checked as a release job.
+10. ci-template v1.54 (ruling 1137) and code-review-template v5.12.12
+   (DS-10252): preflight's `Balanced runner pool (ruling 1137)` step sends a
+   run hosted with a ::warning on a short listing or a reply that is not 200,
+   and a fork's head to the hosted default with a ::notice; code-review.yml's
+   scope job may take exactly the bigdisk pool literal, fromJSON of
+   ["self-hosted","linux","x64","bigdisk"], for a same-repository head only.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -293,9 +300,9 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_53(self):
+    def test_header_names_v1_54(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.53 (customized)\n")
+            self.assertEqual(f.readline(), "# ci-template: v1.54 (customized)\n")
 
     def test_main_group_is_per_event(self):
         group = load(CI)["concurrency"]["group"]
@@ -312,24 +319,70 @@ def step_run(path, name):
     return found[0]["run"]
 
 
+FAKE_CURL = """#!/bin/sh
+# Writes $FAKE_BODY to the -o file and prints $FAKE_CODE, as curl -w '%{http_code}' does.
+while [ $# -gt 0 ]; do
+  [ "$1" = -o ] && { shift; printf '%s' "$FAKE_BODY" > "$1"; }
+  shift
+done
+printf '%s' "$FAKE_CODE"
+"""
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
 class OverflowShortList(unittest.TestCase):
-    """ci-template v1.50: a list short of its total_count is a lower bound."""
+    """ci-template v1.54 (ruling 1137): the balanced runner pool falls back to
+    the hosted default, with a ::warning on a short listing or a reply that is
+    not 200, and with a ::notice for a fork's head."""
 
-    def run_text(self):
-        return step_run(CI, "Hosted or overflow runner (ruling 1024)")
+    def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}'):
+        run = step_run(CI, "Balanced runner pool (ruling 1137)")
+        with tempfile.TemporaryDirectory() as d:
+            bindir = os.path.join(d, "bin")
+            os.makedirs(bindir)
+            curl = os.path.join(bindir, "curl")
+            with open(curl, "w", encoding="utf-8") as f:
+                f.write(FAKE_CURL)
+            os.chmod(curl, 0o755)
+            out = os.path.join(d, "out")
+            env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       API="https://api.github.com/repos/o/r/actions", RUN_ID="7", JOB_TOKEN="t",
+                       HS="12", C1="2", C2="1", RUNNER_TEMP=d, GITHUB_OUTPUT=out,
+                       FAKE_CODE=code, FAKE_BODY=body)
+            r = subprocess.run(["bash", "-c", run], env=env, capture_output=True, text=True, timeout=60)
+            with open(out, encoding="utf-8") as f:
+                outputs = f.read()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout, outputs
 
-    def test_short_list_is_kept_not_fatal(self):
-        run = self.run_text()
-        self.assertNotIn('WHY="$1: $got of $total entries"; return 1', run)
-        self.assertIn('[ "$got" -ge "$total" ] || SHORT="${SHORT:+$SHORT; }$1: $got of $total entries"', run)
-        self.assertIn('SHORT=""', run)
+    def assert_hosted(self, outputs):
+        self.assertEqual(outputs, 'runner="ubuntu-latest"\nrunner_docker="ubuntu-latest"\n')
 
-    def test_short_list_still_overflows_and_otherwise_warns(self):
-        run = self.run_text()
-        elif_short = run.index('elif [ -n "$SHORT" ]; then')
-        self.assertLess(run.index('elif [ "$queued" -gt 0 ]; then'), elif_short)
-        self.assertLess(elif_short, run.rindex('emit "$HOSTED" "$HOSTED"'))
-        self.assertIn('[ -z "$SHORT" ] || why="$why (a lower bound: $SHORT)"', run)
+    def test_short_listing_goes_hosted_with_warning(self):
+        out, outputs = self.select(body='{"total_count": 3, "workflow_runs": []}')
+        self.assertIn("::warning::runner selection: the Actions API gave no complete run list", out)
+        self.assertIn("0 of 3 entries", out)
+        self.assert_hosted(outputs)
+
+    def test_reply_not_200_goes_hosted_with_warning(self):
+        out, outputs = self.select(code="503")
+        self.assertIn("::warning::runner selection: the Actions API gave no complete run list", out)
+        self.assertIn(": 503)", out)
+        self.assert_hosted(outputs)
+
+    def test_fork_head_takes_hosted_default_with_notice(self):
+        for event in ("pull_request", "pull_request_target"):
+            out, outputs = self.select(event=event, head="fork/r", code="503")
+            self.assertIn("::notice::runner selection: this pull request's head repository is not this repository (a fork)", out)
+            self.assertNotIn("::warning::", out)
+            self.assert_hosted(outputs)
+
+    def test_same_repository_head_reads_the_pool(self):
+        out, outputs = self.select(event="pull_request", head="o/r")
+        self.assertNotIn("::warning::", out)
+        self.assertIn("::notice::runner selection: use hosted 0/12", out)
+        self.assert_hosted(outputs)
 
 
 class PullRequestTarget(unittest.TestCase):
@@ -354,9 +407,9 @@ CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
 class CodeReviewSupersede(unittest.TestCase):
     """code-review-template v5.12.8: a new head cancels only older runs."""
 
-    def test_header_names_v5_12_11(self):
+    def test_header_names_v5_12_12(self):
         with open(CODE_REVIEW, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.11 "))
+            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.12 "))
 
     def test_supersede_cancels_only_older_runs_on_other_heads(self):
         jobs = load(CODE_REVIEW)["jobs"]

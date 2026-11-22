@@ -162,6 +162,24 @@ static void test_cancel_can_leave_the_pin_or_apply_the_final_level(void)
     TEST_ASSERT_EQUAL_UINT8(0u, level_now());
 }
 
+/* api.md gives apply_final as (0|1). A host that sends 2 believing it is
+ * reserved must be told so, not have the pin driven: the timer stays armed. */
+static void test_cancel_refuses_an_apply_final_above_one(void)
+{
+    uint8_t p[2];
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    p[0] = PIN; p[1] = 2u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_TIMER_CANCEL, p, 2u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+
+    p[1] = 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_TIMER_CANCEL, p, 2u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+}
+
 static void test_query_reports_the_remaining_time(void)
 {
     uint8_t p[1] = { PIN };
@@ -229,6 +247,7 @@ int main(void)
     RUN_TEST(test_a_duration_past_the_signed_bound_is_refused);
     RUN_TEST(test_a_reserved_pin_cannot_be_scheduled);
     RUN_TEST(test_cancel_can_leave_the_pin_or_apply_the_final_level);
+    RUN_TEST(test_cancel_refuses_an_apply_final_above_one);
     RUN_TEST(test_query_reports_the_remaining_time);
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);

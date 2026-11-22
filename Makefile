@@ -116,8 +116,8 @@ verify-vendor:
 # The stages are handbook ci-standard.md §1's, wired the way the fleet
 # template's `ci` wires them: build, test, integration-test-host (the suites in
 # place, so `make ci` needs no docker daemon) and security. deps-check is not
-# here, as in the template: it asks upstream, so it needs the network, and CI's
-# `image-security` job runs it in the toolchain image. Each is a sub-make so the order is
+# here, as in the template: it asks upstream, so it needs the network, and
+# scans.yml runs it in the toolchain image. Each is a sub-make so the order is
 # the order even under -j: a stage starts only when the one before it is green.
 ci:
 	@$(MAKE) --no-print-directory build

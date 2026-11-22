@@ -122,14 +122,17 @@ bit (9.5 bit times from the start edge):
 | | worst case | note |
 |---|---:|---|
 | divisor | 1.5% of a bit | −0.160% × 9.5 |
-| internal RC oscillator | **19% of a bit** | ±2% over voltage and temperature after factory calibration |
+| internal RC oscillator | **95% of a bit** | ±10% × 9.5: the factory-calibrated RC over voltage and temperature; ±2% holds only at the calibration point |
 | ISR jitter | ~10% of a bit | the tick ISR or the TX ISR delaying a sample, ~40 cycles |
-| | **~30%** | |
+| | **~105%** | |
 
-**The oscillator dominates, and it is baud-independent.** That is why picking a
-baud with a smaller divisor error would buy nothing, and why the baud is chosen
-against the *jitter* term, which does scale: at 38400 the same sum is about 40%,
-which works on a bench and not over temperature. A board with a crystal has no
+**The oscillator dominates, and it is baud-independent.** At ±10% this link
+does not work, at any baud: an 8N1 frame has about a 5% end-to-end clock budget
+by the stop-bit sample, and the error is relative, so lowering the rate does not
+shrink it. A part anywhere near the tolerance limit will not communicate, which
+is why `TFW_UART_SOFT_UNCALIBRATED` marks this profile bench-only
+(`boards/attiny85/board_profile.h`). The baud is chosen against the *jitter*
+term, which does scale: at 38400 it doubles. A board with a crystal has no
 oscillator term and can raise this; a board on the internal RC should not.
 
 ### 3. Timer1 is not a mega timer, and it is spent anyway

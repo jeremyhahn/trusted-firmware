@@ -277,8 +277,9 @@ CRYPTO ?= soft
 
 # A tier a board's profile refuses (BOARD_REFUSED_TIERS) is not built, not even
 # on request: the ATmega328P is supported only with a secure element (owner
-# ruling 2026-10-17, m522, item 79), so CRYPTO=soft there is an image nobody
-# supports. Asked for anyway, it fails here, as an unknown tier does below.
+# ruling 2026-10-17, m522, item 79), so CRYPTO=soft there, or CRYPTO=auto with
+# the soft root linked beside the element, is an image nobody supports. Asked
+# for anyway, it fails here, as an unknown tier does below.
 ifneq ($(filter $(CRYPTO),$(BOARD_REFUSED_TIERS)),)
 $(error CRYPTO=$(CRYPTO) is refused on $(BOARD) -- the board is supported only with its $(BOARD_TIERS) tier (owner ruling 2026-10-17, m522))
 endif

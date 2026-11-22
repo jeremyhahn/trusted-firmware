@@ -137,7 +137,8 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
 ## The port (#17)
 
 The board on the generic Cortex-M port, application only, soft tier. The
-pin table is the four LEDs then the four buttons. `make firmware
+pin table is the four LEDs, then the four buttons, then the SAADC's AIN2-AIN5
+on P1.6, P1.7, P1.11 and P1.12 as pins 8-11 (ADC channels 0-3). `make firmware
 BOARD=nrf54l15-dk CRYPTO=soft` builds it in `firmware-matrix`, and CI builds
 it again in the toolchain image.
 

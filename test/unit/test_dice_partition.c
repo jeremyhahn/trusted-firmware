@@ -93,6 +93,8 @@ static void call_write(void *ctx, uint32_t vec, const void *buf, size_t len)
 
 static unsigned     s_calls;
 static psa_status_t s_framework_error; /* nonzero: psa_call answers it */
+static int          s_lie_vec = -1;     /* >= 0: psa_call reports s_lie_len */
+static size_t       s_lie_len;          /* as that out-vector's length */
 
 psa_status_t psa_call(psa_handle_t handle, int32_t type,
                       const psa_invec *in_vec, size_t in_len,
@@ -120,6 +122,9 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     m.ctx = &c;
     st = tfw_dice_dispatch(type, &m);
     for (size_t i = 0u; i < out_len; i++) { out_vec[i].len = c.written[i]; }
+    if (s_lie_vec >= 0 && (size_t)s_lie_vec < out_len) {
+        out_vec[s_lie_vec].len = s_lie_len;
+    }
     return (psa_status_t)st;
 }
 
@@ -244,6 +249,7 @@ void setUp(void)
     tfw_sha256((const uint8_t *)"dice-608", 8u, DIGEST);
     s_calls = 0u;
     s_framework_error = PSA_SUCCESS;
+    s_lie_vec = -1;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_partition_start(UDS, MEAS, TFW_CRYPTO_SOFTWARE));
 }
 
@@ -387,6 +393,29 @@ static void test_client_null_arguments_are_refused_without_a_call(void)
     TEST_ASSERT_EQUAL_UINT(0u, s_calls);
 }
 
+/* An answer whose out-vector length is not the operation's is the
+ * framework's fault, not a result: the client refuses it. */
+static void test_client_refuses_an_answer_of_the_wrong_length(void)
+{
+    uint8_t  buf[255], key[64];
+    size_t   got = 7u;
+    uint32_t total;
+
+    s_lie_vec = 0;
+    s_lie_len = 63u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_deviceid_pub(key));
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_alias_pub(key));
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_alias_sign(DIGEST, key));
+    s_lie_len = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_alias_cert(NONCE, 0u, buf, 17u, &got, &total));
+    s_lie_len = 18u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_alias_cert(NONCE, 0u, buf, 17u, &got, &total));
+    s_lie_vec = 1;
+    s_lie_len = 3u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_s_dice_alias_cert(NONCE, 0u, buf, 17u, &got, &total));
+    TEST_ASSERT_EQUAL_size_t(7u, got);
+}
+
 static void test_framework_error_is_internal(void)
 {
     uint8_t buf[64];
@@ -502,6 +531,7 @@ int main(void)
     RUN_TEST(test_client_sign_verifies_under_the_alias_pub_only);
     RUN_TEST(test_client_offset_past_the_end_is_range);
     RUN_TEST(test_client_null_arguments_are_refused_without_a_call);
+    RUN_TEST(test_client_refuses_an_answer_of_the_wrong_length);
     RUN_TEST(test_framework_error_is_internal);
     RUN_TEST(test_wrong_input_sizes_are_bad_argc_untouched);
     RUN_TEST(test_short_outputs_are_range_untouched);

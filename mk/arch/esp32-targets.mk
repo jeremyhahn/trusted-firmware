@@ -5,8 +5,9 @@
 # (mk/arch/*-targets.mk), unlike mk/arch/esp32.mk, which only an ESP32 board
 # reads -- so `make esp32-qemu-test` works without naming a board.
 #
-# NEITHER IS IN `make ci`. The CI image carries no ESP-IDF, and a gate that
-# cannot run there would be a failure, not a skip; these run where ESP-IDF
+# NEITHER esp32-build NOR esp32-qemu-test IS IN `make ci`. The CI image carries
+# no ESP-IDF, and a gate that cannot run there would be a failure, not a skip;
+# these run where ESP-IDF
 # $(ESP_IDF_VERSION) and Espressif's QEMU are installed and exported. The
 # install, outside the clone, is in docs/multi-arch/adr-esp-idf-integration.md.
 

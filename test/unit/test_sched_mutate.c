@@ -150,6 +150,9 @@ static tfw_status_t model(unsigned t, uint8_t cmd, const uint8_t *p, uint8_t n)
         if (n != 2u) {
             return TFW_ERR_BAD_ARGC;
         }
+        if (p[1] > 1u) {                /* apply_final > 1u, before the slot */
+            return TFW_ERR_RANGE;
+        }
         return armed_slot(t, p[0]) >= 0 ? TFW_OK : TFW_ERR_NO_SLOT;
     }
     if (n != 6u) {

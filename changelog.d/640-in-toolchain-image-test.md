@@ -1,0 +1,3 @@
+### Added
+
+- **A test pins scripts/in-toolchain-image.sh** (#640), the wrapper every CI stage runs in. `make scripts-test` runs it against a stub `docker`: each bad setting (network, uid, cache switch and class, cache dirs, cache save, CPU and memory bounds) and a missing command exit 2 before any container is made; the CPU bound is capped at the daemon's NCPU and left alone when the daemon reports none; the memory bound, swap and uid reach `docker create`; the cache volumes follow CI_CACHE, CI_CACHE_CLASS and the network; the container is removed on exit and the script exits with the command's status.

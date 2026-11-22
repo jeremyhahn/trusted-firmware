@@ -21,7 +21,8 @@
  *
  * The first instruction is also `__vectors`, the name the crt gave the image's
  * start: tools read that symbol as where the image sits in flash -- simavr's
- * loader takes its flash base from it (test/integration/simavr/boot_harness.c:1009)
+ * loader takes its flash base from it (elf_read_firmware's flashbase, which
+ * test/integration/simavr/boot_harness.c starts and loads the boot at)
  * and, without it, loads the boot at 0. A label, so no byte changes.
  *
  * The stack starts at __stack, NOT at RAMEND: mk/arch/avr.mk defines it below

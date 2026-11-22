@@ -4,9 +4,9 @@
  * The bootloader's AVR HAL.
  *
  * Under boot/hal/avr, which is a register-poking layer and is therefore, like
- * src/hal/avr, one of the places a target conditional is permitted. There is
- * one in this file and it is the far-flash read on parts with more than 64 KB;
- * everything else is plain code.
+ * src/hal/avr, one of the places a target conditional is permitted. There are
+ * two in this file: the far-flash read on parts with more than 64 KB, and the
+ * EIND write before the jump (see there); everything else is plain code.
  */
 
 #include <avr/io.h>
@@ -133,8 +133,9 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
     }
     /* `update` rather than `write`: a byte already holding the wanted value is
      * skipped. EEPROM has a finite endurance and the bootloader rewrites this
-     * region on every boot that advances anything, so writing all 128 bytes
-     * each time would spend the part's endurance on bytes that did not change.
+     * region on every boot that advances anything, so writing all
+     * TFW_BOOT_EE_BLOCK_LEN bytes each time would spend the part's endurance
+     * on bytes that did not change.
      */
     eeprom_update_block(buf, (void *)(uintptr_t)addr, len);
     return TFW_OK;
@@ -181,17 +182,17 @@ void tfw_boot_uart_tx(uint8_t byte)
  * Uninitialised-but-not-zeroed storage because the application's C runtime
  * zeroes .bss before main() and would erase the CDI before anything could
  * read it -- the same reasoning `.noinit` exists for. A section OF ITS OWN
- * rather than that one, because mk/boot.mk pins this section's address with
- * `--section-start`: pinning the generic `.noinit` output section would carry
+ * rather than that one, because mk/arch/avr.mk pins this section's address
+ * with `--section-start`: pinning the generic `.noinit` output section would carry
  * every other object assigned to it to the same fixed spot, and
  * tfw_hal_early_flags is exactly such an object in this same image.
  *
  * At the top of SRAM because that is an address both images can name without
  * a shared linker script: the bootloader's own stack is moved below it by the
- * -Wl,--defsym in mk/boot.mk, and the application places its own reader
+ * -Wl,--defsym in mk/arch/avr.mk, and the application places its own reader
  * (src/hal/avr/hal_handoff.c) at the identical address via the same formula
- * in mk/avr.mk -- see include/tfw/boot.h and src/core/handoff.c for the
- * application's side of this handoff.
+ * in mk/arch/avr.mk (ARCH_FW_PLACEMENT_LDFLAGS) -- see include/tfw/boot.h and
+ * src/core/handoff.c for the application's side of this handoff.
  *
  * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked into BOOT_LDFLAGS)
  * splices `.handoff (NOLOAD) : { *(.handoff) }` into the default script, the

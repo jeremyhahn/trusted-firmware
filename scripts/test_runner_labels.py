@@ -9,7 +9,7 @@ misspelled self-hosted label would reach main through a green gate. These tests
 read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
 group/labels mapping, a flow list or mapping on one line or across several,
 and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
-key; a key may have spaces before its colon, `runs-on : codex`) of
+key; a flow `labels:` or next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`) of
 .github/workflows/*.yml and *.yaml with the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. The built-in labels, the self-hosted ones
@@ -122,6 +122,21 @@ def _value_labels(value):
     yield from _labels(value)
 
 
+def _flow(lines, i, value):
+    """Return (value, last): a flow list or mapping `value` opened on line i
+    joined with the following lines up to `last`, the line where it closes;
+    (value, i) when it is not a flow or closes on line i, (None, len(lines))
+    when it never closes."""
+    close = {"[": "]", "{": "}"}.get(value[:1])
+    if not close or value.endswith(close):
+        return value, i
+    for j in range(i + 1, len(lines)):
+        value = f"{value} {_value(lines[j])}".strip()
+        if value.endswith(close):
+            return value, j
+    return None, len(lines)
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
@@ -135,9 +150,10 @@ def plain_labels(text):
     key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
     `labels:` keys of its mapping (`'labels':`, `"group":`); each of these
     keys may have spaces before its colon (`runs-on : codex`). A flow list or
-    mapping that does not close on the `runs-on:` line takes the following
-    lines until it closes (an unclosed one yields nothing); its labels carry
-    the `runs-on:` line number. A value that starts with `${{` is an
+    mapping that does not close on its line, whether it is the `runs-on:`
+    value, a `labels:` value or the next-line value of an empty key, takes the
+    following lines until it closes (an unclosed one yields nothing); its
+    labels carry the line it opens on. A value that starts with `${{` is an
     expression and yields nothing, and a label with a `${{ ... }}` expression
     anywhere in it (`runner-${{ matrix.n }}`) is skipped.
     """
@@ -146,15 +162,9 @@ def plain_labels(text):
         key = RUNS_ON.match(line)
         if not key:
             continue
-        value = _value(key.group(2))
-        close = {"[": "]", "{": "}"}.get(value[:1])
-        if close and not value.endswith(close):
-            for j in range(i + 1, len(lines)):
-                value = f"{value} {_value(lines[j])}".strip()
-                if value.endswith(close):
-                    break
-            else:
-                continue
+        value, _ = _flow(lines, i, _value(key.group(2)))
+        if value is None:
+            continue
         if value:
             for label in _value_labels(value):
                 yield i + 1, label
@@ -163,7 +173,11 @@ def plain_labels(text):
             # `- item` lines at or past list_indent are labels; None after a
             # mapping key whose value is not a block list.
             list_indent = indent
+            # The last line of a flow value already read.
+            last = i
             for j in range(i + 1, len(lines)):
+                if j <= last:
+                    continue
                 if not lines[j].strip() or lines[j].lstrip().startswith("#"):
                     continue
                 item = ITEM.match(lines[j])
@@ -176,7 +190,8 @@ def plain_labels(text):
                 depth = len(lines[j]) - len(lines[j].lstrip())
                 if listed and not item and not entry and depth > list_indent:
                     # The value of the empty key, on the next line.
-                    for label in _value_labels(_value(lines[j])):
+                    value, last = _flow(lines, j, _value(lines[j]))
+                    for label in _value_labels(value or ""):
                         yield j + 1, label
                     list_indent = None
                     continue
@@ -184,7 +199,9 @@ def plain_labels(text):
                     break
                 list_indent = None
                 if entry.group(2) == "labels":
-                    value = _value(entry.group(3) or "")
+                    value, last = _flow(lines, j, _value(entry.group(3) or ""))
+                    if value is None:
+                        break
                     if value:
                         for label in _labels(value):
                             yield j + 1, label
@@ -344,6 +361,22 @@ class RunnerLabelsTest(unittest.TestCase):
         head = "jobs:\n  build:\n    runs-on:\n      group : g\n      'labels' :\n"
         self.assertEqual(self.check(f"{head}        - qwne\n"), ["w.yml:6: qwne"])
         self.assertEqual(self.check(f"{head}        - codex\n"), [])
+
+    def test_a_labels_flow_list_across_lines_is_read(self):
+        head = "jobs:\n  build:\n    runs-on:\n      group: g\n      labels: [self-hosted,\n"
+        self.assertEqual(self.check(f"{head}        qwne]\n"), ["w.yml:5: qwne"])
+        self.assertEqual(self.check(f"{head}        codex]\n"), [])
+        self.assertEqual(self.check(f"{head}        qwne\n"), [])
+
+    def test_a_next_line_flow_value_across_lines_is_read(self):
+        head = "jobs:\n  build:\n    runs-on:\n"
+        for value, want in (
+            ("      [self-hosted,\n       qwne]\n", ["w.yml:4: qwne"]),
+            ("      [self-hosted,\n       codex]\n", []),
+            ("      labels:\n        [self-hosted,\n         qwne]\n", ["w.yml:5: qwne"]),
+            ("      {group: g,\n       labels: qwne}\n", ["w.yml:4: qwne"]),
+        ):
+            self.assertEqual(self.check(head + value), want, value)
 
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):

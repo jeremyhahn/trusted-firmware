@@ -62,6 +62,21 @@ static void test_a_divisor_more_than_3_percent_off_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpuart_baud(CLK, 5000000u, &reg));
 }
 
+/* The 3 % limit is inclusive, 1000 baud asked:
+ *   4850 Hz: x5, SBR 1 gives 970 baud, 30 off (3.0 % slow), the nearest: accepted.
+ *   4849 Hz: x5, SBR 1 gives 969 baud, 31 off (3.1 % slow), the nearest: refused. */
+static void test_an_error_of_exactly_3_percent_is_accepted_and_one_baud_more_is_not(void)
+{
+    uint32_t reg = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpuart_baud(4850u, 1000u, &reg));
+    TEST_ASSERT_EQUAL_HEX32(0x04020001u, reg);  /* x5, BOTHEDGE, SBR 1 */
+
+    reg = 0xA5A5A5A5u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpuart_baud(4849u, 1000u, &reg));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, reg);
+}
+
 static void test_a_baud_below_the_divisor_is_out_of_range(void)
 {
     uint32_t reg = 0u;
@@ -96,6 +111,7 @@ int main(void)
     RUN_TEST(test_a_zero_baud_or_clock_is_out_of_range);
     RUN_TEST(test_a_baud_past_the_clock_is_out_of_range);
     RUN_TEST(test_a_divisor_more_than_3_percent_off_is_refused);
+    RUN_TEST(test_an_error_of_exactly_3_percent_is_accepted_and_one_baud_more_is_not);
     RUN_TEST(test_a_baud_below_the_divisor_is_out_of_range);
     RUN_TEST(test_the_gpio_banks);
     RUN_TEST(test_a_bank_past_gpio5_has_no_base);

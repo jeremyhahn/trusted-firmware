@@ -18,6 +18,7 @@ struct rp2350_i2c_model {
     /* I2C0 */
     uint32_t con, tar, spklen, mask, enable, abrt_src, raw;
     uint32_t ss_hcnt, ss_lcnt, fs_hcnt, fs_lcnt;   /* SCL counts per mode */
+    uint32_t sda_hold;              /* IC_SDA_HOLD (table 1137) */
     uint8_t  in_txn, dir_read, flushed, wcount;
     uint8_t  rx[32];
     uint8_t  rx_n;

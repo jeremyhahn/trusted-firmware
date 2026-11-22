@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -117,9 +118,12 @@ func TestHSMKindNamesEveryKindAndNumbersTheRest(t *testing.T) {
 }
 
 func TestHSMVerbsReturnTheDevicesRefusal(t *testing.T) {
+	env := filepath.Join(t.TempDir(), "envelope.cbor")
+	require.NoError(t, os.WriteFile(env, []byte{0xD8, 0x6B}, 0o600))
 	refuse := func(tfw.Frame) (tfw.Status, []byte) { return tfw.StatusErrBadState, nil }
 	for _, args := range [][]string{
-		{"hsm-heartbeat"}, {"hsm-select", "0"}, {"hsm-record", "0"}, {"hsm-records"},
+		{"hsm-heartbeat"}, {"hsm-report", "ima"}, {"hsm-verdict", "clear"}, {"hsm-select", "0"},
+		{"hsm-load", env}, {"hsm-record", "0"}, {"hsm-records"},
 	} {
 		var out bytes.Buffer
 		err := run(context.Background(), startFakeDevice(t, refuse), args[0], args[1:], false, &out)
@@ -128,11 +132,55 @@ func TestHSMVerbsReturnTheDevicesRefusal(t *testing.T) {
 	}
 }
 
+func TestHSMLoadReturnsTheVerdictOnTheLastChunk(t *testing.T) {
+	// Two chunks: the device takes the first and refuses the signature
+	// with the last, as it does for an envelope it cannot verify.
+	env := filepath.Join(t.TempDir(), "envelope.cbor")
+	require.NoError(t, os.WriteFile(env, bytes.Repeat([]byte{0xA5}, tfw.HSMLoadChunk+1), 0o600))
+	chunks := 0
+	verdict := func(f tfw.Frame) (tfw.Status, []byte) {
+		if f.Cmd() != tfw.CmdHSMLoad {
+			return tfw.StatusErrUnsupported, nil
+		}
+		chunks++
+		if chunks == 1 {
+			return tfw.StatusOK, []byte{0, 0, 0, 0, 0, 0}
+		}
+		return tfw.StatusErrCrypto, nil
+	}
+	for _, asJSON := range []bool{false, true} {
+		chunks = 0
+		var out bytes.Buffer
+		err := run(context.Background(), startFakeDevice(t, verdict), "hsm-load", []string{env}, asJSON, &out)
+		assert.True(t, errors.Is(err, tfw.StatusErrCrypto), "json=%v: %v", asJSON, err)
+		assert.Equal(t, 2, chunks, "json=%v", asJSON)
+		assert.Empty(t, out.String(), "json=%v printed after the device refused the envelope", asJSON)
+	}
+}
+
+func TestHSMLoadRefusesAnOutOfRangeEnvelopeBeforeTheWire(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []int{0, tfw.HSMEnvelopeMax + 1} {
+		env := filepath.Join(dir, fmt.Sprintf("envelope-%d.cbor", n))
+		require.NoError(t, os.WriteFile(env, make([]byte, n), 0o600))
+		b := &hsmBench{sent: map[tfw.Cmd][]byte{}}
+		var out bytes.Buffer
+		err := run(context.Background(), startFakeDevice(t, b.answer), "hsm-load", []string{env}, false, &out)
+		var re *tfw.ArgRangeError
+		require.True(t, errors.As(err, &re), "%d bytes: %v, want an ArgRangeError", n, err)
+		assert.Equal(t, int64(n), re.Value)
+		assert.NotContains(t, b.sent, tfw.CmdHSMLoad, "%d bytes reached the wire", n)
+		assert.Empty(t, out.String(), "%d bytes printed state", n)
+	}
+}
+
 func TestHSMVerbsReportALinkFailure(t *testing.T) {
+	env := filepath.Join(t.TempDir(), "envelope.cbor")
+	require.NoError(t, os.WriteFile(env, []byte{0xD8, 0x6B}, 0o600))
 	dev := tfw.New(deadConn{}, tfw.WithBootWait(0))
 	for _, args := range [][]string{
 		{"hsm-heartbeat"}, {"hsm-report", "ima"}, {"hsm-verdict", "clear"}, {"hsm-select", "0"},
-		{"hsm-record", "0"}, {"hsm-records"},
+		{"hsm-load", env}, {"hsm-record", "0"}, {"hsm-records"},
 	} {
 		err := run(context.Background(), dev, args[0], args[1:], false, io.Discard)
 		var le *tfw.LinkError

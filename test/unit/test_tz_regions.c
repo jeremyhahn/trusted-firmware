@@ -157,6 +157,60 @@ static void test_refuses_empty_and_too_many(void)
     TEST_ASSERT_EQUAL_INT(TZ_ERR_EMPTY, tz_regions_check(t, TZ_SAU_MAX_REGIONS + 1u, &tz_board_layout));
 }
 
+/* tz_regions.c:57, the NSC's base below the Secure code's base. */
+static void test_refuses_nsc_below_secure_code(void)
+{
+    t[3].base = TZ_S_CODE_BASE - 32u;
+    t[3].limit = TZ_S_CODE_BASE - 1u;
+    TEST_ASSERT_EQUAL_INT(TZ_ERR_NSC_OUTSIDE, check());
+}
+
+/* tz_regions.c:43, a full SAU of TZ_SAU_MAX_REGIONS regions is not too many. */
+static void test_accepts_exactly_max_regions(void)
+{
+    struct tz_sau_region u[TZ_SAU_MAX_REGIONS];
+    uint32_t p = TZ_NS_PERIPH_BASE;
+    size_t i;
+    u[0] = t[0];
+    u[1] = t[1];
+    u[2] = t[3];
+    for (i = 3; i < TZ_SAU_MAX_REGIONS - 1u; i++) {
+        u[i].base = p;
+        u[i].limit = p + 31u;
+        u[i].nsc = 0;
+        p += 32u;
+    }
+    u[i].base = p;
+    u[i].limit = TZ_NS_PERIPH_BASE + TZ_NS_PERIPH_SIZE - 1u;
+    u[i].nsc = 0;
+    TEST_ASSERT_EQUAL_INT(TZ_OK, tz_regions_check(u, TZ_SAU_MAX_REGIONS, &tz_board_layout));
+}
+
+/* tz_regions.c:65, the NSC split into two NSC regions. */
+static void test_refuses_two_nsc(void)
+{
+    struct tz_sau_region u[NREG + 1u];
+    memcpy(u, t, sizeof t);
+    u[3].limit = TZ_NSC_BASE + TZ_NSC_SIZE / 2u - 1u;
+    u[4].base = TZ_NSC_BASE + TZ_NSC_SIZE / 2u;
+    u[4].limit = TZ_NSC_BASE + TZ_NSC_SIZE - 1u;
+    u[4].nsc = 1;
+    TEST_ASSERT_EQUAL_INT(TZ_ERR_NSC_COUNT, tz_regions_check(u, NREG + 1u, &tz_board_layout));
+}
+
+/* tz_regions.c:30 and 40-41, NS regions next to each Secure range share no byte. */
+static void test_accepts_ns_regions_touching_secure_ends(void)
+{
+    t[0].base = TZ_S_CODE_BASE - 32u;
+    t[0].limit = TZ_S_CODE_BASE - 1u;
+    t[1].base = TZ_S_RAM_BASE + TZ_S_RAM_SIZE;
+    t[1].limit = t[1].base + 31u;
+    TEST_ASSERT_EQUAL_INT(TZ_OK, check());
+    t[0].base = TZ_NSC_BASE + TZ_NSC_SIZE;
+    t[0].limit = t[0].base + 31u;
+    TEST_ASSERT_EQUAL_INT(TZ_OK, check());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -176,5 +230,9 @@ int main(void)
     RUN_TEST(test_refuses_ns_over_secure_code);
     RUN_TEST(test_refuses_nsc_made_ns);
     RUN_TEST(test_refuses_empty_and_too_many);
+    RUN_TEST(test_refuses_nsc_below_secure_code);
+    RUN_TEST(test_accepts_exactly_max_regions);
+    RUN_TEST(test_refuses_two_nsc);
+    RUN_TEST(test_accepts_ns_regions_touching_secure_ends);
     return UNITY_END();
 }

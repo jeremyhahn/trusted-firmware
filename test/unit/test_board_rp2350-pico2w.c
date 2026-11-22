@@ -6,7 +6,8 @@
  * The pins are the header GPIOs on SIO's port 0, with the bit the GPIO
  * number: GPIO2-22, then GPIO26-28. The UART's GPIO0-1 and the radio's
  * GPIO23-25 and 29 are never pins, no pin is an LED (the Pico 2 W's is the
- * radio's), and no pin offers a converter or a compare unit yet.
+ * radio's). GP26-28 are ADC channels 0-2 and one pin per PWM slice offers a
+ * compare unit; the PERIPH=0 row offers neither.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */
@@ -55,8 +56,8 @@ static void test_no_pin_is_the_uart_or_the_radio(void)
 }
 
 /* GP26-GP28 are ADC0-2 and no other pin has an ADC. The even GPIOs 2-16 offer PWM, one per slice (board.c;
- * the rows' fields are the Cortex-M hal_types.h's, which this host build does
- * not see, and test_rp2350_pwm.c checks hal_pwm.c refuses a mismatched row);
+ * the next test checks each row's fields, and test_rp2350_pwm.c checks
+ * hal_pwm.c refuses a mismatched row);
  * no other pin does. */
 #if TFW_FEATURE_PWM
 static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
@@ -94,6 +95,34 @@ static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
     TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_ANALOG);
     TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_TONE);
     TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_EEPROM);
+}
+
+/* On the host a row's four fields land positionally in test/mock/hal_types.h's
+ * ctl, duty, bit and wide as board.c's { slice, channel, port, GPIO }: each
+ * row is its own GPIO's slice (n >> 1) & 7 and channel n & 1 on port 0, and
+ * the eight rows are the eight slices, once each. */
+static void test_each_pwm_row_is_its_own_gpios_slice_and_no_slice_is_shared(void)
+{
+    uint8_t seen = 0u;
+
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        tfw_pwmref_t p;
+        tfw_pinref_t r;
+        uint8_t gpio;
+
+        if (tfw_board_pwm(i, &p) != TFW_OK) {
+            continue;
+        }
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
+        gpio = r.bit;
+        TEST_ASSERT_EQUAL_UINT8(gpio, p.wide);
+        TEST_ASSERT_EQUAL_UINT16((gpio >> 1) & 7u, p.ctl);
+        TEST_ASSERT_EQUAL_UINT16(gpio & 1u, p.duty);
+        TEST_ASSERT_EQUAL_UINT8(0u, p.bit);
+        TEST_ASSERT_EQUAL_HEX8(0u, seen & (1u << p.ctl));
+        seen = (uint8_t)(seen | (1u << p.ctl));
+    }
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, seen);
 }
 #else
 /* The PERIPH=0 row is GPIO only: no converter input, no PWM row, no tone and
@@ -152,6 +181,7 @@ int main(void)
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
 #if TFW_FEATURE_PWM
     RUN_TEST(test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice);
+    RUN_TEST(test_each_pwm_row_is_its_own_gpios_slice_and_no_slice_is_shared);
 #else
     RUN_TEST(test_the_periph_0_row_is_gpio_only);
 #endif

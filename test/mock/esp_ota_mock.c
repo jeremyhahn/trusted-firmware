@@ -96,7 +96,7 @@ static int held(esp_ota_handle_t h)
 
 const esp_partition_t *esp_ota_get_running_partition(void)
 {
-    return &slots[mock_esp.running];
+    return mock_esp.no_running ? NULL : &slots[mock_esp.running];
 }
 
 const esp_partition_t *esp_ota_get_boot_partition(void)

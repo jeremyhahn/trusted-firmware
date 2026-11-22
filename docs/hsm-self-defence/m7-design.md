@@ -3,7 +3,7 @@
 > **Status: PROPOSED** · Issue: [#50](../../../../issues/50) · SPEC row:
 > `hsm-self-defence` (future) · Scope: trusted-firmware (the M7 enforcement and
 > the signature check); go-xkms, go-trusted-platform, trusted-imx95 and NXP
-> (seams only) · Last verified: 2026-10-26
+> (seams only) · Last verified: 2026-11-21
 >
 > The row's design when it starts again after #49 closed (2026-10-25). The
 > requirements, signals S1–S6, actions A1–A6 and rules R1–R7 are in
@@ -15,14 +15,21 @@
 
 ## 1. On main, and what the row lacks
 
-**On main for the row** (host only, `make host-test`, and tfwsim under
+**On main for the row** (host, `make host-test`, and tfwsim under
 `make sdk-test`): the SUIT reader for an integrated payload under the tenant
 key (`src/core/suit_integrated.c`, slice 1); the payload reader and the
 decision engine, R1–R7 (`src/core/hsm_payload.c`, `hsm_engine.c`, slice 2);
-the channel commands `0x76`–`0x7A` (`src/core/hsm_cmd.c`, slice 4). The port
-the engine acts through is `src/core/hsm_port.h`: `tfw_hsm_port_act` (A1–A6,
-`TFW_HSM_ACT_*` in `src/core/hsm.h`) and `tfw_hsm_port_key` (ADR D3). Its only
-implementations are tfwsim's (`tools/tfwsim/hsm_port.c`) and the unit tests'.
+the channel commands `0x76`–`0x7A` (`src/core/hsm_cmd.c`, slice 4) and
+`0x7C` (slice 11b-1). Slice 3 links the engine and its loop
+(`src/core/hsm_loop.c`) into the mps2-an505 QEMU image
+(`boards/mps2-an505/profile.mk`, `HSM := 1`). The port the engine acts
+through is `src/core/hsm_port.h`, four functions: `tfw_hsm_port_act` (A1–A6,
+`TFW_HSM_ACT_*` in `src/core/hsm.h`), `tfw_hsm_port_key` (ADR D3),
+`tfw_hsm_port_sense` and `tfw_hsm_port_measure`. Its implementations are
+tfwsim's (`tools/tfwsim/hsm_port.c`: act, measure, key), QEMU's
+(`src/hal/cortex-m/mps2/hsm_port.c`: all four), the i.MX 95's
+(`src/hal/cortex-m/imx95/hsm_port.c`: act, measure, sense; no key yet) and
+the unit tests' (`test/unit/test_hsm_cmd.c`, `test/unit/test_hsm_loop.c`).
 
 **On main from #49** (`docs/multi-arch/imx95-design.md` §9, §10), each "met
 (host, register model)" against `test/model/imx95_model.c` and built in CI, not
@@ -41,7 +48,7 @@ run on the board:
 
 | Part | Lacks | Slice |
 |---|---|---|
-| H1, the M7 application | `hsm_port.c` for the i.MX 95; the engine and `hsm_cmd.c` in the M7's object list; the loop | 3, 5 |
+| H1, the M7 application | The board's `tfw_hsm_port_key`; `HSM := 1` in `boards/frdm-imx95-m7/profile.mk`, which puts the engine, `hsm_cmd.c` and the loop in the M7's object list and waits on O2 (`hsm_port.c` for the i.MX 95 is slice 5's, the loop slice 3's) | 5 |
 | A2 | The power-domain ids the M7's agent may switch (imx95 Q21; architecture Q7) | 5 |
 | A1 | Which reset or power domain holds the Ethernet PHYs (architecture Q10) | 5 |
 | A5 | SCMI System power management's SYSTEM_POWER_STATE_SET, in `scmi.c` (slice 6, done) | 6 |
@@ -151,8 +158,9 @@ designed here.
 
 One PR each (m751). Each adds its host tests to `make ci`, with no skip guard;
 "host" means the unit build under the mock HAL and the register model
-`test/model/imx95_model.c`. Slices 1 to 4, 6 and 7 are done, and slice 5's
-code and tests (engineering.md), and slice 8 for A4's keys. Slice 3, the loop on QEMU's `mps2-an505`, is proved on the host by `test_hsm_loop` (the
+`test/model/imx95_model.c`. Slices 1 to 4, 6, 7, 11a, 11b-1 and 11b-2 are
+done, and the code and tests of slices 5, 9 and 10 (engineering.md), and
+slice 8 for A4's keys. Slice 3, the loop on QEMU's `mps2-an505`, is proved on the host by `test_hsm_loop` (the
 loop's pass: a rising line raised once, signal order, every pass keeping the
 heartbeat deadline) and `test_verify_p256` (the tenant-key verify the image
 links), and at level 2 by the `hsm-*` cases of `make

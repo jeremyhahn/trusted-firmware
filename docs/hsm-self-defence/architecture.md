@@ -3,12 +3,15 @@
 > **Status: PROPOSED** · Issue: [#50](../../../../issues/50) · SPEC row:
 > `hsm-self-defence` (future) · Scope: trusted-firmware (the M7 enforcement
 > and the signature check); go-xkms, go-trusted-platform, trusted-imx95 and
-> NXP (seams only) · Last verified: 2026-10-22
+> NXP (seams only) · Last verified: 2026-11-21
 >
-> No M7 code implements this row yet; slices 1 and 2 (the SUIT reader's
-> tenant key, the payload reader and the decision engine) run on the host
-> only, under `make host-test`. Slice 4 (the channel commands `0x76`–`0x7A`)
-> runs there and in tfwsim-atecc608a, under `make sdk-test`. Every requirement and its
+> No M7 image links this row yet; slices 1 and 2 (the SUIT reader's
+> tenant key, the payload reader and the decision engine) run on the host,
+> under `make host-test`, and slice 3 links the engine and its loop into the
+> mps2-an505 QEMU image, under the hsm-* cases of
+> `make integration-test-cortex-m`. Slice 4 (the channel commands
+> `0x76`–`0x7A` and `0x7C`) runs on the host and in tfwsim-atecc608a, under
+> `make sdk-test`. Every requirement and its
 > state is in section 1a. The policy format is decided in
 > [`adr-response-policy-format.md`](adr-response-policy-format.md), the tests
 > are in [`engineering.md`](engineering.md).
@@ -99,7 +102,8 @@ The row split into its requirements, in its own order. **Met** means code on
 `main` does it, **unmet** that this project owes it, **outside** that another
 owner does. No requirement is met yet, as none runs on the M7. "Host" marks a
 requirement whose logic is portable C in `src/core/` (question 16), tested by
-`make host-test` (engineering.md, level 1) and not yet linked on any target.
+`make host-test` (engineering.md, level 1), linked into the mps2-an505 QEMU
+image by slice 3 and not yet into any M7 image.
 
 | # | Requirement (row) | Component | Signal source | Action path | State |
 |---|---|---|---|---|---|
@@ -161,7 +165,9 @@ other transport, with new command ids that extend and never renumber. No
 second protocol is designed for one link (L1). Slice 4 allocated them:
 `HSM_HEARTBEAT` `0x76`, `HSM_REPORT` `0x77`, `HSM_VERDICT` `0x78`,
 `HSM_SELECT` `0x79` and `HSM_LOAD` `0x7A`, each replying with the engine's
-state ([`../wire-protocol/api.md`](../wire-protocol/api.md)).
+state ([`../wire-protocol/api.md`](../wire-protocol/api.md)); slice 11b-1
+added `HSM_RECORD_READ` `0x7C` (`include/tfw/protocol.h`,
+`src/core/commands.def`).
 
 ## 3. Actions out
 
@@ -174,7 +180,9 @@ state ([`../wire-protocol/api.md`](../wire-protocol/api.md)).
 | A5 | Shutdown | SCMI system power, through the System Manager | **Open:** permission for the M7's agent (question 7) |
 | A6 | Record | The M7 keeps what it saw and did, for go-trusted-platform to read after recovery | **Read: done** (m7-design.md slice 11b-1): `HSM_RECORD_READ` (`0x7C`), one entry per call, over a RAM store, the TCM behind `hsm_store.h`. **Durable store: open** (slice 11b-3): the M7 has no non-volatile store of its own (ref ADR open question 4; question 12). Ruled (CA m1656, order (b)): "172: #50 slice 11 proceeds with the TCM behind an interface and the durable store as option (c), the monotonic counter in the EdgeLock or ATECC608C, named in the ADR before slice 11 ships." The reader, O9 (CA m1656, ruling 251 item 4): "173 trusted-firmware #50 O9, option (b) xkms evidence through the tf xkms adapter, the new command id is allowed" |
 
-**Lockdown** is A1 then A2 (A3 once it exists), then A6. It is latched: nothing
+**Lockdown** is A1, A2, A3, then A6 (`src/core/hsm_engine.c`); a port that
+cannot perform one answers `TFW_ERR_UNSUPPORTED` and the engine carries on
+(`src/core/hsm_port.h`), as the i.MX 95 port does for A3. It is latched: nothing
 but a reset ends it, and no later policy, selection or message lowers it
 (section 5, rule R6).
 
@@ -332,7 +340,7 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
    document, trusted-imx95 (trust ADR open question 7).
 9. **The A55–M7 channel:** which messaging unit and shared memory, and who
    assigns them. IMX95RM (MU chapter), trusted-imx95. What it carries is
-   settled (slice 4, §2): the wire-protocol commands `0x76`–`0x7A`; only the
+   settled (slice 4, §2): the wire-protocol commands `0x76`–`0x7A` and `0x7C`; only the
    transport is open. With the owner: needs IMX95RM and IMX95SRM (#257).
 10. **How the Ethernet PHYs are held off.** **What UM12527 gives** (Rev. 1.0):
     the two PHYs (U54, U56) run from the VDD_3V3 rail, which comes up with
@@ -369,8 +377,8 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
     with the actions behind one port header, `src/core/hsm_port.h`, that the
     M7 implements later. The engine is portable C with no HAL call, so
     nothing in it is the application's, and the row owns the enforcement and
-    the signature check (H20). Only its tests build it until slice 3 links it
-    on QEMU.
+    the signature check (H20). Slice 3 links it into the mps2-an505 QEMU
+    image; no M7 image links it yet.
 17. **The expected values S3 compares, and whether device attestation is
     callable from the M7.** **Partly answered** (RM00284 Rev. 4.5): the
     signed attestation, over a caller nonce of 4 or 16 bytes, reports the

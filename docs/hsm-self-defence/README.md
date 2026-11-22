@@ -1,17 +1,22 @@
 # HSM self-defence
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Issue:
-> [#50](../../../../issues/50) · Last verified: 2026-10-20
+> [#50](../../../../issues/50) · Last verified: 2026-11-21
 
 The tamper response of the i.MX 95 HSM appliance, enforced by our firmware on
 the SoC's Cortex-M7 so that a compromised Linux on the A55 cannot suppress it.
 Deterministic tamper signals come in; the M7 acts through NXP's System Manager
 and the EdgeLock enclave; a tenant-signed policy decides which action follows
-which signal. Implemented on the host only: slice 1, the SUIT reader for an
-integrated payload under the caller's key; slice 2, the payload reader and the
-decision engine; slice 4, the channel commands `0x76`–`0x7A`
-([engineering.md](engineering.md), slices). Nothing runs on the M7 yet; the
-slices from 3 on are in [m7-design.md](m7-design.md).
+which signal. On the host: slice 1, the SUIT reader for an integrated payload
+under the caller's key; slice 2, the payload reader and the decision engine
+(`make host-test`); slice 4, the channel commands `0x76`–`0x7A` and `0x7C`
+(tfwsim, `make sdk-test`) ([engineering.md](engineering.md), slices). Slice 3
+links the engine and its loop into the mps2-an505 QEMU image
+(`boards/mps2-an505/profile.mk`, `HSM := 1`), run by the hsm-* cases of
+`make integration-test-cortex-m`. The i.MX 95 port's code (slices 5–10) and
+the A6 record and its read (slices 11a, 11b-1, 11b-2) are on main and
+host-tested. No M7 image links the engine yet (O2); what remains is in
+[m7-design.md](m7-design.md).
 
 | Document | What it holds |
 |---|---|

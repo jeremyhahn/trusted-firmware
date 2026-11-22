@@ -8,17 +8,6 @@
 #include "tfw/progmem.h"
 #include "tfw/protocol.h"
 
-/* An image that links the Ethernet network block keeps it at TFW_NETCFG_ADDR
- * (include/tfw/eth.h), the same EEPROM byte as TFW_APP_CONFIG_BASE (#640).
- * Such an image refuses an application that owns configuration, and the config
- * calls never reach the EEPROM; where the configuration lives there is a TA
- * layout decision. */
-#if TFW_FEATURE_ETHERNET || defined(TFW_CM_ETH_MAC)
-#define APP_CONFIG_SHARES_NETCFG 1
-#else
-#define APP_CONFIG_SHARES_NETCFG 0
-#endif
-
 static tfw_app_state_t state;
 static uint16_t        overruns;
 
@@ -70,7 +59,7 @@ static uint8_t descriptor_ok(void)
     if ((uint32_t)TFW_APP_CONFIG_BASE + cfg > (uint32_t)TFW_EEPROM_SIZE) {
         return 0u;
     }
-    if (APP_CONFIG_SHARES_NETCFG && cfg != 0u) {
+    if (TFW_APP_CONFIG_SHARES_NETCFG && cfg != 0u) {
         return 0u;
     }
     return 1u;
@@ -194,7 +183,7 @@ static tfw_status_t config_span(uint16_t off, uint8_t len)
         (uint32_t)TFW_APP_CONFIG_BASE + end > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
     }
-    if (APP_CONFIG_SHARES_NETCFG) {
+    if (TFW_APP_CONFIG_SHARES_NETCFG) {
         return TFW_ERR_PROTECTED_REGION;
     }
     return TFW_OK;

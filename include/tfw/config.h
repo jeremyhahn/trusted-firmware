@@ -132,6 +132,19 @@
 #define TFW_FEATURE_ETHERNET    0
 #endif
 
+/* An image that links the Ethernet network block keeps it at TFW_NETCFG_ADDR
+ * (include/tfw/eth.h), the same EEPROM byte as TFW_APP_CONFIG_BASE (#640).
+ * Such an image refuses an application that owns configuration, and the config
+ * calls never reach the EEPROM (src/core/app_runner.c); where the configuration
+ * lives there is a TA layout decision. */
+#ifndef TFW_APP_CONFIG_SHARES_NETCFG
+#if TFW_FEATURE_ETHERNET || defined(TFW_CM_ETH_MAC)
+#define TFW_APP_CONFIG_SHARES_NETCFG 1
+#else
+#define TFW_APP_CONFIG_SHARES_NETCFG 0
+#endif
+#endif
+
 /* The application-side OTA stager -- issue #75, docs/ota/. DEFAULT 0, turned on
  * by `make OTA_STAGE=1` (which ETH=1 implies), which links src/core/ota_stage.c
  * and the board's external store driver. Read in one place, commands.def, to

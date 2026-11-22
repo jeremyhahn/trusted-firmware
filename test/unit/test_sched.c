@@ -265,6 +265,52 @@ static void test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_ret
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
+/* api.md gives level as (0|1) and ms as [1, 0x7FFFFFFF]: level 2 would drive
+ * the pin high and ms 0 would fire on the next sweep, a timer nobody asked
+ * for. Kills sched.c's `level > 1u` and `ms == 0u ||` refusals. */
+static void test_timer_set_refuses_a_level_above_one_and_a_zero_duration(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 2u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 0xFFu, 1000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+}
+
+/* Every slot held by another pin: a new pin is told NO_SLOT, while a pin that
+ * already holds one still re-arms in place. Kills tfw_sched_cmd_set's NO_SLOT. */
+static void test_a_full_table_refuses_a_new_pin_with_no_slot(void)
+{
+    uint8_t i;
+
+    for (i = 0u; i < TFW_SCHED_SLOTS; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, timer_set((tfw_pin_t)(2u + i), 1u, 1000u));
+    }
+    TEST_ASSERT_EQUAL_UINT8(TFW_SCHED_SLOTS, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT,
+                      timer_set((tfw_pin_t)(2u + TFW_SCHED_SLOTS), 1u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));   /* extends */
+    TEST_ASSERT_EQUAL_UINT8(TFW_SCHED_SLOTS, tfw_sched_active());
+}
+
+/* A pin with no timer: CANCEL says NO_SLOT, QUERY answers inactive, low, zero
+ * remaining. Kills tfw_sched_cmd_cancel's NO_SLOT and tfw_sched_cmd_query's
+ * unarmed reply. */
+static void test_cancel_and_query_of_an_unarmed_pin(void)
+{
+    uint8_t i;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT,
+                      run(TFW_CMD_TIMER_CANCEL, (const uint8_t[]){ PIN, 0u }, 2u));
+
+    memset(outbuf, 0xAAu, sizeof outbuf);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    for (i = 0u; i < 6u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, outbuf[i]);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -280,5 +326,8 @@ int main(void)
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);
     RUN_TEST(test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries);
+    RUN_TEST(test_timer_set_refuses_a_level_above_one_and_a_zero_duration);
+    RUN_TEST(test_a_full_table_refuses_a_new_pin_with_no_slot);
+    RUN_TEST(test_cancel_and_query_of_an_unarmed_pin);
     return UNITY_END();
 }

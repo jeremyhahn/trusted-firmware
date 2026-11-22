@@ -65,7 +65,7 @@ class StandIn(unittest.TestCase):
 class LockCheck(StandIn):
 
     def test_the_operators_value_passes(self):
-        # docs/device-provisioning/user.md step 7 writes 0x0C.
+        # docs/device-provisioning/user.md step 8 ("Lock bits, only now") writes 0x0C.
         r = self.lock_check("0x0c")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("the UDS is locked", r.stdout)

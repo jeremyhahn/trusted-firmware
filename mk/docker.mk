@@ -51,10 +51,12 @@ IMAGE_TRUSTED_CLASS ?=
 # (buildkit refuses that); CI sets the run. Legs that build one hash at once
 # then race to tag the shared name, and the daemon fails all but one with
 # AlreadyExists (run 70520). Two builds of one hash differ in id (buildkit
-# writes run-specific metadata, run 75060), so each docker-build-* rule labels
-# its image tfw.image.inputs=<its tag hash>, and scripts/docker-tag.sh passes
-# a lost race when the name holds this leg's image or one with the same label,
-# and fails on anything else.
+# writes run-specific metadata, run 75060), so docker-build-toolchain,
+# docker-build-esp32 and docker-build-optee label their image
+# tfw.image.inputs=<its tag hash> and tag it with scripts/docker-tag.sh, which
+# passes a lost race when the name holds this leg's image or one with the same
+# label, and fails on anything else. docker-build-it does neither: it adds no
+# label and tags with plain $(DOCKER) tag.
 IMAGE_BUILD_ID      ?= build
 docker_tag = DOCKER='$(DOCKER)' scripts/docker-tag.sh $(1) $(2)
 image_ref = $(IMAGE_REGISTRY)trusted-firmware-$(1):$(2)$(if $(3),-$(3))

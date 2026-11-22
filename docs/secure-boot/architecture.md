@@ -31,8 +31,8 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 | Recovery | `boot/boot_recovery.h`, `boot/recovery/recovery_ota.c`, `boot/hal/avr/recovery_halt.c`, `boot/hal/cortex-m/recovery_halt.c` | what runs when nothing may boot, one backend linked |
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
 | The one trial | `boot/boot_trial.{c,h}` | the OTA state machine's transitions and refusals, pure over the platform block ([../ota/architecture.md](../ota/architecture.md#what-runs-today-77)) |
-| A/B swap | `boot/boot_swap.{c,h}`, `boot/boot_swap_none.c` | swap-move of the primary and secondary slots (the ATmega2560's, and a two-slot MPS2 board's under `BOOT_AB=1`) and its phase-and-step record, one byte rewritten per advance so a torn EEPROM write leaves the old position or the new; `boot_swap_none.c` everywhere else, where the three calls `main()` makes change nothing |
-| Fall-back | `boot/boot_prev.c` | the ATmega328P's and ATmega32U4's fallback: linked in place of `boot_swap_none.c`, it copies the store's PREV image back over an ended trial or a refused pending image and ends the round GOOD with FAILED (`TFW_BOOT_EE_FLAG_REFUSED` set for a refusal) |
+| A/B swap | `boot/boot_swap.{c,h}`, `boot/boot_swap_none.c` | swap-move of the primary and secondary slots (the ATmega2560's, and a two-slot MPS2 board's under `BOOT_AB=1`) and its phase-and-step record, one byte rewritten per advance so a torn EEPROM write leaves the old position or the new; `boot_swap_none.c` on every other row except a `boot_prev.c` row, where the three calls `main()` makes change nothing |
+| Fall-back | `boot/boot_prev.c` | the PREV restore of a single-slot store row, linked in place of `boot_swap_none.c` only when `BOOT_STORE=1`, `BOOT_AB=0` and `BOOT_PREV=1` (`mk/boot.mk`); in `BOOT_SUPPORTED` today those are the MPS2 AN505 and AN500 store rows (`mps2-an505:soft:soft:p256-soft:0:1`, `mps2-an500:soft:soft:p256-soft:0:1`). On such a row it copies the store's PREV image back over an ended trial or a refused pending image and ends the round GOOD with FAILED (`TFW_BOOT_EE_FLAG_REFUSED` set for a refusal). Neither AVR single-slot part has it: the ATmega328P's `profile.mk` sets `BOOT_PREV ?= 0` (owner queue 176, option (a)), so a failed activation there has no boot-time rollback and the part is recovered by reflash, and the ATmega32U4 has no store row in `BOOT_SUPPORTED`, since with the restore it does not fit the boot section ([../ota/architecture.md](../ota/architecture.md#the-328p-and-32u4-fallback-from-prev-52)) |
 | Stage | `boot/boot_stage.{c,h}`, `boot/boot_stage_none.c` | tfw-boot's side of the external OTA store: read the stager's MARK, check the staged image again, copy it into the application region; `boot_stage_none.c` on a board with no store (`BOOT_STORE=0`) |
 | Update request | `boot/boot_request.{c,h}`, `boot/boot_entry.c` | the update-session request: the encoding both images share (`boot_request.c`, pure, linked by the application too) and tfw-boot's half that reads and clears it through the boot HAL (`boot_entry.c`) |
 | HAL | `boot/boot_hal.h`; one of `boot/hal/avr/`, `boot/hal/cortex-m/`, `boot/hal/esp32/`, `boot/hal/host/` linked per image | flash, EEPROM, UART, handoff placement, jump/reset, and the OTA store's bus where the board names one. AVR: `boot_hal_avr.c`, `boot_start_avr.S`, `boot_ota_store_avr.c`. Cortex-M: the core's half in `boot_hal_cortex-m.c` and `boot_jump.c`, `boot_ota_store_cortex-m.c`, `boot_factory.c`/`boot_factory_none.c` (a two-slot MPS2 board's factory copies), and the SoC's half (flash and UART) in `mcxn94x/`, `mps2/`, `nrf54l/`, `rp2350/` and `stm32h5/`. ESP32: `boot_hal_esp32.c` on ESP-IDF's second-stage bootloader, beside layer 0 (`boot_l0.c`, `l0_gate.c`, `l0_crypto.c`, `flash_span.c`, `measure_esp32.c`, `verify_p256_rom.c`, `verify_digest_soft.c`; [../esp32/](../esp32/)). Host: `boot_hal_host.c`, tfw-boot inside tfwsim |
@@ -45,10 +45,18 @@ has one place to read, not a scatter of checks between peripheral setup.
 
 ## Data flow
 
-The first line is the AVR entry (`BOOTRST`, `.init3`); the other HALs enter
-`main()` from their own reset path — see [../boards/](../boards/) for each
-board, [../cortex-m/](../cortex-m/) and [../esp32/](../esp32/). From `main()`
-on, the order is `boot/boot_main.c`'s on every architecture.
+The diagram is `boot/boot_main.c`'s, which `mk/boot.mk` links on the AVR,
+Cortex-M and host builds only. Its first line is the AVR entry (`BOOTRST`,
+`.init3`); the Cortex-M and host HALs enter `main()` from their own reset path
+— see [../boards/](../boards/) for each board and [../cortex-m/](../cortex-m/).
+From `main()` on, the order is the same on those three.
+
+The ESP32 links no `boot_main.c`. Its layer 0 (`boot/hal/esp32/boot_l0.c`)
+replaces ESP-IDF's second-stage entry, `call_start_cpu0`, and runs
+`bootloader_init`, ESP-IDF's choice of the boot partition, layer 0's verify,
+gate and CDI derivation, then ESP-IDF's loader
+(`bootloader_utility_load_boot_image`). It has no request/session, EEPROM
+trial or swap step; see [../esp32/engineering.md](../esp32/engineering.md).
 
 ```
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)

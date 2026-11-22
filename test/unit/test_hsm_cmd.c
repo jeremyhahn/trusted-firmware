@@ -505,7 +505,10 @@ static void test_the_read_leaves_the_engine_and_the_record_alone(void)
 /* The dispatcher refuses by the table's length before the handler runs
  * (src/core/dispatch.c); the table's row for the command is exactly one byte, so
  * no payload and two bytes are TFW_ERR_BAD_ARGC there. The row is read from
- * commands.def itself, built with the HSM block on. */
+ * commands.def itself, built with the HSM block on. The row is the only refusal
+ * of an empty payload, since tfw_read_u8 reads a missing byte as 0
+ * (src/core/reader.c), which HSM_VERDICT would take as clear and HSM_SELECT as
+ * policy 0. */
 typedef struct {
     uint8_t id;
     uint8_t lo;
@@ -533,6 +536,35 @@ static void test_the_record_read_is_one_byte_long_in_the_table(void)
     }
     TEST_ASSERT_EQUAL_UINT8(1u, found);
     TEST_ASSERT_EQUAL_HEX8(0x7Cu, TFW_CMD_HSM_RECORD_READ);
+}
+
+static void test_every_hsm_command_has_its_length_in_the_table(void)
+{
+    static const struct {
+        uint8_t id;
+        uint8_t lo;
+        uint8_t hi;
+        const char *name;
+    } WANT[] = {
+        { TFW_CMD_HSM_HEARTBEAT, 0u, 0u, "HSM_HEARTBEAT" },
+        { TFW_CMD_HSM_REPORT, 1u, 1u, "HSM_REPORT" },
+        { TFW_CMD_HSM_VERDICT, 1u, 1u, "HSM_VERDICT" },
+        { TFW_CMD_HSM_SELECT, 1u, 1u, "HSM_SELECT" },
+        { TFW_CMD_HSM_LOAD, TFW_HSM_LOAD_HDR, TFW_MAX_PAYLOAD, "HSM_LOAD" },
+    };
+
+    for (uint8_t w = 0u; w < sizeof WANT / sizeof WANT[0]; w++) {
+        uint8_t found = 0u;
+
+        for (uint8_t i = 0u; i < sizeof ROWS / sizeof ROWS[0]; i++) {
+            if (ROWS[i].id == WANT[w].id) {
+                TEST_ASSERT_EQUAL_UINT8_MESSAGE(WANT[w].lo, ROWS[i].lo, WANT[w].name);
+                TEST_ASSERT_EQUAL_UINT8_MESSAGE(WANT[w].hi, ROWS[i].hi, WANT[w].name);
+                found++;
+            }
+        }
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, found, WANT[w].name);
+    }
 }
 
 int main(void)
@@ -565,5 +597,6 @@ int main(void)
     RUN_TEST(test_a_full_record_reads_with_its_dropped_count);
     RUN_TEST(test_the_read_leaves_the_engine_and_the_record_alone);
     RUN_TEST(test_the_record_read_is_one_byte_long_in_the_table);
+    RUN_TEST(test_every_hsm_command_has_its_length_in_the_table);
     return UNITY_END();
 }

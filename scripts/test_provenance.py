@@ -300,6 +300,22 @@ class ItcmSlotBoard(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
             build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7", "IMX_BOOT=1")
 
+    def test_imx_boot_in_the_default_build_dir_is_refused_however_spelled(self):
+        # The guard compares paths, not strings: a trailing slash is build/.
+        for d in ("build/", "./build", "build//"):
+            with self.subTest(build_dir=d):
+                with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
+                    build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                   "IMX_BOOT=1", "BUILD_DIR=" + d)
+
+    def test_imx_boot_other_than_0_or_1_is_refused(self):
+        # A typo must not link the slot image silently.
+        for v in ("yes", "true", "2"):
+            with self.subTest(imx_boot=v):
+                with self.assertRaisesRegex(AssertionError, "IMX_BOOT is 0 or 1"):
+                    build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                   "IMX_BOOT=" + v)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -494,6 +494,42 @@ static void test_unknown_operations_are_refused_untouched(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_dispatch(TFW_DICE_OP_ALIAS_PUB, NULL));
 }
 
+/* A message without its read or write callback is the glue's fault: the
+ * dispatcher refuses it before any operation runs, so nothing is written. */
+static void test_missing_read_or_write_is_range_untouched(void)
+{
+    tfw_dice_msg_t m;
+    uint32_t       off = 0u;
+
+    memset(&s_call, 0, sizeof s_call);
+    memset(&m, 0, sizeof m);
+    memset(s_out0, 0xEE, sizeof s_out0);
+    memset(s_out1, 0xEE, sizeof s_out1);
+    s_in[0].base = NONCE;
+    s_in[0].len = 31u;
+    s_in[1].base = &off;
+    s_in[1].len = 4u;
+    s_out[0].base = s_out0;
+    s_out[0].len = 64u;
+    s_out[1].base = s_out1;
+    s_out[1].len = 4u;
+    s_call.in = s_in;
+    s_call.in_len = 2u;
+    s_call.out = s_out;
+    m.out_size[0] = 64u;
+    m.ctx = &s_call;
+    m.write = call_write; /* no read: DEVICEID_PUB would read nothing */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_dispatch(TFW_DICE_OP_DEVICEID_PUB, &m));
+    assert_nothing_written();
+    m.read = call_read;
+    m.write = NULL;      /* no write: the 31-byte nonce would be BAD_ARGC */
+    m.in_size[0] = 31u;
+    m.in_size[1] = 4u;
+    m.out_size[1] = 4u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_dispatch(TFW_DICE_OP_ALIAS_CERT, &m));
+    assert_nothing_written();
+}
+
 /* ---- not started: every call answers NOT_PROVISIONED --------------------- */
 
 static void test_without_start_every_call_is_not_provisioned(void)
@@ -537,6 +573,7 @@ int main(void)
     RUN_TEST(test_short_outputs_are_range_untouched);
     RUN_TEST(test_exact_outputs_are_written_once);
     RUN_TEST(test_unknown_operations_are_refused_untouched);
+    RUN_TEST(test_missing_read_or_write_is_range_untouched);
     RUN_TEST(test_without_start_every_call_is_not_provisioned);
     return UNITY_END();
 }

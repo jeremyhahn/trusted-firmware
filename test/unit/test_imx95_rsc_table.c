@@ -81,6 +81,7 @@ enum rsc_verdict {
     RSC_TRUNCATED,          /* "rsc table is truncated" */
     RSC_ENTRY_TRUNCATED,    /* "<type> rsc is truncated" */
     RSC_VDEV_RESERVED_SET,  /* "vdev rsc has non zero reserved bytes" */
+    RSC_TOO_MANY_VRINGS,    /* "too many vrings" */
 };
 
 #define RSC_CARVEOUT 0u
@@ -200,6 +201,26 @@ static void test_the_parser_reads_a_carveout_and_a_vdev(void)
     TEST_ASSERT_EQUAL(RSC_ENTRY_TRUNCATED, linux_parse(t, 24u + 4u + 51u));
 }
 
+/* rproc_handle_vdev refuses a vdev with more vrings than rvdev->vring holds
+ * (two), after the truncation and reserved-bytes checks; the buffer has
+ * room for all three vrings so only that check can refuse it. */
+static void test_a_vdev_with_three_vrings_is_refused(void)
+{
+    uint8_t t[16 + 4 + 4 + 24 + 3 * 20];
+    size_t  vdev = 16u + 4u;
+
+    memset(t, 0, sizeof t);
+    put32(t, 1u);
+    put32(t + 4, 1u);
+    put32(t + 16, (uint32_t)vdev);
+    put32(t + vdev, RSC_VDEV);
+    t[vdev + 4u + 21u] = 3u;                /* three vrings */
+    TEST_ASSERT_EQUAL(RSC_TOO_MANY_VRINGS, linux_parse(t, sizeof t));
+
+    t[vdev + 4u + 21u] = 2u;                /* two vrings */
+    TEST_ASSERT_EQUAL(RSC_OK, linux_parse(t, sizeof t));
+}
+
 /* One field of the image's table corrupted at a time: each is refused, and
  * for the reason that field gives. */
 static void test_a_corrupted_field_is_refused(void)
@@ -249,6 +270,7 @@ int main(void)
     RUN_TEST(test_the_table_is_word_aligned);
     RUN_TEST(test_linux_takes_the_images_table);
     RUN_TEST(test_the_parser_reads_a_carveout_and_a_vdev);
+    RUN_TEST(test_a_vdev_with_three_vrings_is_refused);
     RUN_TEST(test_a_corrupted_field_is_refused);
     return UNITY_END();
 }

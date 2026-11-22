@@ -247,6 +247,20 @@ class RunnerLabelsTest(unittest.TestCase):
         found = self.check("jobs:\n  build:\n    runs-on: {'labels': codex}\n")
         self.assertEqual(found, [])
 
+    def test_an_embedded_expression_label_is_skipped(self):
+        for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, [])
+        found = self.check('jobs:\n  build:\n    runs-on: "x-}} ${{"\n')
+        self.assertEqual(found, ["w.yml:3: x-}} ${{"])
+
+    def test_a_builtin_label_in_any_case_is_accepted(self):
+        for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, [])
+        found = self.check("jobs:\n  build:\n    runs-on: Codex\n")
+        self.assertEqual(found, ["w.yml:3: Codex"])
+
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)
         for label in ("codex", "qwen", "ci-gate"):

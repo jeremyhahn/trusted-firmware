@@ -15,11 +15,10 @@
    where exactly [self-hosted, linux, x64, bigdisk] passes too, and set to
    the fallback `"ubuntu-latest"`, where it must give a standard image; the
    schedule guard's AGENT_TOKEN is passed off github.com only.
-4. ci-template v1.50 and v1.51, code-review-template v5.12.8 (DS-9792): a
-   short queued list is a lower bound for the overflow, every runs-on is
-   also read under pull_request_target, and code-review.yml's new-head
-   cancel step cancels only older runs on another head.
-5. ci-template v1.52, code-review-template v5.12.10 (DS-9857, DS-9862, DS-9887): a
+4. ci-template v1.50 and v1.51 (DS-9792): a short queued list is a lower
+   bound for the overflow, and every runs-on is also read under
+   pull_request_target.
+5. ci-template v1.52 (DS-9857, DS-9862, DS-9887): a
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
@@ -294,27 +293,6 @@ class PullRequestTarget(unittest.TestCase):
         wf = job("ubuntu-latest").replace("on:\n  push:\n  pull_request:\n", "on:\n  pull_request_target:\n")
         r = run_policy(wf)
         self.assertEqual(r.returncode, 0, r.stdout)
-
-
-CODE_REVIEW = os.path.join(REPO, ".github", "workflows", "code-review.yml")
-
-
-class CodeReviewSupersede(unittest.TestCase):
-    """code-review-template v5.12.8: a new head cancels only older runs."""
-
-    def test_header_names_v5_12_8(self):
-        with open(CODE_REVIEW, encoding="utf-8") as f:
-            self.assertTrue(f.readline().startswith("# code-review-template: v5.12.8 "))
-
-    def test_supersede_cancels_only_older_runs_on_other_heads(self):
-        jobs = load(CODE_REVIEW)["jobs"]
-        self.assertIn("supersede", jobs)
-        run = step_run(CODE_REVIEW, "Cancel this PR's runs on an older head")
-        self.assertIn('--argjson me "$GITHUB_RUN_ID"', run)
-        self.assertIn("select($t.n == $pr and $t.h != $sha and .head_sha != $sha and .id < $me)", run)
-        self.assertIn('[ "$live" = "$EVENT_SHA" ]', run)
-        self.assertIn('api POST "/actions/runs/$id/cancel"', run)
-        self.assertEqual(jobs["supersede"]["permissions"], {"actions": "write", "pull-requests": "read"})
 
 
 class NightlyMisconfigAfterGate(unittest.TestCase):

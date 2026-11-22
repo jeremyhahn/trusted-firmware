@@ -106,6 +106,34 @@ static void test_a_watchdog_with_any_other_bit_is_unknown(void)
     }
 }
 
+/* TFW_RESET_EXTERNAL is a pin press and nothing else: the pin beside a
+ * debugger reset or a wake from System OFF is not a pin press. */
+static void test_a_pin_reset_with_any_other_bit_is_unknown(void)
+{
+    for (uint32_t bit = 0u; bit < 32u; bit++) {
+        uint32_t other = 1uL << bit;
+
+        if (other == RESETPIN) {
+            continue;
+        }
+        assert_either_way(TFW_RESET_UNKNOWN, RESETPIN | other, "RESETPIN with another bit");
+    }
+}
+
+/* TFW_RESET_SOFTWARE is the firmware's own restart: SREQ beside any other
+ * bit is not one, whether or not the marker is there. */
+static void test_a_reset_request_with_any_other_bit_is_unknown(void)
+{
+    for (uint32_t bit = 0u; bit < 32u; bit++) {
+        uint32_t other = 1uL << bit;
+
+        if (other == SREQ) {
+            continue;
+        }
+        assert_either_way(TFW_RESET_UNKNOWN, SREQ | other, "SREQ with another bit");
+    }
+}
+
 static void test_two_causes_with_values_are_unknown(void)
 {
     assert_either_way(TFW_RESET_UNKNOWN, RESETPIN | SREQ, "RESETPIN and SREQ");
@@ -153,6 +181,8 @@ int main(void)
     RUN_TEST(test_a_bit_with_no_value_is_unknown);
     RUN_TEST(test_a_bit_the_mdk_does_not_define_is_unknown);
     RUN_TEST(test_a_watchdog_with_any_other_bit_is_unknown);
+    RUN_TEST(test_a_pin_reset_with_any_other_bit_is_unknown);
+    RUN_TEST(test_a_reset_request_with_any_other_bit_is_unknown);
     RUN_TEST(test_two_causes_with_values_are_unknown);
     RUN_TEST(test_a_take_decodes_then_clears_every_bit);
     RUN_TEST(test_a_later_reset_is_not_reported_as_an_earlier_one);

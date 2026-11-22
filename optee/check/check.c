@@ -5,7 +5,9 @@
  * reaches the TA"): a session to the TA through the GlobalPlatform TEE Client
  * API v1.0, as libteec implements it, and each command against the literal
  * vectors: GET_INFO and GET_RANDOM, their bad parameters, and the ids the TA
- * does not implement. Every call carries the vector's paramTypes and is judged
+ * does not implement; SEAL and UNSEAL (a round trip, a fresh nonce, a tampered
+ * blob, a short buffer, the #321 bounds and their bad parameters); and the
+ * refused open. Every call carries the vector's paramTypes and is judged
  * on the vector's return code, so the wire values are the literals, not the
  * TA's header.
  */

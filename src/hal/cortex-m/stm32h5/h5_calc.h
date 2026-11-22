@@ -87,7 +87,7 @@ static inline uint8_t tfw_h5_iwdg_timing(uint32_t lsi_hz, uint32_t period_s,
  * prescaler divides by PSC + 1, the counter by ARR + 1. The prescaler taken is
  * the smallest that brings the count inside the 16-bit counter (finest
  * resolution), each step rounded to the nearest. 0, the outputs untouched,
- * for 0 Hz or a rate past half the clock (fewer than two counts a match). */
+ * for 0 Hz or a rate past a third of the clock (fewer than two counts a match). */
 #define TFW_H5_TONE_COUNT_MAX 0x10000u   /* ARR + 1, a 16-bit counter */
 #define TFW_H5_TONE_DIV_MAX   0x10000u   /* PSC + 1, a 16-bit prescaler */
 

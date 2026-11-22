@@ -28,11 +28,11 @@ var (
 // accepted rather than worked around.
 //
 // This package never holds or generates the operator private key -- it is
-// Layer 0 and holds no key material (see CLAUDE.md's SDK boundary). AuthResponse
-// takes a crypto.Signer, the standard library's own custody-agnostic
-// interface, so key custody is entirely the caller's business: an in-memory
-// *ecdsa.PrivateKey for a bench, or a signer backed by an HSM or
-// go-trusted-platform's own key store in a fleet.
+// Layer 0 and holds no key material (docs/SPEC.md's host-sdk line: no private
+// keys). AuthResponse takes a crypto.Signer, the standard library's own
+// custody-agnostic interface, so key custody is entirely the caller's
+// business: an in-memory *ecdsa.PrivateKey for a bench, or a signer backed by
+// an HSM or go-trusted-platform's own key store in a fleet.
 const (
 	CmdAuthChallenge Cmd = 0x61
 	CmdAuthResponse  Cmd = 0x62

@@ -284,7 +284,8 @@ class ItcmSlotBoard(unittest.TestCase):
     """frdm-imx95-m7: the application slot at 0x00008000 in the M7's ITCM,
     tfw-boot's region below it. Its profile.mk sets FWHASH_BASE, FWHASH_SIZE
     and F_CPU as board_profile.h's TFW_APP_REGION_BASE, TFW_APP_REGION_SIZE
-    and TFW_CM_CPU_HZ (#49)."""
+    and TFW_CM_CPU_HZ (#49). IMX_BOOT=1 (#473) moves FWHASH_BASE with APP_BASE
+    to ITCM 0; board_profile.h keeps the slot's."""
 
     def test_a_slot_image_measures_from_the_slot_base(self):
         m, image = build_manifest(ITCM_SLOT_HEX, "frdm-imx95-m7")

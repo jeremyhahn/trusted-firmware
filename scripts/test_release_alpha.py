@@ -157,6 +157,17 @@ class ReleaseAlpha(unittest.TestCase):
         _, out = self.run_main("--dry-run")
         self.assertIn("would cut v0.4.3-alpha sdk/go/v0.4.3-alpha", out)
 
+    def test_a_refused_push_leaves_no_tag_and_the_next_run_cuts_the_same_version(self):
+        hook = os.path.join(self.dev, "hooks", "pre-receive")
+        write(hook, "#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        before = self.tags(self.repo)
+        self.assertIn("push", self.refused())
+        self.assertEqual(self.tags(self.repo), before)
+        os.remove(hook)
+        _, out = self.run_main("--dry-run")
+        self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
+
 
 class Precedence(unittest.TestCase):
     def test_semver_precedence(self):

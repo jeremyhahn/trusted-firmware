@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * <avr/pgmspace.h> for the host, as wide as src/hal/avr/hal_eeprom.c needs
- * (#163): the near and the far flash copy. Declarations only: the suite
- * defines both over its own model of the flash, so it sees which one a read
- * took and at what address. The part's FLASHEND, which avr-libc's header
- * brings in from the part's io header, comes from the suite's -D. Only on the
- * -I of the suite that tests that unit; the AVR build uses avr-libc's.
+ * <avr/pgmspace.h> for the host, as wide as src/hal/avr/hal_eeprom.c and
+ * boot/hal/avr/boot_hal_avr.c need (#163): the near and the far flash copy,
+ * and the byte reads below. Declarations only: the suite defines both over
+ * its own model of the flash, so it sees which one a read took and at what
+ * address. The part's FLASHEND, which avr-libc's header brings in from the
+ * part's io header, comes from the suite's -D. Only on the -I of the suites
+ * that test those units; the AVR build uses avr-libc's.
  */
 #ifndef TFW_TEST_AVR_PGMSPACE_H
 #define TFW_TEST_AVR_PGMSPACE_H

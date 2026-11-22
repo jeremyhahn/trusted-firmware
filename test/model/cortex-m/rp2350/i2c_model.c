@@ -161,6 +161,7 @@ static uint32_t view(uint32_t a)
     case 0x080u: return rp_i2c.abrt_src;
     case 0x09Cu:
         return ((rp_i2c.enable & TFW_RP_IC_ENABLE_ENABLE) || rp_i2c.never_idle) ? 1u : 0u;
+    case 0x07Cu: return rp_i2c.sda_hold;
     case 0x0A0u: return rp_i2c.spklen;
     default:
         TEST_FAIL_MESSAGE("model: unmodelled I2C register");
@@ -212,6 +213,7 @@ static void on_write(uint32_t a, uint32_t v)
     case 0x01Cu: cfg(&rp_i2c.fs_hcnt, v); break;
     case 0x020u: cfg(&rp_i2c.fs_lcnt, v); break;
     case 0x030u: rp_i2c.mask = v; break;
+    case 0x07Cu: cfg(&rp_i2c.sda_hold, v); break;
     case 0x0A0u: cfg(&rp_i2c.spklen, v); break;
     case 0x06Cu:
         if ((v & TFW_RP_IC_ENABLE_ABORT) && (rp_i2c.enable & TFW_RP_IC_ENABLE_ENABLE)) {
@@ -271,6 +273,7 @@ void rp_i2c_reset(void)
     memset(&rp_i2c, 0, sizeof rp_i2c);
     pending = 0u;
     rp_i2c.con = 0x65u;     /* IC_CON reset (table 1109): master, slave off, RESTART, FAST */
+    rp_i2c.sda_hold = 1u;   /* IC_SDA_HOLD reset (table 1137): TX hold 1, RX hold 0 */
 }
 
 void rp_i2c_settle(void)

@@ -385,6 +385,43 @@ static void test_clock_rate_is_low_word_first(void)
     TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_SHORT, tfw_scmi_clock_rate(&rsp, &hz));
 }
 
+static void test_clock_config_set_sends_every_clock_id_byte_and_any_enable_as_1(void)
+{
+    static const uint8_t want[8] = {
+        0x84, 0x83, 0x82, 0x81,   /* clock_id 0x81828384: bit 7 of each byte set */
+        0x01, 0x00, 0x00, 0x00,   /* attributes: enable 2 is sent as enabled */
+    };
+
+    tfw_scmi_clock_config_set(&cmd, 5u, 0x00020000u, 0x81828384u, 2u);
+    TEST_ASSERT_EQUAL_UINT32(8u, cmd.len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cmd.payload, 8);
+}
+
+static void test_a_word_past_the_buffer_is_short_whatever_the_length_says(void)
+{
+    static const uint8_t p[TFW_SCMI_PAYLOAD_MAX] = { 0 };
+    uint32_t v = 0x5A5A5A5Au;
+
+    rsp_of(0x00004000u, p, TFW_SCMI_PAYLOAD_MAX);
+    /* 4 * (0x3FFFFFFF + 1) wraps to 0: only the index bound refuses it. */
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_SHORT, tfw_scmi_word(&rsp, 0x3FFFFFFFu, &v));
+    rsp.len = TFW_SCMI_PAYLOAD_MAX + 4u;
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_SHORT,
+                            tfw_scmi_word(&rsp, TFW_SCMI_PAYLOAD_MAX / 4u, &v));
+    TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, v);
+}
+
+static void test_base_attributes_keeps_bit_7_of_each_count(void)
+{
+    static const uint8_t p[8] = { 0, 0, 0, 0, 0x9B, 0x8A, 0xCC, 0xDD };
+    uint32_t protocols = 0u, agents = 0u;
+
+    rsp_of(0x00004001u, p, 8u);
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_SUCCESS, tfw_scmi_base_attributes(&rsp, &protocols, &agents));
+    TEST_ASSERT_EQUAL_HEX32(0x9Bu, protocols);   /* bits 31 to 16 dropped */
+    TEST_ASSERT_EQUAL_HEX32(0x8Au, agents);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -415,5 +452,8 @@ int main(void)
     RUN_TEST(test_protocol_version_reads_major_and_minor);
     RUN_TEST(test_base_attributes_reads_protocols_and_agents);
     RUN_TEST(test_clock_rate_is_low_word_first);
+    RUN_TEST(test_clock_config_set_sends_every_clock_id_byte_and_any_enable_as_1);
+    RUN_TEST(test_a_word_past_the_buffer_is_short_whatever_the_length_says);
+    RUN_TEST(test_base_attributes_keeps_bit_7_of_each_count);
     return UNITY_END();
 }

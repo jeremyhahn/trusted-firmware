@@ -9,8 +9,9 @@
  * SAADC's AIN2-AIN5 on P1.6, P1.7, P1.11 and P1.12. The console
  * UARTE's pins, P1.4 and P1.5, are the SoC file's
  * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. PWM is PWM20 on
- * LED1 and LED3 (board.c says why those two). Every other capability is off
- * by file selection until a slice drives it.
+ * LED1 and LED3 (board.c says why those two). Tone, pulse, the RRAM EEPROM
+ * window and attestation are on; I2C only in the I2C=1 row (profile.mk); SPI
+ * and 1-Wire are off by file selection until a slice drives them.
  *
  */
 #ifndef TFW_BOARD_NRF54L15_DK_H

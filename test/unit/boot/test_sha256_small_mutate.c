@@ -9,13 +9,15 @@
  * fits a test), and HMAC at the key lengths either side of the block.
  *
  * Mutants tried, each killed by the test named:
- *   final: spill test `i > 56` -> `>= 56` / `> 57` -> the_padding_edges
+ *   final: zero loop `i != 56u` -> `!= 55u` / `!= 57u`, spill `i == 64u` ->
+ *     `== 63u`                                 -> the_padding_edges
  *   final: length high word `n >> 29` -> `>> 28` / `>> 30` / 0
  *                                              -> the_length_field_high_word
  *   final: low word `n << 3` -> `<< 2`, buflen dropped from n
  *                                              -> the_padding_edges
- *   final: 0x80 -> 0x00, padding memset short by one
- *                                              -> the_padding_edges, the_nist_vectors
+ *   final: 0x80 -> 0x00                        -> the_padding_edges, the_nist_vectors
+ *   final: a zero store dropped (`c->buf[i++] = 0u` -> `i++`)
+ *                                              -> the_padding_edges
  *   final: digest store past 32 bytes          -> the_digest_is_32_bytes
  *   update: block count +64 -> +63, buflen not reset, transform at 63
  *                                              -> the_padding_edges
@@ -34,8 +36,9 @@
  *   hmac: key not zeroed before the copy       -> the_hmac_vectors (a stack
  *     painted 0xA5 first, so the short key's tail is not zero by luck)
  * Equivalent, so not killable from outside: rsh's byte step `n >= 8` ->
- * `n > 8` (eight single-bit steps are one byte step); the closing memsets of
- * k, pad and inner in tfw_hmac_sha256 clear stack never read again.
+ * `n > 8` (eight single-bit steps are one byte step); the closing
+ * tfw_secure_zero calls, of s (c, inner, k) in tfw_hmac_sha256 and of s
+ * (v, w) in transform, clear stack never read again.
  *
  * Every expected digest is a literal: NIST's FIPS 180-4 examples, RFC 4231
  * test case 1, or computed outside this code (Python's hashlib/hmac, and for
@@ -123,6 +126,12 @@ static const uint8_t HMAC_EMPTY[32] = {
     0xFF, 0x16, 0x97, 0xC4, 0x93, 0x71, 0x56, 0x53, 0xC6, 0xC7, 0x12, 0x14, 0x42, 0x92, 0xC5, 0xAD
 };
 
+/* HMAC-SHA256("abc", "abc"), Python's hmac. */
+static const uint8_t HMAC_ABC_ABC[32] = {
+    0x2F, 0x02, 0xE2, 0x4A, 0xE2, 0xE1, 0xFE, 0x88, 0x03, 0x99, 0xF2, 0x76, 0x00, 0xAF, 0xA8, 0x83,
+    0x64, 0xE6, 0x06, 0x2B, 0xF9, 0xBB, 0xE1, 0x14, 0xB3, 0x2F, 0xA8, 0xF2, 0x3D, 0x03, 0x60, 0x8A
+};
+
 static const uint8_t ABC[3] = { 'a', 'b', 'c' };
 
 void setUp(void) {}
@@ -205,6 +214,7 @@ static void test_the_digest_is_32_bytes(void)
 
     memset(out, 0xA5, sizeof out);
     tfw_hmac_sha256(ABC, sizeof ABC, ABC, sizeof ABC, out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(HMAC_ABC_ABC, out, 32);
     TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out + 32, 16);
 }
 

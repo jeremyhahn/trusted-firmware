@@ -77,9 +77,19 @@ static int g_pad_input;      /* the input buffer */
 static int g_pad_held;
 static uint32_t g_pad_out = 1u;
 
+/* The one gpio call that refuses (0 none, 1 gpio_hold_dis, 2 gpio_set_level,
+ * 3 gpio_set_direction, 4 gpio_hold_en). A refused call changes no pad state
+ * and returns ESP_FAIL. Every gpio_hold_en and gpio_get_level call is
+ * counted, refused or not. */
+static int g_gpio_refuse;
+static unsigned g_hold_en_calls;
+static unsigned g_get_level_calls;
+
 esp_err_t gpio_hold_en(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    g_hold_en_calls++;
+    if (g_gpio_refuse == 4) return ESP_FAIL;
     g_pad_held = 1;
     return ESP_OK;
 }
@@ -87,6 +97,7 @@ esp_err_t gpio_hold_en(gpio_num_t n)
 esp_err_t gpio_hold_dis(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 1) return ESP_FAIL;
     g_pad_held = 0;
     return ESP_OK;
 }
@@ -94,6 +105,7 @@ esp_err_t gpio_hold_dis(gpio_num_t n)
 esp_err_t gpio_set_level(gpio_num_t n, uint32_t level)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 2) return ESP_FAIL;
     if (!g_pad_held) g_pad_out = level;
     return ESP_OK;
 }
@@ -101,6 +113,7 @@ esp_err_t gpio_set_level(gpio_num_t n, uint32_t level)
 esp_err_t gpio_set_direction(gpio_num_t n, gpio_mode_t mode)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 3) return ESP_FAIL;
     if (!g_pad_held) g_pad_input = (mode == GPIO_MODE_INPUT || mode == GPIO_MODE_INPUT_OUTPUT);
     return ESP_OK;
 }
@@ -108,6 +121,7 @@ esp_err_t gpio_set_direction(gpio_num_t n, gpio_mode_t mode)
 int gpio_get_level(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    g_get_level_calls++;
     return g_pad_input ? g_pad_ext : 0;
 }
 
@@ -387,6 +401,8 @@ void setUp(void)
     g_pad_input = 0;
     g_pad_held = 1;
     g_pad_out = 0u;
+    g_gpio_refuse = 0;
+    g_hold_en_calls = g_get_level_calls = 0u;
     g_reads = g_erases = g_programs = 0u;
     g_fail_read_at = g_fail_erase_at = g_fail_program_at = g_stuck_program_at = 0u;
     g_stuck_off = 0u;
@@ -615,6 +631,43 @@ static void test_the_c6_check_leaves_the_enable_low_and_held(void)
     TEST_ASSERT_EQUAL_UINT32(0u, g_pad_out);
 }
 
+static void test_a_refused_re_hold_fails_the_c6_check(void)
+{
+    /* The pad reads 0, so the refused re-hold is the only failure. */
+    g_gpio_refuse = 4;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level 0"));
+}
+
+static void test_a_refused_hold_release_fails_and_still_re_holds(void)
+{
+    g_gpio_refuse = 1;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(0u, g_get_level_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
+static void test_a_refused_drive_low_fails_the_c6_check(void)
+{
+    g_gpio_refuse = 2;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
+static void test_a_refused_pad_direction_fails_the_c6_check(void)
+{
+    g_gpio_refuse = 3;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
 /* The calls the check makes, in order, under the real hal_eeprom.c:
  *   reads:    1 the save, 2 the pattern write's sector, 3 the pattern's
  *             readback, 4 the restore's sector, 5 the restore's readback
@@ -700,6 +753,10 @@ int main(void)
     RUN_TEST(test_each_check_uses_the_free_header_pin_it_names);
     RUN_TEST(test_a_high_c6_enable_fails_though_the_held_output_reads_zero);
     RUN_TEST(test_the_c6_check_leaves_the_enable_low_and_held);
+    RUN_TEST(test_a_refused_re_hold_fails_the_c6_check);
+    RUN_TEST(test_a_refused_hold_release_fails_and_still_re_holds);
+    RUN_TEST(test_a_refused_drive_low_fails_the_c6_check);
+    RUN_TEST(test_a_refused_pad_direction_fails_the_c6_check);
     RUN_TEST(test_a_program_failure_after_the_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_readback_still_restores_the_whole_sector);

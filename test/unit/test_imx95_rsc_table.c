@@ -225,6 +225,31 @@ static void test_a_vdev_with_three_vrings_is_refused(void)
     TEST_ASSERT_EQUAL(RSC_OK, linux_parse(t, sizeof t));
 }
 
+/* The trace and devmem handlers refuse an entry shorter than its struct
+ * (rproc_handle_trace, rproc_handle_devmem: "<type> rsc is truncated"),
+ * and an unknown type, RSC_LAST or past it, is skipped with a warning
+ * (rproc_handle_resources), whatever follows its header. */
+static void test_a_short_trace_or_devmem_is_refused_and_an_unknown_type_skipped(void)
+{
+    uint8_t t[16 + 4 + 4 + 52];
+
+    memset(t, 0, sizeof t);
+    put32(t, 1u);
+    put32(t + 4, 1u);
+    put32(t + 16, 20u);
+
+    put32(t + 20, RSC_TRACE);               /* fw_rsc_trace: 44 bytes */
+    TEST_ASSERT_EQUAL(RSC_OK, linux_parse(t, 16u + 4u + 4u + 44u));
+    TEST_ASSERT_EQUAL(RSC_ENTRY_TRUNCATED, linux_parse(t, 16u + 4u + 4u + 43u));
+
+    put32(t + 20, RSC_DEVMEM);              /* fw_rsc_devmem: 52 bytes */
+    TEST_ASSERT_EQUAL(RSC_OK, linux_parse(t, sizeof t));
+    TEST_ASSERT_EQUAL(RSC_ENTRY_TRUNCATED, linux_parse(t, sizeof t - 1u));
+
+    put32(t + 20, 4u);                      /* RSC_LAST: no body needed */
+    TEST_ASSERT_EQUAL(RSC_OK, linux_parse(t, 16u + 4u + 4u));
+}
+
 /* One field of the image's table corrupted at a time: each is refused, and
  * for the reason that field gives. */
 static void test_a_corrupted_field_is_refused(void)
@@ -275,6 +300,7 @@ int main(void)
     RUN_TEST(test_linux_takes_the_images_table);
     RUN_TEST(test_the_parser_reads_a_carveout_and_a_vdev);
     RUN_TEST(test_a_vdev_with_three_vrings_is_refused);
+    RUN_TEST(test_a_short_trace_or_devmem_is_refused_and_an_unknown_type_skipped);
     RUN_TEST(test_a_corrupted_field_is_refused);
     return UNITY_END();
 }

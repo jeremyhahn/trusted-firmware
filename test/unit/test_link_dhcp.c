@@ -436,6 +436,33 @@ static void test_a_connection_lost_while_renewing_redials_from_the_lease_and_ren
     TEST_ASSERT_EQUAL_UINT8(2u, eth.udp);
 }
 
+static void test_a_block_that_will_not_load_at_t1_drops_the_connection_and_asks_nothing(void)
+{
+    tfw_ms_t asked  = lease_up();
+    unsigned dgrams = eth.dgrams;
+
+    tfw_mock_eeprom()[TFW_NETCFG_ADDR + 30u] ^= 0xFFu;  /* CRC: no block */
+    at(asked + T1_MS);
+    TEST_ASSERT_EQUAL_UINT(1u, eth.closes);
+    TEST_ASSERT_EQUAL_UINT(dgrams, eth.dgrams);         /* no DHCPREQUEST */
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    tfw_link_poll();                                    /* still no block */
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT(dgrams, eth.dgrams);
+
+    /* The block back: the lease still runs, so the link redials from it and
+     * renews once the connection is up. */
+    provision();
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, eth.cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_UINT(dgrams, eth.dgrams);
+    eth.state = TFW_ETH_UP;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT8(DHCPREQUEST, sent_as(srv_a, 0x00u, offered));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -445,5 +472,6 @@ int main(void)
     RUN_TEST(test_a_lease_that_runs_out_drops_the_connection_and_asks_again);
     RUN_TEST(test_a_nak_while_renewing_drops_the_connection_at_once);
     RUN_TEST(test_a_connection_lost_while_renewing_redials_from_the_lease_and_renews);
+    RUN_TEST(test_a_block_that_will_not_load_at_t1_drops_the_connection_and_asks_nothing);
     return UNITY_END();
 }

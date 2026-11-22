@@ -546,6 +546,42 @@ static void test_a_write_lwip_refuses_sends_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0, sent_len);
 }
 
+/* hal_eth_wire_tcp.c:181-182: the send is clipped to tcp_sndbuf's room. */
+static void test_a_send_larger_than_the_send_buffer_is_clipped_to_it(void)
+{
+    static const uint8_t bytes[4] = { 1u, 2u, 3u, 4u };
+
+    conn.snd_buf = 2u;
+    TEST_ASSERT_EQUAL_UINT16(2u, tfw_h5_wire_send(bytes, 4u));
+    TEST_ASSERT_EQUAL_UINT(2, sent_len);
+    TEST_ASSERT_EQUAL_HEX8(1u, sent[0]);
+    TEST_ASSERT_EQUAL_HEX8(2u, sent[1]);
+}
+
+/* hal_eth_wire_tcp.c:92-95: each pbuf of a chain is pushed, in order. */
+static void test_a_request_split_across_a_pbuf_chain_is_answered(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 16u, TFW_CMD_CAPS, 0, 0u);
+    struct pbuf a, b;
+
+    TEST_ASSERT_TRUE(len > 3u);
+    memset(&a, 0, sizeof a);
+    memset(&b, 0, sizeof b);
+    a.payload = wire;
+    a.len     = 3u;
+    a.tot_len = len;
+    a.next    = &b;
+    b.payload = wire + 3;
+    b.len     = (u16_t)(len - 3u);
+    b.tot_len = b.len;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &conn, &a, ERR_OK));
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(answered(16u));
+    TEST_ASSERT_EQUAL_UINT(len, recved_total);
+    TEST_ASSERT_EQUAL_UINT(0, close_calls);
+}
+
 /* hal_eth_wire_tcp.c:221-222: tcp_close fails, so the pcb is aborted. */
 static void test_a_close_with_no_memory_for_the_fin_resets(void)
 {
@@ -577,6 +613,8 @@ int main(void)
     RUN_TEST(test_an_error_with_no_data_closes_and_later_sends_are_dropped);
     RUN_TEST(test_a_full_send_window_sends_nothing);
     RUN_TEST(test_a_write_lwip_refuses_sends_nothing);
+    RUN_TEST(test_a_send_larger_than_the_send_buffer_is_clipped_to_it);
+    RUN_TEST(test_a_request_split_across_a_pbuf_chain_is_answered);
     RUN_TEST(test_a_close_with_no_memory_for_the_fin_resets);
     return UNITY_END();
 }

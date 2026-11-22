@@ -126,6 +126,49 @@ static void test_a_period_no_divider_reaches_is_refused_untouched(void)
     TEST_ASSERT_EQUAL_UINT16(0xEEEEu, rl);
 }
 
+static void test_a_reload_of_0xfff_fits_its_divider(void)
+{
+    uint8_t  pr = 0xEEu;
+    uint16_t rl = 0xEEEEu;
+
+    /* 16384 ticks / 4 = 4096: reload 4095, the 12-bit RLR's last value. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_iwdg_timing(16384u, 1u, &pr, &rl));
+    TEST_ASSERT_EQUAL_UINT8(0u, pr);
+    TEST_ASSERT_EQUAL_UINT16(4095u, rl);
+
+    pr = 0xEEu;
+    rl = 0xEEEEu;
+    /* 16388 ticks / 4 = 4097 does not fit; / 8 = 2048, reload 2047. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_iwdg_timing(16388u, 1u, &pr, &rl));
+    TEST_ASSERT_EQUAL_UINT8(1u, pr);
+    TEST_ASSERT_EQUAL_UINT16(2047u, rl);
+
+    pr = 0xEEu;
+    rl = 0xEEEEu;
+    /* 4194304 ticks / 512 = 8192 does not fit; / 1024 = 4096, reload 4095. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_iwdg_timing(4194304u, 1u, &pr, &rl));
+    TEST_ASSERT_EQUAL_UINT8(8u, pr);
+    TEST_ASSERT_EQUAL_UINT16(4095u, rl);
+
+    pr = 0xEEu;
+    rl = 0xEEEEu;
+    /* 4195328 ticks / 1024 = 4097: one past the last divider's reach. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_iwdg_timing(4195328u, 1u, &pr, &rl));
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, pr);
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, rl);
+}
+
+static void test_no_lsi_clock_is_refused_untouched(void)
+{
+    uint8_t  pr = 0xEEu;
+    uint16_t rl = 0xEEEEu;
+
+    /* 0 Hz * 4 s = 0 ticks: nothing to reload to. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_iwdg_timing(0u, 4u, &pr, &rl));
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, pr);
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, rl);
+}
+
 /* -------------------------------------------------------------------- GPIO */
 
 static void test_bank_bases_are_st_s(void)
@@ -228,6 +271,8 @@ int main(void)
     RUN_TEST(test_the_finest_divider_is_taken);
     RUN_TEST(test_the_longest_period_takes_the_last_divider);
     RUN_TEST(test_a_period_no_divider_reaches_is_refused_untouched);
+    RUN_TEST(test_a_reload_of_0xfff_fits_its_divider);
+    RUN_TEST(test_no_lsi_clock_is_refused_untouched);
     RUN_TEST(test_bank_bases_are_st_s);
     RUN_TEST(test_a_two_bit_field_keeps_its_neighbours);
     RUN_TEST(test_a_four_bit_field_is_the_pins_index_in_its_eight);

@@ -746,6 +746,41 @@ static void test_a_read_is_each_bit_lsb_first(void)
     TEST_ASSERT_EQUAL_HEX8(0x5Bu, buf[0]);
 }
 
+/* hal_bus.c spi_init removes the live device when the mode, the clock or
+ * the bit order differs: the mode alone, and the bit order alone, each do. */
+static void test_an_spi_init_with_only_the_mode_or_bit_order_changed_remakes_the_device(void)
+{
+    long h;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(1u, 1u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 1u));
+    h = find_op(E_SPI_XFER)->a;
+
+    /* the mode alone */
+    ntrace = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(3u, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT(1u, ntrace);
+    TEST_ASSERT_EQUAL_INT(E_SPI_RM, trace[0].op);
+    TEST_ASSERT_EQUAL_INT(h, trace[0].a);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, count_op(E_SPI_ADD));
+    TEST_ASSERT_EQUAL_UINT8(3u, spi_dev_cfg.mode);
+    TEST_ASSERT_EQUAL_HEX32(0u, spi_dev_cfg.flags);
+    h = find_op(E_SPI_XFER)->a;
+
+    /* the bit order alone */
+    ntrace = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_init(3u, 1u, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, ntrace);
+    TEST_ASSERT_EQUAL_INT(E_SPI_RM, trace[0].op);
+    TEST_ASSERT_EQUAL_INT(h, trace[0].a);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, count_op(E_SPI_ADD));
+    TEST_ASSERT_EQUAL_UINT8(3u, spi_dev_cfg.mode);
+    TEST_ASSERT_EQUAL_INT(1000000, spi_dev_cfg.clock_speed_hz);
+    TEST_ASSERT_EQUAL_HEX32(SPI_DEVICE_BIT_LSBFIRST, spi_dev_cfg.flags);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -766,5 +801,6 @@ int main(void)
     RUN_TEST(test_a_reset_is_its_slot_and_the_presence);
     RUN_TEST(test_a_write_is_each_bit_lsb_first);
     RUN_TEST(test_a_read_is_each_bit_lsb_first);
+    RUN_TEST(test_an_spi_init_with_only_the_mode_or_bit_order_changed_remakes_the_device);
     return UNITY_END();
 }

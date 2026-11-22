@@ -587,6 +587,26 @@ static void test_spi_a_stopped_port_is_a_timeout_and_the_select_released(void)
     TEST_ASSERT_EQUAL_HEX32(0x3A5u, ssp.misc);
 }
 
+/* A byte that goes out with SSE clear is dropped, so its answer never comes:
+ * the second wait (hal_bus.c lines 374-377) times out and releases too. */
+static void test_spi_an_answer_that_never_comes_is_a_timeout_and_the_select_released(void)
+{
+    const tfw_pinref_t cs = { 1u, 8u };
+    const uint8_t wr = 0x9Fu;
+    uint8_t rd = 0xAAu;
+
+    ssp_ready(0u);
+    ssp.cr1 = 0u;
+    quiet();
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_spi_xfer(&cs, &wr, &rd, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, ssp.dr_writes);
+    TEST_ASSERT_EQUAL_STRING("[]", ssp.log);
+    TEST_ASSERT_EQUAL_UINT(2000u, bus.delays);
+    TEST_ASSERT_EQUAL_UINT16(1u, bus.delay_max);
+    TEST_ASSERT_EQUAL_HEX32(0x3A5u, ssp.misc);
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, rd);
+}
+
 static void test_onewire_off_its_pin_is_range(void)
 {
     const tfw_pinref_t p = { 0 };
@@ -621,6 +641,7 @@ int main(void)
     RUN_TEST(test_spi_xfer_drains_a_stale_answer_first);
     RUN_TEST(test_spi_xfer_refuses_any_other_select);
     RUN_TEST(test_spi_a_stopped_port_is_a_timeout_and_the_select_released);
+    RUN_TEST(test_spi_an_answer_that_never_comes_is_a_timeout_and_the_select_released);
     RUN_TEST(test_onewire_off_its_pin_is_range);
     return UNITY_END();
 }

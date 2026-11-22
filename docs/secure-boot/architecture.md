@@ -1,6 +1,6 @@
 # tfw-boot — architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 `tfw-boot` is a second, separate firmware image, linked with its own `main()`,
@@ -24,14 +24,18 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 |---|---|---|
 | Boot decision | `boot/boot_policy.c`, `boot/boot_image.c` | `tfw_boot_evaluate`: trailer parse, rollback check, measurement compare, signature check, in that order |
 | Measurement | `boot/boot_measure.h`, `boot/measure/{measure_soft,measure_atecc608a}.c` | SHA-256 over flash, one backend linked |
-| Verification | `boot/boot_verify.h`, `boot/verify/{verify_ed25519_donna,verify_atecc608a}.c` | signature check, one backend linked |
+| Verification | `boot/boot_verify.h`, `boot/verify/{verify_p256_soft,verify_atecc608a,verify_ed25519_donna}.c`, `boot/verify/p256_key_slot.c`, `boot/verify/donna_shim.c`, `boot/boot_cose.c` | signature check, one backend linked (`BOOT_SIG=p256-soft`, `atecc608a` or `ed25519-donna`); `p256_key_slot.c` is the p256-soft key slot the provisioning jig patches, `donna_shim.c` the one symbol ed25519-donna needs defined, and `boot_cose.c` the `OTA_ACTIVATE`/`OTA_CONFIRM` Sig_structures the AVR store row and the ESP32 layer 0 share |
 | DICE layer 0 | `boot/boot_cdi.h`, `boot/tier/{cdi_soft,cdi_atecc}.c` | CDI derivation and the rollback floor's authority |
 | Reserved EEPROM | `boot/boot_platform.{c,h}`, `boot/boot_store.{c,h}` | parse/serialise and the floor's software-tier fallback |
 | Handoff | `boot/boot_handoff.c` | building/parsing the CDI block the application reads |
-| Recovery | `boot/boot_recovery.h`, `boot/recovery/recovery_ota.c`, `boot/hal/avr/recovery_halt.c` | what runs when nothing may boot, one backend linked |
+| Recovery | `boot/boot_recovery.h`, `boot/recovery/recovery_ota.c`, `boot/hal/avr/recovery_halt.c`, `boot/hal/cortex-m/recovery_halt.c` | what runs when nothing may boot, one backend linked |
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
 | The one trial | `boot/boot_trial.{c,h}` | the OTA state machine's transitions and refusals, pure over the platform block ([../ota/architecture.md](../ota/architecture.md#what-runs-today-77)) |
-| HAL | `boot/boot_hal.h`, `boot/hal/avr/boot_hal_avr.c` | flash, EEPROM, UART, handoff placement, jump/reset |
+| A/B swap | `boot/boot_swap.{c,h}`, `boot/boot_swap_none.c` | swap-move of the primary and secondary slots (the ATmega2560's, and a two-slot MPS2 board's under `BOOT_AB=1`) and its phase-and-step record, one byte rewritten per advance so a torn EEPROM write leaves the old position or the new; `boot_swap_none.c` on every other row except a `boot_prev.c` row, where the three calls `main()` makes change nothing |
+| Fall-back | `boot/boot_prev.c` | the PREV restore of a single-slot store row, linked in place of `boot_swap_none.c` only when `BOOT_STORE=1`, `BOOT_AB=0` and `BOOT_PREV=1` (`mk/boot.mk`); in `BOOT_SUPPORTED` today those are the MPS2 AN505 and AN500 store rows (`mps2-an505:soft:soft:p256-soft:0:1`, `mps2-an500:soft:soft:p256-soft:0:1`). On such a row it copies the store's PREV image back over an ended trial or a refused pending image and ends the round GOOD with FAILED (`TFW_BOOT_EE_FLAG_REFUSED` set for a refusal). Neither AVR single-slot part has it: the ATmega328P's `profile.mk` sets `BOOT_PREV ?= 0` (owner queue 176, option (a)), so a failed activation there has no boot-time rollback and the part is recovered by reflash, and the ATmega32U4 has no store row in `BOOT_SUPPORTED`, since with the restore it does not fit the boot section ([../ota/architecture.md](../ota/architecture.md#the-328p-and-32u4-fallback-from-prev-52)) |
+| Stage | `boot/boot_stage.{c,h}`, `boot/boot_stage_none.c` | tfw-boot's side of the external OTA store: read the stager's MARK, check the staged image again, copy it into the application region; `boot_stage_none.c` on a board with no store (`BOOT_STORE=0`) |
+| Update request | `boot/boot_request.{c,h}`, `boot/boot_entry.c` | the update-session request: the encoding both images share (`boot_request.c`, pure, linked by the application too) and tfw-boot's half that reads and clears it through the boot HAL (`boot_entry.c`) |
+| HAL | `boot/boot_hal.h`; one of `boot/hal/avr/`, `boot/hal/cortex-m/`, `boot/hal/esp32/`, `boot/hal/host/` linked per image | flash, EEPROM, UART, handoff placement, jump/reset, and the OTA store's bus where the board names one. AVR: `boot_hal_avr.c`, `boot_start_avr.S`, `boot_ota_store_avr.c`. Cortex-M: the core's half in `boot_hal_cortex-m.c` and `boot_jump.c`, `boot_ota_store_cortex-m.c`, `boot_factory.c`/`boot_factory_none.c` (a two-slot MPS2 board's factory copies), and the SoC's half (flash and UART) in `mcxn94x/`, `mps2/`, `nrf54l/`, `rp2350/` and `stm32h5/`. ESP32: `boot_hal_esp32.c` on ESP-IDF's second-stage bootloader, beside layer 0 (`boot_l0.c`, `l0_gate.c`, `l0_crypto.c`, `flash_span.c`, `measure_esp32.c`, `verify_p256_rom.c`, `verify_digest_soft.c`; [../esp32/](../esp32/)). Host: `boot_hal_host.c`, tfw-boot inside tfwsim |
 | Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/proto/crc16_update.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence. The application's *firmware* image links `src/hal/avr/hal_crc16.c` instead of `crc16_update.c` for the per-byte fold (#12); the bootloader does not carry that substitution, so it keeps the portable form. |
 | Wire layouts | `include/tfw/boot.h` | the trailer, the reserved-EEPROM region, the handoff block — each has a second party that must agree byte for byte |
 
@@ -41,19 +45,38 @@ has one place to read, not a scatter of checks between peripheral setup.
 
 ## Data flow
 
+The diagram is `boot/boot_main.c`'s, which `mk/boot.mk` links on the AVR,
+Cortex-M and host builds only. Its first line is the AVR entry (`BOOTRST`,
+`.init3`); the Cortex-M and host HALs enter `main()` from their own reset path
+— see [../boards/](../boards/) for each board and [../cortex-m/](../cortex-m/).
+From `main()` on, the order is the same on those three.
+
+The ESP32 links no `boot_main.c`. Its layer 0 (`boot/hal/esp32/boot_l0.c`)
+replaces ESP-IDF's second-stage entry, `call_start_cpu0`, and runs
+`bootloader_init`, ESP-IDF's choice of the boot partition, layer 0's verify,
+gate and CDI derivation, then ESP-IDF's loader
+(`bootloader_utility_load_boot_image`). It has no request/session, EEPROM
+trial or swap step; see [../esp32/engineering.md](../esp32/engineering.md).
+
 ```
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)
   -> main(): request_take (read + clear the app's update request), uart_init, cdi_init
   -> platform_load (reserved EEPROM)                -> fail: recovery(reason)
-  -> floor_load
-  -> trial_at_reset:  TRIAL                          -> FAILED, recovery(TFW_ERR_BAD_STATE)
-                      CONFIRMED                      -> evaluate, floor := version, GOOD
+  -> trial_at_reset -> swap_at_reset -> stage_after_reset
+                      (swap and stage are no-ops on a board without the slots or a store)
+                      TRIAL                          -> FAILED, recovery(TFW_ERR_BAD_STATE)
+  -> floor_load                                      -> fail: recovery(reason)
+  -> CONFIRMED?                                      -> evaluate, floor := version, GOOD
+  -> stage_take (copy a staged image from the external store, if any)
   -> request honoured?                               -> yes: session_open (bounded; returns on
                                                         idle timeout, arms the trial and hands
                                                         over on a verified OTA_END)
   -> boot_state == STAGED?                           -> yes: recovery(TFW_ERR_CRYPTO)
+  -> swap_take (A/B: swap a pending secondary in)
   -> tfw_boot_evaluate(floor):
        trailer_parse -> binding_permit -> rollback_permit -> measure -> compare -> verify
+                                                                -> fail: swap_fall_back (A/B or PREV)
+                                                                   -> evaluate again
                                                                 -> fail: PENDING -> TRIAL+FAILED, recovery(reason)
   -> PENDING? arm: TRIAL
   -> tfw_boot_hand_over: cdi_derive -> handoff_build -> handoff_write -> zeroize -> jump_application
@@ -84,6 +107,9 @@ The `RESET` itself needs the operator auth session on the element tier.
   EEPROM (`tfw_boot_check_pubkey_pin`); on `BOOT_SIG=atecc608a` it never leaves
   a locked element slot at all, named by number, and `tfw_boot_pubkey` answers
   `TFW_ERR_UNSUPPORTED` because there is nothing to hash and nothing to pin.
+  On `BOOT_SIG=p256-soft` the key is the boot-section slot
+  `boot/verify/p256_key_slot.c` the provisioning jig patches, write-protected
+  by the lock bits, and `tfw_boot_pubkey` likewise answers `TFW_ERR_UNSUPPORTED`.
 - **The UDS never reaches the application.** It is consumed inside the
   bootloader (`tfw_boot_cdi_derive`) and only the derived CDI crosses into
   SRAM. Under BLB1 mode 3 the application cannot read boot-section flash at

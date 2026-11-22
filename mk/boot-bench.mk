@@ -52,8 +52,8 @@ $(BENCH_KEY):
 ## bench-key: create the development-only bench P-256 signing key at BENCH_KEY, outside the tree
 # umask 077 from the first byte, so the key is never readable by anyone else,
 # not even between its creation and the chmod. Only its public half's SHA-256 is
-# printed. A key already there is kept, not replaced, unless its mode lets
-# anyone but its owner read it.
+# printed. A key already there is kept, not replaced, at mode 600 or 400; any
+# other mode is refused.
 bench-key:
 	@if [ -e '$(BENCH_KEY)' ]; then \
 	   mode=$$(stat -c %a '$(BENCH_KEY)'); \

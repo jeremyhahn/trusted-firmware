@@ -79,7 +79,8 @@ func jwkOf(xy []byte) (*ecJWK, error) {
 }
 
 // readRecord reads a record and refuses anything that is not one: an unknown
-// member, or bytes after the record's object, would be dropped by the
+// member, a member in another case or repeated (encoding/json takes either),
+// or bytes after the record's object, would be dropped or renamed by the
 // rewrite, and a UEID of another shape is not a device this tool baked.
 func readRecord(path string) (*provRecord, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- the operator names the record
@@ -94,6 +95,9 @@ func readRecord(path string) (*provRecord, error) {
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, &recordError{path + " is not a provisioning record: bytes after its object"}
+	}
+	if err := checkMembers(json.NewDecoder(bytes.NewReader(raw)), recordMembers); err != nil {
+		return nil, &recordError{fmt.Sprintf("%s is not a provisioning record: %v", path, err)}
 	}
 	id, err := base64.RawURLEncoding.DecodeString(r.UEID)
 	if err != nil || len(id) != 1+tfw.SerialLen || id[0] != ueidTypeRAND {
@@ -112,6 +116,52 @@ func readRecord(path string) (*provRecord, error) {
 		}
 	}
 	return &r, nil
+}
+
+// memberNames is the names an object of the record may hold, each with the
+// names of its own object; a nil entry is a member that is not an object.
+type memberNames map[string]memberNames
+
+// recordMembers is the record's members, case-sensitive as JWT and JWK
+// member names are (RFC 7519 §4, RFC 7517 §4).
+var recordMembers = memberNames{
+	"ueid": nil,
+	"cnf":  {"jwk": {"kty": nil, "crv": nil, "x": nil, "y": nil}},
+}
+
+// checkMembers walks the next value and refuses a member that is not exactly
+// one of its object's names, or that repeats within its object. readRecord
+// calls it only on bytes Decode has accepted, so a member that is not an
+// object here is a string or null.
+func checkMembers(dec *json.Decoder, names memberNames) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil
+	}
+	seen := make(map[string]bool)
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		inner, ok := names[key]
+		if !ok {
+			return fmt.Errorf("member %q is not one of its object's names", key)
+		}
+		if seen[key] {
+			return fmt.Errorf("member %q is repeated", key)
+		}
+		seen[key] = true
+		if err := checkMembers(dec, inner); err != nil {
+			return err
+		}
+	}
+	_, err = dec.Token()
+	return err
 }
 
 func pointOf(k *ecJWK) ([]byte, error) {

@@ -274,6 +274,29 @@ void test_a_wire_write_of_duty_0_stops_a_running_channel(void)
     TEST_ASSERT_EQUAL_UINT32(60u, TFW_H5_TIM_CCR(2u));
 }
 
+void test_a_ref_outside_tim5_and_the_banks_is_refused_untouched(void)
+{
+    tfw_pwmref_t bad[5];
+    unsigned i;
+
+    for (i = 0u; i < 5u; i++)
+        bad[i] = ref_of(1u);
+    bad[0].channel = 0u;
+    bad[1].channel = 5u;
+    bad[2].unit = (uint8_t)(TFW_H5_PWM_UNIT + 1u);
+    bad[3].port = TFW_H5_GPIO_BANKS;
+    bad[4].bit = TFW_H5_GPIO_PINS;
+    for (i = 0u; i < 5u; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_pwm_write(&bad[i], 128u));
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_pwm_stop(&bad[i]));
+    }
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_TIM_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_TIM_CCER);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_AHB2ENR);
+    for (i = 0u; i <= 4u; i++)
+        TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(TIM5_CCR_ADDR(i)));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -292,6 +315,7 @@ int main(void)
     RUN_TEST(test_stop_clears_only_its_channel);
     RUN_TEST(test_a_wire_write_of_duty_0_leaves_the_pin_low);
     RUN_TEST(test_a_wire_write_of_duty_0_stops_a_running_channel);
+    RUN_TEST(test_a_ref_outside_tim5_and_the_banks_is_refused_untouched);
     RUN_TEST(test_each_wire_write_gives_the_pin_back_to_the_timer);
     return UNITY_END();
 }

@@ -108,6 +108,25 @@ static void test_a_pin_the_hal_cannot_read_or_drive_reports_it(void)
     TEST_ASSERT_EQUAL_UINT8(0u, level_now());
 }
 
+static void test_a_pin_mode_the_hal_refuses_reports_it_and_leaves_the_pin(void)
+{
+    tfw_mock_gpio_mode_fails_once(TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT,
+        run(TFW_CMD_PIN_MODE, (const uint8_t[]){ PIN, 1u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_is_output(PIN_PORT, PIN_BIT));
+
+    tfw_mock_gpio_mode_fails_once(TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT,
+        run(TFW_CMD_PIN_MODE, (const uint8_t[]){ PIN, 2u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_pullup(PIN_PORT, PIN_BIT));
+
+    TEST_ASSERT_EQUAL(TFW_OK,
+        run(TFW_CMD_PIN_MODE, (const uint8_t[]){ PIN, 1u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_mock_pin_is_output(PIN_PORT, PIN_BIT));
+}
+
 /* A timer whose pin could not be driven is not armed: no slot, no index. */
 static void test_a_timer_on_a_pin_the_hal_cannot_drive_is_not_armed(void)
 {
@@ -217,6 +236,7 @@ int main(void)
     RUN_TEST(test_a_onewire_bus_error_reaches_the_host_with_no_bytes);
     RUN_TEST(test_an_eeprom_read_error_reaches_the_host_with_no_bytes);
     RUN_TEST(test_a_pin_the_hal_cannot_read_or_drive_reports_it);
+    RUN_TEST(test_a_pin_mode_the_hal_refuses_reports_it_and_leaves_the_pin);
     RUN_TEST(test_a_timer_on_a_pin_the_hal_cannot_drive_is_not_armed);
     RUN_TEST(test_a_failed_rearm_keeps_the_first_deadline);
     RUN_TEST(test_a_cancel_that_cannot_apply_the_final_level_keeps_the_timer);

@@ -456,6 +456,28 @@ static void test_discover_is_retransmitted_at_4_8_16_32_64_s_then_given_up(void)
     TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));   /* given back */
 }
 
+/* RFC 2131 section 4.1: each retransmission delay is randomised by -1..+1 s,
+ * which keeps a fleet's retransmissions apart (src/net/dhcp.c:130-131). A
+ * fixed offset from 4, 8, 16, 32 s means the draw at dhcp.c:232-233 is gone. */
+static void test_discover_retransmissions_are_jittered_not_fixed(void)
+{
+    static const tfw_ms_t base[4] = { 4000u, 8000u, 16000u, 32000u };
+    int32_t  lo = 2000, hi = -2000, off;
+    tfw_ms_t last;
+    uint8_t  k;
+
+    discover();
+    for (k = 0u; k < 4u; k++) {
+        last = now_ms;
+        TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(base[k] + 2000u));
+        TEST_ASSERT_EQUAL_UINT8(1u, sent());
+        off = (int32_t)(now_ms - last) - (int32_t)base[k];
+        lo = (off < lo) ? off : lo;
+        hi = (off > hi) ? off : hi;
+    }
+    TEST_ASSERT_TRUE(hi - lo > (int32_t)STEP_MS);
+}
+
 static void test_a_request_without_an_answer_is_given_up_the_same_way(void)
 {
     uint8_t k;
@@ -949,6 +971,7 @@ int main(void)
     RUN_TEST(test_an_infinite_lease_is_held_to_the_clock_compare);
     RUN_TEST(test_discover_is_retransmitted_at_4_8_16_32_64_s_then_given_up);
     RUN_TEST(test_a_request_without_an_answer_is_given_up_the_same_way);
+    RUN_TEST(test_discover_retransmissions_are_jittered_not_fixed);
     RUN_TEST(test_an_offer_for_another_xid_is_discarded);
     RUN_TEST(test_an_offer_for_another_client_is_discarded);
     RUN_TEST(test_a_request_shaped_or_cookieless_or_unterminated_reply_is_discarded);

@@ -41,6 +41,7 @@ typedef struct {
     esp_err_t            write_err;
     esp_err_t            end_err;
     esp_err_t            metadata_err;
+    uint8_t              no_hash;      /* metadata: no digest appended */
     esp_err_t            set_boot_err;
     esp_err_t            mark_err;
     tfw_status_t         auth_err;     /* tfw_esp_part_write's answer, when set */

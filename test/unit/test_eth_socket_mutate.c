@@ -15,6 +15,7 @@
 #include <netinet/in.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include "unity.h"
 #include "tfw/eth.h"
 #include "eth_socket.h"
@@ -272,6 +273,55 @@ static void test_no_descriptor_left_reads_absent(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
 }
 
+/* Mutant: the stall's poll() timeout cut to 0 (1000 -> 0), so a full socket
+ * buffer is read as a peer that has gone. A peer that keeps reading holds the
+ * link through 64 KB sent into 4 KB buffers, read 64 bytes at a time: every
+ * byte arrives in order and the link is still up. The peer is a forked reader
+ * that closes its copies of the device's socket and the listener, so nothing
+ * waits on a clock and a failed assert never leaves the connection open. */
+static void test_a_peer_that_keeps_reading_keeps_the_link_through_a_full_buffer(void)
+{
+    static uint8_t got[2048];
+    int            small = 4096, st = -1;
+    size_t         i, round, n;
+    ssize_t        r;
+    pid_t          pid;
+
+    lsn = bound_socket();
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(lsn, SOL_SOCKET, SO_RCVBUF, &small, sizeof small));
+    TEST_ASSERT_EQUAL_INT(0, listen(lsn, 2));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_eth_start(&cfg, 4000u));
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(tfwsim_eth_fd(), SOL_SOCKET, SO_SNDBUF, &small, sizeof small));
+    peer = accept(lsn, NULL, NULL);
+    TEST_ASSERT_TRUE(peer >= 0);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+    pid = fork();
+    TEST_ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        (void)close(tfwsim_eth_fd());
+        (void)close(lsn);
+        for (round = 0u; round < 32u; round++) {
+            for (n = 0u; n < sizeof got; n += (size_t)r) {
+                r = recv(peer, &got[n], (sizeof got - n) < 64u ? sizeof got - n : 64u, 0);
+                if (r <= 0) { _exit(2); }
+            }
+            for (i = 0u; i < sizeof got; i++) {
+                if (got[i] != (uint8_t)(round + i)) { _exit(3); }
+            }
+        }
+        _exit(0);
+    }
+    for (round = 0u; round < 32u; round++) {
+        for (i = 0u; i < 2048u; i++) { TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_tx((uint8_t)(round + i))); }
+        tfw_eth_send();
+        TEST_ASSERT_TRUE_MESSAGE(tfwsim_eth_fd() >= 0, "a reading peer was dropped");
+    }
+    TEST_ASSERT_EQUAL_INT(pid, waitpid(pid, &st, 0));
+    TEST_ASSERT_TRUE(WIFEXITED(st));
+    TEST_ASSERT_EQUAL_INT(0, WEXITSTATUS(st));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -287,5 +337,6 @@ int main(void)
     RUN_TEST(test_close_drops_buffered_and_queued_bytes);
     RUN_TEST(test_a_restart_hangs_up_the_old_connection);
     RUN_TEST(test_no_descriptor_left_reads_absent);
+    RUN_TEST(test_a_peer_that_keeps_reading_keeps_the_link_through_a_full_buffer);
     return UNITY_END();
 }

@@ -316,6 +316,21 @@ static void test_start_keeps_no_secret_in_any_answer(void)
 
 /* ---- the client over psa_call: same bytes as the service ----------------- */
 
+static void test_start_tier_is_the_certificate_tier(void)
+{
+    static uint8_t sw[1024], se[1024];
+    uint8_t        alias0[64], alias1[64];
+    uint32_t       n_sw = client_cert(sw, sizeof sw, 255u);
+    uint32_t       n_se;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_s_dice_alias_pub(alias0));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_partition_start(UDS, MEAS, TFW_CRYPTO_SECURE_ELEMENT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_s_dice_alias_pub(alias1));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(alias0, alias1, 64);
+    n_se = client_cert(se, sizeof se, 255u);
+    TEST_ASSERT_FALSE(n_se == n_sw && memcmp(sw, se, n_sw) == 0);
+}
+
 static void test_client_cert_is_the_service_cert_at_any_page_size(void)
 {
     static uint8_t ref[1024], got[1024];
@@ -482,6 +497,7 @@ int main(void)
     RUN_TEST(test_another_measurement_moves_the_alias_key_only);
     RUN_TEST(test_alias_cert_carries_the_ueid_measurement_and_alias_pub);
     RUN_TEST(test_start_keeps_no_secret_in_any_answer);
+    RUN_TEST(test_start_tier_is_the_certificate_tier);
     RUN_TEST(test_client_cert_is_the_service_cert_at_any_page_size);
     RUN_TEST(test_client_sign_verifies_under_the_alias_pub_only);
     RUN_TEST(test_client_offset_past_the_end_is_range);

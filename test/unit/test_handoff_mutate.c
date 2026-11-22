@@ -6,7 +6,8 @@
  * SRAM, or 0xFF) is read the way test_reset_cause.c and test_crypto_soft.c
  * define an invalid record: no tier, no measurement, no reset cause (the
  * device's own observation stands), no CDI to take, FWHash all zero, the raw
- * block zeroed, and a software provider with no UDS left unprovisioned. Never
+ * block zeroed, a software provider with no UDS left unprovisioned, and no
+ * DeviceID seed (not even the one an earlier valid record left). Never
  * acted on as valid. A cut that leaves the block byte-identical to the valid
  * one is the valid one, and is read as valid.
  *
@@ -31,6 +32,7 @@
 
 static uint8_t g_valid[TFW_BOOT_HANDOFF_LEN];
 static uint8_t g_cdi[32], g_meas[32];
+static uint8_t g_seed[TFW_BOOT_SEED_LEN];
 
 void setUp(void)
 {
@@ -40,9 +42,13 @@ void setUp(void)
         g_cdi[i]  = (uint8_t)(0xD0u + i);
         g_meas[i] = (uint8_t)(0x30u + i);
     }
+    for (i = 0u; i < TFW_BOOT_SEED_LEN; i++) {
+        g_seed[i] = (uint8_t)(0x50u + i);
+    }
     tfw_mock_reset();
     tfw_mock_set_uds(0);
     tfw_boot_handoff_build(g_valid, TFW_CRYPTO_SOFTWARE, g_cdi, g_meas, 7u, TFW_RESET_WATCHDOG);
+    tfw_boot_handoff_set_seed(g_valid, g_seed);
 }
 
 void tearDown(void) {}
@@ -72,7 +78,10 @@ static void install(const uint8_t *block)
 static void expect_valid(void)
 {
     uint8_t cdi[32], cause = 0u;
+    uint8_t seed[TFW_BOOT_SEED_LEN];
 
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_handoff_device_seed(seed));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(g_seed, seed, TFW_BOOT_SEED_LEN);
     TEST_ASSERT_NOT_NULL(tfw_boot_handoff_tier());
     TEST_ASSERT_EQUAL_UINT8(TFW_CRYPTO_SOFTWARE, *tfw_boot_handoff_tier());
     TEST_ASSERT_NOT_NULL(tfw_boot_handoff_measurement());
@@ -89,10 +98,12 @@ static void expect_valid(void)
 static void expect_refused(const char *what, unsigned a, unsigned b)
 {
     uint8_t cdi[32], out[32], cause = 0xEEu;
+    uint8_t seed[TFW_BOOT_SEED_LEN];
     int     bad = 0;
     unsigned i;
 
     memset(cdi, 0xA5, sizeof cdi);
+    memset(seed, 0xA5, sizeof seed);
     bad |= tfw_boot_handoff_tier() != 0;
     bad |= tfw_boot_handoff_measurement() != 0;
     bad |= tfw_boot_handoff_reset_cause(&cause) != 0u || cause != 0xEEu;
@@ -109,6 +120,10 @@ static void expect_refused(const char *what, unsigned a, unsigned b)
     bad |= tfw_boot_handoff_take_cdi(cdi) != 0u;
     for (i = 0u; i < 32u; i++) {
         bad |= cdi[i] != 0xA5u;
+    }
+    bad |= tfw_boot_handoff_device_seed(seed) != 0u;
+    for (i = 0u; i < TFW_BOOT_SEED_LEN; i++) {
+        bad |= seed[i] != 0xA5u;
     }
     if (bad) {
         printf("%s %u/%u\n", what, a, b);
@@ -224,6 +239,47 @@ static void test_handoff_mutate_a_recrced_foreign_version_or_magic_is_refused(vo
     expect_valid();
 }
 
+/* A refused record after a valid one: the seed the valid one left is gone. */
+static void test_handoff_mutate_a_refused_record_drops_the_seed_a_valid_one_left(void)
+{
+    uint8_t b[TFW_BOOT_HANDOFF_LEN];
+
+    install(g_valid);
+    expect_valid();
+    memcpy(b, g_valid, sizeof b);
+    b[TFW_BOOT_HO_CRC] ^= 0x01u;
+    install(b);
+    expect_refused("crc after valid", 0u, 0u);
+}
+
+/* A valid record that carried no seed holds none, and `out` is untouched. */
+static void test_handoff_mutate_a_valid_record_without_a_seed_holds_none(void)
+{
+    uint8_t b[TFW_BOOT_HANDOFF_LEN], seed[TFW_BOOT_SEED_LEN];
+
+    tfw_boot_handoff_build(b, TFW_CRYPTO_SOFTWARE, g_cdi, g_meas, 7u, TFW_RESET_WATCHDOG);
+    install(b);
+    TEST_ASSERT_NOT_NULL(tfw_boot_handoff_tier());
+    memset(seed, 0xA5, sizeof seed);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_handoff_device_seed(seed));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, seed, TFW_BOOT_SEED_LEN);
+}
+
+/* A seed whose only non-zero byte is the last is a seed, held whole. */
+static void test_handoff_mutate_a_seed_with_only_its_last_byte_set_is_held(void)
+{
+    uint8_t b[TFW_BOOT_HANDOFF_LEN], in[TFW_BOOT_SEED_LEN], seed[TFW_BOOT_SEED_LEN];
+
+    memset(in, 0, sizeof in);
+    in[TFW_BOOT_SEED_LEN - 1u] = 0x01u;
+    tfw_boot_handoff_build(b, TFW_CRYPTO_SOFTWARE, g_cdi, g_meas, 7u, TFW_RESET_WATCHDOG);
+    tfw_boot_handoff_set_seed(b, in);
+    install(b);
+    memset(seed, 0xA5, sizeof seed);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_handoff_device_seed(seed));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, seed, TFW_BOOT_SEED_LEN);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -232,5 +288,8 @@ int main(void)
     RUN_TEST(test_handoff_mutate_every_two_bit_error_is_refused);
     RUN_TEST(test_handoff_mutate_every_truncation_is_refused);
     RUN_TEST(test_handoff_mutate_a_recrced_foreign_version_or_magic_is_refused);
+    RUN_TEST(test_handoff_mutate_a_refused_record_drops_the_seed_a_valid_one_left);
+    RUN_TEST(test_handoff_mutate_a_valid_record_without_a_seed_holds_none);
+    RUN_TEST(test_handoff_mutate_a_seed_with_only_its_last_byte_set_is_held);
     return UNITY_END();
 }

@@ -888,6 +888,17 @@ static void test_an_image_with_no_room_for_its_trailer_is_refused(void)
     expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
 }
 
+/* An image ESP-IDF reports with no digest appended: its end is not the
+ * digest's, so the trailer is not where layer 0 reads it. */
+static void test_an_image_with_no_appended_digest_is_refused(void)
+{
+    stage_signed(2u);
+    mock_esp.no_hash = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
 static void test_a_slot_whose_digest_cannot_be_read_is_internal(void)
 {
     stage_signed(2u);
@@ -1188,6 +1199,7 @@ int main(void)
     RUN_TEST(test_an_image_that_ends_inside_its_digest_is_refused);
     RUN_TEST(test_an_image_that_ends_past_the_slot_is_refused);
     RUN_TEST(test_an_image_with_no_room_for_its_trailer_is_refused);
+    RUN_TEST(test_an_image_with_no_appended_digest_is_refused);
     RUN_TEST(test_a_slot_whose_digest_cannot_be_read_is_internal);
     RUN_TEST(test_a_slot_with_no_app_description_is_internal);
     RUN_TEST(test_stage_activate_with_no_ended_image_sets_no_boot_slot);

@@ -10,7 +10,8 @@
 #include "cm_regs.h"
 #include "regfile_model.h"
 
-#define REGFILE_WORDS 32u
+/* test_nrf54l_soc.c fills FICR's 64-pair trim table (128 words): more than 32. */
+#define REGFILE_WORDS 256u
 static struct {
     uintptr_t addr;
     uint32_t  val;

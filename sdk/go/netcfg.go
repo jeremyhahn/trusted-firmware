@@ -104,8 +104,9 @@ func DerivedMAC(id []byte) net.HardwareAddr {
 
 // MarshalBinary serialises the block: magic, version, the fields, and the
 // frame CRC over everything before it. It refuses what the device would
-// treat as absent -- a zero endpoint address or port -- and a multicast MAC,
-// rather than write a block the link will never use.
+// treat as absent -- a zero endpoint address or port -- a multicast MAC, and,
+// for a static block, a mask that is not contiguous (tfwprov --bake-netblock
+// refuses the same), rather than write a block the link will never use.
 func (c NetConfig) MarshalBinary() ([]byte, error) {
 	if len(c.MAC) != 6 {
 		return nil, &NetConfigError{Field: "MAC", Reason: "must be 6 bytes"}
@@ -138,6 +139,11 @@ func (c NetConfig) MarshalBinary() ([]byte, error) {
 			return nil, &NetConfigError{Field: a.name, Reason: "must be an IPv4 address"}
 		}
 		v := a.a.As4()
+		if !c.DHCP && a.off == netcfgOffMask {
+			if ones, bits := net.IPMask(v[:]).Size(); ones == 0 && bits == 0 {
+				return nil, &NetConfigError{Field: a.name, Reason: "must be a contiguous netmask"}
+			}
+		}
 		copy(b[a.off:], v[:])
 	}
 	if c.Endpoint.Addr().IsUnspecified() {

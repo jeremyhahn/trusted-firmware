@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * <avr/eeprom.h> for the host, as wide as src/hal/avr/hal_eeprom.c needs
- * (#163). Declarations only: the suite defines each over its own model of the
- * cells, so it sees every address and every program cycle. The write and the
- * update forms are both declared, so a unit that programs a cell it need not
- * still builds and is caught by the suite. Only on the -I of the suite that
- * tests that unit; the AVR build uses avr-libc's.
+ * <avr/eeprom.h> for the host, as wide as src/hal/avr/hal_eeprom.c and
+ * boot/hal/avr/boot_hal_avr.c need (#163). Declarations only: the suite
+ * defines each over its own model of the cells, so it sees every address and
+ * every program cycle. The write and the update forms are both declared, so a
+ * unit that programs a cell it need not still builds and is caught by the
+ * suite. Only on the -I of the suites that test those units; the AVR build
+ * uses avr-libc's.
  */
 #ifndef TFW_TEST_AVR_EEPROM_H
 #define TFW_TEST_AVR_EEPROM_H

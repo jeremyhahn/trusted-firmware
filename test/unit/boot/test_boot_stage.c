@@ -530,6 +530,46 @@ static void test_a_page_size_the_copy_cannot_use_is_refused(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
 }
 
+/* boot_stage.c:291: with no store on the bus, take() never runs. */
+static void test_no_store_on_the_bus_takes_nothing_and_keeps_the_mark(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_on_store(NULL);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_stage_take(&plat, 0u));
+    assert_nothing_copied();
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)TFW_STAGE_MARK_MAGIC, tfw_nor_model_mem()[MARK]);
+}
+
+/* boot_stage.c:77: id 00 30 10 is a part, not a bus of zeros. */
+static void test_a_maker_byte_of_zero_alone_is_not_an_absent_part(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_nor_model_set_maker(0x00u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, 0u));
+    assert_installed(1200u);
+}
+
+/* boot_stage.c:77: id FF 30 10 is a part, not a floating bus. */
+static void test_a_maker_byte_of_ones_alone_is_not_an_absent_part(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_nor_model_set_maker(0xFFu);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, 0u));
+    assert_installed(1200u);
+}
+
+/* boot_stage.c:252-259: the first measurement read finds no store. */
+static void test_a_store_silent_in_the_measurement_copies_nothing_and_keeps_the_mark(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_on_store(faulty_xfer);
+    cut_at = 4u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_stage_take(&plat, 0u));
+    assert_nothing_copied();
+    TEST_ASSERT_EQUAL_UINT(4u, xfers);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)TFW_STAGE_MARK_MAGIC, tfw_nor_model_mem()[MARK]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -558,5 +598,9 @@ int main(void)
     RUN_TEST(test_a_keyless_tier_verifies_without_a_key);
     RUN_TEST(test_an_unreadable_key_copies_nothing_and_keeps_the_mark);
     RUN_TEST(test_a_page_size_the_copy_cannot_use_is_refused);
+    RUN_TEST(test_no_store_on_the_bus_takes_nothing_and_keeps_the_mark);
+    RUN_TEST(test_a_maker_byte_of_zero_alone_is_not_an_absent_part);
+    RUN_TEST(test_a_maker_byte_of_ones_alone_is_not_an_absent_part);
+    RUN_TEST(test_a_store_silent_in_the_measurement_copies_nothing_and_keeps_the_mark);
     return UNITY_END();
 }

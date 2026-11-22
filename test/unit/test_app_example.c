@@ -150,6 +150,35 @@ static void test_the_example_supplies_its_evidence(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(EV, out, sizeof out);
 }
 
+/* A pin the HAL refuses makes the example's init refuse: the runner leaves it
+ * FAILED, never runs it and asks it for no evidence, and the next start, with
+ * the HAL accepting, runs it. Run last: it never runs the heartbeat. */
+static void test_a_pin_the_hal_refuses_leaves_the_heartbeat_failed_and_dark(void)
+{
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+
+    tfw_mock_gpio_mode_fails_once(TFW_ERR_UNSUPPORTED);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_FAILED, tfw_app_runner_state());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_is_output(led.port, led.bit));
+
+    tfw_mock_advance(500u);
+    tfw_app_runner_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, led_level());
+    tfw_mock_advance(500u);
+    tfw_app_runner_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, led_level());
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_app_runner_overruns());
+
+    memset(out, 0x5A, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x5Au, out, sizeof out);
+
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_mock_pin_is_output(led.port, led.bit));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -160,5 +189,6 @@ int main(void)
     RUN_TEST(test_a_reset_leaves_the_pin_low);
     RUN_TEST(test_app_info_reports_the_example);
     RUN_TEST(test_the_example_supplies_its_evidence);
+    RUN_TEST(test_a_pin_the_hal_refuses_leaves_the_heartbeat_failed_and_dark);
     return UNITY_END();
 }

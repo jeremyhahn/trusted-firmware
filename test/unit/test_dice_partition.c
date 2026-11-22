@@ -203,6 +203,7 @@ static psa_invec  s_in[2];
 static psa_outvec s_out[2];
 static uint8_t    s_out0[300], s_out1[8];
 static size_t   (*s_read)(void *, uint32_t, void *, size_t) = call_read;
+static int        s_extra_in = -1; /* >= 0: that in-vector's size is 1 */
 
 static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
                              const void *in1, size_t len1,
@@ -227,6 +228,9 @@ static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
     s_call.out = s_out;
     m.in_size[0] = s_in[0].len;
     m.in_size[1] = s_in[1].len;
+    if (s_extra_in >= 0) {
+        m.in_size[s_extra_in] = 1u;
+    }
     m.out_size[0] = out0;
     m.out_size[1] = out1;
     m.read = s_read;
@@ -252,6 +256,7 @@ void setUp(void)
     s_framework_error = PSA_SUCCESS;
     s_lie_vec = -1;
     s_read = call_read;
+    s_extra_in = -1;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_partition_start(UDS, MEAS, TFW_CRYPTO_SOFTWARE));
 }
 
@@ -560,6 +565,25 @@ static void test_short_read_is_bad_argc_untouched(void)
     assert_nothing_written();
 }
 
+/* A psa_call carries up to four in-vectors and no operation takes a third or
+ * a fourth: a message with one is refused before the operation runs, so an
+ * otherwise good call writes nothing. */
+static void test_third_or_fourth_in_vector_is_bad_argc_untouched(void)
+{
+    uint32_t off = 0u;
+
+    for (s_extra_in = 2; s_extra_in < (int)TFW_DICE_IOVEC; s_extra_in++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_DEVICEID_PUB, NULL, 0u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_PUB, NULL, 0u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_CERT, NONCE, 32u, &off, 4u, 255u, 4u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_SIGN, DIGEST, 32u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+    }
+}
+
 /* ---- not started: every call answers NOT_PROVISIONED --------------------- */
 
 static void test_without_start_every_call_is_not_provisioned(void)
@@ -605,6 +629,7 @@ int main(void)
     RUN_TEST(test_unknown_operations_are_refused_untouched);
     RUN_TEST(test_missing_read_or_write_is_range_untouched);
     RUN_TEST(test_short_read_is_bad_argc_untouched);
+    RUN_TEST(test_third_or_fourth_in_vector_is_bad_argc_untouched);
     RUN_TEST(test_without_start_every_call_is_not_provisioned);
     return UNITY_END();
 }

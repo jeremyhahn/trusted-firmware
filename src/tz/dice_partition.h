@@ -34,7 +34,9 @@
 #define TFW_DICE_OP_ALIAS_CERT   3
 #define TFW_DICE_OP_ALIAS_SIGN   4
 
-#define TFW_DICE_IOVEC 2u /* the most in- or out-vectors an operation takes */
+/* The vectors of each kind a psa_call carries (PSA_MAX_IOVEC). No operation
+ * takes more than two; a third or fourth in-vector is refused. */
+#define TFW_DICE_IOVEC 4u
 
 /* The UEID is HMAC-SHA256(UDS, TFW_DICE_UEID_LABEL) cut to TFW_ATTEST_ID_LEN:
  * device-unique and stable, with no MMIO grant for a chip UID. */

@@ -345,6 +345,22 @@ class RunnerLabelsTest(unittest.TestCase):
         self.assertEqual(self.check(f"{head}        - qwne\n"), ["w.yml:6: qwne"])
         self.assertEqual(self.check(f"{head}        - codex\n"), [])
 
+    def test_a_labels_flow_list_across_lines_is_read(self):
+        head = "jobs:\n  build:\n    runs-on:\n      group: g\n      labels: [self-hosted,\n"
+        self.assertEqual(self.check(f"{head}        qwne]\n"), ["w.yml:5: qwne"])
+        self.assertEqual(self.check(f"{head}        codex]\n"), [])
+        self.assertEqual(self.check(f"{head}        qwne\n"), [])
+
+    def test_a_next_line_flow_value_across_lines_is_read(self):
+        head = "jobs:\n  build:\n    runs-on:\n"
+        for value, want in (
+            ("      [self-hosted,\n       qwne]\n", ["w.yml:4: qwne"]),
+            ("      [self-hosted,\n       codex]\n", []),
+            ("      labels:\n        [self-hosted,\n         qwne]\n", ["w.yml:5: qwne"]),
+            ("      {group: g,\n       labels: qwne}\n", ["w.yml:4: qwne"]),
+        ):
+            self.assertEqual(self.check(head + value), want, value)
+
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

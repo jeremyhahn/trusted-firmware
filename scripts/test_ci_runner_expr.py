@@ -164,6 +164,37 @@ class RunnerExpression(unittest.TestCase):
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    # v1.54 (DS-10252): code-review.yml v5.12.12's scope job takes the bigdisk
+    # pool literal for a same-repository head only.
+    POOL = "fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]')"
+    SAME_REPO = "github.event.pull_request.head.repo.full_name == github.repository"
+
+    def test_guarded_pool_literal_passes_in_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_unguarded_pool_literal_is_refused(self):
+        ro = OPEN + " github.server_url == 'https://github.com' && (%s || 'ubuntu-latest') || 'bigdisk' }}" % self.POOL
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(c)", r.stdout)
+
+    def test_guarded_pool_literal_is_refused_outside_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+
+    def test_other_literal_is_still_computed(self):
+        pool = self.POOL.replace("bigdisk", "bigdisk-docker")
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, pool))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("format/join/toJSON/fromJSON", r.stdout)
+
 
 RELEASE_RO = "[self-hosted, release]   # self-hosted: hardware: bench"
 

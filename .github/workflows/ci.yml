@@ -2050,10 +2050,15 @@ jobs:
           COMPUTED = re.compile(r"(?<![\w.])(format|join|tojson|fromjson)\s*\(", re.I)
           SEL_FROMJSON = re.compile(r"fromjson\s*\(\s*(?:%s)\s*(?:\|\|\s*'(?:[^']|'')*'\s*)?\)"
                                     % "|".join(re.escape(k) for k in [*SEL_OUT, PRE_VAR]), re.I)
+          # v1.54 (DS-10252, code-review-template v5.12.12): fromJSON of exactly the
+          # bigdisk pool literal has a value this step knows, so it is no computed
+          # value; each event below still reads it, and only code-review.yml's
+          # same-repository head under a PR event may take it (v1.53).
+          POOL_FROMJSON = re.compile(r"""fromjson\s*\(\s*'\["self-hosted","linux","x64","bigdisk"\]'\s*\)""", re.I)
 
 
           def computed(text):
-              return COMPUTED.search(SEL_FROMJSON.sub("", text)) is not None
+              return COMPUTED.search(POOL_FROMJSON.sub("", SEL_FROMJSON.sub("", text))) is not None
 
 
           def sels_of(path, job, ro):

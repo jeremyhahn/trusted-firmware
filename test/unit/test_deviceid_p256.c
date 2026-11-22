@@ -10,7 +10,8 @@
  * independent pure-Python P-256 and RFC 6979 (affine arithmetic over SEC 2's
  * domain parameters, Python's hmac and hashlib) that reproduces A.2.5 first,
  * and was written down before this suite ran. A literal that moves is a
- * DeviceID that moved on every enrolled device: not a test to update.
+ * DeviceID that moved on every enrolled device: not a test to update. The
+ * in-range edges (a zero first byte, two, n-16) are their own scalar.
  *
  * The suite links its own tfw_secure_zero, in place of src/core/secure_zero.c,
  * which keeps a copy of what it is asked to zero. That is how it sees the
@@ -282,6 +283,41 @@ static void test_the_seeds_one_and_n_minus_one_are_hashed_again(void)
     TEST_ASSERT_TRUE(verifies(NM1_PUB, DIGEST, sig));
 }
 
+/* A seed in [1, n-1] that micro-ecc takes is the scalar itself: derived,
+ * made public and signed with, it is never hashed again. */
+static void check_is_its_own_scalar(const uint8_t s[32], const char *why)
+{
+    uint8_t d[32], pub[64], want_pub[64], sig[64];
+
+    TEST_ASSERT_TRUE_MESSAGE(tfw_deviceid_p256_scalar(s, d), why);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(s, d, 32, why);
+    TEST_ASSERT_TRUE_MESSAGE(uECC_compute_public_key(s, want_pub, uECC_secp256r1()), why);
+    TEST_ASSERT_TRUE_MESSAGE(tfw_deviceid_p256_public(s, pub), why);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(want_pub, pub, 64, why);
+    TEST_ASSERT_TRUE_MESSAGE(tfw_p256_sign_rfc6979(s, DIGEST, sig), why);
+    TEST_ASSERT_TRUE_MESSAGE(verifies(want_pub, DIGEST, sig), why);
+}
+
+/* Every byte of the scalar is read: a zero first byte is not zero, a last
+ * byte alone is not zero, and a scalar equal to n but in its last byte is
+ * below n. (n-2 is no edge here: micro-ecc refuses it, so it is hashed.) */
+static void test_a_seed_in_range_at_its_edges_is_its_own_scalar(void)
+{
+    uint8_t s[32];
+
+    memcpy(s, SEED, 32);
+    s[0] = 0x00;
+    check_is_its_own_scalar(s, "the seed with a zero first byte");
+
+    memset(s, 0, 32);
+    s[31] = 0x02;
+    check_is_its_own_scalar(s, "two: only the last byte is nonzero");
+
+    memcpy(s, P256_N, 32);
+    s[31] = (uint8_t)(s[31] - 0x10u);
+    check_is_its_own_scalar(s, "n-16: equal to n in all but the last byte");
+}
+
 /* ------------------------------------------------------------------ refusal */
 
 static int failing_rng(uint8_t *dest, unsigned size)
@@ -410,6 +446,7 @@ int main(void)
     RUN_TEST(test_a_seed_above_n_is_hashed_again);
     RUN_TEST(test_a_seed_of_exactly_n_is_hashed_again);
     RUN_TEST(test_the_seeds_one_and_n_minus_one_are_hashed_again);
+    RUN_TEST(test_a_seed_in_range_at_its_edges_is_its_own_scalar);
     RUN_TEST(test_a_refusal_that_persists_is_returned_with_the_output_zeroed);
     RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);

@@ -113,6 +113,47 @@ static void test_off_restores_reset_values(void)
     TEST_ASSERT_EQUAL_HEX32_ARRAY(want, got, sizeof want / sizeof want[0]);
 }
 
+/* A received byte is handed out once: RX.END is cleared as the byte is taken
+ * (boot_uart.c lines 104-110), so the next poll with nothing new is 0. */
+static void test_rx_takes_a_byte_once(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_END);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+}
+
+/* A rate the vendor's table does not list leaves the UARTE off and no receive
+ * armed (lines 58-66), and a stale RX.END is not read as a byte while it is
+ * off (lines 95-97). */
+static void test_unlisted_baud_leaves_the_uarte_off(void)
+{
+    uint8_t b;
+
+    TFW_NRF_UARTE_RX_END = 1u;
+    tfw_boot_uart_init(1234u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_UARTE_ENABLE);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_START);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+}
+
+/* An overrun, framing error or break is cleared at the next poll: ERROR back
+ * to 0 and every ERRORSRC bit written to clear (lines 98-103). */
+static void test_rx_clears_an_error(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    TFW_NRF_UARTE_ERROR    = 1u;
+    TFW_NRF_UARTE_ERRORSRC = 0u;
+    (void)tfw_boot_uart_rx(&b);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ERROR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_ERRORSRC_ALL, TFW_NRF_UARTE_ERRORSRC);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -123,5 +164,8 @@ int main(void)
     RUN_TEST(test_off_stops_the_armed_receive);
     RUN_TEST(test_off_disables_only_after_rxto);
     RUN_TEST(test_off_restores_reset_values);
+    RUN_TEST(test_rx_takes_a_byte_once);
+    RUN_TEST(test_unlisted_baud_leaves_the_uarte_off);
+    RUN_TEST(test_rx_clears_an_error);
     return UNITY_END();
 }

@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: commercial
 #
 # The Cortex-M QEMU suite (#161): tfw-boot and the firmware on QEMU's
-# mps2-an505, run by `make integration-test-cortex-m` (mk/arch/cortex-m-targets.mk).
+# mps2-an505 and mps2-an500, one board after the other, run by
+# `make integration-test-cortex-m` (mk/arch/cortex-m-targets.mk).
 #
 #   qemu_test.sh <dir> <machine> <board-id> <tier> [hsm]
 #
@@ -63,7 +64,7 @@ qemu=${QEMU:-qemu-system-arm}
 silent=${CM_SILENT:-10s}
 wait=${CM_WAIT:-60s}
 
-# BOOT_AT, APP_AT and PLATFORM_AT, as cm_image.c wrote them.
+# BOOT_AT, APP_AT, PLATFORM_AT and DEVICEID, as cm_image.c wrote them.
 # shellcheck source=/dev/null
 . "$dir/addrs.env"
 

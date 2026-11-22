@@ -23,5 +23,8 @@ void tfw_mock_prov_uds_fail_hmac(tfw_status_t st);
 const uint8_t *tfw_mock_prov_uds_burned(void);
 unsigned       tfw_mock_prov_uds_draws(void);
 unsigned       tfw_mock_prov_uds_burns(void);
+/* 1 when the buffer the last burn that took was handed read all zero at the
+ * next HMAC, 0 when it did not, -1 when no HMAC followed a burn since reset. */
+int            tfw_mock_prov_uds_scrubbed_at_hmac(void);
 
 #endif /* TFW_PROV_UDS_MOCK_H */

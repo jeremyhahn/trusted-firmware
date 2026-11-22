@@ -352,9 +352,10 @@ tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)
  *
  * The response is a bare status byte, not data -- 0x00 verified, 0x01
  * mismatch, matching the four-byte shape every other status-only command
- * here already gets (rlen=0), so this needs no new response-parsing path in
- * tfw_atecc_exec: buf[1] is read through the same translate() that already
- * carries the "checkmac or verify miscompare" case for exactly this byte.
+ * here already gets (rlen=0), so tfw_atecc_verify_external reads it through
+ * the same answer() tfw_atecc_exec uses: rsp[1] of its own four-byte reply
+ * goes through the same translate() that already carries the "checkmac or
+ * verify miscompare" case for exactly this byte.
  */
 tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
                                       const uint8_t sig[64],

@@ -125,6 +125,7 @@ void esp_fill_random(void *buf, size_t len)
 /* ------------------------------------------------------------------ eFuse */
 
 static int               find_ok;
+static int               find_leaves;   /* a miss still writes found_block */
 static esp_efuse_block_t found_block;
 static esp_efuse_purpose_t find_purpose;
 static esp_efuse_block_t unused_block;
@@ -143,6 +144,9 @@ bool esp_efuse_find_purpose(esp_efuse_purpose_t purpose, esp_efuse_block_t *bloc
     step('P');
     find_purpose = purpose;
     if (!find_ok) {
+        if (find_leaves) {
+            *block = found_block;
+        }
         return false;
     }
     *block = found_block;
@@ -223,6 +227,7 @@ void setUp(void)
     drawn_with_entropy = 0;
     rand_len           = 0u;
     find_ok            = 1;
+    find_leaves        = 0;
     found_block        = EFUSE_BLK_KEY3;
     find_purpose       = ESP_EFUSE_KEY_PURPOSE_USER;
     unused_block       = EFUSE_BLK_KEY3;
@@ -368,6 +373,18 @@ static void test_burn_refuses_when_no_hmac_up_block_is_found_after(void)
     TEST_ASSERT_EQUAL_STRING("prov: eFuse BLOCK7 is not a protected HMAC_UP key after the burn", log_msg);
 }
 
+/* prov_uds.c tfw_prov_uds_burn: the find's answer decides, not what it
+ * left in the block, so a miss that names the burned block still refuses. */
+static void test_burn_refuses_a_miss_that_names_the_burned_block(void)
+{
+    find_ok     = 0;
+    find_leaves = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_prov_uds_burn(UDS));
+    TEST_ASSERT_EQUAL_STRING("UWP", trace);
+    TEST_ASSERT_EQUAL_CHAR('E', log_level);
+    TEST_ASSERT_EQUAL_STRING("prov: eFuse BLOCK7 is not a protected HMAC_UP key after the burn", log_msg);
+}
+
 static void test_burn_refuses_when_layer_0_would_find_another_block(void)
 {
     found_block = EFUSE_BLK_KEY2;
@@ -460,6 +477,7 @@ int main(void)
     RUN_TEST(test_burn_refuses_no_slot_when_no_block_is_free);
     RUN_TEST(test_burn_refuses_a_failed_write);
     RUN_TEST(test_burn_refuses_when_no_hmac_up_block_is_found_after);
+    RUN_TEST(test_burn_refuses_a_miss_that_names_the_burned_block);
     RUN_TEST(test_burn_refuses_when_layer_0_would_find_another_block);
     RUN_TEST(test_burn_refuses_a_readable_key);
     RUN_TEST(test_burn_refuses_a_rewritable_key);

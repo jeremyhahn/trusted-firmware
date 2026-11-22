@@ -60,6 +60,8 @@ class TestDefaultsUnchanged(unittest.TestCase):
     def test_a_default_spelled_out_keeps_the_path(self):
         # The board's own value, given on the command line, is the same image.
         self.assertEqual(fw(), fw("SOFT_ID=hmac", "UECC_OPT=0"))
+        # An empty APP_DIR is no application.
+        self.assertEqual(fw(), fw("APP_DIR="))
         self.assertEqual(fw("BOARD=atmega2560"), fw("BOARD=atmega2560", "SOFT_ID=p256"))
         self.assertEqual(boot("BOARD=atmega2560"), boot("BOARD=atmega2560", "UECC_OPT=0", "BOOT_OPT_EXTRA="))
 
@@ -91,6 +93,19 @@ class TestFirmwareFlags(unittest.TestCase):
 
     def test_spi(self):
         self.assertEqual("build/mps2-an505/soft-spi", fw("BOARD=mps2-an505", "CRYPTO=soft", "SPI=1"))
+
+    def test_app_dir(self):
+        app = "APP_DIR=test/app/example"
+        # An application links app_runner.c, none links app_runner_none.c (mk/app.mk line 61).
+        self.assertEqual("build/atmega328p/atecc608a-app-heartbeat", fw(app))
+        self.assertNotEqual(fw(), fw(app))
+        # The directory names the application, not the spelling of its path.
+        self.assertEqual(fw(app), fw("APP_DIR=test/app/example/"))
+        self.assertEqual("build/atmega2560/auto-eth-w5100-app-heartbeat", fw("BOARD=atmega2560", app))
+        self.assertEqual("build/mps2-an505/soft-app-heartbeat", fw("BOARD=mps2-an505", app))
+        # The suffix order of FW_DIR (mk/firmware.mk line 550): the app before the soft root.
+        self.assertEqual("build/atmega2560/soft-app-heartbeat-hmac",
+                         fw("BOARD=atmega2560", "CRYPTO=soft", "ETH=0", "SOFT_ID=hmac", app))
 
     def test_row_buses_and_ab(self):
         # The MPS2 boards turn I2C, SPI and two slots on per row (profile.mk).

@@ -3,7 +3,8 @@
 #
 # Putting a bench board back as it left the factory (owner, CA m346): run when
 # the board is finished with. The factory state is the board's own record --
-# docs/development/bench/<board>.md -- and its profile.mk carries the values:
+# the board's page under docs/development/bench/ (mega2560.md for atmega2560,
+# esp32-p4.md for esp32p4-poe) -- and its profile.mk carries the values:
 #
 #   FACTORY_LFUSE, FACTORY_HFUSE,      the fuse and lock bytes read before the
 #   FACTORY_EFUSE, FACTORY_LOCK        project's first write to the board

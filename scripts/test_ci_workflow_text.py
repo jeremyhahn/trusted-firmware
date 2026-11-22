@@ -133,8 +133,18 @@ class StandardLibraryOnly(unittest.TestCase):
         for path in tests:
             with open(path, encoding="utf-8") as f:
                 tree = ast.parse(f.read(), path)
+            # An import under `try: ... except ImportError:` is optional: the
+            # test skips without it (test_esp32_qemu_helpers.py, cryptography).
+            optional = set()
+            for n in ast.walk(tree):
+                if isinstance(n, ast.Try) and any(
+                        isinstance(h.type, ast.Name) and h.type.id in ("ImportError", "ModuleNotFoundError")
+                        for h in n.handlers):
+                    optional |= {id(m) for s in n.body for m in ast.walk(s)}
             names = set()
             for n in ast.walk(tree):
+                if id(n) in optional:
+                    continue
                 if isinstance(n, ast.Import):
                     names |= {a.name.split(".")[0] for a in n.names}
                 elif isinstance(n, ast.ImportFrom) and n.level == 0:

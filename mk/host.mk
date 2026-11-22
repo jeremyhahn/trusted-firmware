@@ -156,6 +156,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
                             test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
+                            test/unit/test_mps2_bus_regs.c test/unit/test_mps2_adc.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -549,6 +550,24 @@ $(HOST_DIR)/test_mps2_soc: test/unit/test_mps2_soc.c test/model/cortex-m/mps2_so
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
 	   -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
 	   -o $@ $(filter-out %.h %/hal_soc.c,$^) $(EXTRA_LDFLAGS)
+
+# The MPS2 bus registers (row cortex-m, #628): sbcon.c and pl022.c, the image's,
+# unchanged, on the register file (test/model/cortex-m/regfile_model.c), so
+# their offsets from mps2-an505's bases are checked. Include order as
+# test_mps2_soc: the board ahead of HOST_CFLAGS, then test/model/cortex-m.
+$(HOST_DIR)/test_mps2_bus_regs: test/unit/test_mps2_bus_regs.c src/hal/cortex-m/mps2/sbcon.c \
+                                src/hal/cortex-m/mps2/pl022.c test/model/cortex-m/regfile_model.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_CM_MODEL_REGFILE \
+	   -Itest/model/cortex-m -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 ADC HAL (#628): src/hal/cortex-m/mps2/hal_adc.c, unchanged, on
+# mps2-an505's profile (TFW_ADC_COUNT 0), in the mock HAL's place.
+$(HOST_DIR)/test_mps2_adc: test/unit/test_mps2_adc.c src/hal/cortex-m/mps2/hal_adc.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
 # TFW_CM_SPI, as its profile.mk's SPI=1 builds them, and SPI_XFER from
@@ -1542,6 +1561,17 @@ $(HOST_DIR)/test_mcxn94x_eeprom: test/unit/test_mcxn94x_eeprom.c boot/hal/cortex
 	@$(HOST_CC) -Iboards/frdm-mcxn947 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter %.o,$^) $(filter-out %/mcxn94x/hal_eeprom.c %/hal_tick.c,$(filter %.c,$^)) $(EXTRA_LDFLAGS)
 
+# test_mcxn_boot_flash compiles tfw-boot's MCXN947 flash write,
+# boot/hal/cortex-m/mcxn94x/boot_flash.c, unchanged and without mcxn_flash.c:
+# the suite records tfw_mcxn_flash_update and the model mask, so the ROM
+# tree's driver, the flash span and the mask given back are pinned. Its
+# HOST_EXTRA_BINS line sits after the list's := below.
+$(HOST_DIR)/test_mcxn_boot_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_boot_flash.c \
+                                  boot/hal/cortex-m/mcxn94x/boot_flash.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m -Itest/model -Iboards/frdm-mcxn947 -Iboot/hal/cortex-m \
+	  -Iboot/hal/cortex-m/mcxn94x $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The STM32H5's EEPROM (SPEC row stm32h5) on stm32h573i-dk's layout, over
 # the application's flash write, ee_flash.c over h5_flash.c: the suite maps
 # the flash at the part's own address and is the hardware, at the wait
@@ -1553,6 +1583,14 @@ $(HOST_DIR)/test_stm32h5_eeprom: test/unit/test_stm32h5_eeprom.c src/hal/cortex-
                                  src/proto/crc16.c src/proto/crc16_update.c \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/stm32h573i-dk -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_stm32h5_ee_flash_port includes ee_flash_port.c unchanged behind
+# test/model/cortex-m/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the
+# fixed flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
+$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/model/cortex-m/stm32h5_ee_port_stubs.h \
+                                        src/hal/cortex-m/stm32h5/ee_flash_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_stm32h5_ee_flash_port.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # test_cm_pulse compiles hal_pulse.c and hal_tick.c behind the model SysTick
 # in test/model/cortex-m/cm_pulse_model.h (mps2-an505's clock) and its own
@@ -1581,12 +1619,13 @@ $(HOST_DIR)/test_rp2350_eeprom: test/unit/test_rp2350_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/rp2350-pico2w -DTFW_CM_PERIPH=1 -Itest/model/cortex-m/rp2350/eeprom -Isrc/hal/cortex-m/rp2350 \
 	  -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eeprom $(HOST_DIR)/test_stm32h5_uart_usart3 $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eeprom $(HOST_DIR)/test_stm32h5_ee_flash_port $(HOST_DIR)/test_stm32h5_uart_usart3 $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_mps2_pwm $(HOST_DIR)/test_mps2_tone $(HOST_DIR)/test_mps2_onewire $(HOST_DIR)/test_mps2_gpio_line $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_mps2_uart \
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
+                    $(HOST_DIR)/test_mps2_bus_regs $(HOST_DIR)/test_mps2_adc \
                     $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
@@ -1646,10 +1685,18 @@ $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
 $(HOST_DIR)/test_main: test/unit/main/test_main.c $(HOST_DIR)/test_main.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# tfwsim's bootloader options (#629): tools/tfwsim/boot_host.c alone, the rest
+# of the boot path stood in by the test.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_tfwsim_boot_option
+$(HOST_DIR)/test_tfwsim_boot_option: test/unit/main/test_tfwsim_boot_option.c tools/tfwsim/boot_host.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -Iboot/hal/host -Iboot -Itest/mock \
+	  -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
 HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate
 HOST_EXTRA_BINS += $(HOST_DIR)/test_ota_begin_budget
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mcxn_boot_flash
 
 # The handoff block over a stand-in RTC-retained block sized as sdkconfig sizes it (#163).
 $(HOST_DIR)/test_esp_handoff_mutate: test/unit/test_esp_handoff_mutate.c src/hal/esp32/hal_handoff.c \
@@ -1886,6 +1933,14 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The Cortex-M hal_handoff.c (#628): as test_avr_handoff_mutate, the suite
+# finds the block's section in its own ELF headers.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_handoff
+$(HOST_DIR)/test_cm_handoff: test/unit/hal/test_cm_handoff.c src/hal/cortex-m/hal_handoff.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/mps2-an505 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The M7's MPU region table (src/hal/cortex-m/hal_mpu.c, row 482): the pure
 # table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu
@@ -1981,11 +2036,34 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 # test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
 # verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
 # bootloader-check builds, as a string; host-test runs it as boot-test does.
+#
+# The string is compiled in, so the binary depends on BOOT_SUPPORTED's value
+# through a stamp holding it (#640). The stamp is rewritten on every run, as
+# mk/platform-bake.mk's block is, and replaced only when its bytes differ: an
+# edited or overridden matrix rebuilds the binary, an unchanged one rebuilds
+# nothing (`make -q` still answers not up to date, the stamp being forced).
+# BOOT_SUPPORTED is set in mk/boot.mk, read after this file, so it is compared
+# in the recipe and never at parse time.
+BOOT_ROWS_STAMP := $(HOST_DIR)/boot/boot-supported.txt
+$(BOOT_ROWS_STAMP): FORCE | $(HOST_DIR)/boot
+	@printf '%s\n' '$(strip $(BOOT_SUPPORTED))' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
-                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+                                      $(HOST_DIR)/unity.o $(BOOT_ROWS_STAMP) | $(HOST_DIR)/boot
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
+
+# The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,
+# unchanged, on mps2-an505's profile. The mps2 boot test directory's cm_regs.h,
+# ahead of src/hal/cortex-m, sends TFW_CM_REG to tfw_cm_model_reg(), which the
+# suite defines as the FPGA I/O LED and button words.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_mps2_hsm_port
+$(HOST_DIR)/test_mps2_hsm_port: src/hal/cortex-m/mps2/test/test_mps2_hsm_port.c \
+                                src/hal/cortex-m/mps2/hsm_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Iboot/hal/cortex-m/mps2/test \
+	   -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the

@@ -1,0 +1,3 @@
+### Fixed
+
+- **Boot sources comment drift, boot/hal/, boot/measure/, boot/recovery/ and boot/verify/** (#640). Ten comments now match the code: the AVR HAL cites mk/arch/avr.mk for the handoff placement, names both of its target conditionals and the TFW_BOOT_EE_BLOCK_LEN write; the AVR startup cites the simavr harness's ELF load; donna_shim.h names donna_shim.c as the definition site; the element's hash caller is the trailer's signature digest; the OTA fall-through note covers the two-slot boards; the Cortex-M tick names the mps2-an505 OTA row; the ESP32 layer 0 names the P4's ROM verify beside p256-soft and says verify_p256_soft.c is shared. Comment text only.

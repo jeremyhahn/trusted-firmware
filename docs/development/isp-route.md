@@ -188,11 +188,14 @@ read-out is kept regardless.
 
 **2. What `make boot-flash` writes.**
 
-- `mk/boot.mk` lines 424–425: `boot-flash: $(BOOT_TARGET).hex` runs
+- `mk/boot.mk`'s `boot-flash` rule, `boot-flash: $(BOOT_TARGET).hex`, runs
   `$(ARCH_BOOT_FLASH)`.
-- `mk/arch/avr.mk` lines 110–114 set `ISP_PROG ?= usbasp` and
-  `ISP_PORT ?= usb`. `ARCH_BOOT_FLASH` there is
+- `mk/arch/avr.mk` sets `ISP_PROG ?= usbasp` and `ISP_PORT ?= usb`.
+  `ARCH_BOOT_FLASH` there is
   `avrdude -v -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT) -Uflash:w:$<:i`.
+  That was the recipe on 2026-10-16; on main it reads EESAVE first and refuses
+  an erase that would take the EEPROM (`ARCH_BOOT_FLASH`, see
+  [the next step](#the-next-step-the-nano-programs-the-mega)).
 - `boards/atmega2560/profile.mk` gives the boot section's size and base, and
   no fuse or lock value.
 
@@ -209,15 +212,15 @@ make boot-flash BOARD=atmega2560 ISP_PROG=usbasp ISP_PORT=usb
 The command exits 2 before avrdude runs. With no `BOOT_*` variables it builds
 `make bootloader`'s default row:
 
-- `BOOT_TIER` soft (`mk/boot.mk` line 32);
+- `BOOT_TIER` soft (`mk/boot.mk`'s `BOOT_TIER`);
 - `BOOT_SIG` ed25519-donna (since item 79, owner ruling 2026-10-17, the
   default is the row's P-256 verifier);
-- `BOOT_MEASURE` soft (line 74);
-- `BOOT_OTA` 1 (line 91).
+- `BOOT_MEASURE` soft (`BOOT_MEASURE`);
+- `BOOT_OTA` 1 (`BOOT_OTA`).
 
 The link fails at line 175, because the core alone is 9152 of the 8192 bytes,
-before any signature backend. That row is not in `BOOT_SUPPORTED` (lines
-217–221).
+before any signature backend. That row is not in `BOOT_SUPPORTED` in
+`mk/boot.mk`.
 
 Read again over ISP afterwards, the signature and all four fuse bytes were
 unchanged. The EEPROM's SHA-256 was `e6804337…bd1a1e2f`, the same as before.
@@ -266,7 +269,7 @@ application, and the Mega has none now.
    line 91 and [user.md](../secure-boot/user.md#build-and-flash-a-bootloader)
    line 24 run it without the `BOOT_*` variables. Its prerequisite is
    `$(BOOT_TARGET).hex`, and the path of that file names the row
-   (`BOOT_DIR_OUT`, `mk/boot.mk` line 109). So it rebuilds the default row
+   (`BOOT_DIR_OUT` in `mk/boot.mk`). So it rebuilds the default row
    instead of using the one `make bootloader` built a line earlier, and on the
    ATmega2560 the default row does not fit. The command needs the same four
    variables as `make bootloader`.
@@ -636,13 +639,15 @@ Recorded here so the next run can check it before it starts:
   (RESET), GND → pin 6; no 5 V wire while both boards are on USB. The Nano's
   CH340 resets it on open the same way, and `stty -hupcl` clears it the same
   way.
-- **`make boot-flash` passes no baud.** `ARCH_BOOT_FLASH` in `mk/arch/avr.mk`
-  is `-c$(ISP_PROG) -P$(ISP_PORT)` with no `-b`, and ArduinoISP talks at
+- **`make boot-flash` passes no baud.** `ARCH_ISP` in `mk/arch/avr.mk`, which
+  every avrdude call of `ARCH_BOOT_FLASH` runs, is
+  `avrdude -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT)` with no `-b`, and ArduinoISP talks at
   19200, not avrdude's 115200 default. Either the target gains an `ISP_BAUD`
   or the run passes `ISP_PROG='stk500v1 -b19200'`.
-- **`make boot-flash` erases the Mega's EEPROM.** It writes flash without
-  `-D`, so avrdude erases the chip first, and the Mega's stock high fuse
-  (`0xD8`) leaves EESAVE unprogrammed. The platform block at `0x000` and the
-  network block at `0x140` would be lost. Read the EEPROM out over ISP before
-  the flash and write it back after, or program EESAVE first: a fuse decision
+- **`make boot-flash` refuses to erase the Mega's EEPROM.** Without `-D`
+  avrdude erases the chip first, and with EESAVE unprogrammed (the Mega's
+  stock high fuse `0xD8`) that erase takes the EEPROM, so boot-flash reads
+  EESAVE first and refuses (`ARCH_BOOT_FLASH` in `mk/arch/avr.mk`). The
+  platform block at `0x000` and the network block at `0x140` would be lost.
+  Program EESAVE first, or run with `BOOT_EEPROM_RESTORE=1`: a fuse decision
   for that run.

@@ -23,9 +23,12 @@
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
-6. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
+6. ci-template v1.53 (ruling 1087): on main the concurrency group is
+   `main-{event}`, without the commit sha, so a newer main run cancels the
+   older one.
+7. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
    handbook template byte for byte; the header names v5.12.11.
-7. #653 Codex round 2: a runs-on is read under every event the release
+8. #653 Codex round 2: a runs-on is read under every event the release
    guard knows (workflow_run, merge_group, release, create, issue_comment,
    repository_dispatch), so a format()-built `release`, an unwaived
    `self-hosted` or a `codex` label gated on github.event_name cannot pass.
@@ -264,9 +267,15 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_52(self):
+    def test_header_names_v1_53(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.52 (customized)\n")
+            self.assertEqual(f.readline(), "# ci-template: v1.53 (customized)\n")
+
+    def test_main_group_is_per_event(self):
+        group = load(CI)["concurrency"]["group"]
+        self.assertIn("github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) ||", group)
+        self.assertNotIn("github.sha", group)
+        self.assertEqual(load(CI)["concurrency"]["cancel-in-progress"], "true")
 
 
 def step_run(path, name):

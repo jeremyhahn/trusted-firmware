@@ -160,7 +160,7 @@ const (
 	// FrameEEPROMWriteOldNetcfgReq is TFW_CMD_EEPROM_WRITE (0x41), seq 7:
 	// "TFNC" at 0x0C0, where an older host put the network block.
 	FrameEEPROMWriteOldNetcfgReq = "\xa5\x08\x07\x41\xc0\x00\x54\x46\x4e\x43\x8b\x6b"
-	// FrameEEPROMWriteProtectedResp is its response, StatusProtectedRegion (16).
+	// FrameEEPROMWriteProtectedResp is its response, StatusErrProtectedRegion (16).
 	FrameEEPROMWriteProtectedResp = "\xa5\x03\x07\xc1\x10\xd8\xad"
 	// FrameEEPROMWriteNetcfgReq is TFW_CMD_EEPROM_WRITE, seq 8: "TFNC" at 0x140.
 	FrameEEPROMWriteNetcfgReq = "\xa5\x08\x08\x41\x40\x01\x54\x46\x4e\x43\x38\xcc"

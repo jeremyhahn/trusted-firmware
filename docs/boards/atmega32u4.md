@@ -1,14 +1,17 @@
 # ATmega32U4
 
-> **Status: INFORMATIVE** · Scope: `boards/atmega32u4/` · Last verified: 2026-10-09
+> **Status: INFORMATIVE** · Scope: `boards/atmega32u4/` · Last verified: 2026-11-21
 >
 > The record of what this board does not carry and why. The normative contract
 > is [`adding-a-board.md`](adding-a-board.md); the decisions themselves live in
 > `boards/atmega32u4/board_profile.h`, where the build reads them.
 
-The 32U4 loses 4 096 bytes of its 32 768 to a DFU bootloader (Caterina) that
-cannot be reclaimed, so its budget is half of 28 672: 14 336 bytes of flash.
-`make size-check` holds it there.
+The top 4 096 bytes of the 32U4's 32 768 hold Caterina, the USB CDC bootloader
+a Leonardo ships with, so its budget is half of 28 672: 14 336 bytes of flash.
+`make size-check` holds it there. Flashing tfw-boot into that section replaces
+Caterina, and with it the 1200-baud-touch reset the avr109 programmer depends
+on: recovering the part then needs an ISP, not a USB cable
+(`board_profile.h`).
 
 ## Attestation: the evidence frame only
 
@@ -44,7 +47,8 @@ the exclusion survives the certificate builder ever fitting.
 (`ETH_CHIP=w5500` for Shield 2), so `ETH=1` links `src/net/` for this board.
 `ETH` itself stays 0 by default. `board.c` flags the shield's lines
 `TFW_PIN_ETH` so `CAPS` reports them taken in an Ethernet image: the W5x00
-select on D10 (PB6), the SD socket's select on D4 (PD4) and the SPI bus on pins
-14 to 16 (MISO PB3, SCK PB1, MOSI PB2, the ICSP header). `board_profile.h`
-holds the select for tfw-boot (`TFW_ETH_CS_IO`). The `ETH=1` image is not
-measured against the 14 336-byte budget.
+select on D10 (PB6), the SD socket's select on D4 (PD4) and the SPI lines on
+pins 14 to 17 (MISO PB3, SCK PB1, MOSI PB2, SS PB0), the first three on the
+ICSP header. `board_profile.h` holds the select for tfw-boot (`TFW_ETH_CS_IO`).
+The `ETH=1` image measured over the 14 336-byte budget (issue #315), so it is
+not a `BOARD_ROWS` entry.

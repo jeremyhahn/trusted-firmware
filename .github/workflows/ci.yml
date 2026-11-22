@@ -1,4 +1,38 @@
-# ci-template: v1.52 (customized)
+# ci-template: v1.53 (customized)
+# v1.53 (2026-11-21, Tenant Agent ruling 1087, owner order: remove the
+# bottlenecks): main has one concurrency group per event again, `main-{event}`,
+# so a newer push to main cancels the older main run still queued or in
+# progress, and the newest run validates every merge under it. This
+# supersedes v1.26.2's `main-{event}-{sha}` (ruling 145): with hosted
+# concurrency at 20 jobs on the Free plan, nothing cancelled a superseded
+# main run, and trusted-firmware had 40 main runs queued ahead of PR work.
+# A schedule run keeps `schedule-{repository}` and a workflow_dispatch run
+# keeps `main-workflow_dispatch`, so neither shares a group with a push run.
+# v1.53 also (Tenant Agent on trusted-firmware #821): (0) `Runner labels
+# (ruling 633)` lets code-review.yml's API-only jobs take exactly
+# [self-hosted, linux, x64, bigdisk] for a same-repository head under a PR
+# event, so the Review scope job no longer waits behind the hosted queue
+# (code-review.yml v5.12.12); a fork's head still takes a standard image
+# (testdata/runner-labels-tests.py part I). (1) CI Gate runs on
+# !cancelled() off pull_request, so a main run cancelled by a newer push
+# posts a skipped gate, not a failed one; a pull request keeps always(), as
+# a skipped required check counts as passed (testdata/ci-gate-cancel-tests.py).
+# (2) main-green for a release or an alpha tag is a ci.yml run for the exact
+# commit to be tagged, completed with conclusion success: a push run, or,
+# when the newest push runs were cancelled by later pushes, a
+# workflow_dispatch run on main (group main-workflow_dispatch, which no push
+# cancels); the tag goes on that run's head_sha. A red, cancelled or missing
+# main run never stops a pull request's merge (local-software-factory.md
+# steps 11 and 12). (3) preflight takes the Dells' bigdisk pool while
+# CI_PREFLIGHT_RUNS_ON is unset; the Infra Department sets it to
+# `"ubuntu-latest"` on every repository when that pool has no online runner
+# for 10 minutes, and unsets it when the pool is back (devops.md). (4)
+# ci-mask-lan.sh masks internal host names as well as private addresses, and
+# no comment names an internal repository.
+# cancel-in-progress stays a literal `true`. Only the group changes. Adopt as
+# a ci.yml-only PR that keeps the CUSTOMIZE blocks, together with v1.52's
+# runner selection (internal pull requests run on our runners), separately
+# from code-review.yml.
 # v1.52 (2026-11-21, Tenant Agent order, defect fix): a fork's pull request
 # under pull_request reached a self-hosted runner. preflight's runs-on had
 # no fork check, so on github.com it took the Dells' bigdisk pool for a
@@ -288,7 +322,7 @@
 # v1.36 (2026-11-13, Tenant Agent, owner approval 16:1xZ: keep CI caches
 # local): a self-hosted job never restores or saves the Actions cache, which
 # lives in Azure blob storage behind the office's internet line. The
-# self-hosted pools (dept-infra github/runner) give every job persistent
+# self-hosted pools (the Infra Department's runner configuration) give every job persistent
 # per-host caches: GOCACHE and GOMODCACHE, CI_HOST_CACHE for anything else a
 # repository caches (trusted-firmware's OP-TEE stack under
 # $CI_HOST_CACHE/optee/<pin>, renamed into place whole), GOPROXY and
@@ -342,14 +376,14 @@
 # layer's /var/tmp; it takes the memory bound, GOTMPDIR and the Athens-first
 # bridge GOPROXY, and every toolchain, esp32, optee and integration image
 # build takes GO_BUILD_PROXY.
-# v1.29.2 (Company Agent ruling 239(8), 2026-10-28): comments only; no job,
+# v1.29.2 (ruling 239(8), 2026-10-28): comments only; no job,
 # gate or tier changes. A CUSTOMIZE job gated on a changes output (a path-gated
 # suite) needs the image job too and tests an output of the image job in its
 # `if:`. A repository needs no adoption PR.
-# v1.29.1 (Company Agent ruling 226(15), 108 repair, 2026-10-27): the
+# v1.29.1 (ruling 226(15), 108 repair, 2026-10-27): the
 # lint-gates job runs `make lint-gates` without `-k`, so the first failing gate
 # ends the step and reports at once; the gates after it run on the next push.
-# v1.29.0 (Company Agent ruling 220(5) and 221(4), 2026-10-27; handbook #474):
+# v1.29.0 (ruling 220(5) and 221(4), 2026-10-27; handbook #474):
 # the Alpine package index checksum joins the integration image's tag hash,
 # through a "Read the Alpine package index" step (scripts/apk-index-sum.sh)
 # before "Name the integration image". NOT ADOPTED HERE (CUSTOMIZE): this
@@ -359,7 +393,7 @@
 # would fail the step and need APK_BASE_IMAGES, which is a value to decide).
 # The step, the script, the Makefile's APK_INDEX_SUM and the Dockerfile's ARG
 # and `apk upgrade --no-cache` are left out together until the owner rules.
-# v1.28.0 (Company Agent ruling 219(3), 2026-10-26; adopted here under ruling
+# v1.28.0 (ruling 219(3), 2026-10-26; adopted here under ruling
 # 220(3)): `make deps-check` joins the PR tier as a lint-class gate. Its step
 # runs on every event, as `make lint` does, so a module behind its dependency
 # floor fails the PR, not main after the merge. The step keeps
@@ -409,8 +443,8 @@
 # line of each waived line as a notice and its count, never the value
 # (go-trusted-platform #1348's mechanism, ported).
 # v1.33.1 (2026-11-08, Tenant Agent m2107 item 4): comments only; the
-# pattern file's source is named as dept-infosec
-# security/internal-names.patterns, not platform-configs.
+# pattern file's source is named as the InfoSec Department's internal-names
+# pattern file, not the platform configuration.
 # v1.33 (2026-11-08, Tenant Agent m2104 item 2): the releasability step
 # knows the five classes of the regenerated pattern file: coord-host,
 # internal-email, lab-address, lab-host and owner-path (optional `/i`).
@@ -430,8 +464,8 @@
 # lists the company's names, hosts or addresses, not even as patterns to
 # refuse. The lint job's `Releasability (private patterns)` step takes the
 # pattern file from the Actions secret RELEASABILITY_PATTERNS (v1.32:
-# class<TAB>regex lines; the source file is dept-infosec
-# security/internal-names.patterns) and fails on
+# class<TAB>regex lines; the source file is the InfoSec Department's
+# internal-names pattern file) and fails on
 # any match in the tracked tree, printing path and line only, never the
 # value. RELEASABILITY_TEST keeps the repository's own test, which checks
 # generic shapes only (public-hygiene.md "Internal values stay private").
@@ -479,7 +513,7 @@
 # go. Every job, gate, tier and in-toolchain-image.sh v4 is v1.29.4's. A
 # repository adopts v1.29.5 in the one CI-file PR that adopts v1.29.4, with
 # its Makefile's quoting line.
-# v1.29.4 (ruling 261(c), 2026-10-30; claude-agents #379
+# v1.29.4 (ruling 261(c), 2026-10-30; the factory tooling's issue 379,
 # comment 157032): three changes, and no job, gate or tier change.
 #   - the module fetches of the image build go through Athens first, with the
 #     proxy.golang.org fallback. The toolchain image build and the Lint Gates
@@ -987,6 +1021,8 @@ on:
   schedule:
     - cron: '0 4 * * 2'
 
+# v1.53 (ruling 1087): on main the group is the workflow and the event,
+# `main-{event}`, so a newer main run cancels the older one. Before v1.53:
 # v1.26.2: on main the group is the workflow, the event and the commit sha,
 # so each main run is its own group and a merge never cancels the main run in
 # progress; a schedule or workflow_dispatch run is in its own event's group
@@ -1001,7 +1037,7 @@ on:
 # at a time. It is tested first, so a schedule run never takes a main group.
 # The push, pull_request and workflow_dispatch groups do not change.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('schedule-{0}', github.repository) || github.ref == 'refs/heads/main' && format('main-{0}-{1}', github.event_name, github.sha) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('schedule-{0}', github.repository) || github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -1140,7 +1176,7 @@ jobs:
       runner_docker: ${{ steps.runner.outputs.runner_docker }}
     steps:
       # v1.34: the guard is the first step; nothing is checked out before it.
-      # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
+      # v1.29.3 (ruling 255(10)/(11)(c)): one nightly per
       # repository, and none while main is busy. On a schedule run only, this
       # step asks the API whether this workflow has a push run on main in
       # progress or waiting, and sets `verdict`: `run` (none, or not a schedule
@@ -1810,6 +1846,11 @@ jobs:
           # overflow may also be exactly the list its output names. Any other
           # self-hosted value still needs its waiver.
           SEL_FILES = {"ci.yml", "ci.yaml"}
+          # v1.53 (Tenant Agent on trusted-firmware #821): code-review.yml's
+          # API-only guard jobs may take exactly [self-hosted, linux, x64,
+          # bigdisk] for a same-repository head under a PR event; a fork's
+          # head and every other event still take a standard image.
+          REVIEW_FILES = {"code-review.yml", "code-review.yaml"}
           SEL_OUT = {"needs.preflight.outputs.runner": "bigdisk",
                      "needs.preflight.outputs.runner_docker": "bigdisk-docker"}
           OVERFLOW = [["self-hosted", "linux", "x64", v] for v in SEL_OUT.values()]
@@ -2012,6 +2053,9 @@ jobs:
                                               continue
                                           if sel == "unset" and got == OVERFLOW[0] and not fork_target:
                                               continue
+                                          if (sel is None and got == OVERFLOW[0] and ev in PR and head == "o/r"
+                                                  and path.replace("\\", "/").rsplit("/", 1)[-1] in REVIEW_FILES):
+                                              continue  # v1.53: a same-repository head's review guard
                                           if got is None or len(got) != 1 or not STANDARD.fullmatch(got[0]):
                                               what = "an unknown label" if got is None else ", ".join(got)
                                               note = ", runner selection overflow" if sel == "overflow" else ""
@@ -2287,6 +2331,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks
@@ -2442,7 +2491,7 @@ jobs:
       # v1.42 (ruling 742 (1)): `make deps-check` left this job. It asks
       # upstream for the latest releases, so its answer changes with no change
       # to the tree; scans.yml runs it on main. Ruling 742 (1) supersedes the
-      # dept-software #981 rule that made it block a PR changing xkms/go.mod
+      # Software Department's #981 rule that made it block a PR changing xkms/go.mod
       # or xkms/go.sum: xkms-security (the Security job) checks that module's
       # consistency offline on every PR instead.
 
@@ -2646,7 +2695,8 @@ jobs:
       # v1.32 (2026-11-08, Company Agent m2098 item 2, InfoSec finding): the
       # internal-name gate. Its patterns are internal values, so they never
       # live in this repository: the Actions secret RELEASABILITY_PATTERNS
-      # carries the private pattern file (source in platform-configs). Blank
+      # carries the private pattern file (source: the InfoSec Department's
+      # internal-names pattern file). Blank
       # and `#` lines are skipped; every other line is `class<TAB>regex`, a
       # class of coord-host, internal-email, lab-address, lab-host or
       # owner-path (v1.33; an `/i` suffix is allowed) and a POSIX extended regex. A malformed line, an unknown
@@ -3149,8 +3199,8 @@ jobs:
         run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
 
       # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
-      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
-      # github/runner, the pool's env and mounts). A stack lives there under
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (the Infra Department's
+      # runner configuration, the pool's env and mounts). A stack lives there under
       # optee/<release>, renamed into place whole, so the directory existing
       # means it is complete. A hit never touches the Actions cache, which
       # sits in Azure blob storage behind the office's internet line; a miss
@@ -3302,8 +3352,8 @@ jobs:
       # cold here. A miss means optee-stack did not save the key; the step
       # fails at once and its message names the key.
       # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
-      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
-      # github/runner, the pool's env and mounts). A stack lives there under
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (the Infra Department's
+      # runner configuration, the pool's env and mounts). A stack lives there under
       # optee/<release>, renamed into place whole, so the directory existing
       # means it is complete. A hit never touches the Actions cache, which
       # sits in Azure blob storage behind the office's internet line; a miss
@@ -3434,6 +3484,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       # A source check on the runner's shell: no make recipe runs here.
@@ -3548,6 +3603,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks
@@ -3704,6 +3764,11 @@ jobs:
       # Ruling 887: the LAN addresses this runner's environment names, masked
       # before any step that builds can print one.
       - name: Mask the LAN addresses
+        env:
+          # v1.53: a registry a later step takes from `vars` is masked here.
+          # CUSTOMIZE: one VARS_<NAME> line per vars.<NAME> ending in _REGISTRY
+          # that this job reads (testdata/ci-mask-lan-tests.py M1 to M3).
+          VARS_CI_IMAGE_REGISTRY: ${{ vars.CI_IMAGE_REGISTRY }}
         run: scripts/ci-mask-lan.sh
 
       - name: Reap stale CI stacks
@@ -3976,7 +4041,16 @@ jobs:
     # gate, so `CI / CI Gate (schedule)` posts `skipped` (Gitea 1.27.1 posts a
     # skipped job as `skipped`, not `success`), never a green nightly. Every
     # other verdict, an empty one included, runs it.
-    if: ${{ always() && (github.event_name != 'schedule' || needs.preflight.outputs.verdict != 'busy') }}
+    # v1.53 (Tenant Agent on trusted-firmware #821): with main-{event} a newer
+    # push cancels the older main run, and an always() gate then read the
+    # cancelled needs and failed, so every superseded main commit showed a red
+    # gate. Off pull_request the gate runs on !cancelled(): a cancelled run
+    # posts no gate result (skipped), and a run that is not cancelled still
+    # fails closed on any need that failed. A pull request keeps always(): a
+    # skipped required check counts as passed, so a cancelled PR run must post
+    # a failing gate, never a skip; only an older head of the PR is cancelled
+    # by its group, and the head that merges has its own run.
+    if: ${{ (startsWith(github.event_name, 'pull_request') && always() || !cancelled()) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict != 'busy') }}
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs. CUSTOMIZE
     # (trusted-firmware): no lint job (make lint is in the image job) and no

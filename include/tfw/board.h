@@ -88,10 +88,12 @@ extern const tfw_pwm_desc_t  tfw_board_pwms[];
  * digital port -- an ADC-only input, which can be read and never written. */
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out);
 
-/* The ADC channel behind a pin, or TFW_ERR_UNSUPPORTED if it has none. */
+/* The ADC channel behind a pin, TFW_ERR_BAD_PIN if the pin does not exist, or
+ * TFW_ERR_UNSUPPORTED if it has none. */
 tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out);
 
-/* Resolves a pin to its output-compare unit. Returns TFW_ERR_UNSUPPORTED when
+/* Resolves a pin to its output-compare unit. Returns TFW_ERR_BAD_PIN if the
+ * pin does not exist, and TFW_ERR_UNSUPPORTED when
  * the pin has none, and when its unit belongs to the timer driving the system
  * tick -- the board descriptor distinguishes those two, because "no PWM here"
  * and "this build spent it on the clock" are different facts and only one of

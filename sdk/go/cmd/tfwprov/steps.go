@@ -66,8 +66,8 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 	}
 
 	// The config blocks the template writes are blocks 2 and 3, which
-	// ProvInfo does not return -- it reads block 0, where the serial and the
-	// lock bytes live. Comparing what we can and saying plainly what we cannot
+	// ProvInfo does not return -- it reads block 0, where the serial lives, and
+	// the two lock bytes separately. Comparing what we can and saying plainly what we cannot
 	// is better than a green result that checked less than it implies. It is
 	// said, not counted: no part can pass a check nothing can read, and every
 	// template writes blocks (cli.md, "--verify").

@@ -371,8 +371,10 @@
 /* ------------------------------------------------------------------ events */
 #define TFW_EVENT_BOOT            0x01u  /* sent once at startup; an unexpected
                                          * one means the device reset */
-#define TFW_EVENT_DEADMAN         0x02u  /* the link went quiet and scheduled
-                                         * pins were driven to safety */
-#define TFW_EVENT_COUNTER_WRAP    0x03u  /* a pulse counter wrapped */
+#define TFW_EVENT_DEADMAN         0x02u  /* reserved, not emitted: the link
+                                         * went quiet and scheduled pins
+                                         * were driven to safety */
+#define TFW_EVENT_COUNTER_WRAP    0x03u  /* reserved, not emitted: a pulse
+                                         * counter wrapped */
 
 #endif /* TFW_PROTOCOL_H */

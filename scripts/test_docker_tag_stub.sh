@@ -12,12 +12,55 @@
 #   STUB_TARGET_LABEL the target image's tfw.image.inputs label; empty, it has none
 #   STUB_TAG_ERROR  what `tag` says on stderr; the daemon's AlreadyExists by default
 #   STUB_LOG        a file each call is appended to
+#
+# `run` fails on anything but a build-id name (<image>-<build id>): the class
+# name may hold another leg's image. It also fails on a build-id name already
+# removed by `image rm` or `rmi`, as the daemon would.
 set -euo pipefail
 
 [ -z "${STUB_LOG:-}" ] || echo "$*" >>"$STUB_LOG"
 
+# removed REF: true when an earlier call in STUB_LOG removed REF.
+removed() {
+  [ -n "${STUB_LOG:-}" ] && [ -f "$STUB_LOG" ] || return 1
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+    "image rm $1" | "image rm "*" $1" | "rmi $1" | "rmi "*" $1") return 0 ;;
+    esac
+  done <"$STUB_LOG"
+  return 1
+}
+
+# run_ref ARGS...: the image a `docker run` names, its first non-option.
+run_ref() {
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    -v | -e | -u | -w | --user | --env | --volume | --workdir) shift 2 ;;
+    -*) shift ;;
+    *) echo "$1"; return ;;
+    esac
+  done
+}
+
 case "${1:-}" in
-build | run) exit 0 ;;
+build | rmi) exit 0 ;;
+run)
+  ref=$(run_ref "$@")
+  case "$ref" in
+  *-"${IMAGE_BUILD_ID:-build}") ;;
+  *)
+    echo "test_docker_tag_stub: run on $ref, not the build-id name" >&2
+    exit 1
+    ;;
+  esac
+  if removed "$ref"; then
+    echo "Unable to find image '$ref' locally" >&2
+    exit 125
+  fi
+  exit 0
+  ;;
 tag)
   echo "${STUB_TAG_ERROR:-Error response from daemon: failed to create an image $3 with target ${STUB_BUILT_ID:-} after deleting the existing one: AlreadyExists: image \"$3\" already exists}" >&2
   exit 1

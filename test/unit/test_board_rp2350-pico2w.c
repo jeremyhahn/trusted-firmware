@@ -6,7 +6,8 @@
  * The pins are the header GPIOs on SIO's port 0, with the bit the GPIO
  * number: GPIO2-22, then GPIO26-28. The UART's GPIO0-1 and the radio's
  * GPIO23-25 and 29 are never pins, no pin is an LED (the Pico 2 W's is the
- * radio's), and no pin offers a converter or a compare unit yet.
+ * radio's). GP26-28 are ADC channels 0-2 and one pin per PWM slice offers a
+ * compare unit; the PERIPH=0 row offers neither.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */

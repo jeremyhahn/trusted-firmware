@@ -29,8 +29,8 @@
  * element; nothing on the host side is written.
  *
  * CRYPTO=optiga links this file (mk/firmware.mk), a tier no board names yet:
- * only the ATmega2560's measurement rows build it. The tier is chosen by the
- * object list, never by #if.
+ * only measurement rows build it, the ATmega2560's and mps2-an505's
+ * optiga:I2C=1. The tier is chosen by the object list, never by #if.
  */
 #include <string.h>
 #include "optiga_cmd.h"

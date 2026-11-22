@@ -1,6 +1,6 @@
 # Application SDK — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-16
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## Exported surface
@@ -373,28 +373,30 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Onboarding by device profile | partial | the device side: `profile` in the descriptor (`include/tfw/app.h:52`), reported by APP_INFO (`src/core/app_runner.c:153`); enrolment by profile is go-trusted-platform's (SPEC row `device-onboarding`, future) | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; slice 5 |
 | One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
 | The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
-| Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; `after_update` (`changelog.d/51-after-update.md`) and the evidence hook are unreleased, so the released hook set is not `main`'s | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
-| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`); `BOARD=esp32-qemu` needs ESP-IDF, in no CI image; `make app-header-check` against every board; slice 2 |
+| Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; the tag `v0.4.2-alpha` declares `tfw_app_after_update` and `tfw_app_evidence`, and its `include/tfw/app.h` is `main`'s (`git diff v0.4.2-alpha main -- include/tfw/app.h` is empty), so the released hook set is `main`'s; `make app-sdk-check` has not been recorded against that tag | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
+| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`), and for `BOARD=esp32p4-poe` by the `esp32-build` rule (`mk/arch/esp32-targets.mk:61`, the check at `:133`) in CI's ESP32 Build job, in its ESP-IDF image; no `BOARD=esp32-qemu` application run (`esp32-qemu-test` sets `ESP_APP_EXAMPLE=0`); `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
 Counts: 15 done, 3 partial, 0 not started.
 
 ### Remaining slices
 
-1. **The released hook set.** The next release carries `after_update` and the
-   evidence hook, so an application repository can build against a tag that
-   is `main`'s interface: `CHANGELOG.md` and `VERSION` by the release process,
-   proved by `make app-sdk-check` at the tag. Owner decision: when to cut it
-   (DS-7488, VERSION waits for the next real release).
-2. **Applications on every architecture.** Done but for the ESP32 run:
-   `make app-firmware-check BOARD=mps2-an505` beside the ATmega2560 in the
-   `build` stage, and `esp32-build` compiles the application in; the
-   `BOARD=esp32-qemu` run waits for ESP-IDF in a CI image (an infrastructure
-   decision), so the row stays partial. `mk/arch/esp32-targets.mk` passes
-   `APP_SRCS` and `APP_FW_CFLAGS` to the ESP-IDF component, and
-   `mk/stages.mk` runs `app-firmware-check` for one Cortex-M board (QEMU
-   `mps2-an505`) and one ESP32 board beside the ATmega2560, proved by those
-   `make app-firmware-check BOARD=<b>` runs in the `build` stage; no hardware.
+1. **The released hook set.** Released: `v0.4.2-alpha` carries
+   `after_update` and the evidence hook, its `include/tfw/app.h` the same as
+   `main`'s, so no release is needed. What remains is the validation: `make
+   app-sdk-check` (`mk/app.mk:92`) run in a checkout of `v0.4.2-alpha`, the
+   example built from outside the tree against the released headers. The row
+   moves to done when that run is recorded here; no hardware.
+2. **Applications on every architecture.** Built and checked on all three:
+   `mk/stages.mk` runs `make app-firmware-check` for the AVR and Cortex-M
+   boards only (`BOARD=atmega2560` and QEMU's `BOARD=mps2-an505`) in the
+   `build` stage. On the ESP32, CI's ESP32 Build job runs `make esp32-build
+   BOARD=esp32p4-poe` in its ESP-IDF image, and the `esp32-build` rule in
+   `mk/arch/esp32-targets.mk` passes `APP_SRCS` and `APP_FW_CFLAGS` to the
+   ESP-IDF component, links the example application into an image of its
+   own and runs `app-firmware-check` on it. Outstanding, so the row stays
+   partial: a QEMU run of the application, `BOARD=esp32-qemu`, since
+   `esp32-qemu-test` builds its images with `ESP_APP_EXAMPLE=0`; no hardware.
 3. **One application, one caller.** Done: `make app-link-check` (in
    `host-test`) and `make app-link-check-selftest` (in `security`). A gate in
    `mk/app.mk`, `app-link-check`, that links `test/app/example` beside

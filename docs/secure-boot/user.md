@@ -129,8 +129,9 @@ session — see [cli.md](../host-sdk/cli.md). `tfwctl ota-activate [now]`, or
 `ota-stage --activate[=now]` on a board that resets when its port opens, sends
 `OTA_ACTIVATE` ([Activate the image](../ota/user.md#activate-the-image),
 [Stage an image, then activate it](../wire-protocol/user.md#stage-an-image-then-activate-it));
-`OTA_CONFIRM` has no tfwctl verb, and the control plane sends it through
-`sdk/go`'s `(*Device).OTAConfirm(ctx context.Context) error` after attestation. On a board built with
+`tfwctl ota-confirm --sig=<128 hex digits>|--sig-file=<path>` sends `OTA_AUTH`
+with the row key's signature, then `OTA_CONFIRM` (`sdk/go`'s
+`(*Device).OTAConfirm(ctx context.Context) error`). On a board built with
 `BOOT_OTA=1`, updating means a host program that frames
 `TFW_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END` against `sdk/go`'s codec directly (see
 [api.md](api.md) for the exact payloads). What to expect once that exists:

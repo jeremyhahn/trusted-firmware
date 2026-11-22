@@ -83,12 +83,13 @@ make bootloader-reproducible BOARD=atmega328p BOOT_TIER=atecc608a
 | Flag | Values | Required |
 |---|---|---|
 | `BOARD` | a board name | yes |
-| `BOOT_TIER` | `soft`, `atecc608a` | no (default `soft`) |
+| `BOOT_TIER` | `soft`, `atecc608a` | no (default `atecc608a` on a 4 KB boot section, else `soft`, as for `bootloader`) |
 
-Builds twice in two separate copies of the tree and `cmp`s the resulting
-`.hex`. Exits non-zero and prints `tfw-boot NOT REPRODUCIBLE` on any
-difference. The copies carry the tree's `build/`, so an image already built
-there can satisfy both; the clean-tree check is the next section's.
+Builds twice, each in a `git archive HEAD` copy of the tree (no `build/`, no
+untracked or uncommitted file; `SOURCE_DATE_EPOCH` is the commit time), and
+compares the `.hex`. Exits non-zero and prints
+`NOT REPRODUCIBLE: <image> differs between <dir-a> and <dir-b>` on any
+difference.
 
 ## The expected firmware hash, from source
 

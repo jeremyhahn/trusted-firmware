@@ -1,6 +1,6 @@
 # ATmega2560 (Arduino Mega 2560)
 
-> **Status: INFORMATIVE** · Scope: `boards/atmega2560/` · Last verified: 2026-10-16
+> **Status: INFORMATIVE** · Scope: `boards/atmega2560/` · Last verified: 2026-11-21
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -18,16 +18,16 @@ image carries `ATTEST_CSR`.
 |---|---|---|
 | Part | ATmega2560, avrdude part `m2560` | `boards/atmega2560/profile.mk:4`, `:6` |
 | Clock | 16 MHz (`F_CPU`) | `boards/atmega2560/profile.mk:5` |
-| Flash | 262 144 bytes | `profile.mk:16`; `board_profile.h:91` |
+| Flash | 262 144 bytes | `profile.mk:16`; `board_profile.h:99` |
 | SRAM | 8 192 bytes, last address `0x21FF` | `profile.mk:17`, `:25` |
-| EEPROM | 4 096 bytes, asserted against avr-libc's `E2END` | `board_profile.h:42`, `:260` |
-| Flash budget | 65 536 bytes (a quarter of the part) | `profile.mk:14`; `board_profile.h:133` |
-| RAM budget | 2 048 bytes (a quarter) | `profile.mk:15`; `board_profile.h:134` |
-| Boot section | 8 192 bytes at `0x3E000`, budget 8 192 | `profile.mk:22`–`24`; `board_profile.h:92`–`93` |
+| EEPROM | 4 096 bytes, asserted against avr-libc's `E2END` | `board_profile.h:50`, `:269` |
+| Flash budget | 65 536 bytes (a quarter of the part) | `profile.mk:14`; `board_profile.h:142` |
+| RAM budget | 2 048 bytes (a quarter) | `profile.mk:15`; `board_profile.h:143` |
+| Boot section | 8 192 bytes at `0x3E000`, budget 8 192 | `profile.mk:22`–`24`; `board_profile.h:100`–`101` |
 
 The budgets are gates (`make size-check`), not estimates; why the
 fractions are what they are, and why the RAM gate moved to 2 048 (issue #55),
-is at `board_profile.h:65`–`80`. The part facts agree
+is at `board_profile.h:73`–`88`. The part facts agree
 with Microchip's *ATmega640/V-1280/V-1281/V-2560/V-2561/V* data sheet,
 DS40002211A (features page: 256 KB flash, 8 KB SRAM, 4 KB EEPROM), and the
 Arduino *Mega 2560 Rev3* documentation (SKU A000067: 16 MHz, 4 KB EEPROM,
@@ -37,13 +37,16 @@ High Byte table; section number not confirmed).
 
 ### Build rows
 
-`ETH=1` is this board's default (`profile.mk:51`, owner ruling, issue #55 item
+`ETH=1` is this board's default (`profile.mk:63`, owner ruling, issue #55 item
 48): `make firmware BOARD=atmega2560` with no `ETH=` builds the Ethernet image,
-with the OTA stager. The default tier is `CRYPTO=auto` (`profile.mk:56`,
+with the OTA stager. The default tier is `CRYPTO=auto` (`profile.mk:68`,
 owner ruling of 2026-10-17, #130): one image that runs the element when one
 answers at init, else the soft DICE root. The shieldless bench Mega is a named
-row of its own, `ETH=0`, on every tier (`profile.mk:59`–`60`).
-`make firmware-matrix` builds and size-checks all six:
+row of its own, `ETH=0`, on every tier (`profile.mk:72`–`73`).
+`make firmware-matrix` builds and size-checks nine: the six below, plus the two
+OPTIGA Trust M measurement rows (`CRYPTO=optiga`, `ETH=1` and `ETH=0`) and the
+DHCP measurement (`CRYPTO=auto ETH=1 DHCP=1`) (`profile.mk:71`–`74`). The
+measurement rows are not a tier; the six are:
 
 | Row | Settings |
 |---|---|
@@ -78,15 +81,15 @@ UUIDv5 `dc97b9d0-38d6-58e0-bb18-98bb2414d131` (`board_profile.h:21`–`24`).
 
 | | Value | Source |
 |---|---|---|
-| Pins | 70: D0–D53 are 0–53, A0–A15 are 54–69 | `board_profile.h:26`–`29` |
-| Ports | 11, A=0 … L=10, no port I; H–L in extended I/O at `0x100`+ | `board_profile.h:31`–`35`, `:143`–`159`; `board.c:9`–`24` |
-| PWM | 13 units (Timers 1–5 less Timer0) | `board_profile.h:37`–`39`; `board.c:124`–`148` |
-| ADC | 16 channels, A0–A7 on port F, A8–A15 on port K | `board_profile.h:41`; `board.c:106`–`121` |
-| Tick | Timer0; pins 4 (PG5) and 13 (PB7) are `TFW_PWM_RSVD` | `board_profile.h:44`–`48`; `board.c:56`, `:65` |
-| Tone | Timer2, pin 10 (OC2A = PB4, not pin 11) | `board_profile.h:49`, `:271`–`274` |
-| Serial | USART0 on pins 0/1 (PE0/PE1), marked `TFW_PIN_IN_USE` | `board_profile.h:257`–`269`; `board.c:52`–`53` |
+| Pins | 70: D0–D53 are 0–53, A0–A15 are 54–69 | `board_profile.h:34`–`37` |
+| Ports | 11, A=0 … L=10, no port I; H–L in extended I/O at `0x100`+ | `board_profile.h:39`–`43`, `:158`–`174`; `board.c:9`–`25` |
+| PWM | 13 units (Timers 1–5 less Timer0) | `board_profile.h:45`–`47`; `board.c:124`–`149` |
+| ADC | 16 channels, A0–A7 on port F, A8–A15 on port K | `board_profile.h:49`; `board.c:106`–`121` |
+| Tick | Timer0; pins 4 (PG5) and 13 (PB7) are `TFW_PWM_RSVD` | `board_profile.h:52`–`56`; `board.c:56`, `:65` |
+| Tone | Timer2, pin 10 (OC2A = PB4, not pin 11) | `board_profile.h:57`, `:286`–`289` |
+| Serial | USART0 on pins 0/1 (PE0/PE1), marked `TFW_PIN_IN_USE` | `board_profile.h:272`–`284`; `board.c:52`–`53` |
 | LED | pin 13, PB7 | `board.c:65` |
-| Scheduler | 16 slots | `board_profile.h:56`–`58` |
+| Scheduler | 16 slots | `board_profile.h:64`–`66` |
 
 Arduino's page counts 15 PWM pins; the descriptor offers 13 because Timer0's
 two belong to the tick. Pins 30–37 and 42–49 count *down* their ports
@@ -101,33 +104,35 @@ The pins are stated in `board_profile.h`; `board.c` flags the shield's pins
 
 | Line | Pin | Port | Source |
 |---|---|---|---|
-| WIZnet chip select | D10 | PB4 | `board_profile.h:103`; `board.c:62` |
-| SD socket select (held high) | D4 | PG5 | `board_profile.h:104`; `board.c:56` |
-| SPI MISO / MOSI / SCK / SS | D50 / D51 / D52 / D53 | PB3 / PB2 / PB1 / PB0 | `board_profile.h:276`–`283`; `board.c:102`–`105` |
-| OTA store chip select (proposed, ADR open question 2) | D8 | PH5 | `board_profile.h:98`–`102`; `board.c:60` |
-| Element SDA / SCL | D20 / D21 | PD1 / PD0 | `board_profile.h:297`–`298`; `board.c:72`–`73` |
+| WIZnet chip select | D10 | PB4 | `board_profile.h:117`; `board.c:62` |
+| SD socket select (held high) | D4 | PG5 | `board_profile.h:118`; `board.c:56` |
+| SPI MISO / MOSI / SCK / SS | D50 / D51 / D52 / D53 | PB3 / PB2 / PB1 / PB0 | `board_profile.h:291`–`298`; `board.c:102`–`105` |
+| OTA store chip select (proposed, ADR open question 2) | D8 | PH5 | `board_profile.h:112`–`116`; `board.c:60` |
+| Element SDA / SCL | D20 / D21 | PD1 / PD0 | `board_profile.h:312`–`313`; `board.c:72`–`73` |
 
 The controller is the Ethernet Shield Rev3's W5100 unless the build says
-`ETH_CHIP=w5500` (`profile.mk:33`–`36`); see
+`ETH_CHIP=w5500` (`profile.mk:55`–`58`); see
 [`../ethernet-transport/`](../ethernet-transport/architecture.md). The element
 is the ATECC608C on the MIKROE-6774 Click, TrustFLEX at `0x36`, 100 kHz
-(`board_profile.h:285`–`298`). The Mega's A4/A5 are not the TWI pins, so a
-Click wired as on a Nano is not on the bus (`board_profile.h:291`–`294`). The
+(`board_profile.h:300`–`313`). The Mega's A4/A5 are not the TWI pins, so a
+Click wired as on a Nano is not on the bus (`board_profile.h:306`–`309`). The
 board test holds the element to the TWI pins and clear of the shield
-(`test/unit/test_board_2560.c:332`–`340`, `:344`–`355`).
+(`test/unit/test_board_2560.c:326`–`334`, `:338`–`349`).
 
 ## Boot section and boot rows
 
-tfw-boot occupies the top 8 KB (`board_profile.h:81`–`96`). The application
+tfw-boot occupies the top 8 KB (`board_profile.h:89`–`101`). The application
 region is the A/B primary slot, 64 KB at `0x00000`; the secondary slot follows
-at `0x10100` (`board_profile.h:110`–`117`, `profile.mk:48`–`51`). OTA stages
-through an external SPI NOR store (`profile.mk:42`–`46`;
-`board_profile.h:105`–`108`), and the element image carries the SUIT manifest
-reader (`profile.mk:38`–`40`).
+at `0x10100` (`board_profile.h:124`–`130`, `profile.mk:92`–`95`). OTA stages
+through an external SPI NOR store (`profile.mk:86`–`90`;
+`board_profile.h:119`–`122`), and the element image carries the SUIT manifest
+reader (`profile.mk:82`–`84`).
 
-The rows that ship are `BOOT_SUPPORTED` in `mk/boot.mk:264`–`266`: the element
-tier three ways, plain, with OTA, and with the store. OTA and the store
-together do not fit and are not a row (`mk/boot.mk:254`–`256`). The measured
+The rows that ship are `BOOT_SUPPORTED` in `mk/boot.mk:441`–`458`, the 2560's
+at `:444`–`447`: the element tier three ways, plain, with OTA, and with the
+store, and the soft tier plain (`atmega2560:soft:soft:p256-soft:0:0`,
+`mk/boot.mk:447`). OTA and the store together do not fit and are not a row
+(`mk/boot.mk:414`–`416`). The measured
 sizes are in [`../secure-boot/cli.md`](../secure-boot/cli.md) and
 [`../ota/`](../ota/architecture.md#atmega2560-ab-by-swap-move); this page does
 not copy them.
@@ -137,7 +142,7 @@ not copy them.
 - The platform block, `0x000`–`0x0BF`:
   [`../secure-boot/api.md`](../secure-boot/api.md#reserved-eeprom).
 - The swap journal, ten bytes at `0x0E0`–`0x0E9`
-  (`board_profile.h:117`–`123`). This one is the Mega's alone.
+  (`board_profile.h:131`–`133`). This one is the Mega's alone.
 - `OTA_CONFIRM`'s request, 75 bytes at `0x0EA`–`0x134`: magic, the first 8
   bytes of the running image's measurement, the row key's 64-byte confirm
   signature, and a CRC over the 73 bytes before it

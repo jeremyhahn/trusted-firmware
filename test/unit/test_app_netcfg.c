@@ -55,11 +55,43 @@ static void test_an_application_owning_no_config_runs_on_an_ethernet_image(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
 }
 
+static void test_a_zero_length_config_call_on_an_ethernet_image_is_refused(void)
+{
+    const uint8_t in[1] = { 0xA1u };
+    uint8_t       want[TFW_NETCFG_LEN];
+    uint8_t       out[1] = { 0u };
+    uint8_t       i;
+
+    TEST_ASSERT_NOT_EQUAL(0, tfw_mock_app_descriptor()->config_len);
+    for (i = 0u; i < TFW_NETCFG_LEN; i++) {
+        want[i] = (uint8_t)(0x3Cu ^ i);
+        tfw_mock_eeprom()[TFW_NETCFG_ADDR + i] = want[i];
+    }
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION, tfw_app_config_read(0u, out, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION, tfw_app_config_write(0u, in, 0u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, &tfw_mock_eeprom()[TFW_NETCFG_ADDR], TFW_NETCFG_LEN);
+}
+
+static void test_an_out_of_range_config_call_on_an_ethernet_image_is_a_range_error(void)
+{
+    const uint8_t in[1] = { 0xA1u };
+    uint8_t       out[1];
+    uint16_t      len = tfw_mock_app_descriptor()->config_len;
+
+    TEST_ASSERT_NOT_EQUAL(0, len);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_read(len, out, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_write(len, in, 1u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_an_application_owning_config_is_unsupported_on_an_ethernet_image);
     RUN_TEST(test_a_config_write_on_an_ethernet_image_is_refused_and_leaves_the_network_block);
     RUN_TEST(test_an_application_owning_no_config_runs_on_an_ethernet_image);
+    RUN_TEST(test_a_zero_length_config_call_on_an_ethernet_image_is_refused);
+    RUN_TEST(test_an_out_of_range_config_call_on_an_ethernet_image_is_a_range_error);
     return UNITY_END();
 }

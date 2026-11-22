@@ -276,6 +276,16 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 				p.claims = p.claims[:2]
 			}
 		}), nil, "no TCB measurement (claim 273)"},
+		{"no claim 256", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				p.claims = cmap{p.claims[0], p.claims[2]}
+			}
+		}), nil, "no UEID (claim 256)"},
+		{"ueid not a byte string", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				p.claims[1].v = uint64(1)
+			}
+		}), nil, "no UEID (claim 256)"},
 		{"content type 257", build(t, ex, func(layer string, p *parts) {
 			if layer == "content" {
 				p.ct = uint64(257)

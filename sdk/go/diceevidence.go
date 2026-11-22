@@ -85,6 +85,7 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 //   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
 //   - the alias certificate's eat_nonce and authData are nonce;
 //   - sig verifies under the alias key over SHA-256(authData);
+//   - the UEID (claim 256) is present;
 //   - the TCB measurement (claim 273's file hash) is present, and equals
 //     measurement unless that is nil.
 func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error) {
@@ -136,7 +137,8 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement 
 
 // aliasClaims reads eat_nonce (10), ueid (256) and the measurement (273,
 // [[258, CoSWID]] with the file hash at evidence/file/hash) from the alias
-// certificate's UCCS.
+// certificate's UCCS, and refuses a claims set whose ueid is absent or not a
+// byte string.
 func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	uccs, err := AliasUCCS(der)
 	if err != nil {
@@ -149,6 +151,9 @@ func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	claims, _ := v.(map[uint64]any)
 	nonce, _ = claims[10].([]byte)
 	ueid, _ = claims[256].([]byte)
+	if len(ueid) == 0 {
+		return nil, nil, nil, evidenceErr("no UEID (claim 256)")
+	}
 	meas, _ := claims[273].([]any)
 	if len(meas) != 1 {
 		return nil, nil, nil, evidenceErr("no TCB measurement (claim 273)")

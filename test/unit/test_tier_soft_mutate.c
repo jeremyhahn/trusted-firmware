@@ -2,9 +2,10 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * Mutation tests for tfwsim's software tier (tools/tfwsim/tier_soft.c, #163).
- * The tier has no options and nothing to seed: the software provider holds no
- * key and the device it stands in for starts erased. Each test kills a fault
- * that would make `tfwsim` differ from that device or from its usage line:
+ * The tier's one option is --uds; unset, it seeds nothing: the software
+ * provider holds no key and the device it stands in for starts erased. Each
+ * test kills a fault that would make `tfwsim` differ from that device or from
+ * its usage line:
  * an option consumed (main.c would skip the next argument, or -- answering -1
  * -- exit with nothing printed), an option advertised it does not take, and
  * any state written into the freshly reset mock before startup.

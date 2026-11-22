@@ -40,7 +40,7 @@ static void test_auth_session_init_leaves_gate_ok(void)
     TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_auth_gate());
 }
 
-/* update_request_none.c:17 */
+/* update_request_none.c:29 */
 static void test_update_request_arm_leaves_unsupported(void)
 {
     tfw_update_request_arm();

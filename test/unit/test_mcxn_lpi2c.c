@@ -90,6 +90,7 @@ static struct {
     int      wait;
     unsigned restarts;       /* STARTs on a bus already ours: repeated STARTs */
     unsigned resets;         /* MCR RST writes */
+    int      stop_lost;      /* a STOP runs but never ends the transfer */
 } m;
 
 static uint32_t delayed_us;
@@ -199,7 +200,7 @@ static void model_run(uint32_t v)
         }
         break;
     case TFW_MCXN_LPI2C_CMD_STOP:
-        if (m.mbf) {
+        if (m.mbf && !m.stop_lost) {
             m.mbf = 0;
             m.flags |= TFW_MCXN_LPI2C_MSR_SDF;
             m.stops++;
@@ -684,6 +685,48 @@ static void test_a_stop_that_never_shows_is_a_timeout_and_aborted(void)
     TEST_ASSERT_FALSE(m.mbf);
 }
 
+/* hal_bus.c lines 145-152: a STOP that cannot be queued after the last byte
+ * is a timeout, waited for once, and the master is reset. */
+static void test_a_stop_that_cannot_be_queued_is_a_timeout_waited_once(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.accept = 3;                      /* START and both bytes, no STOP */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(3u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+    TEST_ASSERT_TRUE(delayed_us < 2u * I2C_WAIT_US);
+}
+
+/* hal_bus.c lines 137-152: a refused byte whose STOP then cannot be queued
+ * keeps its NACK, and the master is reset. */
+static void test_a_refused_byte_whose_stop_cannot_be_queued_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.accept = 2;                      /* START and the first byte, no STOP */
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(2u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 137-171: a refused byte whose STOP runs but never shows
+ * keeps its NACK, and the master is reset. */
+static void test_a_refused_byte_whose_stop_never_shows_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.stop_lost = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
 static void test_an_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, NULL, 0u));
@@ -733,6 +776,9 @@ int main(void)
     RUN_TEST(test_a_byte_left_in_the_receive_fifo_is_not_read);
     RUN_TEST(test_a_command_left_in_the_transmit_fifo_is_not_run);
     RUN_TEST(test_a_stop_that_never_shows_is_a_timeout_and_aborted);
+    RUN_TEST(test_a_stop_that_cannot_be_queued_is_a_timeout_waited_once);
+    RUN_TEST(test_a_refused_byte_whose_stop_cannot_be_queued_is_nack);
+    RUN_TEST(test_a_refused_byte_whose_stop_never_shows_is_nack);
     RUN_TEST(test_an_empty_transfer_touches_nothing);
     RUN_TEST(test_spi_and_onewire_are_unsupported);
     return UNITY_END();

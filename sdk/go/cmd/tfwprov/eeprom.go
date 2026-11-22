@@ -219,11 +219,24 @@ func writeBakedImage(outPath string, p *bakedPlatform, netblock []byte) error {
 	// earlier) are propagated, and the success line below is the LAST
 	// thing this function does -- never printed over a file that did not
 	// finish writing.
+	//
+	// A failed write or close removes the partial file, as writeRecord
+	// never leaves half a record; it removes rather than renames a temp
+	// file into place because --out may be a device (/dev/full), so only
+	// a regular file is removed.
+	fi, serr := f.Stat()
+	regular := serr == nil && fi.Mode().IsRegular()
 	if err := writeIHEXSegments(f, segs...); err != nil {
 		_ = f.Close()
+		if regular {
+			_ = os.Remove(outPath)
+		}
 		return fmt.Errorf("tfwprov: writing %s: %w", outPath, err)
 	}
 	if err := f.Close(); err != nil {
+		if regular {
+			_ = os.Remove(outPath)
+		}
 		return fmt.Errorf("tfwprov: closing %s: %w", outPath, err)
 	}
 

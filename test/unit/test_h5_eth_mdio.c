@@ -14,11 +14,12 @@ static uint16_t bus[32][32];     /* [addr][reg]; 0xFFFF: nothing answers */
 static int      link_latched_low[32];
 static int      link_now[32];
 static int      reads, fail_at_addr = -1;
+static int      fail_reg = -1;     /* with fail_at_addr: fail only this register (-1: all) */
 
 static int fake_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
     reads++;
-    if ((int)addr == fail_at_addr) {
+    if ((int)addr == fail_at_addr && (fail_reg < 0 || (int)reg == fail_reg)) {
         return -1;
     }
     if (reg == TFW_PHY_REG_BMSR && bus[addr][reg] != 0xFFFFu) {
@@ -50,6 +51,7 @@ void setUp(void)
     memset(link_now, 0, sizeof link_now);
     reads = 0;
     fail_at_addr = -1;
+    fail_reg = -1;
 }
 
 void tearDown(void) { }
@@ -144,6 +146,41 @@ static void test_boot_line(void)
     TEST_ASSERT_EQUAL_size_t(0u, tfw_phy_format(&p, buf, 10u));
 }
 
+static void test_scan_with_a_failed_bmsr_read_keeps_the_phy_and_reports_link_down(void)
+{
+    tfw_phy_probe_t p = { 0xFFu, 0u, 0u, 0xFFu };
+
+    put_phy(4u, 0x0007u, 0xC131u, 1, 0);
+    fail_at_addr = 4;
+    fail_reg = TFW_PHY_REG_BMSR;
+    TEST_ASSERT_EQUAL_INT(0, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_UINT8(4u, p.addr);
+    TEST_ASSERT_EQUAL_HEX16(0x0007u, p.id1);
+    TEST_ASSERT_EQUAL_HEX16(0xC131u, p.id2);
+    TEST_ASSERT_EQUAL_UINT8(0u, p.link_up);
+    /* 0-3: two ID reads each; 4: two ID reads, one failed BMSR read, no second */
+    TEST_ASSERT_EQUAL_INT(11, reads);
+}
+
+static void test_boot_line_fits_exactly_or_not_at_all(void)
+{
+    char buf[48];
+    tfw_phy_probe_t p = { 0u, 0x0007u, 0xC131u, 1u };
+
+    memset(buf, 'x', sizeof buf);
+    TEST_ASSERT_EQUAL_size_t(38u, tfw_phy_format(&p, buf, 39u));
+    TEST_ASSERT_EQUAL_CHAR('\0', buf[38]);
+    memset(buf, 'x', sizeof buf);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_phy_format(&p, buf, 38u));
+    TEST_ASSERT_EQUAL_CHAR('x', buf[0]);
+    memset(buf, 'x', sizeof buf);
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_phy_format(NULL, buf, 16u));
+    TEST_ASSERT_EQUAL_CHAR('\0', buf[15]);
+    memset(buf, 'x', sizeof buf);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_phy_format(NULL, buf, 15u));
+    TEST_ASSERT_EQUAL_CHAR('x', buf[0]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -155,5 +192,7 @@ int main(void)
     RUN_TEST(test_scan_skips_a_failed_read_and_reaches_31);
     RUN_TEST(test_scan_of_an_empty_bus_finds_nothing);
     RUN_TEST(test_boot_line);
+    RUN_TEST(test_scan_with_a_failed_bmsr_read_keeps_the_phy_and_reports_link_down);
+    RUN_TEST(test_boot_line_fits_exactly_or_not_at_all);
     return UNITY_END();
 }

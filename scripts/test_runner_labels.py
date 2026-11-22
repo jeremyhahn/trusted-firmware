@@ -9,8 +9,8 @@ misspelled self-hosted label would reach main through a green gate. These tests
 read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
 group/labels mapping, a flow list or mapping on one line or across several,
 and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
-key) of .github/workflows/*.yml and *.yaml with
-the standard library alone (no actionlint binary, no PyYAML) and fail naming
+key; a key may have spaces before its colon, `runs-on : codex`) of
+.github/workflows/*.yml and *.yaml with the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. The built-in labels, the self-hosted ones
 (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`),
@@ -69,9 +69,9 @@ GITHUB_HOSTED = {
     "macos-14",
 }
 
-RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
+RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?\s*:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
-ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?:(\s.*)?$")
+ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?\s*:(\s.*)?$")
 FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
 
 
@@ -133,7 +133,8 @@ def plain_labels(text):
     the next, deeper-indented line (`runs-on:` then `  codex`); a plain scalar
     folded over several lines is not read. The
     key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
-    `labels:` keys of its mapping (`'labels':`, `"group":`), and a flow list or
+    `labels:` keys of its mapping (`'labels':`, `"group":`); each of these
+    keys may have spaces before its colon (`runs-on : codex`). A flow list or
     mapping that does not close on the `runs-on:` line takes the following
     lines until it closes (an unclosed one yields nothing); its labels carry
     the `runs-on:` line number. A value that starts with `${{` is an
@@ -327,6 +328,22 @@ class RunnerLabelsTest(unittest.TestCase):
             found = self.check(f"{head}        {value}\n")
             self.assertEqual(found, ["w.yml:6: qwne"], value)
         self.assertEqual(self.check(f"{head}        codex\n"), [])
+
+    def test_a_space_before_the_runs_on_colon_is_read(self):
+        for line in ("runs-on : qwne", '"runs-on"  : [self-hosted, qwne]'):
+            found = self.check(f"jobs:\n  build:\n    {line}\n")
+            self.assertEqual(found, ["w.yml:3: qwne"], line)
+        found = self.check("jobs:\n  build:\n    runs-on : ubuntu-latest\n")
+        self.assertEqual(found, [])
+
+    def test_a_space_before_a_mapping_key_colon_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      group: g\n      labels : qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+        head = "jobs:\n  build:\n    runs-on:\n      group : g\n      'labels' :\n"
+        self.assertEqual(self.check(f"{head}        - qwne\n"), ["w.yml:6: qwne"])
+        self.assertEqual(self.check(f"{head}        - codex\n"), [])
 
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):

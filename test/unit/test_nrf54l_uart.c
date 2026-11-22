@@ -7,8 +7,9 @@
  * register file (test/model/cortex-m/regfile_model.c): UARTE20's BAUDRATE
  * word for 115200, CONFIG 8N1, PSEL.TXD/RXD for P1.4/P1.5, ENABLE and
  * INTEN, the EasyDMA pointer and MAXCNT of each transfer, TXDRDY ending a
- * transmission, and a byte received only on DMA.RX.END. The values are the
- * nrfx MDK's (the source soc_regs.h names). A board has not run them.
+ * transmission, a byte received only on DMA.RX.END, and a byte dropped on a
+ * full receive ring. The values are the nrfx MDK's (the source soc_regs.h
+ * names). A board has not run them.
  *
  * The suite includes hal_uart.c, as test_nrf54l_saadc.c includes hal_adc.c:
  * the register file moves no data, so the test reads the EasyDMA buffers
@@ -238,6 +239,28 @@ void test_rx_returns_nothing_without_rx_end(void)
     TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x028u)));
 }
 
+/* 63 bytes fill the ring: the 64th is dropped, not written over the oldest,
+ * and the next receive still starts, so the framer can resynchronise
+ * (hal_uart.c lines 132-138). */
+void test_rx_drops_a_byte_that_finds_the_ring_full(void)
+{
+    uint8_t  b = 0u;
+    uint32_t n;
+
+    for (n = 0u; n < 63u; n++) {
+        byte_arrives((uint8_t)n);
+    }
+    TFW_NRF_UARTE_RX_START = 0u;
+    byte_arrives(0xEEu);
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x028u)));
+
+    for (n = 0u; n < 63u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 /* An ERROR event is cleared with its ERRORSRC bits. */
 void test_irq_clears_a_receive_error(void)
 {
@@ -266,6 +289,7 @@ int main(void)
     RUN_TEST(test_rx_returns_the_byte_on_rx_end);
     RUN_TEST(test_rx_keeps_the_order);
     RUN_TEST(test_rx_returns_nothing_without_rx_end);
+    RUN_TEST(test_rx_drops_a_byte_that_finds_the_ring_full);
     RUN_TEST(test_irq_clears_a_receive_error);
     return UNITY_END();
 }

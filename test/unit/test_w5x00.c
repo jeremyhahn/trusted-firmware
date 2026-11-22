@@ -408,6 +408,58 @@ static void test_a_udp_size_that_never_settles_reads_as_nothing_and_the_socket_s
     TEST_ASSERT_EQUAL_HEX8(0x22u, w5x_model_sock(S_SR));
 }
 
+/* w5x00.c:254: a full 2 KB ring is a real size, not a corrupt one. */
+static void test_a_received_size_of_exactly_the_ring_is_read_and_the_link_stays(void)
+{
+    uint8_t got;
+
+    connect();
+    w5x_model_rsr_reads(0x0800u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_rx(&got));
+    TEST_ASSERT_EQUAL_HEX8(0x17u, w5x_model_sock(S_SR));             /* ESTABLISHED */
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+}
+
+/* w5x00.c:207: the same bound on the UDP socket. */
+static void test_a_udp_size_of_exactly_the_ring_is_read_and_the_socket_stays(void)
+{
+    udp_up();
+    w5x_model_rsr_reads(0x0800u);
+    TEST_ASSERT_EQUAL_UINT16(0x0800u, tfw_eth_udp_avail());
+    TEST_ASSERT_EQUAL_HEX8(0x22u, w5x_model_sock(S_SR));
+}
+
+/* w5x00.c:180: a datagram that fits the free space exactly is sent. */
+static void test_a_datagram_of_exactly_the_free_space_is_sent(void)
+{
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 1u };
+    uint16_t wr;
+
+    udp_up();
+    wr = w5x_model_sock16(S_TX_WR);
+    w5x_model_tx_cap(10u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_udp_send(10u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(wr + 10u), w5x_model_sock16(S_TX_WR));
+    TEST_ASSERT_EQUAL_UINT8(1u, w5x_model_sends());
+}
+
+/* w5x00.c:185: TIMEOUT is cleared before each send, so one unanswered ARP
+ * does not make the next datagram read NOARP. */
+static void test_a_datagram_after_a_noarp_one_reads_its_own_result(void)
+{
+    static const uint8_t silent[4] = { 192u, 0u, 2u, 9u };
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 1u };
+
+    udp_up();
+    w5x_model_arp_silent(silent);
+    tfw_eth_udp_put(0u, 0x55u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_udp_send(1u, silent, 67u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_SENT_NOARP, tfw_eth_udp_sent());
+    tfw_eth_udp_put(0u, 0x66u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_udp_send(1u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_SENT_OK, tfw_eth_udp_sent());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -441,5 +493,9 @@ int main(void)
     RUN_TEST(test_a_datagram_to_an_address_that_never_answers_arp_reads_noarp);
     RUN_TEST(test_a_udp_size_above_the_ring_closes_the_udp_socket_and_reads_nothing);
     RUN_TEST(test_a_udp_size_that_never_settles_reads_as_nothing_and_the_socket_stays);
+    RUN_TEST(test_a_received_size_of_exactly_the_ring_is_read_and_the_link_stays);
+    RUN_TEST(test_a_udp_size_of_exactly_the_ring_is_read_and_the_socket_stays);
+    RUN_TEST(test_a_datagram_of_exactly_the_free_space_is_sent);
+    RUN_TEST(test_a_datagram_after_a_noarp_one_reads_its_own_result);
     return UNITY_END();
 }

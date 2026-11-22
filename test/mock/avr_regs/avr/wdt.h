@@ -11,7 +11,8 @@
 
 void wdt_reset(void);
 
-/* src/hal/avr/hal_sys.c: arm and disarm, with avr-libc's timeout codes. */
+/* src/hal/avr/hal_sys.c: arm and disarm, with avr-libc's timeout codes;
+ * src/hal/avr/hal_early.c disarms too. */
 #define WDTO_15MS 0
 #define WDTO_8S   9
 void wdt_enable(unsigned char timeout);

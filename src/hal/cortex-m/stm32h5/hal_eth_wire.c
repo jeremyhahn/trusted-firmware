@@ -8,8 +8,9 @@
  *
  *   - a frame is read whole from the wire it started on (hold), and its
  *     reply goes back on that wire; events always go on the UART;
- *   - every command is admitted on either wire: the TCP wire is the bench
- *     host's whole wire, as the ESP32 port's is;
+ *   - a TCP peer is admitted only the Ethernet allow-list (link_eth.h,
+ *     tfw_link_admits() below); the UART carries every command, so device
+ *     control and provisioning stay on serial;
  *   - received bytes wait in a ring and the receive window is reopened only
  *     as the transport reads them, so the ring never overflows;
  *   - reply bytes are batched and handed to TCP when the reply is complete

@@ -377,7 +377,7 @@ static void test_no_handoff_leaves_no_cdi(void)
     assert_no_cdi();
 }
 
-static void test_a_handoff_for_another_tier_leaves_no_cdi(void)
+static void test_a_handoff_for_another_tier_is_drained_and_leaves_no_cdi(void)
 {
     static const uint8_t tiers[] = { 0u, 1u, 3u, 0x82u };
     unsigned i;
@@ -390,7 +390,8 @@ static void test_a_handoff_for_another_tier_leaves_no_cdi(void)
         reset_part();
         tier_val = tiers[i];
         TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
-        TEST_ASSERT_EQUAL_UINT(0u, take_calls);
+        TEST_ASSERT_EQUAL_UINT(1u, take_calls);
+        TEST_ASSERT_TRUE_MESSAGE(was_zeroed_at(NULL, cdi_in, 32u), "a CDI for another tier is drained and wiped");
         (void)snprintf(want, sizeof want, "cdi: none in the handoff (tier %u)", tiers[i]);
         assert_log(0u, 'W', want);
         assert_no_cdi();
@@ -512,7 +513,7 @@ int main(void)
     RUN_TEST(test_a_signature_is_es256_by_the_deviceid);
     RUN_TEST(test_a_refused_seed_at_signing_is_a_crypto_error);
     RUN_TEST(test_no_handoff_leaves_no_cdi);
-    RUN_TEST(test_a_handoff_for_another_tier_leaves_no_cdi);
+    RUN_TEST(test_a_handoff_for_another_tier_is_drained_and_leaves_no_cdi);
     RUN_TEST(test_a_handoff_with_no_cdi_leaves_none);
     RUN_TEST(test_a_part_with_no_hmac_up_key_has_no_deviceid);
     RUN_TEST(test_a_refused_uds_key_has_no_deviceid);

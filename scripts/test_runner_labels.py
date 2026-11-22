@@ -223,6 +223,29 @@ class RunnerLabelsTest(unittest.TestCase):
         )
         self.assertEqual(found, [])
 
+    def test_a_quoted_mapping_key_is_read(self):
+        for key in ("'labels'", '"labels"'):
+            found = self.check(
+                f"jobs:\n  build:\n    runs-on:\n      group: g\n      {key}: qwne\n"
+            )
+            self.assertEqual(found, ["w.yml:5: qwne"])
+            found = self.check(
+                "jobs:\n  build:\n    runs-on:\n      group: g\n"
+                f"      {key}:\n        - qwne\n"
+            )
+            self.assertEqual(found, ["w.yml:6: qwne"])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      'group': g\n      labels: qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_quoted_flow_mapping_key_is_read(self):
+        for value in ('{group: g, "labels": qwne}', "{'labels': [qwne]}"):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, ["w.yml:3: qwne"])
+        found = self.check("jobs:\n  build:\n    runs-on: {'labels': codex}\n")
+        self.assertEqual(found, [])
+
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)
         for label in ("codex", "qwen", "ci-gate"):

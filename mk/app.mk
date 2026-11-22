@@ -146,7 +146,7 @@ app-obj-dirs:
 	@echo $(FW_DIR)/app $(APP_HOST_DIR) $(APP_HOST_ELEMENT_DIR)
 
 # The file app-firmware-check looks in for the application: the ELF, or on an
-# ESP32 board the map file ESP-IDF writes beside its ELF.
+# ESP32 board the ELF ESP-IDF writes ($(ESP_OUT)/idf/trusted-firmware.elf).
 app-image:
 	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.elf,$(TARGET).elf)
 

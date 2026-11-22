@@ -25,6 +25,7 @@
 # directory. Takes about 15 minutes; logs go to $WORK/logs.
 #
 # Usage: scripts/tfm-measure.sh [work-dir]   (default /tmp/tfm-measure)
+# A relative work-dir is taken from the invocation directory.
 set -euo pipefail
 
 TFM_URL=https://git.trustedfirmware.org/TF-M/trusted-firmware-m.git
@@ -41,8 +42,10 @@ PROFILE=profile_medium
 BUILD_TYPE=MinSizeRel
 
 WORK=${1:-/tmp/tfm-measure}
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd -P)
 LOGS=$WORK/logs
-mkdir -p "$WORK" "$LOGS"
+mkdir -p "$LOGS"
 
 die() { echo "tfm-measure: $*" >&2; exit 1; }
 step() { echo "tfm-measure: $*" >&2; }

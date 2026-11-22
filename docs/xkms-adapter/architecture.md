@@ -20,8 +20,8 @@ they had already committed to it.
 ## Shape chosen: a read-only key provider that reports from the device's CAPS reply
 
 `xkms/avr` (module `github.com/jeremyhahn/trusted-firmware/xkms`, tagged
-`xkms/v0.2.0-alpha`) implements `types.KeyProvider` and nothing more. Every answer
-it gives about the device comes from the device's own `CAPS` reply, read once at
+`xkms/v0.2.0-alpha`) implements `types.KeyProvider` and `types.AttestingKeyProvider`
+(`AttestKey`). Every answer it gives about the device comes from the device's own `CAPS` reply, read once at
 construction and cached; every operation the part cannot perform refuses with a
 sentinel that says which permanent property of the part or the protocol refuses
 it.
@@ -31,7 +31,7 @@ caller ──opens link──► io.ReadWriter
                           │
              tfw.Device (trusted-firmware/sdk/go)   ◄── owns the wire
                           │
-                   avr.Backend  ──► types.KeyProvider
+                   avr.Backend  ──► types.KeyProvider, types.AttestingKeyProvider
 ```
 
 ## Where it lives, and how go-xkms finds it
@@ -177,8 +177,10 @@ The protocol has no command that signs a host-supplied digest, so
 `Backend.PossessionSigner(att)` returns a `crypto.Signer` that asks the device for
 `Device.AttestCSR` with the attestation's nonce and returns the signature only if
 it verifies, under the attested key, over the SHA-256 digest it was asked to sign.
-Any other digest — another document, another nonce, a request for another
-identity — is refused with `ErrPossessionMismatch`. A device without the
+A hash other than SHA-256, or a digest that is not 32 bytes, is refused with
+`ErrSigningUnsupported` before the device is asked. Any other digest — another
+document, another nonce, a request for another identity — fails the
+verification and is refused with `ErrPossessionMismatch`. A device without the
 `FeatureAttestCSR` bit refuses with the device's unsupported status.
 
 ## Rejected alternatives

@@ -254,6 +254,32 @@ static void test_a_chunk_out_of_sequence_drops_the_envelope(void)
     NO_ACTS();
 }
 
+/* Each refusal drops the pending envelope, so the in-sequence chunk that
+ * would have followed it is refused too: a step back, a changed total, a
+ * chunk past the total. */
+static void test_the_chunk_after_an_out_of_sequence_one_is_refused(void)
+{
+    const uint16_t total = sizeof SUIT_POLICY_ENVELOPE;
+    const uint8_t *e     = SUIT_POLICY_ENVELOPE;
+
+    TEST_ASSERT_EQUAL(TFW_OK, chunk(total, 0u, e, 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 30u, &e[30], 30u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 60u, &e[60], 60u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, chunk(total, 0u, e, 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk((uint16_t)(total + 1u), 60u, &e[60], 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 60u, &e[60], 60u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, chunk(10u, 0u, e, 8u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(10u, 8u, &e[8], 3u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(10u, 8u, &e[8], 2u));
+
+    /* Nothing held, and nothing reached the engine, which would count it. */
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(0u, 0u, 0u);
+    NO_ACTS();
+}
+
 /* A new offset 0 starts over, whatever was pending. */
 static void test_offset_zero_begins_again(void)
 {
@@ -577,6 +603,7 @@ int main(void)
     RUN_TEST(test_an_envelope_that_fills_the_buffer_is_read);
     RUN_TEST(test_an_empty_envelope_is_refused);
     RUN_TEST(test_a_chunk_out_of_sequence_drops_the_envelope);
+    RUN_TEST(test_the_chunk_after_an_out_of_sequence_one_is_refused);
     RUN_TEST(test_offset_zero_begins_again);
     RUN_TEST(test_a_bad_signature_is_refused_and_counted);
     RUN_TEST(test_the_same_set_again_is_taken);

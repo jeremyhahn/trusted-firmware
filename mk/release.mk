@@ -54,13 +54,15 @@ provenance:
 # cannot be used for that, and one that says "unknown" looks like a record while
 # being useless -- the same failure as a gate that passes vacuously. Inside the
 # CI container there is no .git, so the value is passed in.
-# Resolved from the checkout, or from the record the CI image carries.
+# Resolved from the checkout, or read from /etc/ci-source-commit where an image
+# provides one; no image built from this tree writes it
+# (build/docker/devcontainer/Dockerfile records only /etc/ci-toolchain.txt), so
+# inside the container pass SOURCE_COMMIT.
 #
 # The image has no .git -- the source is COPYed in, not cloned -- so a build
-# inside it cannot ask git. /etc/ci-source-commit is written at image build for
-# the same reason /etc/ci-toolchain.txt is: a container that cannot say what it
-# is built from cannot produce provenance, and provenance is the one thing this
-# target exists for. Still refuses rather than defaulting if neither is there.
+# inside it cannot ask git: a container that cannot say what it is built from
+# cannot produce provenance, and provenance is the one thing this target exists
+# for. Still refuses rather than defaulting if neither is there.
 SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || cat /etc/ci-source-commit 2>/dev/null)
 
 # The measurement tool: the one scripts/test_fwhash.py and test_boot_measure.c
@@ -88,8 +90,9 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	@# release .bin, which `make suit-tbs` reads, is the bytes fwhash.py
 	@# measured, so it hashes to fwhash_sha256 too.
 	@#
-	@# The HEX is written with -R .eeprom, and mk/handoff.ld makes the CDI
-	@# handoff's SRAM section NOLOAD, so neither carries bytes here; fwhash.py
+	@# The HEX is written with -R .eeprom, and the CDI handoff's SRAM section
+	@# is NOLOAD (mk/handoff.ld on AVR, the .handoff section of
+	@# mk/arch/cortex-m/*.ld on Cortex-M), so neither carries bytes here; fwhash.py
 	@# refuses a record outside [FWHASH_BASE, FWHASH_BASE + FWHASH_SIZE), and
 	@# the check below holds image_len to that region, because a device's
 	@# measurement covers application flash only.

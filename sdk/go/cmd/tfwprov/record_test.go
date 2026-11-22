@@ -204,11 +204,24 @@ func TestReadRecordRefusesWhatIsNotARecord(t *testing.T) {
 		"a short x":             jwk("EC", "P-256", gx[:40], gy),
 		"a y not base64url":     jwk("EC", "P-256", gx, strings.ReplaceAll(gy, "-", "+")),
 		"a point off the curve": jwk("EC", "P-256", gy, gx),
+		"a second value":        `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}{"ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
+		"trailing text":         `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"} x`,
+		"a stray brace":         `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}}`,
 	} {
 		path := recordPath(t)
 		writeFile(t, path, body)
 		_, err := readRecord(path)
 		wantRecordError(t, err, name)
+	}
+}
+
+func TestRecordPointLeavesAFileWithTrailingBytesUnwritten(t *testing.T) {
+	const body = "{\n  \"ueid\": \"AQABAgMEBQYHCAkKCwwNDg8\"\n}\n{}\n"
+	path := recordPath(t)
+	writeFile(t, path, body)
+	wantRecordError(t, recordPoint(path, mustHex(t, p256GeneratorHex)), "bytes after the record")
+	if got := readFile(t, path); got != body {
+		t.Fatal("the refused join rewrote the file")
 	}
 }
 

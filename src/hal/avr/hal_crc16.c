@@ -7,7 +7,8 @@
 
 /*
  * THE FAST DEFINITION, linked ONLY into the firmware and bench images --
- * mk/avr.mk's AVR_SRCS globs every .c in this directory, and mk/bench.mk's
+ * mk/firmware.mk's FW_SRCS globs every .c in this directory not in
+ * HAL_OPTIONAL, and mk/bench.mk's
  * BENCH_SRCS is that same list with main.c exchanged, so this file reaches
  * both without either Makefile naming it. Every other build (host, tfwsim, the
  * bootloader, the cross-implementation suite) links

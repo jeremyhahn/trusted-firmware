@@ -11,6 +11,9 @@
  * that one record whole and refuses every other write below the span's end:
  * the 11-byte request from before #231 among them, so nothing is confirmed.
  * tfw-boot's reading of the record is test/unit/boot/test_boot_swap.c's.
+ *
+ * The suite also pins src/hal/cortex-m/hal_nvm.c's window bound: a read that
+ * ends past the platform window, or would wrap, is range and copies nothing.
  */
 
 #define _DEFAULT_SOURCE
@@ -173,6 +176,41 @@ static void test_eeprom_user_span_roundtrip(void)
     TEST_ASSERT_TRUE(erased((uint16_t)(TFW_BOOT_EE_LEN - 1u), 1u));
 }
 
+/* tfw_hal_nvm_read copies the window at both of its ends; a span one byte past
+ * the end, or one that would wrap the 16-bit address, is range and leaves the
+ * buffer untouched. */
+static void test_nvm_read_copies_the_window_and_refuses_past_its_end(void)
+{
+    const uint16_t tail = (uint16_t)(TFW_CM_PLATFORM_SIZE - 8u);
+    uint8_t buf[255];
+    uint8_t want[255];
+    uint8_t i;
+
+    for (i = 0u; i < 8u; i++) {
+        WINDOW[i]        = (uint8_t)(i ^ 0x3Cu);
+        WINDOW[tail + i] = (uint8_t)((tail + i) ^ 0x3Cu);
+    }
+
+    memset(buf, 0xA5, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_nvm_read(0u, buf, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&WINDOW[0], buf, 8u);
+    memset(buf, 0xA5, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_nvm_read(tail, buf, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&WINDOW[tail], buf, 8u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_nvm_read((uint16_t)TFW_CM_PLATFORM_SIZE, buf, 0u));
+
+    memset(want, 0xA5, sizeof want);
+    memset(buf, 0xA5, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_nvm_read((uint16_t)(TFW_CM_PLATFORM_SIZE - 7u), buf, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, buf, sizeof buf);
+    memset(buf, 0xA5, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_nvm_read((uint16_t)TFW_CM_PLATFORM_SIZE, buf, 1u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, buf, sizeof buf);
+    memset(buf, 0xA5, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_nvm_read(0xFFFFu, buf, 255u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, buf, sizeof buf);
+}
+
 int main(void)
 {
     void *w = mmap(WINDOW, TFW_CM_PLATFORM_SIZE, PROT_READ | PROT_WRITE,
@@ -191,5 +229,6 @@ int main(void)
     RUN_TEST(test_a_write_into_the_platform_block_is_range);
     RUN_TEST(test_a_write_above_the_span_lands_and_one_past_the_window_is_range);
     RUN_TEST(test_eeprom_user_span_roundtrip);
+    RUN_TEST(test_nvm_read_copies_the_window_and_refuses_past_its_end);
     return UNITY_END();
 }

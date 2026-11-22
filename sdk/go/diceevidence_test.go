@@ -286,6 +286,18 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 				p.claims[1].v = uint64(1)
 			}
 		}), nil, "no UEID (claim 256)"},
+		{"one-byte UEID", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				p.claims[1].v = []byte{0x01}
+			}
+		}), nil, "the UEID is not 0x01 and a 16-byte device id"},
+		{"UEID type 0x02", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				u := bytes.Clone(p.claims[1].v.([]byte))
+				u[0] = 0x02
+				p.claims[1].v = u
+			}
+		}), nil, "the UEID is not 0x01 and a 16-byte device id"},
 		{"content type 257", build(t, ex, func(layer string, p *parts) {
 			if layer == "content" {
 				p.ct = uint64(257)

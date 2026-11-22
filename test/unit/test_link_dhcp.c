@@ -463,6 +463,21 @@ static void test_a_block_that_will_not_load_at_t1_drops_the_connection_and_asks_
     TEST_ASSERT_EQUAL_UINT8(DHCPREQUEST, sent_as(srv_a, 0x00u, offered));
 }
 
+/* link_eth.c:88: the block is read beside a connection only once a lease falls
+ * due, so a block that stops loading before T1 leaves the connection alone. */
+static void test_a_block_that_will_not_load_before_t1_leaves_the_connection_up(void)
+{
+    tfw_ms_t asked  = lease_up();
+    unsigned dgrams = eth.dgrams;
+
+    tfw_mock_eeprom()[TFW_NETCFG_ADDR + 30u] ^= 0xFFu;  /* CRC: no block */
+    at(asked + 1000u);
+    at(asked + T1_MS - 1u);
+    assert_connected_from_the_lease(1u);
+    TEST_ASSERT_EQUAL_UINT(dgrams, eth.dgrams);
+    TEST_ASSERT_EQUAL_UINT8(0u, eth.udp);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -473,5 +488,6 @@ int main(void)
     RUN_TEST(test_a_nak_while_renewing_drops_the_connection_at_once);
     RUN_TEST(test_a_connection_lost_while_renewing_redials_from_the_lease_and_renews);
     RUN_TEST(test_a_block_that_will_not_load_at_t1_drops_the_connection_and_asks_nothing);
+    RUN_TEST(test_a_block_that_will_not_load_before_t1_leaves_the_connection_up);
     return UNITY_END();
 }

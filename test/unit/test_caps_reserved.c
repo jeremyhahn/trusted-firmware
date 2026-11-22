@@ -4,7 +4,9 @@
  * a dropped RESERVED term is still refused, by the PWM lookup, and survives
  * test_caps_mutate. gpio.c's RESERVED term (#627) too: the host 328P table's
  * refused pins are IN_USE only, so PIN_MODE and DIGITAL_WRITE on D3 here are
- * the only host check that a RESERVED pin is never driven. */
+ * the only host check that a RESERVED pin is never driven. tone.c's RESERVED
+ * term (#627) as well: the 328P tone pin D11 is unreserved on the board table,
+ * so a TONE on this table's RESERVED D11 is the only host check of it. */
 #include <string.h>
 #include "unity.h"
 #include "dispatch.h"
@@ -75,11 +77,28 @@ static void test_pin_mode_and_digital_write_on_a_reserved_pin_are_refused_and_it
     TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
 }
 
+/* Kills: the RESERVED term dropped from tone.c's mask (line 33); the 328P tone
+ * pin D11 is unreserved on the board table, so only this table's RESERVED D11
+ * shows it. */
+static void test_tone_on_a_reserved_tone_pin_is_refused_and_silent(void)
+{
+    uint8_t p[3] = { (uint8_t)TFW_TONE_PIN, 0xB8u, 0x01u }; /* 440 Hz, u16 LE */
+
+    memcpy(inbuf, p, sizeof p);
+    memset(outbuf, 0xEE, sizeof outbuf);
+    tfw_reader_init(&r, inbuf, (uint8_t)sizeof p);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, tfw_dispatch(TFW_CMD_TONE, &r, &w));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_pwm_on_a_reserved_compare_pin_is_refused_and_not_driven);
     RUN_TEST(test_pwm_on_an_unreserved_compare_pin_is_driven);
     RUN_TEST(test_pin_mode_and_digital_write_on_a_reserved_pin_are_refused_and_it_stays);
+    RUN_TEST(test_tone_on_a_reserved_tone_pin_is_refused_and_silent);
     return UNITY_END();
 }

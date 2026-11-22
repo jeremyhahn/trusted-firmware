@@ -114,9 +114,10 @@ platform-bake-srcs:
 # bake image's own list must hold what the check looks for -- a pattern that
 # matched nothing anywhere would pass and have checked nothing. And no source an
 # application compiles may name the bake image's symbols. A board's extra rows
-# (BOARD_ROWS) are checked as they are built, with their own settings: most
-# vary only ETH, which this sweep covers on every tier already, or turn on a
-# bus (mps2-an505's I2C=1), which links no bake object; but the optiga rows (the
+# (BOARD_ROWS) are checked as they are built, with their own settings: the
+# 2560's vary ETH, which this sweep covers on every tier already; the Cortex-M
+# boards' turn a peripheral driver on or off (I2C, SPI, PWM, TONE, PULSE,
+# ONEWIRE, ADC, ETH_MAC), which links no bake object; but the optiga rows (the
 # 2560's two, mps2-an505's one) are a tier no board names, and that tier has no
 # PROVISION=1 image to check.
 platform-bake-no-link-check:

@@ -255,6 +255,8 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 
 	edPub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
+	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	require.NoError(t, err)
 	otherNonce := bytes.Clone([]byte(vectors.AppEvWithUccs)[4:36])
 	otherNonce[0] ^= 0x01
 
@@ -270,6 +272,7 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			}
 		}), nil, "the alias certificate's eat_nonce is not the challenge nonce"},
 		{"Ed25519 alias key", build(t, ex, nil), edPub, "the alias key is not ECDSA"},
+		{"P-384 alias key", build(t, ex, nil), &p384.PublicKey, "the alias key is not P-256 (ES256)"},
 		{"UCCS not CBOR", []byte{0xff}, nil, "the UCCS is not CBOR"},
 		{"no claim 273", build(t, ex, func(layer string, p *parts) {
 			if layer == "claims" {

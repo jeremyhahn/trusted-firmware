@@ -385,6 +385,27 @@ static void test_a_scheduler_deadline_across_a_write_fires_on_time(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
+/* A write before tfw_hal_tick_init: SysTick is off and its CVR stays 0, but
+ * ee_lock still runs DWT's cycle count. hal_tick.c's enable tests keep
+ * tfw_cm_tick_wait_clear from spinning on CVR 0 (line 77) and
+ * tfw_cm_tick_catch_up from crediting ticks SysTick never counted (line 63). */
+static void test_a_write_with_systick_off_neither_waits_nor_credits_ticks(void)
+{
+    static const uint8_t data[] = { 0xC3u };
+    uint8_t  back;
+    tfw_ms_t before;
+
+    model_tick_reset();
+    erase_cycles = 5u * MODEL_CYC_PER_MS;
+    before = tfw_hal_millis();
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(USER_LO, &back, 1u));
+    TEST_ASSERT_EQUAL_HEX8(data[0], back);
+    TEST_ASSERT_EQUAL_UINT32(before, tfw_hal_millis());
+    TEST_ASSERT_EQUAL_HEX32(0u, model_primask);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -402,5 +423,6 @@ int main(void)
     RUN_TEST(test_millis_keeps_the_time_masked_writes_take);
     RUN_TEST(test_a_tick_due_as_a_write_masks_or_unmasks_is_kept);
     RUN_TEST(test_a_scheduler_deadline_across_a_write_fires_on_time);
+    RUN_TEST(test_a_write_with_systick_off_neither_waits_nor_credits_ticks);
     return UNITY_END();
 }

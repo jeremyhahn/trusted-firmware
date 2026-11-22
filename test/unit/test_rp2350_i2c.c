@@ -131,6 +131,28 @@ static void test_init_refuses_a_rate_it_cannot_make(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(10uL));
 }
 
+/* UM10204 table 10 note 2: a transmitter holds SDA at least 300 ns after
+ * SCL falls (120 ns at fast-mode plus); IC_SDA_HOLD.IC_SDA_TX_HOLD is that
+ * hold in ic_clk cycles (table 1137), reset 1. */
+static void assert_sda_hold(uint32_t want, uint32_t min_ns)
+{
+    uint32_t tx = rp_i2c.sda_hold & 0xFFFFu;
+
+    TEST_ASSERT_EQUAL_UINT32(want, tx);
+    TEST_ASSERT_EQUAL_UINT32(0u, (rp_i2c.sda_hold >> 16) & 0xFFu);
+    TEST_ASSERT_TRUE((uint64_t)tx * 1000000000u >= (uint64_t)min_ns * TFW_CM_CPU_HZ);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
+}
+
+static void test_init_holds_sda_for_300ns(void)
+{
+    assert_sda_hold(4u, 300u);
+    reinit(100000uL);
+    assert_sda_hold(4u, 300u);
+    reinit(1000000uL);
+    assert_sda_hold(2u, 120u);
+}
+
 /* ---- transfers */
 
 static void test_write(void)
@@ -320,6 +342,7 @@ int main(void)
     RUN_TEST(test_every_standard_mode_minimum_holds_at_100khz);
     RUN_TEST(test_repeated_start_setup_at_400khz_is_at_least_0_6_us);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_make);
+    RUN_TEST(test_init_holds_sda_for_300ns);
     RUN_TEST(test_write);
     RUN_TEST(test_read);
     RUN_TEST(test_write_then_read_with_restart);

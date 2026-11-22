@@ -50,9 +50,8 @@ static void test_tone_calc_refuses(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_tone_half_period(TFW_RP_TONE_TICK_HZ, 30000u));
 }
 
-static void test_start_refuses_zero_and_out_of_range(void)
+static void test_start_refuses_out_of_range(void)
 {
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&pin7, 0u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&pin7, 30000u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&pin7, 65535u));
     /* a refusal touches no register */
@@ -68,6 +67,51 @@ static void test_start_refuses_bad_pin(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&gp30, 1000u));
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&bank1, 1000u));
     TEST_ASSERT_EQUAL_INT(0, tfw_rp_model_writes());
+}
+
+/* include/tfw/hal.h: "hz of 0 stops it", as on every other port */
+static void test_start_zero_hz_stops_a_playing_tone(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_T1_INTE));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_T1_ARMED));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_INT(0, tfw_rp_model_fire());
+}
+
+/* a start refused for its pin or its frequency is refused before the
+ * takeover: the playing tone keeps its pin, its step and its alarm */
+static void test_start_refused_while_playing_keeps_the_tone(void)
+{
+    const tfw_pinref_t gp30 = { 0u, 30u };
+    const tfw_pinref_t bank1 = { 1u, GP7 };
+    int w;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(1000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+    w = tfw_rp_model_writes();
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&pin9, 30000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&gp30, 1000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&bank1, 1000u));
+    TEST_ASSERT_EQUAL_INT(w, tfw_rp_model_writes());
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_INTE));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_ARMED) & 1u);
+    TEST_ASSERT_EQUAL_UINT32(1000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT9);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OE) & BIT9);
+
+    /* the old tone still runs on its old step */
+    tfw_rp_model_set_time(1000u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(1500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
 }
 
 static void test_start_ordering(void)
@@ -302,8 +346,10 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_tone_calc_rounding);
     RUN_TEST(test_tone_calc_refuses);
-    RUN_TEST(test_start_refuses_zero_and_out_of_range);
+    RUN_TEST(test_start_refuses_out_of_range);
     RUN_TEST(test_start_refuses_bad_pin);
+    RUN_TEST(test_start_zero_hz_stops_a_playing_tone);
+    RUN_TEST(test_start_refused_while_playing_keeps_the_tone);
     RUN_TEST(test_start_ordering);
     RUN_TEST(test_start_keeps_running_timer);
     RUN_TEST(test_irq_toggles_and_rearms_from_target);

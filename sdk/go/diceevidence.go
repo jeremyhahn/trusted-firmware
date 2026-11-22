@@ -3,6 +3,7 @@ package tfw
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
@@ -88,7 +89,8 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 //     non-nil (nil is refused, never the host's system roots);
 //   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
 //   - the alias certificate's eat_nonce and authData are nonce;
-//   - sig verifies under the alias key over SHA-256(authData);
+//   - sig verifies under the alias key, a P-256 key (ES256), over
+//     SHA-256(authData);
 //   - the UEID (claim 256) is present, and is the type byte 0x01 then the
 //     16-byte device id;
 //   - the TCB measurement (claim 273's file hash) is present, and equals
@@ -129,6 +131,9 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement 
 	key, ok := alias.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, evidenceErr("the alias key is not ECDSA")
+	}
+	if key.Curve != elliptic.P256() {
+		return nil, evidenceErr("the alias key is not P-256 (ES256)")
 	}
 	digest := sha256.Sum256(st.authData)
 	if !ecdsa.VerifyASN1(key, digest[:], st.sig) {

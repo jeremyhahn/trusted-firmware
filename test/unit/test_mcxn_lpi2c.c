@@ -392,6 +392,27 @@ static void test_the_five_percent_bound_is_inclusive(void)
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
 }
 
+/* The slowest rate the search times from 12 MHz, on its last prescale. 766
+ * Hz: prescale 7 (div 128, latency 0) takes round(93750 / 766 = 122.39) =
+ * 122 ticks, cycle 120, at the ceiling; 93750 / 122 = 768 Hz, error 2;
+ * prescale 6 takes 245 ticks, too slow. CLKHI 60 cut to 58 for tBUF (58 + 63
+ * <= 120 + 1), CLKLO 120 - 58 = 62; a period is 12e6 / 766 / 128 = 122
+ * clocks, SETHOLD 60, DATAVD 29; FILTSDA 783 - 128 - 2 is capped at 15.
+ * 765 Hz: round(122.55) = 123 ticks, cycle 121 > 120, and no prescale is
+ * left, so it is refused with *out left alone. */
+static void test_the_slowest_rate_takes_the_last_prescale(void)
+{
+    tfw_mcxn_lpi2c_timing_t t;
+
+    assert_timing(766u, 7u, 62u, 58u, 60u, 29u, 15u);
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 765u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+}
+
 /* ---- init */
 
 static void test_init_routes_clocks_pins_and_the_unit(void)
@@ -839,6 +860,7 @@ int main(void)
     RUN_TEST(test_the_cycle_ceiling_is_inclusive);
     RUN_TEST(test_a_rate_out_of_reach_is_refused);
     RUN_TEST(test_the_five_percent_bound_is_inclusive);
+    RUN_TEST(test_the_slowest_rate_takes_the_last_prescale);
     RUN_TEST(test_init_routes_clocks_pins_and_the_unit);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_time);
     RUN_TEST(test_a_write_is_start_bytes_and_stop);

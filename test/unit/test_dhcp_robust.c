@@ -782,6 +782,33 @@ static void test_a_two_byte_server_id_after_a_good_one_is_ignored(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(srv_a, seen.server, 4u, where);
 }
 
+/* RFC 2131 section 4.1: each client picks its own random xid. The client
+ * seeds its generator with the clock and its MAC (src/net/dhcp.c lines 534-541)
+ * and draws the xid at start, so two boards started together ask apart. */
+void test_two_clients_started_in_the_same_millisecond_ask_under_different_xids(void)
+{
+    tfw_netcfg_t plain;
+    uint8_t      buf[2u * MSG_LEN];
+    uint8_t      first[4];
+
+    memcpy(first, xid, 4u);
+    w5x_model_reset(CHIP);
+    block();
+    cfg.mac[5]  = 0x02u;
+    plain       = cfg;
+    plain.flags = 0u;
+    now_ms      = 100000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&plain));
+    w5x_model_socket(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    now_ms += 10001u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT16(MSG_LEN, heard(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_UINT8(1u, buf[242]);                  /* DHCPDISCOVER */
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(cfg.mac, buf + 28, 6u);   /* its own chaddr */
+    TEST_ASSERT_FALSE(memcmp(first, buf + 4, 4u) == 0);
+}
+
 /* The fields the row names, each wrong on its own, in every phase: none of
  * them is a reply to this client, and none moves it. */
 static void test_a_reply_for_another_client_or_of_the_wrong_kind_moves_nothing(void)
@@ -893,6 +920,7 @@ int main(void)
     RUN_TEST(test_repeated_and_conflicting_options_are_judged_by_the_last);
     RUN_TEST(test_a_misshapen_option_after_a_good_one_keeps_the_good_value);
     RUN_TEST(test_a_two_byte_server_id_after_a_good_one_is_ignored);
+    RUN_TEST(test_two_clients_started_in_the_same_millisecond_ask_under_different_xids);
     RUN_TEST(test_a_reply_for_another_client_or_of_the_wrong_kind_moves_nothing);
     RUN_TEST(test_the_bound_lease_survives_hostile_replies_while_renewing);
     RUN_TEST(test_a_message_type_of_any_length_but_one_is_refused);

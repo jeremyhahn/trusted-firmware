@@ -243,21 +243,37 @@ func TestNetConfigWithDHCPKeepsTheAddressesItIsGiven(t *testing.T) {
 }
 
 // DHCP leases the device's own addresses, never the endpoint's, and an
-// address given beside it must still be IPv4.
+// address given beside it must still be IPv4. The endpoint is never skipped:
+// an unset address with a port set is refused too, not written as a zero
+// peer the device would treat as absent.
 func TestNetConfigWithDHCPStillRefusesWhatItCannotEncode(t *testing.T) {
-	for name, edit := range map[string]func(*NetConfig){
-		"unset endpoint": func(c *NetConfig) { c.Endpoint = netip.AddrPort{} },
-		"zero endpoint port": func(c *NetConfig) {
+	for name, tc := range map[string]struct {
+		edit  func(*NetConfig)
+		field string
+	}{
+		"unset endpoint": {func(c *NetConfig) { c.Endpoint = netip.AddrPort{} }, "Endpoint"},
+		"zero endpoint port": {func(c *NetConfig) {
 			c.Endpoint = netip.AddrPortFrom(c.Endpoint.Addr(), 0)
-		},
-		"IPv6 device address": func(c *NetConfig) { c.IP = netip.MustParseAddr("2001:db8::1") },
-		"short MAC":           func(c *NetConfig) { c.MAC = c.MAC[:5] },
+		}, "Endpoint"},
+		"unset endpoint address, non-zero port": {func(c *NetConfig) {
+			c.Endpoint = netip.AddrPortFrom(netip.Addr{}, 7020)
+		}, "Endpoint"},
+		"IPv6 device address": {func(c *NetConfig) { c.IP = netip.MustParseAddr("2001:db8::1") }, "IP"},
+		"short MAC":           {func(c *NetConfig) { c.MAC = c.MAC[:5] }, "MAC"},
 	} {
 		c := testDHCPConfig()
-		edit(&c)
+		tc.edit(&c)
+		b, err := c.MarshalBinary()
 		var nerr *NetConfigError
-		if _, err := c.MarshalBinary(); !errors.As(err, &nerr) {
+		if !errors.As(err, &nerr) {
 			t.Errorf("%s: err = %v, want a *NetConfigError", name, err)
+			continue
+		}
+		if nerr.Field != tc.field {
+			t.Errorf("%s: field = %q, want %q", name, nerr.Field, tc.field)
+		}
+		if b != nil {
+			t.Errorf("%s: block = % x, want none", name, b)
 		}
 	}
 }

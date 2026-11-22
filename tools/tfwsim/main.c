@@ -16,11 +16,18 @@
  *                     EEPROM network block over a host TCP socket and serves
  *                     the Ethernet allow-list there, as an ETH=1 image does
  *                     (tools/tfwsim/eth_socket.c, issue #55)
+ *   tfwsim --netcfg-addr  print TFW_NETCFG_ADDR, where this build reads its
+ *                     network settings, and exit
  *
- * Two binaries come from this file, one per crypto tier, linked the way the
- * firmware links its provider: `tfwsim` (software tier) and `tfwsim-atecc608a`
- * (the real ATECC608A driver over the software element model, with the
- * identity options tier_atecc608a.c documents). See tools/tfwsim/tier.h.
+ * Each binary also takes its tier's and its boot's options, printed in the
+ * usage line: see tools/tfwsim/tier.h and tools/tfwsim/sim_boot.h.
+ *
+ * Every tfwsim binary links this file, with one of the two crypto tiers,
+ * linked the way the firmware links its provider: tier_soft.c (software tier:
+ * `tfwsim`, `tfwsim-otaboot`) or tier_atecc608a.c (the real ATECC608A driver
+ * over the software element model, with the identity options tier_atecc608a.c
+ * documents: `tfwsim-atecc608a`, `tfwsim-manifest`, `tfwsim-prov`,
+ * `tfwsim-auto`). See tools/tfwsim/tier.h and mk/host.mk.
  *
  * The pty mode exists so a serial client can open it as an ordinary device and
  * exercise its real open/read/write path, rather than a special case for tests.

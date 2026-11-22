@@ -249,7 +249,15 @@ void tfw_h5_wire_dial_poll(void)
         connects++;
     }
 }
-void tfw_h5_wire_say(const char *s) { (void)s; }
+static unsigned bound_says;
+static char bound_line[48];
+void tfw_h5_wire_say(const char *s)
+{
+    if (strncmp(s, "eth: dhcp bound", 15u) == 0) {
+        bound_says++;
+        strncpy(bound_line, s, sizeof bound_line - 1u);
+    }
+}
 void tfw_h5_wire_say_poll(void) { say_polls++; }
 
 /* --- the network block in EEPROM (#584, Codex round 4, ruling 989) -------- */
@@ -543,6 +551,16 @@ static void test_an_unanswered_probe_binds_the_offered_address(void)
     TEST_ASSERT_TRUE((dhcp_sent & (1u << DHCP_DECLINE)) == 0u);
     TEST_ASSERT_TRUE(dhcp_supplied_address(netif_default));
     TEST_ASSERT_EQUAL_HEX32(PP_HTONL(0xC000020Au), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
+}
+
+/* hal_eth_netif.c lines 11-12 and 500-503: the bind above says "eth: dhcp
+ * bound" and the leased address once, and later polls say it no more. */
+static void test_the_console_says_the_bound_address_once(void)
+{
+    TEST_ASSERT_EQUAL_UINT(1u, bound_says);
+    TEST_ASSERT_EQUAL_STRING("eth: dhcp bound 192.0.2.10\r\n", bound_line);
+    run_for(5000u);
+    TEST_ASSERT_EQUAL_UINT(1u, bound_says);
 }
 
 static void bind_by_hand(struct netif *nif)
@@ -1021,6 +1039,7 @@ int main(void)
     RUN_TEST(test_tcp_isns_follow_rfc6528);
     RUN_TEST(test_a_conflicting_arp_reply_declines_the_offered_address);
     RUN_TEST(test_an_unanswered_probe_binds_the_offered_address);
+    RUN_TEST(test_the_console_says_the_bound_address_once);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
     return UNITY_END();

@@ -197,8 +197,8 @@ static const tfw_bench_pin_t tfw_bench_pins[] = {
      * two rows are measured by the same call-boundary method and the state
      * machine's share was never separated from the call overhead the CRC
      * routine happened to absorb into its own count before. Fixing the CRC
-     * brought this row down by almost exactly the same fifty-eight cycles the
-     * CRC row itself dropped by (from ~120/122 to 62/64).
+     * brought this row down by fifty-eight cycles (from ~120/122 to 62/64),
+     * against the CRC row's seventy-two (103/105 to 31/33).
      */
     { "atmega328p", TFW_BENCH_FRAME_BYTE,    62.0,
       "31 of it is tfw_crc16_update through the same forced call boundary; the "

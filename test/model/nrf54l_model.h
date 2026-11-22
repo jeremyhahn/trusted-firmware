@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * A register model of the nrf54l registers the PWM and tone HALs touch,
- * for host tests (test/unit/test_nrf54l_pwm.c), as test/model/imx95_model.h is for
+ * A register model of the nrf54l registers the PWM HAL and tfw-boot's UART
+ * and RRAM code touch, for host tests (test/unit/test_nrf54l_pwm.c,
+ * boot/hal/cortex-m/nrf54l/test/), as test/model/imx95_model.h is for
  * the i.MX 95. Every register is a plain word that holds what was last
  * written and reads 0 from reset: a task register reading 1 is a task
  * triggered since the test cleared it.

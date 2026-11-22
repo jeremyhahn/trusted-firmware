@@ -739,8 +739,8 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     /* The wake pulse is the low period of a byte written to address zero. At
      * 400 kHz that is 22 us, below the 60 us the part requires, so a driver
-     * that configured the fast bus would never wake it. The model refuses the
-     * same way the silicon would: by not waking. */
+     * that configured the fast bus would never wake it on silicon. This model
+     * does not check hz and wakes at any bus rate. */
     if (i2c_init_fails) {
         return TFW_ERR_BUSY;
     }

@@ -29,8 +29,8 @@ BUILTIN = {"self-hosted", "linux", "macos", "windows", "x64", "arm64", "arm"}
 
 RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
-ENTRY = re.compile(r"^(\s*)([\w-]+):(\s.*)?$")
-FLOW_LABELS = re.compile(r"[{,]\s*labels\s*:\s*(\[[^\]]*\]|[^,}]*)")
+ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?:(\s.*)?$")
+FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
 
 
 def _value(text):
@@ -77,7 +77,8 @@ def plain_labels(text):
     block list on the lines after an empty `runs-on:`, or a mapping whose
     `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
     `labels:` keys on the lines after `runs-on:`); `group:` is not a label. The
-    key may be quoted (`'runs-on':` or `"runs-on":`), and a flow list or
+    key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
+    `labels:` keys of its mapping (`'labels':`, `"group":`), and a flow list or
     mapping that does not close on the `runs-on:` line takes the following
     lines until it closes (an unclosed one yields nothing); its labels carry
     the `runs-on:` line number. A value that starts with `${{` is an
@@ -221,6 +222,29 @@ class RunnerLabelsTest(unittest.TestCase):
         found = self.check(
             "jobs:\n  build:\n    runs-on: [self-hosted,\n      codex]\n"
         )
+        self.assertEqual(found, [])
+
+    def test_a_quoted_mapping_key_is_read(self):
+        for key in ("'labels'", '"labels"'):
+            found = self.check(
+                f"jobs:\n  build:\n    runs-on:\n      group: g\n      {key}: qwne\n"
+            )
+            self.assertEqual(found, ["w.yml:5: qwne"])
+            found = self.check(
+                "jobs:\n  build:\n    runs-on:\n      group: g\n"
+                f"      {key}:\n        - qwne\n"
+            )
+            self.assertEqual(found, ["w.yml:6: qwne"])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      'group': g\n      labels: qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_quoted_flow_mapping_key_is_read(self):
+        for value in ('{group: g, "labels": qwne}', "{'labels': [qwne]}"):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, ["w.yml:3: qwne"])
+        found = self.check("jobs:\n  build:\n    runs-on: {'labels': codex}\n")
         self.assertEqual(found, [])
 
     def test_the_allowlist_is_read(self):

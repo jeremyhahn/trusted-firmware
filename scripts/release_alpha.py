@@ -11,7 +11,8 @@
 # signed tags vX.Y.Z-alpha and sdk/go/vX.Y.Z-alpha on HEAD, with git's
 # configured key, and pushes both to `dev`, never forced. The xkms/ module keeps
 # its own series and is not tagged here. --dry-run fetches dev's main and tags,
-# prints the tags, and cuts and pushes nothing.
+# prints the tags, and cuts and pushes nothing. A failed cut or push deletes the
+# tags this run cut, so the next run cuts the same version.
 #
 #   release_alpha.py [--repo DIR] [--dry-run]
 
@@ -115,9 +116,14 @@ def main(argv):
     if a.dry_run:
         print(f"release-alpha: DRY_RUN: would cut {' '.join(cut)} on {head} and push them to {REMOTE}")
     else:
-        for t in cut:
-            git(a.repo, "tag", "--sign", "-m", f"trusted-firmware {t}", t, head)
-        git(a.repo, "push", "--atomic", REMOTE, *(f"refs/tags/{t}" for t in cut))
+        try:
+            for t in cut:
+                git(a.repo, "tag", "--sign", "-m", f"trusted-firmware {t}", t, head)
+            git(a.repo, "push", "--atomic", REMOTE, *(f"refs/tags/{t}" for t in cut))
+        except SystemExit:
+            for t in cut:
+                subprocess.run(["git", "-C", a.repo, "tag", "-d", t], capture_output=True, check=False)
+            raise
         print(f"release-alpha: cut {' '.join(cut)} on {head} and pushed them to {REMOTE}")
     print(f"next (coordinator, runbook step 12): consumer-check {SDK_MODULE} {cut[1]}")
     return 0

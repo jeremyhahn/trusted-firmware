@@ -186,6 +186,25 @@ class ReleaseGuardBranches(unittest.TestCase):
         r = run_policy(job(ro))
         self.assertNotEqual(r.returncode, 0, r.stdout)
 
+    def test_runs_on_is_tried_on_every_guarded_event(self):
+        # #653 Codex round 2: a runs-on gated on an event the release guard
+        # knows is read under that event, not only under the hosted ones.
+        for ev in ("workflow_run", "merge_group", "release", "create",
+                   "issue_comment", "repository_dispatch"):
+            with self.subTest(event=ev):
+                head = "on:\n  %s:\n" % ev
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 're', 'lease') || 'ubuntu-latest' }}}}   # self-hosted: hardware: bench"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("release", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && 'self-hosted' || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("(c)", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 'co', 'dex') || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+
 
 PRE_RO = (OPEN + " github.server_url == 'https://github.com' && (!startsWith(github.event_name, 'pull_request')"
           " || github.event.pull_request.head.repo.full_name == github.repository)"

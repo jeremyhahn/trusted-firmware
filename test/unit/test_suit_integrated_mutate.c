@@ -279,6 +279,34 @@ static void test_the_manifest_refusals(void)
                                      sizeof SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
 }
 
+static void test_the_uri_bound_is_thirty_two_characters(void)
+{
+    char at[TFW_SUIT_URI_MAX + 1u];
+    char past[TFW_SUIT_URI_MAX + 2u];
+
+    /* "#" then letters: one of TFW_SUIT_URI_MAX characters, one a character past it. */
+    memset(past, 'p', TFW_SUIT_URI_MAX + 1u);
+    past[0] = '#';
+    past[TFW_SUIT_URI_MAX + 1u] = '\0';
+    memcpy(at, past, TFW_SUIT_URI_MAX);
+    at[TFW_SUIT_URI_MAX] = '\0';
+
+    /* At the bound it reads; past it, as the URI or as the name, it does not. */
+    expect_status(TFW_OK, buf, build(buf, vendor, policy_class, at, at, SUIT_POLICY_BODY,
+                                     sizeof SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
+    expect_status(TFW_ERR_RANGE, buf,
+                  build(buf, vendor, policy_class, past, past, SUIT_POLICY_BODY,
+                        sizeof SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
+    expect_status(TFW_ERR_RANGE, buf,
+                  build(buf, vendor, policy_class, at, past, SUIT_POLICY_BODY,
+                        sizeof SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
+
+    /* A name one character shorter than its URI. */
+    expect_status(TFW_ERR_RANGE, buf,
+                  build(buf, vendor, policy_class, "#policy", "#polic", SUIT_POLICY_BODY,
+                        sizeof SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
+}
+
 /* The vendor and class (D7 step 4), each signed and differing by one byte at
  * either end of the id. */
 static void test_the_binding_refusals(void)
@@ -581,6 +609,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_envelope_refusals);
     RUN_TEST(test_the_manifest_refusals);
+    RUN_TEST(test_the_uri_bound_is_thirty_two_characters);
     RUN_TEST(test_the_binding_refusals);
     RUN_TEST(test_the_payload_refusals);
     RUN_TEST(test_the_integrated_digest_is_the_hash_of_the_wrapped_manifest);

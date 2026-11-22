@@ -29,8 +29,8 @@ BUILTIN = {"self-hosted", "linux", "macos", "windows", "x64", "arm64", "arm"}
 
 RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
-ENTRY = re.compile(r"^(\s*)([\w-]+):(\s.*)?$")
-FLOW_LABELS = re.compile(r"[{,]\s*labels\s*:\s*(\[[^\]]*\]|[^,}]*)")
+ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?:(\s.*)?$")
+FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
 
 
 def _value(text):
@@ -77,7 +77,8 @@ def plain_labels(text):
     block list on the lines after an empty `runs-on:`, or a mapping whose
     `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
     `labels:` keys on the lines after `runs-on:`); `group:` is not a label. The
-    key may be quoted (`'runs-on':` or `"runs-on":`), and a flow list or
+    key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
+    `labels:` keys of its mapping (`'labels':`, `"group":`), and a flow list or
     mapping that does not close on the `runs-on:` line takes the following
     lines until it closes (an unclosed one yields nothing); its labels carry
     the `runs-on:` line number. A value that starts with `${{` is an

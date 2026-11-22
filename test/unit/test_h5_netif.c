@@ -731,6 +731,38 @@ static void test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_dow
     TEST_ASSERT_EQUAL_INT(0, in_child(hsi48_never_ready));
 }
 
+/* The driver alone, on its own fake registers (hal_rng.c lines 33-105): an
+ * error that does not clear fails init and read, a clock error with no latch
+ * is still an error, no DRDY is no word, and a refused read leaves *out. */
+static void test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word(void)
+{
+    volatile uint32_t regs[3] = { 0u, 0u, RNG_WORD };
+    volatile uint32_t rcc_cr = TFW_H5_RCC_CR_HSI48RDY;
+    volatile uint32_t rcc_ahb2enr = 0u;
+    const tfw_h5_rng_t r = { regs, &rcc_cr, &rcc_ahb2enr };
+    uint32_t out = 0xA5A5A5A5u;
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_CECS | TFW_H5_RNG_SR_CEIS |
+                             TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_init(&r));
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                             TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_init(&r));
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_CECS | TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_read(&r, &out));
+
+    regs[TFW_H5_RNG_SR_IX] = 0u;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_read(&r, &out));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, out);
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_rng_init(&r));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_rng_read(&r, &out));
+    TEST_ASSERT_EQUAL_HEX32(RNG_WORD, out);
+}
+
 /* RFC 6528: two listeners (local ports) and two keys on one 4-tuple at one M
  * give unrelated ISNs; the same tuple and key at a later M advances by M. The
  * hook lwIP calls uses the key drawn from the RNG at bring-up. */
@@ -1062,6 +1094,7 @@ int main(void)
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down);
+    RUN_TEST(test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);

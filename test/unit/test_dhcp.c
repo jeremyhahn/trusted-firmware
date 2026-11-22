@@ -594,6 +594,26 @@ static void test_an_offer_without_a_server_id_or_an_ack_while_selecting_is_disca
     offer_ignored(&r);
 }
 
+/* take() hands back the one datagram it read (src/net/dhcp.c:436), not the
+ * datagrams queued behind it on the socket (include/tfw/eth.h:101-104). */
+static void test_a_discarded_reply_leaves_the_next_one_queued_behind_it(void)
+{
+    reply_t bad  = reply(2u);
+    reply_t good = reply(2u);
+    uint8_t sends;
+
+    bad.server = 0;                  /* passed over, as above */
+    discover();
+    sends = w5x_model_sends();
+    hand_up(&bad);
+    hand_up(&good);                  /* both on the ring before the next poll */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(8u + MSG_LEN, tfw_eth_udp_avail());
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent());                    /* DHCPREQUEST */
+}
+
 static void test_a_nak_from_the_chosen_server_starts_again(void)
 {
     reply_t r = reply(6u);
@@ -1056,6 +1076,7 @@ int main(void)
     RUN_TEST(test_a_reply_from_a_port_other_than_67_is_discarded);
     RUN_TEST(test_an_overloaded_reply_is_discarded);
     RUN_TEST(test_an_offer_without_a_server_id_or_an_ack_while_selecting_is_discarded);
+    RUN_TEST(test_a_discarded_reply_leaves_the_next_one_queued_behind_it);
     RUN_TEST(test_a_nak_from_the_chosen_server_starts_again);
     RUN_TEST(test_another_servers_ack_or_nak_is_discarded);
     RUN_TEST(test_an_ack_without_a_lease_or_a_mask_is_discarded);

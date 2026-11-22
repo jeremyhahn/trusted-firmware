@@ -670,6 +670,46 @@ static void test_s3_a_field_with_no_place_is_range(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &bad));
 }
 
+/* Length 0 is a field the port cannot read (hsm_act.h): an expected value of
+ * length 0, which the set reader admits, still does not match it. */
+static void test_s3_an_empty_expected_value_does_not_match_an_unreadable_field(void)
+{
+    struct tfw_imx95_s3 bad = s3;
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, info_image, 0u);
+    bad.f[4].len = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &bad));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+}
+
+/* "In length" too: a value one byte longer or shorter than its field is not a
+ * match even when every byte the field holds agrees. */
+static void test_s3_a_value_one_byte_off_its_fields_length_is_range(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, &info_image[160], 5u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+    set.expected[0].n = 3u;   /* value[3] still holds the field's fourth byte */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+    set.expected[0].n = 4u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_compare(info_image, &set, &s3));
+}
+
+/* A field ending on the buffer's last byte is read; one byte short of it is not. */
+static void test_s3_a_field_ending_at_the_buffers_end_is_read_and_one_short_is_range(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, &info_image[160], 4u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_compare_buf(info_image, 164u, &set, &s3));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare_buf(info_image, 163u, &set, &s3));
+}
+
 static void test_s3_measure_asks_get_info_and_compares(void)
 {
     tfw_hsm_set_t set;
@@ -868,6 +908,9 @@ int main(void)
     RUN_TEST(test_s3_no_expected_values_match);
     RUN_TEST(test_s3_a_wrong_length_or_unknown_key_is_range);
     RUN_TEST(test_s3_a_field_with_no_place_is_range);
+    RUN_TEST(test_s3_an_empty_expected_value_does_not_match_an_unreadable_field);
+    RUN_TEST(test_s3_a_value_one_byte_off_its_fields_length_is_range);
+    RUN_TEST(test_s3_a_field_ending_at_the_buffers_end_is_read_and_one_short_is_range);
     RUN_TEST(test_s3_measure_asks_get_info_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_get_info_is_not_a_match);
     RUN_TEST(test_s3_no_mu_is_unsupported_and_sends_nothing);

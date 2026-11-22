@@ -8,6 +8,7 @@
  * well-formed and means nothing -- is the failure a verifier cannot detect.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "unity.h"
 #include "attest.h"
@@ -612,6 +613,54 @@ static void test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_eve
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_hmac(0u, digest, sizeof digest, sig));
 }
 
+/*
+ * EVERY BYTE OF THE CDI COUNTS. src/core/handoff.c lines 53-55 call a CDI
+ * tfw-boot's all-zero "unprovisioned" sentinel only when all 32 bytes are
+ * zero; every other test hands over a dense CDI or an all-zero one, so a scan
+ * of cdi[0] alone (`i < 1u`) or one that skips cdi[31] (`i < sizeof cdi - 1u`)
+ * passed them all. Under the first, one real CDI in 256 -- any whose first
+ * byte is 0x00 -- would be refused and the device would never attest. Here a
+ * CDI zero but for one byte, at every position and with a low and a high bit,
+ * is taken, and taken whole.
+ */
+static void test_a_cdi_with_one_nonzero_byte_anywhere_is_taken_whole(void)
+{
+    static const uint8_t values[2] = { 0x01u, 0x80u };
+    uint8_t block[TFW_BOOT_HANDOFF_LEN];
+    uint8_t cdi[TFW_BOOT_MEASURE_LEN], measurement[32], out[TFW_BOOT_MEASURE_LEN];
+    char    msg[48];
+
+    for (uint8_t i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
+    for (uint8_t k = 0u; k < TFW_BOOT_MEASURE_LEN; k++) {
+        for (uint8_t v = 0u; v < sizeof values; v++) {
+            tfw_mock_reset();
+            memset(cdi, 0, sizeof cdi);
+            cdi[k] = values[v];
+            tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+            memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
+            tfw_boot_handoff_init();
+            memset(out, 0xA5, sizeof out);
+
+            (void)snprintf(msg, sizeof msg, "cdi[%u] = 0x%02X", (unsigned)k,
+                           (unsigned)values[v]);
+            TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, tfw_boot_handoff_take_cdi(out), msg);
+            TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(cdi, out, sizeof cdi, msg);
+        }
+    }
+
+    /* And the sentinel itself is still refused, with `out` untouched. */
+    tfw_mock_reset();
+    memset(cdi, 0, sizeof cdi);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
+    tfw_boot_handoff_init();
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_handoff_take_cdi(out));
+    for (uint8_t i = 0u; i < sizeof out; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, out[i]);
+    }
+}
+
 /* A signing failure must not leave the last good frame pageable. */
 static const uint8_t NONCE_A[TFW_ATTEST_NONCE_LEN] = { 0xA0, 0x01 };
 static const uint8_t NONCE_B[TFW_ATTEST_NONCE_LEN] = { 0xB0, 0x02 };
@@ -718,6 +767,7 @@ int main(void)
     RUN_TEST(test_a_nonzero_handed_off_cdi_provisions_the_soft_tier_alone);
     RUN_TEST(test_a_mismatched_tier_handoff_refuses_even_with_a_real_local_uds);
     RUN_TEST(test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_with_a_real_local_uds);
+    RUN_TEST(test_a_cdi_with_one_nonzero_byte_anywhere_is_taken_whole);
     RUN_TEST(test_the_software_tier_mints_an_alias_certificate_for_its_deviceid);
     RUN_TEST(test_an_unprovisioned_device_refuses_an_alias_certificate);
     RUN_TEST(test_an_alias_page_with_no_certificate_is_refused);

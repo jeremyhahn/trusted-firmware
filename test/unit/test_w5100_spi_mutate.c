@@ -12,8 +12,8 @@
  * datasheet's SPI operation: opcode 0xF0 to write or 0x0F to read, the 16-bit
  * address high byte first, one data byte, in one four-byte transaction. The
  * datasheet's memory map: common registers at 0x0000, socket 0's at 0x0400, its 2 KB TX buffer at
- * 0x4000 and RX buffer at 0x6000, the pointer wrapped into the buffer by the
- * chip file. During the header the W5100 shifts out 0x00, 0x01, 0x02, and
+ * 0x4000 and RX buffer at 0x6000, socket 1's (the DHCP client's) at 0x0500,
+ * 0x4800 and 0x6800, the pointer wrapped into the buffer by the chip file. During the header the W5100 shifts out 0x00, 0x01, 0x02, and
  * after a reset RTR reads 0x07D0 and RCR 0x08: that is how the chip file knows
  * it is talking to one, and each of those checks is pinned on its own.
  */
@@ -185,6 +185,45 @@ static void test_socket0_rx_buffer_wraps_into_0x6000_0x67ff(void)
     expect_frame(3u, 0x0Fu, 0x63u, 0xCDu, 0x00u);
 }
 
+static void test_socket1_registers_sit_at_0x0500(void)
+{
+    data = 0x17u;
+    w5x_wr(W5X_SOCK1, 0x0001u, 0x20u);
+    TEST_ASSERT_EQUAL_HEX8(0x17u, w5x_rd(W5X_SOCK1, 0x0028u));
+    TEST_ASSERT_EQUAL_UINT(2u, frames);
+    expect_frame(0u, 0xF0u, 0x05u, 0x01u, 0x20u);
+    expect_frame(1u, 0x0Fu, 0x05u, 0x28u, 0x00u);
+}
+
+static void test_socket1_tx_buffer_wraps_into_0x4800_0x4fff(void)
+{
+    w5x_wr(W5X_TX1, 0x0000u, 0x01u);
+    w5x_wr(W5X_TX1, 0x07FFu, 0x02u);
+    w5x_wr(W5X_TX1, 0x0800u, 0x03u);
+    w5x_wr(W5X_TX1, 0x1234u, 0x04u);
+    w5x_wr(W5X_TX1, 0xFFFFu, 0x05u);
+    TEST_ASSERT_EQUAL_UINT(5u, frames);
+    expect_frame(0u, 0xF0u, 0x48u, 0x00u, 0x01u);
+    expect_frame(1u, 0xF0u, 0x4Fu, 0xFFu, 0x02u);
+    expect_frame(2u, 0xF0u, 0x48u, 0x00u, 0x03u);
+    expect_frame(3u, 0xF0u, 0x4Au, 0x34u, 0x04u);
+    expect_frame(4u, 0xF0u, 0x4Fu, 0xFFu, 0x05u);
+}
+
+static void test_socket1_rx_buffer_wraps_into_0x6800_0x6fff(void)
+{
+    data = 0xC3u;
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, w5x_rd(W5X_RX1, 0x0000u));
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, w5x_rd(W5X_RX1, 0x07FFu));
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, w5x_rd(W5X_RX1, 0x0800u));
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, w5x_rd(W5X_RX1, 0xABCDu));
+    TEST_ASSERT_EQUAL_UINT(4u, frames);
+    expect_frame(0u, 0x0Fu, 0x68u, 0x00u, 0x00u);
+    expect_frame(1u, 0x0Fu, 0x6Fu, 0xFFu, 0x00u);
+    expect_frame(2u, 0x0Fu, 0x68u, 0x00u, 0x00u);
+    expect_frame(3u, 0x0Fu, 0x6Bu, 0xCDu, 0x00u);
+}
+
 /* A space w5x00.h does not name is taken as a flat address. */
 static void test_an_unnamed_space_is_a_flat_address(void)
 {
@@ -321,6 +360,9 @@ int main(void)
     RUN_TEST(test_socket0_registers_sit_at_0x0400);
     RUN_TEST(test_socket0_tx_buffer_wraps_into_0x4000_0x47ff);
     RUN_TEST(test_socket0_rx_buffer_wraps_into_0x6000_0x67ff);
+    RUN_TEST(test_socket1_registers_sit_at_0x0500);
+    RUN_TEST(test_socket1_tx_buffer_wraps_into_0x4800_0x4fff);
+    RUN_TEST(test_socket1_rx_buffer_wraps_into_0x6800_0x6fff);
     RUN_TEST(test_an_unnamed_space_is_a_flat_address);
     RUN_TEST(test_data_bytes_pass_unchanged_both_ways);
     RUN_TEST(test_init_resets_polls_and_reads_the_reset_pattern);

@@ -69,6 +69,32 @@ static void test_the_heartbeat_toggles_every_500_ms_and_never_waits(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_app_runner_overruns());
 }
 
+static void test_the_heartbeat_keeps_its_period_across_the_millisecond_wrap(void)
+{
+    uint8_t lit;
+
+    /* The heartbeat's schedule outlives the mock's reset between cases, so
+     * bring it to the wrap in jumps under 2^31: each poll is due and beats. */
+    tfw_app_runner_start();
+    tfw_mock_set_millis(0x7FFFFF00u);
+    tfw_app_runner_poll();
+    tfw_mock_set_millis(0xFFFFFF38u);
+    tfw_app_runner_poll();                 /* the next beat wraps to 0x12C */
+    lit = led_level();
+
+    tfw_mock_set_millis(0xFFFFFFFFu);
+    tfw_app_runner_poll();                 /* numerically past 0x12C, not due */
+    TEST_ASSERT_EQUAL_UINT8(lit, led_level());
+
+    tfw_mock_set_millis(0x0000012Bu);
+    tfw_app_runner_poll();                 /* 1 ms short of the period */
+    TEST_ASSERT_EQUAL_UINT8(lit, led_level());
+
+    tfw_mock_set_millis(0x0000012Cu);
+    tfw_app_runner_poll();                 /* 500 ms after the last beat */
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)!lit, led_level());
+}
+
 static void test_a_reset_leaves_the_pin_low(void)
 {
     uint8_t      in[1] = { 0u };
@@ -159,6 +185,7 @@ int main(void)
     RUN_TEST(test_the_example_names_itself);
     RUN_TEST(test_the_heartbeat_starts_with_its_pin_an_output);
     RUN_TEST(test_the_heartbeat_toggles_every_500_ms_and_never_waits);
+    RUN_TEST(test_the_heartbeat_keeps_its_period_across_the_millisecond_wrap);
     RUN_TEST(test_a_reset_leaves_the_pin_low);
     RUN_TEST(test_app_info_reports_the_example);
     RUN_TEST(test_the_example_supplies_its_evidence);

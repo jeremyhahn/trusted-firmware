@@ -3,10 +3,11 @@
 /*
  * The FRDM-IMX95-PRO M7 board's pin table, checked on x86.
  *
- * The table is two provisional RGPIO lines, GPIO2_IO00 and GPIO2_IO01 (port
- * 1, bits 0 and 1), digital and nothing else: no pin is claimed as an LED,
- * and none offers a converter or a compare unit (boards/frdm-imx95-m7/
- * board.c).
+ * In the default row (ADC=0, PWM=0) the table is two provisional RGPIO lines,
+ * GPIO2_IO00 and GPIO2_IO01 (port 1, bits 0 and 1), digital and nothing
+ * else: no pin is claimed as an LED, and none offers a converter or a compare
+ * unit (boards/frdm-imx95-m7/board.c); the ADC=1 row appends the SAR ADC's
+ * inputs and the PWM=1 rows the TPM's two channels.
  *
  * Runs under `make board-sweep`, against this board's own profile (PWM=0),
  * and under host-test twice more with PWM=1 (mk/host.mk): as the image is,

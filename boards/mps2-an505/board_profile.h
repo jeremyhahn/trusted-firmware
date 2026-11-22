@@ -10,7 +10,7 @@
  * buses, I2C over the shield 0 SBCon and SPI over its PL022, are linked only in
  * their rows (profile.mk).
  *
- * The board id is PROVISIONAL (boards/mps2-an505/profile.mk).
+ * The board id 0x40 is recorded in docs/boards/board-id-registry.md.
  */
 #ifndef TFW_BOARD_MPS2_AN505_H
 #define TFW_BOARD_MPS2_AN505_H

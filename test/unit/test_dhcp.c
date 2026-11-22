@@ -839,6 +839,31 @@ static void test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one(void)
     TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
 }
 
+/* dhcp.c:482: a renewal's DHCPACK sets the lease length anew (§4.4.5), so a
+ * server that shortens the lease is believed, counted from T1 (dhcp.c:478). */
+static void test_a_renewal_ack_that_shortens_the_lease_is_held_to_its_new_length(void)
+{
+    tfw_ms_t asked = bind();
+    tfw_ms_t t1    = asked + T1_MS;
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = t1;
+    renewal_sent();
+    now_ms += 2000u;
+    r.mask  = 0u;
+    r.lease = 600u;                                         /* T1 300 s, end 600 s */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    now_ms = t1 + 300000u - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = t1 + 300000u;
+    renewal_sent();
+    now_ms = t1 + 600000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_dhcp_renew(&cfg));
+}
+
 static void test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s(void)
 {
     tfw_ms_t asked = bind();
@@ -1038,6 +1063,7 @@ int main(void)
     RUN_TEST(test_a_probe_the_chip_never_finishes_is_given_up_after_4_s);
     RUN_TEST(test_at_t1_the_lease_is_renewed_beside_the_connection);
     RUN_TEST(test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one);
+    RUN_TEST(test_a_renewal_ack_that_shortens_the_lease_is_held_to_its_new_length);
     RUN_TEST(test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s);
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);

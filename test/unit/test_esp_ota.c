@@ -662,6 +662,22 @@ static void test_a_second_activate_while_pending_is_a_retry_or_refused(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
 }
 
+/* m1100 (3): a retry carries the mode byte of the pending activation, so after
+ * a mode 1 activate the retry is mode 1 and a mode 0 one is refused. */
+static void test_a_retry_after_a_mode_1_activate_matches_mode_1(void)
+{
+    unsigned writes, boots;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(1u));
+    writes = mock_esp.auth_writes;
+    boots  = mock_esp.set_boots;
+    TEST_ASSERT_EQUAL(TFW_OK, activate(1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(0u));
+    TEST_ASSERT_EQUAL_UINT(writes, mock_esp.auth_writes);
+    TEST_ASSERT_EQUAL_UINT(boots, mock_esp.set_boots);
+}
+
 static void test_activate_mode_1_resets_once_the_reply_is_out(void)
 {
     stage_signed(2u);
@@ -1154,6 +1170,7 @@ int main(void)
     RUN_TEST(test_begin_works_again_after_the_reset);
     RUN_TEST(test_begin_past_the_budget_is_refused_until_reset);
     RUN_TEST(test_a_second_activate_while_pending_is_a_retry_or_refused);
+    RUN_TEST(test_a_retry_after_a_mode_1_activate_matches_mode_1);
     RUN_TEST(test_activate_mode_1_resets_once_the_reply_is_out);
     RUN_TEST(test_activate_from_slot_1_names_slot_0);
     RUN_TEST(test_activate_at_the_floor_passes);

@@ -3,12 +3,11 @@
 #
 # Arm's MPS2+ FPGA image AN505 (a Cortex-M33 in the IoT Kit subsystem), as QEMU
 # models it: `qemu-system-arm -M mps2-an505`. The generic Cortex-M port's
-# reference board and CI's only Cortex-M target (#161); the ADR is
-# docs/cortex-m/adr-reference-part-and-emulation.md.
+# reference board and CI's first Cortex-M target (#161; mps2-an500 is the
+# second); the ADR is docs/cortex-m/adr-reference-part-and-emulation.md.
 #
-# Board id 0x40 is PROVISIONAL: the first id of a Cortex-M range, taken for this
-# port's tests until docs/boards/board-id-registry.md records it. Nothing
-# outside CI is built for it.
+# Board id 0x40, the first id of the Cortex-M range, recorded in
+# docs/boards/board-id-registry.md. Nothing outside CI is built for it.
 ARCH           := cortex-m
 CPU            := cortex-m33
 SOC            := mps2

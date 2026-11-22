@@ -23,11 +23,11 @@ tracked file except those `.gitattributes` marks `export-ignore`.
 | `lab-address` | An address on the fleet's subnets (CI secret) | An RFC 5737 documentation address (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) |
 | `lab-host` | A fleet hostname or device (CI secret), or any `.internal`, `.lan` or `home.arpa` name | The role: `bench host`, `CI runner` |
 | `owner-path` | A path under anyone's home directory (`/home/...`, `/Users/...`), or an agent's `.agent-identity` | A repository-relative path <!-- lab-string-ok: names the class, not a path --> |
-| `owner-account` | The owner's account name on its own (CI secret) | A role, or the module path |
+| `coord-host` | A coordinator host name (CI secret) | The role |
+| `internal-email` | An internal email address (CI secret) | An RFC 2606 address such as `name@example.com` |
 
 The module path `github.com/jeremyhahn/...` and the organisation path
-`jeremyhahn/<repository>` are not `owner-account`: it is the name standing alone
-that is.
+`jeremyhahn/<repository>` are not a finding.
 
 Not violations:
 
@@ -108,11 +108,11 @@ the tracked tree:
 
 - `CLAUDE.md` and `AGENTS.md`, at any depth, `.claude/` and `.serena/`: the agent
   development workflow.
-- The forge-only workflows `.github/workflows/automerge.yml`,
-  `.github/workflows/code-review.yml` and `.github/workflows/qwen-review.yml`,
-  and the lint configuration for them, `.github/actionlint.yaml`. Their content
-  names the private forge's runners and principals and is not scrubbed.
-  `.github/workflows/ci.yml` is published.
+- The forge-only workflow `.github/workflows/code-review.yml` and the lint
+  configuration, `.github/actionlint.yaml`. Their content names the private
+  forge's runners and principals and is not scrubbed. `.gitattributes` also
+  names `automerge.yml` and `qwen-review.yml`, which are no longer tracked.
+  `.github/workflows/ci.yml` and `.github/workflows/scans.yml` are published.
 
 A new agent file or forge-only workflow is added to `.gitattributes` and to
 `is_stripped` in `scripts/releasability-test.sh` together.

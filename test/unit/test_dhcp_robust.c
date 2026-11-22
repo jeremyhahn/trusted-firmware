@@ -846,6 +846,42 @@ static void test_the_bound_lease_survives_hostile_replies_while_renewing(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(gw, cfg.gateway, 4u);
 }
 
+/* A message type (option 53) of any length but 1, first or after a good one,
+ * in every phase: refused whole, as dhcp.c:417-419 refuses it, so no value
+ * longer than the one byte r->type holds is taken (dhcp.c:366-367, 421). */
+static void test_a_message_type_of_any_length_but_one_is_refused(void)
+{
+    uint8_t  phase, len, after, i;
+    uint8_t  v[11];
+    uint16_t n;
+    uint32_t k = 0u;
+
+    for (phase = PH_SELECTING; phase <= PH_RENEWING; phase++) {
+        reach(phase);
+        for (i = 0u; i < 11u; i++) {
+            v[i] = phase_type(phase);
+        }
+        for (after = 0u; after < 2u; after++) {
+            for (len = 0u; len < 12u; len++) {
+                if (len == 1u) {
+                    continue;
+                }
+                at("message type of length", k++);
+                fixed_part(offered);
+                n = after ? opt(FIXED, 53u, 1u, v) : FIXED;
+                n = opt(n, 53u, len, v);
+                n = opt(n, 54u, 4u, srv_a);
+                n = opt(n, 51u, 4u, lease);
+                n = opt(n, 1u, 4u, netmask);
+                n = opt(n, 3u, 4u, gw);
+                d[HDR + n++] = 255u;
+                TEST_ASSERT_EQUAL_UINT8_MESSAGE(W_REFUSE, judge(phase, header(n), &(lease_t){ 0 }), where);
+                check(phase, header(n));
+            }
+        }
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -859,5 +895,6 @@ int main(void)
     RUN_TEST(test_a_two_byte_server_id_after_a_good_one_is_ignored);
     RUN_TEST(test_a_reply_for_another_client_or_of_the_wrong_kind_moves_nothing);
     RUN_TEST(test_the_bound_lease_survives_hostile_replies_while_renewing);
+    RUN_TEST(test_a_message_type_of_any_length_but_one_is_refused);
     return UNITY_END();
 }

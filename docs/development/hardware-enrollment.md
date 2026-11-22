@@ -3,7 +3,9 @@
 > **Status: INFORMATIVE** · Scope: `make hw-enroll`, `xkms/e2e/hw_enroll_test.go`
 > · Last verified: 2026-10-16
 >
-> Not a gate. CI has no board, and it does not run this harness (#163 decision 2).
+> Not a gate. CI has no board and never runs `TestHardwareEnrollment` on one
+> (#163 decision 2); `make xkms-e2e-soft`, in `integration-test-host`, runs the
+> harness's soft-root case on `tfwsim-auto`.
 
 Issue #7's exit is a recorded run that shows the certificate each board was
 issued. `make hw-enroll` makes that run one command. It enrolls a flashed,
@@ -14,7 +16,8 @@ a run record, which the operator commits.
 The harness is `TestHardwareEnrollment` in `xkms/e2e`, and `make hw-enroll`
 runs it on a board. `make xkms-test` leaves the `xkms/e2e` package out of its
 list (#163 decision 2): out of the list, not skipped inside it, and
-`make xkms-coverage` leaves it out too. Run directly with `go test ./e2e` and no
+`make xkms-coverage` leaves it out too. `make xkms-e2e-soft` runs the three
+`xkms/e2e` tests that need no board by name. Run directly with `go test ./e2e` and no
 `TFW_HW_DEVICE`, the harness enrolls `tfwsim-atecc608a` over serial and over TCP
 and reads back the record each run wrote, which is how a change to it is checked
 before a bench run:
@@ -130,7 +133,7 @@ the simulator. A missing `DEVICEID`, a port that does not open, a refusal or a
 certificate that does not match the attested key or the ueid also fail the
 run. None of these is a skip.
 
-`TFW_HW_RESET` (`make hw-test HW_RESET=`) is how `hw-test`'s seam, `sdk/go/internal/peer`, resets the board: unset, by DTR; `qmp:<socket>`, by QMP `system_reset` to a QEMU board (`integration-test-cortex-m-wire`); anything else fails naming the variable. `hw-enroll` does not read it.
+`TFW_HW_RESET` (`make hw-test HW_RESET=`) is how `hw-test`'s seam, `sdk/go/internal/peer`, resets the board: unset, by DTR; `qmp:<socket>`, by QMP `system_reset` to a QEMU board (`integration-test-cortex-m-wire`); `cmd:<command>`, a command that resets the board (a probe's reset or a relay); anything else fails naming the variable. `hw-enroll` does not read it.
 
 Take the control plane's address and the board's addresses from the bench,
 never from this tree. `make releasability` refuses them.

@@ -14,9 +14,11 @@ import "net"
 // verify what it answers.
 //
 // Over Ethernet the device dispatches only CAPS, APP_INFO (in an image with an
-// application), ATTEST, ATTEST_CERT and ATTEST_CSR. Every other command is answered with StatusErrUnknownCmd, which
-// is the same status an older device gives for a command it was built
-// without.
+// application), ATTEST, ATTEST_CERT and ATTEST_CSR, and, in an image that
+// links the stager, OTA_BEGIN, OTA_DATA, OTA_END and OTA_STATUS
+// (src/proto/link_eth.h). Every other command is answered with
+// StatusErrUnknownCmd, which is the same status an older device gives for a
+// command it was built without.
 type Listener struct {
 	l    net.Listener
 	opts []Option

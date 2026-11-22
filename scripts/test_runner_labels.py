@@ -153,10 +153,12 @@ def unknown(workflow_dir, allowed):
 
 
 class RunnerLabelsTest(unittest.TestCase):
-    def check(self, workflow):
+    def check(self, workflow, allowed=None):
+        if allowed is None:
+            allowed = allowlist(ACTIONLINT)
         with tempfile.TemporaryDirectory() as tmp:
             pathlib.Path(tmp, "w.yml").write_text(workflow)
-            return unknown(tmp, allowlist(ACTIONLINT))
+            return unknown(tmp, allowed)
 
     def test_every_workflow_label_is_allowlisted(self):
         self.assertEqual(unknown(WORKFLOWS, allowlist(ACTIONLINT)), [])
@@ -264,6 +266,28 @@ class RunnerLabelsTest(unittest.TestCase):
             self.assertEqual(found, [])
         found = self.check("jobs:\n  build:\n    runs-on: Codex\n")
         self.assertEqual(found, ["w.yml:3: Codex"])
+
+    def test_a_github_hosted_label_is_accepted(self):
+        for value in (
+            "ubuntu-24.04",
+            "macos-14",
+            "Windows-Latest",
+            "[ubuntu-24.04-arm]",
+        ):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, [], value)
+        found = self.check("jobs:\n  build:\n    runs-on: ubuntu-26.04\n")
+        self.assertEqual(found, ["w.yml:3: ubuntu-26.04"])
+
+    def test_an_allowlist_glob_matches_a_label(self):
+        for value, want in (
+            ("[self-hosted, gpu-a1]", []),
+            ("[self-hosted, gpu]", ["w.yml:3: gpu"]),
+            ("GPU-a1", ["w.yml:3: GPU-a1"]),
+        ):
+            workflow = f"jobs:\n  build:\n    runs-on: {value}\n"
+            found = self.check(workflow, allowed=["gpu-*"])
+            self.assertEqual(found, want, value)
 
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)

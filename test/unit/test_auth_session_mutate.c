@@ -12,7 +12,9 @@
  *   - a response replayed, before any challenge, to a superseded challenge,
  *     and to the next one;
  *   - the session's ends: a new challenge, a refused response after one, and
- *     a reset. auth_session.c keeps no clock, so these are its expiry.
+ *     a reset. auth_session.c keeps no clock, so these are its expiry;
+ *   - a platform-block read that delivers its bytes and then reports failure:
+ *     no operator key, no serial.
  * A refusal is what test_auth_session defines: a status other than TFW_OK and
  * the gate closed. Exhaustive, so there is no seed; each failure names its
  * case.
@@ -64,9 +66,15 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *data, uint8_t le
     return TFW_OK;
 }
 
+/* Set, the platform-block read delivers its bytes and then reports failure,
+ * as a CRC- or ECC-checked read, or a bus timeout after the transfer, does. */
+static uint8_t nvm_fails;
+
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
-    return tfw_hal_eeprom_read(addr, buf, len);
+    tfw_status_t st = tfw_hal_eeprom_read(addr, buf, len);
+
+    return nvm_fails ? TFW_ERR_TIMEOUT : st;
 }
 
 static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
@@ -104,7 +112,7 @@ void setUp(void)
     tfw_boot_platform_serialise(&plat, pristine);
     fresh();
 }
-void tearDown(void) {}
+void tearDown(void) { nvm_fails = 0u; }
 
 static void sign(const uint8_t n[TFW_AUTH_NONCE_LEN], uint8_t sig[TFW_AUTH_SIG_LEN])
 {
@@ -271,6 +279,32 @@ static void test_a_session_ends_and_stays_ended(void)
     open_session(sig);
 }
 
+static void test_a_failed_platform_read_is_no_operator_key_and_no_serial(void)
+{
+    static const uint8_t zero[TFW_BOOT_SERIAL_LEN] = { 0 };
+    uint8_t n[TFW_AUTH_NONCE_LEN];
+    uint8_t sig[TFW_AUTH_SIG_LEN];
+
+    snprintf(why, sizeof why, "a session before the platform read fails");
+    open_session(sig);
+
+    /* platform_id.c re-reads the block for the operator key on every response */
+    snprintf(why, sizeof why, "a failed platform read gives no operator key");
+    challenge(n);
+    sign(n, sig);
+    nvm_fails = 1u;
+    expect_refused(sig, TFW_AUTH_SIG_LEN);
+
+    snprintf(why, sizeof why, "a failed platform read gives no serial");
+    tfw_platform_id_init();
+    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(zero, tfw_platform_id_serial(), sizeof zero, why);
+
+    snprintf(why, sizeof why, "a session once the platform read succeeds");
+    nvm_fails = 0u;
+    fresh();
+    open_session(sig);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -278,5 +312,6 @@ int main(void)
     RUN_TEST(test_every_short_frame_is_refused_and_keeps_the_challenge);
     RUN_TEST(test_replayed_and_reordered_responses_are_refused);
     RUN_TEST(test_a_session_ends_and_stays_ended);
+    RUN_TEST(test_a_failed_platform_read_is_no_operator_key_and_no_serial);
     return UNITY_END();
 }

@@ -133,6 +133,18 @@ static void test_early_trims_end_at_a_zero_address(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(TRIM1_ADDR));
 }
 
+/* All 64 pairs to one address, each with its index: the last value stored is
+ * the 64th pair's, and the pair one past the table is never read. */
+static void test_early_copies_a_full_trim_table_and_no_further(void)
+{
+    for (uint32_t i = 0u; i < 64u; i++) {
+        trim_entry(i, TRIM0_ADDR, 0xA5000000uL | i);
+    }
+    trim_entry(64u, TRIM0_ADDR, 0xA5000040uL);   /* past the end */
+    tfw_nrf54l_model_soc_early();
+    TEST_ASSERT_EQUAL_HEX32(0xA500003FuL, regfile_model_peek(TRIM0_ADDR));
+}
+
 static void test_early_device_configuration_when_unset(void)
 {
     tfw_nrf54l_model_soc_early();
@@ -282,6 +294,7 @@ int main(void)
     RUN_TEST(test_early_pll_at_128mhz_and_crystal_started);
     RUN_TEST(test_early_copies_trims_to_the_erased_entry);
     RUN_TEST(test_early_trims_end_at_a_zero_address);
+    RUN_TEST(test_early_copies_a_full_trim_table_and_no_further);
     RUN_TEST(test_early_device_configuration_when_unset);
     RUN_TEST(test_early_device_configuration_kept_when_set);
     RUN_TEST(test_early_errata_on_the_first_revision);

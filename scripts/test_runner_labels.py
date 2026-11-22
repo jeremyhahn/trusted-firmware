@@ -328,6 +328,22 @@ class RunnerLabelsTest(unittest.TestCase):
             self.assertEqual(found, ["w.yml:6: qwne"], value)
         self.assertEqual(self.check(f"{head}        codex\n"), [])
 
+    def test_a_space_before_the_runs_on_colon_is_read(self):
+        for line in ("runs-on : qwne", '"runs-on"  : [self-hosted, qwne]'):
+            found = self.check(f"jobs:\n  build:\n    {line}\n")
+            self.assertEqual(found, ["w.yml:3: qwne"], line)
+        found = self.check("jobs:\n  build:\n    runs-on : ubuntu-latest\n")
+        self.assertEqual(found, [])
+
+    def test_a_space_before_a_mapping_key_colon_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      group: g\n      labels : qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+        head = "jobs:\n  build:\n    runs-on:\n      group : g\n      'labels' :\n"
+        self.assertEqual(self.check(f"{head}        - qwne\n"), ["w.yml:6: qwne"])
+        self.assertEqual(self.check(f"{head}        - codex\n"), [])
+
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

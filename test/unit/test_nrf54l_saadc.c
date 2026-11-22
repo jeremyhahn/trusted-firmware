@@ -277,6 +277,29 @@ static void test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sampl
     TEST_ASSERT_EQUAL_HEX32(0u, W(0x510u));
 }
 
+/* The SAADC leaves EVENTS_STARTED, END and STOPPED latched after a read, so a
+ * second read must start from cleared events: with the converter stalled at
+ * start, end or stop, it times out and keeps the caller's value instead of
+ * taking the first read's events and sample. */
+static void test_a_read_does_not_take_the_previous_reads_events(void)
+{
+    uint8_t *const stall[3] = { &stall_start, &stall_end, &stall_stopped };
+    uint8_t i;
+
+    for (i = 0u; i < 3u; i++) {
+        uint16_t raw = 0u;
+        setUp();
+        next_sample = 1234;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_adc_read(0u, &raw));
+        TEST_ASSERT_EQUAL_UINT16(1234u, raw);
+        *stall[i] = 1u;
+        next_sample = 99;
+        raw = 77u;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+        TEST_ASSERT_EQUAL_UINT16(77u, raw);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -291,5 +314,6 @@ int main(void)
     RUN_TEST(test_a_saadc_that_never_starts_times_out_stopped_and_disabled);
     RUN_TEST(test_a_sample_that_never_ends_times_out_stopped_and_disabled);
     RUN_TEST(test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sample);
+    RUN_TEST(test_a_read_does_not_take_the_previous_reads_events);
     return UNITY_END();
 }

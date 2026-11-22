@@ -13,23 +13,29 @@
  * THE DESIGN DECISION THE PART FORCES, stated plainly because it is the one
  * thing about this file a reader should not have to infer.
  *
- * There is NO A/B SLOT and there cannot be one. An ATmega328P has 32 KB of
- * flash: 4 KB of boot section and 28 KB of application. Two application slots
- * would need 56 KB. Nothing in the board contract provides external storage,
- * and a scheme that required it would stop being a property of the firmware and
- * start being a property of the bill of materials.
+ * On a single-slot board there is NO A/B SLOT and there cannot be one. An
+ * ATmega328P has 32 KB of flash: 4 KB of boot section and 28 KB of
+ * application. Two application slots would need 56 KB. Nothing in the board
+ * contract provides external storage, and a scheme that required it would stop
+ * being a property of the firmware and start being a property of the bill of
+ * materials.
  *
- * So an update is written IN PLACE, over the running application, and for the
- * duration of the write the device has no bootable application at all.
+ * So there an update is written IN PLACE (TFW_OTA_STAGE_DEST is the
+ * application base, include/tfw/config.h), and for the duration of the write
+ * the device has no bootable application at all. A board with two slots (the
+ * ATmega2560, the mps2 A/B builds) stages in its secondary instead and the
+ * primary stays whole until the swap (boot_swap.h).
  *
- * THE RECOVERY IS THE BOOTLOADER ITSELF. Before the first page is erased, the
- * reserved EEPROM boot_state is set to TFW_BOOT_STATE_STAGED, and it is only
- * returned to TFW_BOOT_STATE_GOOD once the whole image has been measured and its
- * signature has verified. A bootloader that finds STAGED on the next reset
- * knows the application region is not to be trusted, does not jump into it, and
- * stays in OTA waiting for another image. So an interrupted update leaves a
- * device that is not running an application and IS still reachable, updatable
- * and honest about its state -- which is what "must leave the device bootable"
+ * THE RECOVERY IS THE BOOTLOADER ITSELF. Where the write is in place, before
+ * the first page is erased the reserved EEPROM boot_state is set to
+ * TFW_BOOT_STATE_STAGED, and it leaves STAGED only when the whole image has
+ * been measured and its signature has verified: one write to
+ * TFW_BOOT_STATE_TRIAL, armed for its one trial (boot_trial.h), GOOD once
+ * confirmed. A bootloader that finds STAGED on the next reset knows the
+ * application region is not to be trusted, does not jump into it, and stays
+ * in OTA waiting for another image. So an interrupted update leaves a device
+ * that is not running an application and IS still reachable, updatable and
+ * honest about its state -- which is what "must leave the device bootable"
  * can mean on a part with nowhere to stage.
  *
  * The cost is real and is not hidden: between the first erase and a successful
@@ -97,10 +103,11 @@ tfw_status_t tfw_ota_init(tfw_ota_t *o, tfw_ota_page_write_fn write_page,
 /*
  * OTA_BEGIN. Declares the total image length, trailer included.
  *
- * Refuses a length that is not a whole number of pages, and one that does not
- * reach the trailer: an image shorter than TFW_BOOT_TRAILER_LEN has nowhere to
- * carry a signature, and accepting it would mean erasing the application to
- * write something that could never verify.
+ * Refuses a length above TFW_BOOT_APP_SIZE, one that is not a whole number of
+ * pages, and one that does not reach the trailer: an image shorter than
+ * TFW_BOOT_TRAILER_LEN has nowhere to carry a signature, and accepting it
+ * would mean erasing the application to write something that could never
+ * verify.
  *
  * Deliberately takes NO version argument. The version is inside the trailer,
  * under the signature, and a version the host declared separately would be a
@@ -121,9 +128,12 @@ tfw_status_t tfw_ota_begin(tfw_ota_t *o, uint32_t total_len);
 tfw_status_t tfw_ota_data(tfw_ota_t *o, uint32_t offset, const uint8_t *data,
                         uint8_t len);
 
-/* OTA_END. Refuses unless exactly declared_len bytes arrived. Flushes a partial
- * final page, padding it with 0xFF -- erased flash -- so the measurement covers
- * the same bytes a verifier computing it from the image file would see. */
+/* OTA_END. Refuses unless exactly declared_len bytes arrived. tfw_ota_begin
+ * admitted only whole pages, so every page has already been written by then;
+ * the flush here is a no-op kept for the invariant, and a short page, if one
+ * ever reached it, would be padded with 0xFF -- erased flash -- so the
+ * measurement covers the same bytes a verifier computing it from the image
+ * file would see. */
 tfw_status_t tfw_ota_end(tfw_ota_t *o);
 
 /* Abandons a session. The flash already written is left alone: it is already

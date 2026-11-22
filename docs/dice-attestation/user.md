@@ -1,6 +1,6 @@
 # DICE attestation — user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented. For the design and the wire detail behind each task, see
@@ -31,16 +31,21 @@ never to a stranger, and produces no certificate. The ATmega328P has no
 
 ## Build a firmware image with attestation enabled
 
-`TFW_FEATURE_ATTEST` and `TFW_FEATURE_ALIAS_CERT` default to **off**. For the
-element-backed image:
+`TFW_FEATURE_ATTEST` and `TFW_FEATURE_ALIAS_CERT` default to **off** in
+`include/tfw/config.h`; a board profile turns `ATTEST` on (the ATmega2560,
+328P and 32U4 all do, the ATtiny85 does not), and `mk/firmware.mk` adds the
+alias certificate on the `atecc608a` and `auto` tiers unless the board profile
+excludes it. For the element-backed image:
 
 ```
-make firmware-attested          # CRYPTO=atecc608a, both features on
+make firmware-attested          # = make firmware CRYPTO=atecc608a; the alias certificate follows the board profile (none on the 32U4)
 ```
 
-For the software tier, build with `CRYPTO=soft` (the AVR default) and set
-`TFW_FEATURE_ATTEST=1` explicitly; `TFW_FEATURE_ALIAS_CERT` has nothing to
-certify on that tier and stays off.
+With no `CRYPTO=`, each board builds its own default tier: `auto` on the
+ATmega2560, `atecc608a` on the ATmega328P, where `CRYPTO=soft` is refused, and
+`soft` on the ATmega32U4, the fallback `mk/firmware.mk` uses for a board that
+names none. `CRYPTO=soft` builds the software tier wherever the board allows
+it; `TFW_FEATURE_ALIAS_CERT` has nothing to certify on that tier and stays off.
 
 ## Provision a device before its evidence means anything
 
@@ -149,7 +154,7 @@ verifies, which is exactly why this matters: the private key above is the hash o
 a published string, so anyone can compute it and sign as this device. A passing
 signature check proves the bytes are well formed and were signed by that key; it
 proves nothing about any device. **Never enrol, allow-list or pin this key
-outside a test that supplied it.** The serial `tfwsim-test-id-01` and the FWHash
+outside a test that supplied it.** The serial `tfwsim-testid-01` and the FWHash
 of `tfwsim-test-firmware-image-v1` are likewise fixed and public.
 
 Use it to test paging, parsing, signature verification, nonce binding, the UEID
@@ -163,8 +168,9 @@ commands (a jig image concern; the element is seeded instead).
 
 `ATTEST`/`Device.Attest` is for a verifier that already trusts this
 product's identity model and wants a compact, signed statement now — e.g. a
-gateway checking a device before relaying its data. There is no `tfwctl`
-verb; call the SDK:
+gateway checking a device before relaying its data. From a shell,
+`tfwctl <port> attest <16 hex bytes>` prints the frame as hex (`cli.md`); from
+Go, call the SDK:
 
 ```go
 nonce := make([]byte, tfw.AttestNonceLen) // 16 bytes, freshly random per challenge
@@ -217,14 +223,26 @@ across that boundary unmodified. The CLI equivalent is
 | `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit`. On a `CRYPTO=auto` image with no element it means tfw-boot handed off no DeviceID seed |
 | `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | the build carries the command but its tier has no public key to certify. A `CRYPTO=soft` or `CRYPTO=none` image, or a board with no room for the certificate builder, compiles the command out and answers `TFW_ERR_UNKNOWN_CMD` instead; a `CRYPTO=auto` image with no element certifies its soft P-256 DeviceID |
 | `TFW_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
-| `TFW_ERR_UNSUPPORTED` from `AttestCSR` | CAPS bit 15 is clear (the 32U4, or a build without the alias certificate), or the tier has no asymmetric key — nothing was asked of the device |
+| `TFW_ERR_UNSUPPORTED` from `AttestCSR`, before anything is sent | CAPS bit 15 is clear: the ATmega32U4 and the ATmega328P compile `ATTEST_CSR` out, as does a build without the alias certificate. The SDK checks only that bit before it sends; asked anyway, such a device answers `TFW_ERR_UNKNOWN_CMD` |
+| `TFW_ERR_UNSUPPORTED` from `AttestCSR`, from the device | `ATTEST_CSR` was sent and the device refused it: its tier has no asymmetric key, or its signature would not be ES256. An element with no DeviceID key provisioned answers `TFW_ERR_NOT_PROVISIONED` instead |
 | `*tfw.ShortReplyError` from `AttestCSR` | the device answered with something other than 64 bytes |
 
-## Known limitation: the measurement fields are not live yet
+## The measurement fields
 
-`DeviceID` and `FWHash` inside the evidence and the certificate's `ueid`/
-`measurements` claims are currently zero-filled — the trusted bootloader
-that supplies a real measurement is not wired up (`architecture.md`).
-Signing, paging and the wire shapes are exercised and correct; do not build
-a verifier today that expects those two fields to carry a real firmware
-identity.
+`DeviceID` in the evidence, and the certificate's `ueid` claim, is the platform
+serial: `src/caps/attest.c` copies `tfw_platform_id_serial()` into it, the
+serial `tfwprov --bake-eeprom` put in the platform-reserved EEPROM block before
+the part was flashed (`src/core/platform_id.c`). `FWHash` is the measurement
+tfw-boot verified and handed off, `tfw_boot_handoff_measurement()`
+(`src/core/handoff.c`); the application reports what was checked and never
+recomputes it. How the handoff gets there is
+[`architecture.md`'s handoff section](architecture.md#data-flow-status-the-bootloader-handoff-is-wired-up).
+
+Each field is zero, never made up, where its source is absent. An
+unprovisioned or corrupted platform block reads as 16 zero bytes of
+`DeviceID`. An image with no valid handoff — a stock bootloader, no
+bootloader at all, or a board with no boot section, which links
+`src/core/handoff_none.c` — gets NULL from `tfw_boot_handoff_measurement()`,
+and `FWHash` stays the 32 zero bytes the evidence was cleared to. A verifier
+should treat an all-zero `DeviceID` as an unprovisioned device and an all-zero
+`FWHash` as firmware no trusted bootloader measured, not as a real identity.

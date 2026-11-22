@@ -1,6 +1,6 @@
 # Building and testing
 
-> **Status: NORMATIVE** · Scope: the build system · Last verified: 2026-09-22
+> **Status: NORMATIVE** · Scope: the build system · Last verified: 2026-11-21
 
 Nothing here requires an AVR toolchain on your machine. `make docker-build`
 produces the devcontainer with all of it, and every other target runs inside it.
@@ -41,11 +41,16 @@ wired as the fleet template wires them:
 
 | Stage | Gates |
 |---|---|
-| `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check`, `provenance`, `app-firmware-check`, `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
-| `make test` | `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors`, `xkms-coverage`, `sdk-coverage`, `scripts-test` |
-| `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test` |
-| `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
+| `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check` (and again for the example application on the ATmega2560), `bootloader-reproducible-check`, `provenance`, `app-firmware-check` (ATmega2560 and `mps2-an505`), `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
+| `make test` | `TEST_GATES`: `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan-host`, `test-asan-boot`, `verify-vectors`, `xkms-coverage`, `sdk-coverage`, `scripts-test` |
+| `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test`, `xkms-e2e-soft` |
+| `make security` | `security-novuln`: `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `lint-grep-selftest`, `go-tags-selftest`, `esp32-overlay-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan`; then `vuln`: `go-govulncheck`, `xkms-vuln` |
 | `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
+
+`make security` is `security-novuln`, the gates that read only the tree and
+what the CI Gate's Security job runs, then `vuln`, which reads the
+vulnerability database and so runs in `scans.yml` on main, never in the CI Gate
+(ruling 742 (1)); `make security` and `make ci` run both.
 
 CI runs `make test` in one Unit job, `unit`, as three steps, each
 `make test-shard-N` over one shard of its gates, then the sdk/go race suite
@@ -86,14 +91,15 @@ no docker daemon; CI's `integration` job runs `make integration-test` in the
 image. `xkms/` is in the stages, so `make ci` needs go-xkms: in the image it is
 in the module cache, elsewhere it needs the forge credentials.
 
-CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
-security, build, test, modules, cross-arch) on the runner; in the
-devcontainer, three image jobs that start at once, `image-toolchain` (build;
-test runs in the three Unit shards above), `image-security` (security, trivy image) and `image-esp32`
-(ESP32 build and QEMU test); and `integration` (full tier: push, dispatch or the `ci:full`
-label, which takes effect on the next push, update-branch or
-workflow_dispatch) under compose. `make deps-check` runs beside `make lint`
-on every event, a docs-only PR included (ci-template v1.28). `CI Gate` is the
+CI (`.github/workflows/ci.yml`, the fleet template) runs `image` (lint and
+build in the devcontainer), `unit` (the three test shards above and the race
+suite), `security` (`make security-novuln`), `lint-gates`, `esp32-build` and
+`esp32-qemu-test` (ESP32 build and QEMU test), the OP-TEE, signature and soak
+jobs, and `integration` (full tier: push, dispatch or the `ci:full` label, which
+takes effect on the next push, update-branch or workflow_dispatch) under
+compose. `make deps-check`, `make vuln` and `trivy image` read upstream
+databases, so they run in `.github/workflows/scans.yml`, on a schedule and on
+workflow_dispatch on main, never in ci.yml (ruling 742 (1)). `CI Gate` is the
 one required check.
 
 `make help` lists every target.
@@ -125,14 +131,19 @@ make flash AVRDUDE_PORT=/dev/ttyUSB0
 Flashing over an ISP programmer, with the boot-flash EESAVE guard, is in
 [`isp-route.md`](isp-route.md).
 
-Boards: `atmega328p`, `atmega2560`, `atmega32u4`, `attiny85`. The first three
-build at `CRYPTO=soft` and `CRYPTO=atecc608a`; the ATtiny85 builds only at
-`CRYPTO=none`, because neither of the others is possible on a part with no I2C
-and no boot section. `BOARD_TIERS` in each `profile.mk` is where that is
-recorded, and `firmware-matrix` reads it rather than assuming a cross product.
+Boards: every directory under `boards/`; each one's id is in
+[`board-id-registry.md`](../boards/board-id-registry.md#allocated-ids)
+"Allocated ids". Of the four AVR boards, the ATmega328P builds only at
+`CRYPTO=atecc608a` and refuses `CRYPTO=soft` (`BOARD_REFUSED_TIERS`, owner
+ruling m522); the ATmega2560 builds at `soft`, `atecc608a` and `auto`, its
+default; the ATmega32u4 at `soft` and `atecc608a`, the default in
+`mk/firmware.mk`; and the ATtiny85 only at `CRYPTO=none`, because neither of
+the others is possible on a part with no I2C and no boot section. `BOARD_TIERS`
+in each `profile.mk` is where that is recorded, and `firmware-matrix` reads it
+rather than assuming a cross product.
 
 The build takes the architecture from the board: every `boards/<board>/profile.mk`
-says `ARCH := avr`, and `mk/firmware.mk` and `mk/boot.mk` — which name no
+names its `ARCH` (`avr`, `cortex-m` or `esp32`), and `mk/firmware.mk` and `mk/boot.mk` — which name no
 toolchain, flag or HAL path — pick up `mk/arch/$(ARCH).mk` (toolchain, flags,
 size, programmer, linker placement) and `src/hal/$(ARCH)/`. A second architecture
 is a directory, not an edit to those files. `BOARD=` is unchanged.

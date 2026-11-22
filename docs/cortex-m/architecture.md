@@ -1,6 +1,6 @@
 # Cortex-M — architecture
 
-> **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-10-22
+> **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-11-21
 > The decisions and their reasons are in the two ADRs,
 > [adr-reference-part-and-emulation.md](adr-reference-part-and-emulation.md) and
 > [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14). This
@@ -35,7 +35,8 @@ with go-xkms, as for every other architecture.
  src/hal/cortex-m/<SOC>/        the SoC's peripherals: UART, GPIO, ADC, watchdog,
                                 the SBCon (I2C) and the PL022 (SPI)
  boot/hal/cortex-m/<SOC>/       tfw-boot's polled UART
- mk/arch/cortex-m/<SOC>.ld      one linker script per SoC, for both images
+ mk/arch/cortex-m/image.ld      one linker script for both images; a SoC's own
+                                script only where its profile.mk names one
         |
  boards/<board>/                data: profile.mk, board_profile.h, board.c
 ```
@@ -60,11 +61,13 @@ with go-xkms, as for every other architecture.
 
 As on AVR, there is no vtable. `include/tfw/hal.h` declares the functions; the
 build links exactly one definition of each from the architecture's directory.
-A capability the board turns off in `board_profile.h` (`TFW_FEATURE_EEPROM 0`,
+A capability the board turns off in `board_profile.h` (`TFW_FEATURE_ANALOG 0`,
 `TFW_FEATURE_PWM 0`, …) is dropped by file selection in `mk/firmware.mk`, so
 its HAL entry points are neither defined nor referenced. A feature a board turns
-on only for a named row (`I2C=1`, `SPI=1`) is listed in `BOARD_FEATURES_ON` in
-`profile.mk`, and the row builds in a directory of its own (`-i2c`, `-spi`).
+on only for a named row (`I2C=1`, `SPI=1`, `TONE=1`, `PULSE=1`, `ONEWIRE=1`,
+`PWM=1`) is listed in `BOARD_FEATURES_ON` in `profile.mk`, and the row builds
+in a directory of its own (`-i2c`, `-spi`, `-tone`, `-pulse`, `-onewire`,
+`-pwm`: `ROW_FEATURE_SUFFIX` in `mk/firmware.mk`).
 Which functions this port defines and which it leaves out is in [api.md](api.md).
 
 ## Memory map
@@ -91,7 +94,7 @@ does not load, survive a reset; nothing survives a new QEMU.
 
 ## Placement: one linker script, two images
 
-`mk/arch/cortex-m/mps2.ld` has no `MEMORY` block and no address.
+`mk/arch/cortex-m/image.ld` has no `MEMORY` block and no address.
 `mk/arch/cortex-m.mk` passes each as a symbol from the profile
 (`__tfw_text_base`, `__tfw_text_size`, `__tfw_ram_base`, `__tfw_handoff`,
 `__tfw_resetmark`, `__tfw_faultframe`, `__stack`), so the script cannot
@@ -120,7 +123,7 @@ disagree with the board.
    (micro-ecc, `BOOT_SIG=p256-soft`) against the key in its provisioned slot,
    whose hash the platform block pins.
 3. On success it writes the CDI handoff block and jumps:
-   `tfw_boot_jump_application` (`boot/hal/cortex-m/boot_hal_cortex-m.c`) turns
+   `tfw_boot_jump_application` (`boot/hal/cortex-m/boot_jump.c`) turns
    its UART off, loads MSP from the application's word 0 and branches to word
    1. The application's own reset handler sets VTOR.
 4. On a refusal, a row without OTA in boot links
@@ -164,10 +167,16 @@ either board.
 - The root of trust is tfw-boot's code region and its two soft slots, the
   P-256 public key and the UDS. They are written into the image after the link
   (`test/integration/cortex-m/cm_image.c` does it for the test).
-- The port programs no MPU and no SAU. Everything runs Secure and privileged,
-  and nothing in hardware stops the application from reading tfw-boot's
-  region. That is the open MPU question in [engineering.md](engineering.md),
-  and the isolation design is
+- The default mps2-an505 image programs neither the MPU nor the SAU: it runs
+  Secure and privileged, and nothing in hardware stops the application from
+  reading tfw-boot's region. mps2-an500 sets `TFW_CM_MPU 1` in its
+  `board_profile.h`, and `tfw_cm_reset` (`src/hal/cortex-m/hal_early.c`) calls
+  `tfw_cm_mpu_arm()` (`src/hal/cortex-m/hal_mpu.c`): MPU-only isolation on the
+  M7 (#482, #497). The `TZ=1` row's secure image
+  (`src/hal/cortex-m/tz/tz_s_main.c`, built by `tz-firmware` in
+  `mk/arch/cortex-m-targets.mk`) programs the SAU and enters a Non-secure image
+  with BLXNS on mps2-an505 (#590). The open MPU question is in
+  [engineering.md](engineering.md), and the isolation design is
   [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md)'s.
 - `tfw_boot_flash_write_page` refuses any page outside the application region.
   tfw-boot's region is writable RAM on these boards, so that range check is
@@ -175,11 +184,16 @@ either board.
 
 ## What the row does not do yet
 
-- No vendor SoC and no i.MX 95. QEMU has no i.MX 95.
-- No TF-M, no Non-secure world, no MPU.
+- The vendor SoC ports (`SOC` imx95, mcxn94x, stm32h5, rp2350 and nrf54l, on
+  frdm-imx95-m7, frdm-mcxn947, nucleo-h563zi, stm32h573i-dk, rp2350-pico2w and
+  nrf54l15-dk) are documented on their pages under
+  [`../boards/`](../boards/); they are not run under QEMU, whose rows are the
+  two MPS2 boards. QEMU has no i.MX 95.
+- No TF-M in this repo: the TrustZone-M secure world is TF-M with our DICE
+  layer ([adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), #609).
 - No secure element on QEMU: mps2-an505's `atecc608a:I2C=1` row is built and
   size-checked, never booted.
-- No PWM, tone, pulse or 1-Wire. EEPROM is the platform window on the MPS2
+- EEPROM is the platform window on the MPS2
   boards, RAM under QEMU: a write outlives a reset, not the QEMU process.
 - No `make flash`. The boards are emulated, and `make flash` says so and
   exits 1 (`ARCH_CM_NOFLASH`).

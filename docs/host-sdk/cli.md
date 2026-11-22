@@ -154,6 +154,7 @@ Argument parsing is literal comparisons, not a flag library.
 |---|---|
 | `tfwsim` | speaks the protocol on stdin/stdout |
 | `tfwsim --pty` | the same, on a pty whose path is printed to stderr — lets a serial client open it like a real device |
+| `tfwsim --eth` | also an Ethernet device: it dials the endpoint in its EEPROM network block over a host TCP socket and serves the Ethernet allow-list there, as an `ETH=1` image does (`tools/tfwsim/eth_socket.c`); the protocol stays on stdin/stdout or the pty for everything else. From a Go test, `tfwsim.StartElementEthernet` listens on a loopback port, writes that port into the block, starts the element-tier simulator with `--eth` and returns both links |
 | `tfwsim --netcfg-addr` | prints the EEPROM address this build reads the network block at (`TFW_NETCFG_ADDR`, e.g. `0x0140`) and exits 0; `tfwsim.StartElementEthernet` asks it before writing the block |
 
 ```sh

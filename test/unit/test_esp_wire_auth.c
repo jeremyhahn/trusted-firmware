@@ -228,6 +228,27 @@ static void test_a_challenge_left_pending_cannot_be_answered_by_the_next_host(vo
     TEST_ASSERT_EQUAL_INT(TFW_ERR_AUTH_REQUIRED, gated(b));
 }
 
+/* OTA_ACTIVATE is gated on the operator session as well as on OTA_AUTH: OTA_AUTH
+ * is not gated, so a host that never authenticated can hold a signature. Until
+ * it authenticates, the activate is refused at the gate and writes nothing; after,
+ * it reaches the stage, which refuses on state (no image ended here). */
+static void test_an_activate_from_a_host_not_authenticated_is_refused_at_the_gate(void)
+{
+    static const uint8_t mode = 0u;
+    uint8_t              sig[TFW_OTA_AUTH_SIG_LEN];
+    mock_conn_t         *a = host();
+
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_AUTH_REQUIRED, ask(a, TFW_CMD_OTA_ACTIVATE, &mode, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.auth_writes);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.set_boots);
+
+    authenticate(a);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, ask(a, TFW_CMD_OTA_ACTIVATE, &mode, 1u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -235,5 +256,6 @@ int main(void)
     RUN_TEST(test_a_host_that_replaces_a_quiet_one_must_authenticate);
     RUN_TEST(test_a_host_that_dials_in_after_a_hangup_must_authenticate);
     RUN_TEST(test_a_challenge_left_pending_cannot_be_answered_by_the_next_host);
+    RUN_TEST(test_an_activate_from_a_host_not_authenticated_is_refused_at_the_gate);
     return UNITY_END();
 }

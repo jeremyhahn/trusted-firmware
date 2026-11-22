@@ -17,6 +17,7 @@
  *   - the trailer outside the uploaded stream: a session that sent no
  *     trailer, with an earlier session's left on the slot past its digest;
  *   - activate and install_pending with a session still receiving;
+ *   - the activate record's reserved bytes, zero over a dirty stack;
  *   - OTA_INFO when either slot's description or digest cannot be read.
  *
  * The image end is poked into the mock's flash after the image is ended,
@@ -272,6 +273,28 @@ static void test_an_image_whose_trailer_fills_the_slot_activates(void)
     TEST_ASSERT_EQUAL_UINT8(1u, mock_esp.boot_slot);
 }
 
+static void __attribute__((noinline)) dirty_stack(void)
+{
+    volatile uint8_t junk[8192];
+
+    for (unsigned i = 0u; i < sizeof junk; i++) {
+        junk[i] = 0xAAu;
+    }
+}
+
+/* The activate record is built on the stack, and boot.h gives bytes 5-7 as
+ * 0: a record not cleared first carries the 0xAA left there. */
+static void test_the_activate_record_reserved_bytes_are_zero(void)
+{
+    stage_signed(2u);
+    dirty_stack();
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_esp.auth_writes);
+    for (unsigned i = TFW_BOOT_AUTH_O_MODE + 1u; i < TFW_BOOT_AUTH_O_SIG; i++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, mock_esp.auth[i]);
+    }
+}
+
 /* A session that uploads the image and its digest but no trailer: an earlier
  * session's trailer still sits on the slot just past the digest, so only the
  * uploaded length can tell the check it is not this session's. */
@@ -377,6 +400,7 @@ int main(void)
     RUN_TEST(test_an_image_end_past_the_slot_is_range);
     RUN_TEST(test_an_image_end_with_no_room_for_the_trailer_is_range);
     RUN_TEST(test_an_image_whose_trailer_fills_the_slot_activates);
+    RUN_TEST(test_the_activate_record_reserved_bytes_are_zero);
     RUN_TEST(test_a_trailer_past_the_uploaded_stream_is_range);
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);

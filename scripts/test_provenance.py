@@ -100,6 +100,19 @@ def build_manifest(hex_text, board="atmega328p", *make_vars):
             return manifest, f.read()
 
 
+def make_value(board, var, *make_vars):
+    """The value make gives var for board's real profile.mk and make_vars,
+    as the build would use it; nothing is built."""
+    run = subprocess.run(
+        ["make", "-s", "--no-print-directory", "-C", _ROOT, f"BOARD={board}",
+         *make_vars, "--eval", f"tfw-print-value: ; @echo '$({var})'",
+         "tfw-print-value"],
+        capture_output=True, text=True, check=False)
+    if run.returncode != 0:
+        raise AssertionError(f"make {var}: rc={run.returncode}\n{run.stdout}{run.stderr}")
+    return run.stdout
+
+
 class ProvenanceMeasurement(unittest.TestCase):
     def test_a_gap_is_measured_as_the_device_measures_it(self):
         m, image = build_manifest(GAP_HEX)
@@ -315,6 +328,17 @@ class ItcmSlotBoard(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError, "IMX_BOOT is 0 or 1"):
                     build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
                                    "IMX_BOOT=" + v)
+
+    def test_imx_boot_links_the_application_at_the_itcm_base(self):
+        # The linker's text base, not only the measurement's: the System
+        # Manager starts the container's M7 image from the vector at ITCM 0.
+        with tempfile.TemporaryDirectory() as build_dir:
+            for make_vars, base in (((), "0x00008000"),
+                                    (("IMX_BOOT=1", "BUILD_DIR=" + build_dir), "0x00000000")):
+                with self.subTest(make_vars=make_vars):
+                    flags = make_value("frdm-imx95-m7", "ARCH_FW_PLACEMENT_LDFLAGS", *make_vars)
+                    self.assertIn("--defsym=__tfw_text_base=" + base + " ", flags)
+                    self.assertIn("--defsym=__tfw_text_size=196608 ", flags)
 
 
 if __name__ == "__main__":

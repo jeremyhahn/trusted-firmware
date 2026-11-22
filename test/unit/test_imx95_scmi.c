@@ -301,6 +301,30 @@ static void test_an_unnumbered_status_is_unrecognised(void)
     TEST_ASSERT_FALSE(tfw_scmi_status_known(1));
 }
 
+/* The specification numbers no positive status, so a positive word from
+ * the platform is unrecognised, never one of the client's own results. */
+static void test_a_positive_status_word_is_not_a_client_result(void)
+{
+    static const uint32_t words[] = { 1u, 2u, 3u, 4u, 5u, 0x7FFFFFFFu };
+    uint8_t p[4];
+    int32_t rc;
+    size_t i;
+
+    for (i = 0u; i < sizeof(words) / sizeof(words[0]); i++) {
+        p[0] = (uint8_t)words[i];
+        p[1] = (uint8_t)(words[i] >> 8);
+        p[2] = (uint8_t)(words[i] >> 16);
+        p[3] = (uint8_t)(words[i] >> 24);
+        tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 9u);
+        rsp_of(0x00244000u, p, 4u);
+        rc = tfw_scmi_check(&cmd, &rsp);
+        TEST_ASSERT_TRUE(rc <= 0);
+        TEST_ASSERT_FALSE(tfw_scmi_status_known(rc));
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_scmi_lmm_status(rc));
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_scmi_system_power_status(rc));
+    }
+}
+
 static void test_a_wrong_message_or_type_is_refused(void)
 {
     static const uint8_t p[4] = { 0, 0, 0, 0 };
@@ -385,6 +409,7 @@ int main(void)
     RUN_TEST(test_every_lmm_status_maps);
     RUN_TEST(test_every_status_code_reads_back_as_numbered);
     RUN_TEST(test_an_unnumbered_status_is_unrecognised);
+    RUN_TEST(test_a_positive_status_word_is_not_a_client_result);
     RUN_TEST(test_a_wrong_message_or_type_is_refused);
     RUN_TEST(test_a_response_without_a_status_is_short);
     RUN_TEST(test_protocol_version_reads_major_and_minor);

@@ -107,6 +107,10 @@
 #define TFW_SCMI_E_SHORT    4   /* a response too short for its fields */
 #define TFW_SCMI_E_CHANNEL  5   /* the platform flagged a channel error */
 
+/* A positive status word, which the specification never numbers: negative
+ * so it never meets a client result, outside -11..0 so it is unrecognised. */
+#define TFW_SCMI_E_UNNUMBERED INT32_MIN
+
 /* The largest payload either way, in bytes: RATE_GET's 12 is the longest
  * these commands and their responses carry. */
 #define TFW_SCMI_PAYLOAD_MAX 32u
@@ -148,7 +152,8 @@ tfw_status_t tfw_scmi_lmm_shutdown(struct tfw_scmi_msg *m, uint32_t token, uint3
 
 /* The status of `rsp` as the reply to `cmd`: TFW_SCMI_E_HEADER unless its
  * header is the command's, TFW_SCMI_E_SHORT without a status word, else the
- * platform's status, a known one or not. */
+ * platform's status, a known one or not (TFW_SCMI_E_UNNUMBERED for a
+ * positive one). */
 int32_t tfw_scmi_check(const struct tfw_scmi_msg *cmd, const struct tfw_scmi_msg *rsp);
 
 /* Payload word `idx` of a response (0 is the status), or TFW_SCMI_E_SHORT. */

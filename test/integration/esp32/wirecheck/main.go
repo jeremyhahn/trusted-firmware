@@ -467,6 +467,8 @@ const (
 	espSegHeaderLen = 8
 	trailerMagic    = 0x4D494654 // "TFIM"
 	trailerLen      = 128
+	trailerVersion  = 1 // TFW_BOOT_TRAILER_VERSION
+	trVersion       = 4
 	trImageVersion  = 8
 	trMeasurement   = 16
 )

@@ -14,6 +14,8 @@
  *     digest, the slot, the trailer's room), a slot-filling image, an
  *     unreadable digest or description, and a measurement wrong in its last
  *     byte only;
+ *   - the trailer outside the uploaded stream: a session that sent no
+ *     trailer, with an earlier session's left on the slot past its digest;
  *   - activate and install_pending with a session still receiving;
  *   - OTA_INFO when either slot's description or digest cannot be read.
  *
@@ -270,6 +272,20 @@ static void test_an_image_whose_trailer_fills_the_slot_activates(void)
     TEST_ASSERT_EQUAL_UINT8(1u, mock_esp.boot_slot);
 }
 
+/* A session that uploads the image and its digest but no trailer: an earlier
+ * session's trailer still sits on the slot just past the digest, so only the
+ * uploaded length can tell the check it is not this session's. */
+static void test_a_trailer_past_the_uploaded_stream_is_range(void)
+{
+    signed_image(APP_LEN, 2u, 2u);
+    memcpy(&mock_esp.flash[1][APP_LEN], &img[APP_LEN], TFW_BOOT_TRAILER_LEN);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(APP_LEN));
+    stream(0u, APP_LEN);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+}
+
 static void test_an_unreadable_digest_is_internal(void)
 {
     stage_signed(2u);
@@ -361,6 +377,7 @@ int main(void)
     RUN_TEST(test_an_image_end_past_the_slot_is_range);
     RUN_TEST(test_an_image_end_with_no_room_for_the_trailer_is_range);
     RUN_TEST(test_an_image_whose_trailer_fills_the_slot_activates);
+    RUN_TEST(test_a_trailer_past_the_uploaded_stream_is_range);
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);
     RUN_TEST(test_a_measurement_wrong_in_its_last_byte_is_crypto);

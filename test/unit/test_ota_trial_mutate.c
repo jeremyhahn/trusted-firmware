@@ -279,6 +279,30 @@ static void test_clean_records_afterwards(void)
     TEST_ASSERT_EQUAL_UINT(sizeof others, idle_runs);
 }
 
+/* the record leaves TRIAL before the deadline: the trial ends and stays ended */
+static void test_a_trial_the_record_ended_stays_ended(void)
+{
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
+
+    clean(raw, TFW_BOOT_STATE_TRIAL);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_ota_trial_start();
+    clean(raw, TFW_BOOT_STATE_CONFIRMED);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_mock_advance(DEADLINE_MS);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    clean(raw, TFW_BOOT_STATE_TRIAL);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_mock_advance(DEADLINE_MS);
+    tfw_ota_trial_poll();
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -290,5 +314,6 @@ int main(void)
     RUN_TEST(test_every_layout_state_and_fail_count);
     RUN_TEST(test_a_refused_read_of_a_trial_record_arms_nothing);
     RUN_TEST(test_clean_records_afterwards);
+    RUN_TEST(test_a_trial_the_record_ended_stays_ended);
     return UNITY_END();
 }

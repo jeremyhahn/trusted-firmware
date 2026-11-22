@@ -121,6 +121,12 @@ tfw_status_t tfw_dice_dispatch(int32_t op, const tfw_dice_msg_t *m)
     if (m == NULL || m->read == NULL || m->write == NULL) {
         return TFW_ERR_RANGE;
     }
+    /* No operation reads a third or fourth in-vector: a client that passes
+     * one is refused, not served with it unread. */
+    if (m->in_size[2] != 0u || m->in_size[3] != 0u) {
+        return TFW_ERR_BAD_ARGC;
+    }
+
     switch (op) {
     case TFW_DICE_OP_DEVICEID_PUB:
     case TFW_DICE_OP_ALIAS_PUB:

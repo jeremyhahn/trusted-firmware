@@ -16,6 +16,8 @@
  *     byte only;
  *   - the trailer outside the uploaded stream: a session that sent no
  *     trailer, with an earlier session's left on the slot past its digest;
+ *   - a repeated ACTIVATE with no new OTA_AUTH: the mode the install was
+ *     activated with is OK, another mode is BAD_STATE, and neither writes;
  *   - activate and install_pending with a session still receiving;
  *   - the activate record's reserved bytes, zero over a dirty stack;
  *   - OTA_INFO when either slot's description or digest cannot be read.
@@ -336,6 +338,23 @@ static void test_a_measurement_wrong_in_its_last_byte_is_crypto(void)
 
 /* --------------------------------------------- a session still receiving */
 
+/* A host whose ACTIVATE reply was lost asks again: the same mode, with no new
+ * OTA_AUTH, is the install already done; another mode is not. Neither writes. */
+static void test_a_repeated_activate_answers_by_the_mode_it_was_given(void)
+{
+    uint8_t out[8];
+    uint8_t mode;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(1u));
+    mode = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, dispatch(TFW_CMD_OTA_ACTIVATE, &mode, 1u, out, sizeof out));
+    mode = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, dispatch(TFW_CMD_OTA_ACTIVATE, &mode, 1u, out, sizeof out));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_esp.auth_writes);
+    TEST_ASSERT_EQUAL_UINT(1u, mock_esp.set_boots);
+}
+
 static void test_activate_while_receiving_is_bad_state(void)
 {
     mock_esp_image(img, APP_LEN, 1u);
@@ -405,6 +424,7 @@ int main(void)
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);
     RUN_TEST(test_a_measurement_wrong_in_its_last_byte_is_crypto);
+    RUN_TEST(test_a_repeated_activate_answers_by_the_mode_it_was_given);
     RUN_TEST(test_activate_while_receiving_is_bad_state);
     RUN_TEST(test_no_install_is_pending_while_receiving);
     RUN_TEST(test_info_on_a_running_slot_with_no_description_is_internal);

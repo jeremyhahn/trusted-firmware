@@ -12,7 +12,9 @@
 
 #define ISR(vector, ...) void vector(void); void vector(void)
 
-/* src/hal/avr/hal_sys.c: the global interrupt flag, as calls the suite logs. */
+/* src/hal/avr/hal_sys.c, boot/hal/avr/boot_hal_avr.c and
+ * boot/hal/avr/recovery_halt.c: the global interrupt flag, as calls each suite
+ * logs. */
 void cli(void);
 void sei(void);
 

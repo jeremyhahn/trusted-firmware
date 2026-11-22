@@ -114,9 +114,9 @@ and optee_client are BSD-2-Clause; they are fetched, not copied.
 | Path | What |
 |---|---|
 | `optee/ta/` | The TA, in C, built with optee_os's TA dev kit (`TA_DEV_KIT_DIR`). Same preprocessor rule as the firmware: no `#if` in logic. `user_ta_header_defines.h` holds `#define`s only |
-| `optee/ta/include/tfw_ta.h` | The UUID and command ids below, as literals, shared by the TA and the test client |
+| `optee/ta/include/tfw_ta.h` | The UUID and command ids below, GET_INFO's answer and the size bounds, as literals, shared by the TA and the test client |
 | `optee/check/` | `tfw-ta-check`, a small C program in the guest that calls the TA through `libteec` and compares each answer to the literal vectors |
-| `optee/testdata/vectors.h` | The literal vectors: UUID bytes, command ids, parameter types, expected return codes |
+| `optee/testdata/vectors.h` | The literal vectors: UUID bytes, command ids, parameter types, expected return codes, the GET_RANDOM and SEAL bounds, and go-xkms's two SEAL/UNSEAL vectors |
 | `mk/optee.mk` | The pin and the targets below. Outside the AVR and Cortex-M object lists |
 
 ### Targets
@@ -124,9 +124,9 @@ and optee_client are BSD-2-Clause; they are fetched, not copied.
 | Target | Does |
 |---|---|
 | `make optee-pin` | Prints the pinned release tag (`make -s optee-pin`), CI's cache key |
-| `make optee-tools` | Checks every tool the build needs (list under "CI"). A missing tool fails with its name and what to install, then exits non-zero. No skip |
-| `make optee-qemu` | `optee-tools`, then fetches the pinned manifest, builds the stack, builds the TA and `tfw-ta-check` and installs both into the guest image (TA into tee-supplicant's TA directory, `/lib/optee_armtz/`) |
-| `make optee-run` | Boots QEMU `virt` with the stack, headless. `OPTEE_SHARE=<dir>` mounts a host directory in the guest over virtio-9p; `OPTEE_GUEST_CMD=<cmd>` runs a command there after `tee-supplicant` starts, and the target exits with that command's status |
+| `make optee-tools` | Checks every tool the build needs (list under "CI"), then fetches the pinned release and its toolchains into `OPTEE_CACHE`. A missing tool fails with its name and what to install, then exits non-zero. No skip |
+| `make optee-qemu` | `optee-tools` (which fetches the pinned manifest), then builds the stack, builds the TA and `tfw-ta-check` and installs both into the guest image (TA into tee-supplicant's TA directory, `/lib/optee_armtz/`) |
+| `make optee-run` | Boots QEMU `virt` with the stack, headless. `OPTEE_SHARE=<dir>` mounts a host directory in the guest over virtio-9p (with no `OPTEE_SHARE`, an empty share is mounted); `OPTEE_GUEST_CMD=<cmd>`, required (an empty one is refused), runs a command there after `tee-supplicant` starts, and the target exits with that command's status |
 | `make integration-test-optee` | `optee-run` with `xtest` (upstream's smoke subset) and then `tfw-ta-check`. Fails on any failure of either |
 
 The TA reaches the guest through a second Buildroot rootfs overlay, chosen in
@@ -161,7 +161,7 @@ listed are `TEEC_NONE`.
 |---|---|---|---|---|---|---|
 | `0x00000000` | — | | | | `TEE_ERROR_NOT_SUPPORTED` | reserved, never assigned |
 | `0x00000001` | `GET_INFO` | `VALUE_OUTPUT`: `a` = interface version (1), `b` = 0 (flags, reserved) | | | `TEE_SUCCESS` | implemented (#253) |
-| `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096 | implemented (#253) |
+| `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096, or no buffer | implemented (#253) |
 | `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext, 0 to 8192 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: sealed blob, at most 8238 bytes | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a plaintext above 8192 bytes | implemented (#288) |
 | `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob, at most 8238 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_BAD_FORMAT` (`0xFFFF0005`) for a blob that does not parse; `TEE_ERROR_SHORT_BUFFER` with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a blob above 8238 bytes | implemented (#288) |
 
@@ -223,7 +223,7 @@ The lane image has none of these; the CI job needs them all.
 |---|---|
 | `repo` (Google's tool) and `git` | fetch the pinned manifest |
 | aarch64 and arm (32-bit) GNU cross toolchains, as the pinned `build` asks (`make toolchains` there fetches them) | optee_os, TF-A, Linux, the TA and `tfw-ta-check` |
-| The host packages OP-TEE's build documents for the pinned release (among them Python 3 with `cryptography` and `pyelftools` for TA signing, `ninja`, `meson`, `glib`, `pixman` for QEMU, the OpenSSL headers (`libssl-dev`) for U-Boot's host tools, `expect`) | build the stack and QEMU |
+| The host packages `mk/optee.mk` checks, by Debian package: `git`, `curl`, `python3`, `build-essential`, `patch`, `perl`, `file`, `bzip2`, `xz-utils`, `unzip`, `rsync`, `wget`, `cpio`, `bc`, `bison`, `flex`, `device-tree-compiler`, `ninja-build`, `pkg-config`; the libraries `libglib2.0-dev`, `libpixman-1-dev`, `libslirp-dev`, `libgnutls28-dev` for QEMU and `libssl-dev` for U-Boot's host tools; `python3-cryptography` and `python3-pyelftools` for TA signing; `python3-venv` (ensurepip) for QEMU's configure | build the stack and QEMU |
 | Several GB of disk and a build of tens of minutes, once per pin | the full stack, Linux and Buildroot included; cached by pin (open question 6) |
 
 The QEMU binary is the one the manifest builds, not a distribution package, so

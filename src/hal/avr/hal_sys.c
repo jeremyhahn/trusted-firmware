@@ -40,7 +40,7 @@ tfw_reset_cause_t tfw_hal_reset_cause(void)
      * already read MCUSR a second time and found it clear: whatever ran
      * before us -- tfw-boot, or a stock bootloader with no handoff at all --
      * got there first. Falling back to our own latch (decoded inline: the application has no use for the
-     * out-of-line copy in hal_early.c, which only tfw-boot links in) is exactly what a
+     * out-of-line tfw_hal_early_reset_cause() in hal_early.c, which only tfw-boot calls) is exactly what a
      * stock bootloader's case needs: no handoff exists, MCUSR was already
      * zero by the time even OUR .init3 ran, and TFW_RESET_UNKNOWN is the
      * honest answer -- see docs/device-capabilities/.

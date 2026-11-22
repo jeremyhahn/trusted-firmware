@@ -113,8 +113,9 @@
 
 /*
  * USART0's divisor and double-speed bit, by data-space address. The same three
- * addresses on the 328P, the 32U4 and the 2560; simavr keeps the avr_uart_t
- * that holds them private, so there is no accessor to ask.
+ * addresses on the 328P and the 2560, the two boards mk/bench.mk benches (the
+ * 32U4 has no USART0); simavr keeps the avr_uart_t that holds them private, so
+ * there is no accessor to ask.
  */
 #define R_UCSR0A 0x00C0u
 #define R_UBRR0L 0x00C4u
@@ -691,7 +692,7 @@ static int find_response(uint8_t seq, unsigned *last_index)
  * thing the latency budget is about, which is how much of the exchange is wire
  * and how much is firmware.
  *
- * Returns 0 on success and fills the three instants the budget is expressed in.
+ * Returns 0 on success and fills the four instants of exchange_t.
  */
 /*
  * The four instants an exchange is measured between.

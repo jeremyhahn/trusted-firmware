@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
@@ -17,6 +18,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // diceVectors are the secure DICE service's answers for one fixed input,
@@ -170,6 +173,128 @@ func TestDICEAttestationRefusals(t *testing.T) {
 			require.Error(t, err)
 			var ee *EvidenceError
 			require.ErrorAs(t, err, &ee)
+		})
+	}
+}
+
+// selfDICEChain plays both the manufacturer and the device: a root, a
+// DeviceID certificate under it, and an alias certificate the DeviceID key
+// signs over aliasPub (a fresh P-256 key when nil) carrying uccs as its
+// tcg-dice-UCCS-evidence extension (none when uccs is nil). The signature
+// over the nonce is by a P-256 alias key, so a chain built over a valid
+// UCCS gets past the alias signature to the claims checks.
+func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, roots *x509.CertPool) {
+	t.Helper()
+	now := time.Now()
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	rootTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test manufacturer root"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, &rootKey.PublicKey, rootKey)
+	require.NoError(t, err)
+	root, err := x509.ParseCertificate(rootDER)
+	require.NoError(t, err)
+
+	devKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	devTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "tfw DeviceID"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	devDER, err := x509.CreateCertificate(rand.Reader, devTmpl, root, &devKey.PublicKey, rootKey)
+	require.NoError(t, err)
+	devID, err := x509.ParseCertificate(devDER)
+	require.NoError(t, err)
+
+	aliasKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	if aliasPub == nil {
+		aliasPub = &aliasKey.PublicKey
+	}
+	aliasTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "tfw Alias"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+	}
+	if uccs != nil {
+		aliasTmpl.ExtraExtensions = []pkix.Extension{{Id: oidUCCSEvidenceLiteral, Critical: true, Value: uccsEvidence(t, uccs)}}
+	}
+	aliasDER, err := x509.CreateCertificate(rand.Reader, aliasTmpl, devID, aliasPub, devKey)
+	require.NoError(t, err)
+
+	nonce = []byte(vectors.AppEvWithUccs)[4:36]
+	digest := sha256.Sum256(nonce)
+	r, s, err := ecdsa.Sign(rand.Reader, aliasKey, digest[:])
+	require.NoError(t, err)
+	sig := append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...)
+	obj, err = DICEAttestationObject(aliasDER, devDER, nonce, sig)
+	require.NoError(t, err)
+	pool := x509.NewCertPool()
+	pool.AddCert(root)
+	return obj, nonce, pool
+}
+
+// TestDICEAttestationClaimsRefusals reaches the checks after the alias
+// signature: each case is one change from a chain that verifies.
+func TestDICEAttestationClaimsRefusals(t *testing.T) {
+	ex := []byte(vectors.AppEvExample)
+
+	obj, nonce, roots := selfDICEChain(t, build(t, ex, nil), nil)
+	ev, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+	require.NoError(t, err)
+	require.Equal(t, ex, ev.FWHash)
+
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	otherNonce := bytes.Clone([]byte(vectors.AppEvWithUccs)[4:36])
+	otherNonce[0] ^= 0x01
+
+	cases := []struct {
+		name     string
+		uccs     []byte
+		aliasPub any
+		reason   string
+	}{
+		{"eat_nonce of another challenge", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				p.claims[0].v = otherNonce
+			}
+		}), nil, "the alias certificate's eat_nonce is not the challenge nonce"},
+		{"Ed25519 alias key", build(t, ex, nil), edPub, "the alias key is not ECDSA"},
+		{"UCCS not CBOR", []byte{0xff}, nil, "the UCCS is not CBOR"},
+		{"no claim 273", build(t, ex, func(layer string, p *parts) {
+			if layer == "claims" {
+				p.claims = p.claims[:2]
+			}
+		}), nil, "no TCB measurement (claim 273)"},
+		{"content type 257", build(t, ex, func(layer string, p *parts) {
+			if layer == "content" {
+				p.ct = uint64(257)
+			}
+		}), nil, "the measurement is not a CoSWID"},
+		{"CoSWID not CBOR", build(t, ex, func(layer string, p *parts) {
+			if layer == "content" {
+				p.coswidBytes = []byte{0xff}
+			}
+		}), nil, "the CoSWID is not CBOR"},
+		{"hash algorithm 7", build(t, ex, func(layer string, p *parts) {
+			if layer == "file" {
+				p.file[0].v = []any{uint64(7), ex}
+			}
+		}), nil, "the CoSWID carries no SHA-256 file hash"},
+		{"31-byte hash", build(t, ex[:31], nil), nil, "the file hash is not 32 bytes"},
+		{"no UCCS extension", nil, nil, "no tcg-dice-UCCS-evidence extension"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			obj, nonce, roots := selfDICEChain(t, c.uccs, c.aliasPub)
+			_, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+			var ee *EvidenceError
+			require.ErrorAs(t, err, &ee)
+			require.Equal(t, c.reason, ee.Reason)
 		})
 	}
 }

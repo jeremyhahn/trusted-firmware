@@ -10,7 +10,9 @@
  * writes, the device configuration word, errata 32, 40 and 31 on the first
  * revision only, the RESETREAS pin-reset fold, CLOCK.TASKS_XOSTART; on arm
  * WDT CRV for 8 s, RREN, CONFIG, INTEN and NMIEN off and TASKS_START; on pet
- * the reload value in RR[0]. A board has not run them.
+ * the reload value in RR[0]; and tfw_cm_soc_reset_cause's take of
+ * RESET.RESETREAS: read, cleared with every bit, and SREQ the firmware's own
+ * only under TFW_CM_MARK_RESETREQ. A board has not run them.
  */
 #include <stdint.h>
 
@@ -228,6 +230,50 @@ static void test_pet_writes_the_reload_value(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
 }
 
+/* ---- tfw_cm_soc_reset_cause */
+
+/* RESET.RESETREAS bits, from the nrfx MDK (nrf54l15_application.h,
+ * RESET_RESETREAS_*_Pos), as test_nrf54l_reset.c copies them. */
+#define RESETREAS_RESETPIN_BIT (1uL << 0)
+#define RESETREAS_DOG0_BIT     (1uL << 1)
+#define RESETREAS_SREQ_BIT     (1uL << 6)
+
+static void test_reset_cause_sreq_is_software_only_under_the_resetreq_mark(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_PANIC));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_cm_soc_reset_cause(0u));
+}
+
+static void test_reset_cause_reads_resetreas(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_WATCHDOG,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = RESETREAS_RESETPIN_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = 0u;
+    TEST_ASSERT_EQUAL(TFW_RESET_POWER_ON,
+                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+}
+
+/* RESETREAS is write-1-to-clear: the take writes every bit. */
+static void test_reset_cause_clears_every_bit(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT | RESETREAS_SREQ_BIT;
+    (void)tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(RESETREAS_ADDR));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -246,5 +292,8 @@ int main(void)
     RUN_TEST(test_arm_programs_and_starts_the_watchdog);
     RUN_TEST(test_arm_when_running_is_a_pet);
     RUN_TEST(test_pet_writes_the_reload_value);
+    RUN_TEST(test_reset_cause_sreq_is_software_only_under_the_resetreq_mark);
+    RUN_TEST(test_reset_cause_reads_resetreas);
+    RUN_TEST(test_reset_cause_clears_every_bit);
     return UNITY_END();
 }

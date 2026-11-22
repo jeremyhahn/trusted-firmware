@@ -6,8 +6,9 @@
 use, and actionlint reports any other label as an unknown runner. `make lint`
 does not run actionlint yet (#615), so no CI check reads the labels, and a
 misspelled self-hosted label would reach main through a green gate. These tests
-read the allowlist and every `runs-on:` key (scalar, list, or group/labels
-mapping) of .github/workflows/*.yml and *.yaml with
+read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
+group/labels mapping, a flow list or mapping on one line or across several) of
+.github/workflows/*.yml and *.yaml with
 the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. A label inside a `${{ }}` expression is skipped,
@@ -26,7 +27,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # The labels actionlint accepts on a self-hosted runner without an allowlist.
 BUILTIN = {"self-hosted", "linux", "macos", "windows", "x64", "arm64", "arm"}
 
-RUNS_ON = re.compile(r"^(\s*)(?:-\s+)?runs-on:(.*)$")
+RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
 ENTRY = re.compile(r"^(\s*)([\w-]+):(\s.*)?$")
 FLOW_LABELS = re.compile(r"[{,]\s*labels\s*:\s*(\[[^\]]*\]|[^,}]*)")
@@ -75,8 +76,12 @@ def plain_labels(text):
     The value is a scalar (`codex`), a flow list (`[self-hosted, linux]`), a
     block list on the lines after an empty `runs-on:`, or a mapping whose
     `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
-    `labels:` keys on the lines after `runs-on:`); `group:` is not a label. A
-    value that starts with `${{` is an expression and yields nothing.
+    `labels:` keys on the lines after `runs-on:`); `group:` is not a label. The
+    key may be quoted (`'runs-on':` or `"runs-on":`), and a flow list or
+    mapping that does not close on the `runs-on:` line takes the following
+    lines until it closes (an unclosed one yields nothing); its labels carry
+    the `runs-on:` line number. A value that starts with `${{` is an
+    expression and yields nothing.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -84,6 +89,14 @@ def plain_labels(text):
         if not key:
             continue
         value = _value(key.group(2))
+        close = {"[": "]", "{": "}"}.get(value[:1])
+        if close and not value.endswith(close):
+            for j in range(i + 1, len(lines)):
+                value = f"{value} {_value(lines[j])}".strip()
+                if value.endswith(close):
+                    break
+            else:
+                continue
         if value.startswith("{") and value.endswith("}"):
             entry = FLOW_LABELS.search(value)
             for label in _labels(_value(entry.group(1)) if entry else ""):
@@ -190,6 +203,25 @@ class RunnerLabelsTest(unittest.TestCase):
             )
             found = unknown(tmp, allowlist(ACTIONLINT))
         self.assertEqual(found, ["w.yaml:3: qwne"])
+
+    def test_a_quoted_runs_on_key_is_read(self):
+        for key in ("'runs-on'", '"runs-on"'):
+            found = self.check(f"jobs:\n  build:\n    {key}: qwne\n")
+            self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_flow_value_across_lines_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: [self-hosted,\n      qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: {group: g,\n      labels: qwne}\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: [self-hosted,\n      codex]\n"
+        )
+        self.assertEqual(found, [])
 
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)

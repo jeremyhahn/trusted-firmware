@@ -77,6 +77,20 @@ static void test_start_programs_the_network_and_dials_the_endpoint(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_BUSY, tfw_eth_state());
 }
 
+/* w5x00.c:117: all four bytes of the mask reach SUBR. cfg's mask ends in 0,
+ * the value SUBR holds after a reset, so a /29 is programmed here. */
+static void test_start_programs_every_byte_of_a_mask_that_does_not_end_in_zero(void)
+{
+    tfw_netcfg_t c = cfg;
+    uint8_t      i;
+
+    c.mask[3] = 248u;                                         /* /29 */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_eth_start(&c, 50000u));
+    for (i = 0u; i < 4u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(c.mask[i], w5x_model_common((uint16_t)(0x05u + i)));
+    }
+}
+
 static void test_start_refuses_the_other_chip_and_never_writes_to_it(void)
 {
     w5x_model_reset(OTHER);
@@ -464,6 +478,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_start_programs_the_network_and_dials_the_endpoint);
+    RUN_TEST(test_start_programs_every_byte_of_a_mask_that_does_not_end_in_zero);
     RUN_TEST(test_start_refuses_the_other_chip_and_never_writes_to_it);
     RUN_TEST(test_start_refuses_an_empty_socket_either_way_miso_floats);
     RUN_TEST(test_a_w5100_is_known_by_its_retry_registers_a_w5500_by_its_version);

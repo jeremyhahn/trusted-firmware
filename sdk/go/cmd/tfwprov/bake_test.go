@@ -177,6 +177,22 @@ func TestRunBakeStopsOnABadNetblockFlag(t *testing.T) {
 	}
 }
 
+func TestRunBakeRefusesARecordWithoutThePlatformBlock(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "net.eep")
+	rec := filepath.Join(dir, "device.json")
+	err := runBake(out, false, "", "", "", true, benchFlags(), rec)
+	if err == nil || !strings.Contains(err.Error(), "--record needs the serial") {
+		t.Fatalf("err = %v, want the --record needs the serial refusal", err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an image was written for a refused record: %v", err)
+	}
+	if _, err := os.Stat(rec); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a record was written without a serial: %v", err)
+	}
+}
+
 // Mutation tests for what runBake parses: the platform-block flags, the
 // network-block flags and the image it bakes. A bad input is refused before a
 // file is created; a good one round-trips byte for byte. Every case here is

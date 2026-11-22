@@ -1,7 +1,8 @@
 # Reproducible builds
 
-> **Status: NORMATIVE** · Scope: `mk/firmware.mk`, `mk/arch/`, `make reproducible-check`
-> · Last verified: 2026-09-22
+> **Status: NORMATIVE** · Scope: `mk/firmware.mk`, `mk/boot.mk`, `mk/arch/`, `scripts/repro_build.py`,
+> `make reproducible-check`, `make bootloader-reproducible-check`
+> · Last verified: 2026-11-21
 >
 > This is a requirement, not a property we happen to have. It is checked on
 > every commit and a regression fails the build.
@@ -26,10 +27,11 @@ So reproducibility is the difference between attestation and ceremony.
 | | why |
 |---|---|
 | `SOURCE_DATE_EPOCH` | pins anything time-derived in the toolchain |
-| `-ffile-prefix-map` | strips the build directory, so its absolute path does not end up in the image |
+| `-ffile-prefix-map` | strips the build directory, so its absolute path does not end up in the image (`$(CURDIR)=.`, `mk/firmware.mk`) |
+| `APP_PREFIX_MAP` | an application's own `-ffile-prefix-map=$(APP_ABS)=app`, after the build directory's, so the image does not record where the application was built (`mk/app.mk`) |
 | `-frandom-seed=$(notdir $<)` | GCC's internal symbol naming is otherwise seeded per invocation |
-| `$(sort …)` over the object list | link order is deterministic, not filesystem order |
-| no `__DATE__`, no `__TIME__` | greped for in `make lint`; either one makes the image unreproducible by construction |
+| `$(sort …)` over the source list | link order is deterministic, not filesystem order (`FW_SRCS`, `mk/firmware.mk`) |
+| no `__DATE__`, no `__TIME__` | grepped for in `make lint` (`lint-timestamps`); either one makes the image unreproducible by construction |
 | **a pinned toolchain** | the biggest one — see below |
 
 ## The toolchain is the part that bites
@@ -51,17 +53,43 @@ the compiler, the claim is not falsifiable.
 ## The check
 
 ```sh
-make reproducible-check BOARD=atmega328p
-make reproducible-check BOARD=atmega328p CRYPTO=atecc608a
+# the firmware image, one command per tier of the board (BOARD_TIERS)
+make reproducible-check BOARD=atmega2560 CRYPTO=soft
+make reproducible-check BOARD=atmega2560 CRYPTO=atecc608a
+# the application's image: APP_DIR names it, as the build stage does
+make reproducible-check APP_DIR=test/app/example BOARD=atmega2560
+# tfw-boot, on the ATmega2560 soft base row
+make bootloader-reproducible-check
 ```
 
-It builds the same source twice **in two different directories** and fails if
-the `.hex` files differ. Two different directories specifically, because the
-most common reproducibility defect is a path leaking into the image, and a check
-that builds twice in the same place cannot see it.
+Each builds the image twice, each time from a clean copy of the committed
+source in its own directory, and fails unless the two `.hex` files are
+byte-identical. Both targets run `scripts/repro_build.py` (`mk/firmware.mk`
+`reproducible-check`, `mk/boot.mk` `bootloader-reproducible`). A clean copy is
+`git archive HEAD`, so no `build/`, no untracked file and no uncommitted edit
+reaches it, and an image a previous build left behind cannot satisfy the check:
+what is checked is the commit, not the working tree. Each build runs with
+`SOURCE_DATE_EPOCH` set to the commit time (`git log -1 --format=%ct HEAD`).
 
-The crypto tier is part of the build path, so the soft and element images are
-separate artifacts with separate measurements. They are different firmware.
+Two different directories specifically, because the most common
+reproducibility defect is a path leaking into the image, and a check that
+builds twice in the same place cannot see it.
+
+With `APP_DIR`, the image checked is the application's (`$(TARGET)` carries its
+name). An application inside this tree is built from each clean copy, so it
+must be committed; one outside it is the same directory for both builds,
+passed by absolute path (`repro_build.py --app-dir`). `make build` runs
+`reproducible-check` with `APP_DIR=test/app/example BOARD=atmega2560` and
+`bootloader-reproducible-check` (`mk/stages.mk`). The bootloader check builds
+the ATmega2560 row `BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft
+BOOT_OTA=0 BOOT_STORE=0`; `make bootloader-reproducible` checks whatever row
+its `BOOT_*` variables name.
+
+The crypto tier is part of the build path, so on a board with more than one
+tier (`BOARD_TIERS` in its `boards/<board>/profile.mk`) each tier's image is a
+separate artifact with its own measurement: they are different firmware. The
+ATmega328P has one tier, `atecc608a`, and refuses `CRYPTO=soft`
+(`BOARD_REFUSED_TIERS`).
 
 ## What a verifier does with this
 

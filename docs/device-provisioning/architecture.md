@@ -1,6 +1,6 @@
 # Device provisioning — architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 Provisioning is what turns a blank part into a device with an identity: fuses
@@ -21,9 +21,9 @@ tests), [`cli.md`](cli.md) (`tfwprov` verbs and flags), [`api.md`](api.md)
 
 | Component | Owns | Cannot |
 |---|---|---|
-| ISP programmer (`avrdude`) | fuses, lock bits | touch the secure element or EEPROM |
-| `tfwprov` (`sdk/go/cmd/tfwprov`) | drives the ATECC608A over the wire protocol | set fuses, set lock bits, or write the platform-reserved EEPROM region |
-| `src/caps/provision.c` | the six `PROV_*` command handlers: the wire alone | exist in a production build — `TFW_FEATURE_PROVISION` defaults to 0 and the file is not compiled in |
+| ISP programmer (`avrdude`) | fuses, lock bits, and flashing the `.eep` image `tfwprov` baked into EEPROM | touch the secure element |
+| `tfwprov` (`sdk/go/cmd/tfwprov`) | drives the ATECC608A over the wire protocol, including a P-256 public key into element slot 2 or 15 (`--write-pubkey`); writes the platform-block and network-block `.eep` images (`--bake-eeprom`, `--bake-netblock`) without touching a device | set fuses, set lock bits, or write the platform-reserved EEPROM region on a device |
+| `src/caps/provision.c` | the seven `PROV_*` command handlers (0x70-0x75 and `PROV_WRITE_PUBKEY`, 0x7B): the wire alone | exist in a production build — `TFW_FEATURE_PROVISION` defaults to 0 and the file is not compiled in |
 | `src/caps/provision_atecc.c` | the backend those handlers call on an element part: the ATECC608A transactions | the same; the ESP32's `hmac-p256` tier links `src/caps/provision_uds.c` in its place ([`esp32-p4-design.md`](../multi-arch/esp32-p4-design.md) §2.4) |
 | `sdk/go/provision.go` | typed host calls (`Device.Prov*`) over `sdk/go` | generate or read back any secret; the element refuses reading a never-readable slot |
 | bench bake image (`make platform-bake`, `tools/platform-bake/`) | writing the one platform block `tfwprov --bake-eeprom` produced into `[0x000, 0x0C0)` on a bench part that still runs its stock serial bootloader | encode a block itself, overwrite a different valid block, write outside the region, run on a production part (`tfw-boot` takes signed images only and this image is never vendor-signed), set fuses or lock bits, or link into an application image (`make platform-bake-no-link-check`) |
@@ -36,6 +36,10 @@ each enforces its own irreversibility separately (see below).
 ## Data flow
 
 ```
+tfwprov --bake-eeprom [--bake-netblock]
+                    -- writes the platform block (and the network block)
+                       as one .eep image; touches no device
+   |
 avrdude: fuses (BOOTRST, BOOTSZ, BODLEVEL on, DWEN off)
    |
 make flash: bootloader + application, built with a PROVISIONING image
@@ -44,6 +48,9 @@ tfwprov --dry-run   -- prints the plan, writes nothing
 tfwprov --commit    -- writes config blocks, locks config zone,
                        generates the DeviceID key, seeds the UDS,
                        locks data zone            (--yes-i-mean-it required)
+tfwprov --write-pubkey <file> --slot 2|15
+                    -- writes a P-256 public key into the image-signing
+                       or secure-boot slot; needs the config zone locked
 tfwprov --verify    -- reads the part back, compares against the template
    |
 avrdude: lock bits (BLB1/LB mode 3, BLB0 unprogrammed), only now
@@ -52,7 +59,9 @@ make lock-check     -- reads the lock byte back; refuses unless the profile's
                        BOOT_LOCK_PROGRAMMED bits read programmed
 ```
 
-`tfwprov`'s three modes are described in full in [`cli.md`](cli.md); the exact
+`tfwprov`'s modes (`--dry-run`, `--verify`, `--commit`, `--write-pubkey`, and
+the bake modes `--bake-eeprom` and `--bake-netblock`) are described in full in
+[`cli.md`](cli.md); the exact
 `--commit` sequence, matching `runCommit` in `sdk/go/cmd/tfwprov/steps.go`, is
 in [`engineering.md`](engineering.md).
 
@@ -72,7 +81,7 @@ in [`engineering.md`](engineering.md).
 - **Jig-only, by file selection, not a runtime flag.** `TFW_FEATURE_PROVISION`
   defaults to `0`; the Makefile excludes `src/caps/provision.c` and its backend
   from the object list and `src/core/commands.def` emits no dispatch entries for `0x70`–`0x75`
-  under `#if TFW_FEATURE_PROVISION`. A production part answers `TFW_ERR_UNKNOWN_CMD`
+  and `0x7B` under `#if TFW_FEATURE_PROVISION`. A production part answers `TFW_ERR_UNKNOWN_CMD`
   to every provisioning command id, because there is no handler to answer with —
   not a disabled one. A device that could be re-provisioned over its own command
   channel would have no identity worth attesting to.

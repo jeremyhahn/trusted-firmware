@@ -12,10 +12,10 @@
  * (boot/hal/esp32/l0_gate.c; docs/multi-arch/esp32-p4-design.md section 2.2).
  *
  * Which boards link it is decided by the object list, never by a conditional
- * here: a board whose profile.mk sets OTA_MANIFEST := 1 on the element tier gets
- * src/core/suit.c (mk/firmware.mk), the ESP32 bootloader lists it
- * (boot/hal/esp32/bootloader_components/main/CMakeLists.txt), and no other
- * board carries a byte of it.
+ * here: a board whose profile.mk sets OTA_MANIFEST := 1 on CRYPTO=atecc608a
+ * or CRYPTO=auto gets src/core/suit.c (mk/firmware.mk), the ESP32 bootloader
+ * lists it (boot/hal/esp32/bootloader_components/main/CMakeLists.txt), and no
+ * other board carries a byte of it.
  *
  * Accepted, byte for byte in this order and nothing else:
  *
@@ -69,7 +69,8 @@ typedef struct {
  * against the board's image key; `out` is written only then.
  *
  *   TFW_ERR_RANGE        truncated, or a length past what is there or allowed
- *   TFW_ERR_UNSUPPORTED  a member, type, tag or algorithm the profile lacks
+ *   TFW_ERR_UNSUPPORTED  a member, type, tag or algorithm the profile lacks,
+ *                        or a tier with no stored image key
  *   TFW_ERR_CRYPTO       the manifest digest or the signature does not hold */
 tfw_status_t tfw_suit_read(const uint8_t *env, uint16_t len, tfw_suit_manifest_t *out);
 

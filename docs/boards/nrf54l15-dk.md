@@ -77,7 +77,8 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
 
 ### Remaining slices
 
-1. **Host tests for tfw-boot's nRF54L halves** (no hardware): tests for
+1. **Host tests for tfw-boot's nRF54L halves** (no hardware): **done** by
+   #529, the two test files below passing in `make boot-test`. Tests for
    `boot/hal/cortex-m/nrf54l/boot_uart.c` (`INTEN` 0, one byte per transfer,
    the reset values put back before the jump) and `boot_rram.c` (`WEN` only
    inside the write, a span below the region end refused, a bounded wait that
@@ -136,7 +137,8 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
 ## The port (#17)
 
 The board on the generic Cortex-M port, application only, soft tier. The
-pin table is the four LEDs then the four buttons. `make firmware
+pin table is the four LEDs, then the four buttons, then the SAADC's AIN2-AIN5
+on P1.6, P1.7, P1.11 and P1.12 as pins 8-11 (ADC channels 0-3). `make firmware
 BOARD=nrf54l15-dk CRYPTO=soft` builds it in `firmware-matrix`, and CI builds
 it again in the toolchain image.
 

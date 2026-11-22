@@ -11,8 +11,8 @@ analog read (`analog.c`), PWM and tone (`pwm.c`, `tone.c`), pulse measurement
 and edge capture (`pulse.c`), EEPROM storage (`storage.c`), and the I2C/SPI/
 1-Wire bus commands (`bus.c`) — plus the board descriptor
 (`include/tfw/board.h`, `boards/*`) and the link-time HAL
-(`include/tfw/hal.h`, `src/hal/avr/*`) that let one source tree serve four
-boards. `attest.c`, `alias.c`, `uccs.c` and `provision.c` live in the same
+(`include/tfw/hal.h`, `src/hal/$(ARCH)/*`) that let one source tree serve
+every board under `boards/`. `attest.c`, `alias.c`, `uccs.c` and `provision.c` live in the same
 directory but are a different owner; see `../attestation/` and
 `../device-provisioning/user.md`.
 
@@ -22,9 +22,14 @@ directory but are a different owner; see `../attestation/` and
 L3  DISPATCH   src/core/dispatch.c    reads args, calls a capability, writes a reply
 L2  CAPABILITY src/caps/*.c           resolves the board, calls the HAL, enforces refusals
 L1b BOARD      src/core/board_lookup.c + boards/*/board.c   pin/PWM/ADC lookup, pure data
-L1a HAL        src/hal/avr/*.c        register access, one implementation per image
-L0  REGISTERS  <avr/io.h>
+L1a HAL        src/hal/$(ARCH)/*.c    register access, one implementation per image
+L0  REGISTERS  <avr/io.h> on AVR; the part's register headers elsewhere
 ```
+
+`ARCH` is `avr`, `cortex-m` or `esp32`; an architecture that spans several
+families keeps each SoC's peripherals in a directory under it
+(`src/hal/cortex-m/mps2/`, chosen by the board profile's `SOC`; see
+`mk/firmware.mk`). The AVR names in this document are the example.
 
 L3 never touches the HAL and does not know a pin exists — that is what makes
 the protocol layer testable on x86 with no mock of the dispatcher. L1b sits
@@ -39,13 +44,18 @@ wrong by watching the wrong LED on a bench. Full layer contract:
 `tfw_gpio_cmd_mode` resolves the logical pin via `tfw_board_pin` and refuses it
 if `TFW_PIN_RESERVED | TFW_PIN_IN_USE` → `tfw_hal_gpio_mode` writes the register.
 Every capability in this folder follows that shape: resolve and refuse at L2,
-touch hardware at L1a. None of them call `tfw_hal_*` before checking board
-flags.
+touch hardware at L1a. A handler that drives or configures a pin checks
+`TFW_PIN_RESERVED | TFW_PIN_IN_USE` before any `tfw_hal_*` call. The read
+handlers do not, on purpose: `tfw_gpio_cmd_read` (`src/caps/gpio.c`),
+`tfw_pulse_cmd_in` and `tfw_pulse_cmd_capture` (`src/caps/pulse.c`) and
+`tfw_analog_cmd_read` (`src/caps/analog.c`) resolve the pin and read it even
+when it is reserved, because observing a line does not drive it.
 
 ## The HAL is substituted at link time, never through a vtable
 
 `include/tfw/hal.h` declares plain `extern` functions; the Makefile links
-exactly one implementation (`src/hal/avr` or `test/mock`). A function-pointer
+exactly one implementation (`src/hal/$(ARCH)`, such as `src/hal/avr`, or
+`test/mock`). A function-pointer
 vtable would cost 68 bytes of RAM on an ATtiny85 — a fifth of its SRAM — and
 every slot would be a live reference, so `--gc-sections` could no longer drop
 an unused peripheral's code from an image that never calls it. Link-time
@@ -67,8 +77,8 @@ non-blocking so the scheduler sweep never misses a deadline.
 the per-architecture HAL directories `src/hal/*/` and `boot/hal/*/` — plus the
 toolchain shim in `include/tfw/progmem.h`. Everywhere else, including every file
 in `src/caps/`, a feature is gated by including or excluding the whole `.c`
-file from the object list; `make lint` greps all of `src/`, `boot/` and
-`tools/` (`*.c` and `*.h`, include guards aside, vendored `src/third_party`
+file from the object list; `make lint` greps all of `src/`, `boot/`,
+`tools/` and `optee/` (`*.c` and `*.h`, include guards aside, vendored `src/third_party`
 excepted) for violations. The cost of `#if` in logic is that no single build is ever the one
 that was tested — `TFW_FEATURE_TONE 0` on the ATmega32U4 keeps `tone.c` and
 `hal_tone.c` out of the image entirely rather than compiling a dead branch.
@@ -102,10 +112,11 @@ code, and this firmware **is** the application, so the check has to live
 here or it does not exist. Full attestation-boundary detail, including why
 reads of the EEPROM region are allowed: `../dice-attestation/architecture.md`.
 
-## The board descriptor and the four boards
+## The board descriptor and the boards
 
-`boards/atmega328p`, `atmega2560`, `atmega32u4` and `attiny85` each supply
-three tables (`tfw_board_ports`, `tfw_board_pins`, `tfw_board_pwms`) and nothing
+The `boards/` directory is the list of boards; each has its own `board.c`.
+The AVR family, `boards/atmega328p`, `atmega2560`, `atmega32u4` and
+`attiny85`, each supply three tables (`tfw_board_ports`, `tfw_board_pins`, `tfw_board_pwms`) and nothing
 else — no functions, no register access. The lookups that read those tables
 live once in `src/core/board_lookup.c`, identical on every classic AVR. Adding
 a board is data, not code; the full contract, including the two peripheral

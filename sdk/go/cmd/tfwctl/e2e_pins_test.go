@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -20,7 +21,7 @@ type peerBoard struct {
 	// from power-on. A real board was just reset through DTR, and its stock
 	// bootloader cleared MCUSR before the application could latch it, so the
 	// honest answer is unknown (src/hal/avr/hal_sys.c). It holds only where
-	// Start resets the peer: see resetCauseHolds.
+	// Start resets the peer: see causes.
 	resetCause tfw.ResetCause
 	// heldCauses are what a board found running (a TCP wire, no reset) may
 	// report: the cause of its last boot, which the run did not choose. Nil
@@ -44,6 +45,15 @@ type peerBoard struct {
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 	pulsePin   uint8          // a digital pin nothing drives, so pulse-in times out
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
+}
+
+// causes are the reset causes the SYS row accepts: resetCause on a board the
+// run resets, heldCauses on one it finds running.
+func (b peerBoard) causes(resets bool) []tfw.ResetCause {
+	if resets || b.heldCauses == nil {
+		return []tfw.ResetCause{b.resetCause}
+	}
+	return b.heldCauses
 }
 
 var peerBoards = map[string]peerBoard{
@@ -187,28 +197,45 @@ func TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne(t *testing.T) {
 	}
 }
 
-// resetCauseHolds reports whether the Sys row accepts got as board b's reset
-// cause on target. Start resets a simulator or a serial board, so the cause
-// is the board's resetCause; a TCP wire finds the board running after
-// whatever restart it last had, a software one among them, so there no one
-// cause is established (Codex P1 on #568).
-func resetCauseHolds(b peerBoard, target peer.Target, got tfw.ResetCause) bool {
-	return !target.Resets() || got == b.resetCause
-}
-
-func TestSysRowFixesTheResetCauseOnlyWhereStartResets(t *testing.T) {
+// TestSysRowCausesFollowTheTargetsReset drives causes, the selection
+// TestFirmwareSys hands sysRow. Start resets a simulator or a serial board,
+// so the cause is the board's resetCause; a TCP wire finds the board running
+// after whatever restart it last had, a software one among them, so there
+// the row takes the board's heldCauses (Codex P1 and P2 on #568).
+func TestSysRowCausesFollowTheTargetsReset(t *testing.T) {
 	p4 := peerBoards["esp32p4-poe"]
 	tcp := peer.Target{Board: "esp32p4-poe", Port: peer.TCPPrefix + "<board>:21574"}
-	if !resetCauseHolds(p4, tcp, tfw.ResetSoftware) {
-		t.Error("esp32p4-poe over TCP: a software restart fails the Sys row")
+	if tcp.Resets() {
+		t.Fatal("esp32p4-poe over TCP: Start resets the board")
 	}
+	held := p4.causes(tcp.Resets())
+	for _, c := range []tfw.ResetCause{tfw.ResetSoftware, tfw.ResetPowerOn} {
+		if !slices.Contains(held, c) {
+			t.Errorf("esp32p4-poe over TCP: a %v restart fails the Sys row (accepts %v)", c, held)
+		}
+	}
+	for _, c := range []tfw.ResetCause{tfw.ResetWatchdog, tfw.ResetPanic} {
+		if slices.Contains(held, c) {
+			t.Errorf("esp32p4-poe over TCP: a %v restart passes the Sys row", c)
+		}
+	}
+
 	serial := peer.Target{Board: "atmega2560", Port: "serial"}
-	mega := peerBoards["atmega2560"]
-	if !resetCauseHolds(mega, serial, mega.resetCause) {
-		t.Errorf("atmega2560 reset by Start: its own cause %v fails the Sys row", mega.resetCause)
+	if !serial.Resets() {
+		t.Fatal("atmega2560 on serial: Start does not reset the board")
 	}
-	if resetCauseHolds(mega, serial, tfw.ResetSoftware) {
-		t.Error("atmega2560 reset by Start: a software restart passes the Sys row")
+	mega := peerBoards["atmega2560"]
+	if got, want := mega.causes(serial.Resets()), []tfw.ResetCause{mega.resetCause}; !slices.Equal(got, want) {
+		t.Errorf("atmega2560 reset by Start: the Sys row accepts %v, want %v", got, want)
+	}
+
+	for board, b := range peerBoards {
+		if b.heldCauses != nil {
+			continue
+		}
+		if got, want := b.causes(false), b.causes(true); !slices.Equal(got, want) {
+			t.Errorf("%s, always reset: found running it accepts %v, reset %v", board, got, want)
+		}
 	}
 }
 

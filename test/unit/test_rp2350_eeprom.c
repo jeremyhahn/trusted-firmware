@@ -338,6 +338,20 @@ static void test_an_unchanged_write_credits_nothing(void)
     TEST_ASSERT_EQUAL_UINT32(before, tfw_hal_millis());
 }
 
+/* A stopped SysTick hides no periods: CVR holds at its reload, so the write's
+ * 45 ms of TIMER0 must not be read as 44 crossed periods. */
+static void test_a_write_with_systick_stopped_credits_nothing(void)
+{
+    uint8_t data = 0x24u;
+    tfw_ms_t before = tfw_hal_millis();
+
+    rp_nor_systick_stopped = 1;
+    rp_nor_write_us        = 45000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_erases);
+    TEST_ASSERT_EQUAL_UINT32(before, tfw_hal_millis());
+}
+
 int main(void)
 {
     if (!rp_nor_model_map()) {
@@ -361,5 +375,6 @@ int main(void)
     RUN_TEST(test_a_tick_between_the_phase_and_pending_reads_counts_once);
     RUN_TEST(test_repeated_writes_with_a_tick_between_the_reads_keep_time);
     RUN_TEST(test_an_unchanged_write_credits_nothing);
+    RUN_TEST(test_a_write_with_systick_stopped_credits_nothing);
     return UNITY_END();
 }

@@ -11,7 +11,7 @@
  *
  * Reusing it is safe because the whole transaction is synchronous: the command
  * has been written to the bus before a single response byte exists. Two buffers
- * would cost another 71 bytes of SRAM on a part that has 2 KB, to separate two
+ * would cost another 76 bytes of SRAM on a part that has 2 KB, to separate two
  * things that are never live at once.
  */
 /* Eight bytes of overhead, not seven: the word address, the count, the opcode,

@@ -11,8 +11,8 @@
  *                                       tfw_boot_nvm_read reads it; a write
  *                                       is refused as the generic file
  *                                       refuses it, but for OTA_CONFIRM's
- *                                       request, which keeps that file's
- *                                       store path
+ *                                       request, which is programmed into
+ *                                       the platform sector
  *   [TFW_BOOT_EE_LEN, TFW_EEPROM_SIZE)  the user sector, TFW_CM_USER_EE_BASE
  *                                       from its own zero (board_profile.h),
  *                                       the sector below the platform block's
@@ -22,15 +22,30 @@
  * the sector into its RAM buffer, lays the bytes over it, erases it and
  * programs it whole through the boot ROM's flash driver. The helper is handed
  * the user sector's end as the flash's end, so a span that would reach the
- * platform sector is TFW_ERR_RANGE before any ROM call: no write here erases
- * tfw-boot's sector. The bytes are then read back; a mismatch is
+ * platform sector is TFW_ERR_RANGE before any ROM call: no user write erases
+ * tfw-boot's sector. OTA_CONFIRM's request alone goes to the platform
+ * sector, through the same helper handed that sector's end: a
+ * read-modify-write that keeps the platform block's other bytes, as
+ * tfw_boot_nvm_read reads them back. The bytes are then read back; a mismatch is
  * TFW_ERR_INTERNAL (include/tfw/status.h has no I/O status). A span past
  * TFW_EEPROM_SIZE is TFW_ERR_RANGE. Never a partial write of the span asked
- * for, short of a power loss mid-write, which loses the user sector only.
+ * for, short of a power loss mid-write, which for a user write loses the
+ * user sector only.
  *
- * The device's flash, its end and the ROM driver are the three things the
+ * OTA_CONFIRM's write has no such bound: the platform sector is erased and
+ * reprogrammed whole, and its old bytes live only in the helper's RAM buffer
+ * across the erase (tfw_mcxn_flash_update), so a power loss between the
+ * erase and the end of the program can lose the platform block's other
+ * bytes as well as the request. tfw-boot's next boot then loads a block
+ * that tfw_boot_platform_parse (boot/boot_platform.c) refuses, its magic
+ * gone (TFW_ERR_NOT_PROVISIONED) or its CRC wrong (TFW_ERR_CRC), and main
+ * (boot/boot_main.c) goes to tfw_boot_recovery: no pinned key, so nothing
+ * verifies or boots until a programmer provisions the block again. There
+ * is no second copy of it to fall back on.
+ *
+ * The device's flash and the ROM driver are the two things the
  * host test (test/unit/test_mcxn94x_eeprom.c) replaces with a model, by
- * defining TFW_MCXN_EE_FLASH, TFW_MCXN_EE_WINDOW, TFW_MCXN_EE_API before this file is compiled; its register model
+ * defining TFW_MCXN_EE_FLASH and TFW_MCXN_EE_API before this file is compiled; its register model
  * (test/model/cortex-m/mcxn94x/cm_tick_model.h: SysTick, DWT and PRIMASK)
  * stands in for cm_regs.h, so the lock pair here is the one under test.
  */
@@ -50,8 +65,6 @@
 #ifndef TFW_MCXN_EE_FLASH
 /* The flash as the core reads it, flash[0] at TFW_MCXN_FLASH_BASE. */
 #define TFW_MCXN_EE_FLASH  ((const uint8_t *)(uintptr_t)TFW_MCXN_FLASH_BASE)
-/* The platform window the confirm request is stored to. */
-#define TFW_MCXN_EE_WINDOW ((uint8_t *)(uintptr_t)TFW_CM_PLATFORM_BASE)
 /* The boot ROM's flash driver, the API tree's fifth word (mcxn_flash.h). */
 #define TFW_MCXN_EE_API \
     ((const tfw_mcxn_flash_api_t *)(uintptr_t) \
@@ -104,6 +117,7 @@ static void ee_unlock(const ee_mask_t *m)
 /* The first address of the user span. */
 #define EE_USER_LO  ((uint32_t)TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN)
 #define EE_USER_END ((uint32_t)TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE)
+#define EE_PLATFORM_END ((uint32_t)TFW_CM_PLATFORM_BASE + TFW_CM_PLATFORM_SIZE)
 
 _Static_assert(TFW_BOOT_CONFIRM_ADDR >= TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN
                && TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN <= TFW_BOOT_EE_LEN,
@@ -145,6 +159,7 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     uint32_t at;
+    uint32_t end;
     ee_mask_t mask;
     tfw_status_t st;
 
@@ -155,20 +170,24 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
         if (addr != TFW_BOOT_CONFIRM_ADDR || len != TFW_BOOT_CONFIRM_LEN) {
             return TFW_ERR_RANGE;
         }
-        /* The generic file's store path; how the request reaches flash is
-         * not changed here. */
-        memcpy(TFW_MCXN_EE_WINDOW + addr, buf, len);
-        return TFW_OK;
+        /* The confirm request into the platform sector, where tfw-boot's
+         * tfw_boot_nvm_read finds it: a store into flash programs nothing.
+         * The sector's other bytes, tfw-boot's block among them, are
+         * read back into the update and kept. */
+        at  = (uint32_t)TFW_CM_PLATFORM_BASE + addr;
+        end = EE_PLATFORM_END;
+    } else {
+        if (len == 0u) {
+            return TFW_OK;
+        }
+        at  = (uint32_t)TFW_CM_USER_EE_BASE + ((uint32_t)addr - EE_USER_LO);
+        end = EE_USER_END;
     }
-    if (len == 0u) {
-        return TFW_OK;
-    }
-    at = (uint32_t)TFW_CM_USER_EE_BASE + ((uint32_t)addr - EE_USER_LO);
     /* The update erases and reprograms the whole sector and checks all of
      * it, the old bytes with buf merged in, against the flash it reads
      * back: a byte lost outside buf's span is an error too. */
     ee_lock(&mask);
-    st = tfw_mcxn_flash_update(TFW_MCXN_EE_API, TFW_MCXN_EE_FLASH, EE_USER_END, at, buf, len);
+    st = tfw_mcxn_flash_update(TFW_MCXN_EE_API, TFW_MCXN_EE_FLASH, end, at, buf, len);
     ee_unlock(&mask);
     return st;
 }

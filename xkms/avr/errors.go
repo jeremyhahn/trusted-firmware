@@ -133,7 +133,7 @@ var (
 	// ECDSA-SHA256 signature), matches the nonce in constant time and anchors
 	// the chain. This package used to declare its own sentinel for each,
 	// because dice.Verify demanded a DiceTcbInfo extension the AVR alias
-	// profile does not carry and could not be called at all. That was fixed in
+	// profile did not then carry and could not be called at all. That was fixed in
 	// dice -- r23 section 6.1.4 permits UCCS "in place of" DiceTcbInfo -- so
 	// the checks have one implementation and one vocabulary:
 	//
@@ -165,8 +165,9 @@ var (
 	// reserves for a secure element.
 	ErrUnknownCryptoTier = errors.New("avr backend: unrecognised crypto tier")
 
-	// ErrNoDeviceKey indicates the device reports no crypto provider at all,
-	// so there is no identity key to address.
+	// ErrNoDeviceKey indicates the device reports no crypto provider, or a
+	// crypto tier this host cannot classify (see hasDeviceKey), so there is
+	// no identity key to address.
 	ErrNoDeviceKey = errors.New("avr backend: device has no crypto provider")
 
 	// ErrInvalidDevicePoint indicates the public point the device returned is

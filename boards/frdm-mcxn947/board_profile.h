@@ -12,7 +12,7 @@
  * selection. The EdgeLock subsystem is
  * not driven at all: the soft root is the board's only tier.
  *
- * The board id is PROVISIONAL (boards/frdm-mcxn947/profile.mk).
+ * The board id 0x46 is allocated in docs/boards/board-id-registry.md.
  */
 #ifndef TFW_BOARD_FRDM_MCXN947_H
 #define TFW_BOARD_FRDM_MCXN947_H

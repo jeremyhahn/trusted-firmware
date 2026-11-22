@@ -32,9 +32,13 @@ tfw_status_t tfw_boot_platform_parse(const uint8_t *raw, tfw_boot_platform_t *ou
 
 /* Serialises, computing the CRC. Writes exactly TFW_BOOT_EE_BLOCK_LEN bytes.
  *
- * `raw` is read as well as written: the reserved bytes and the device serial
- * are preserved from what is already there rather than zeroed, so the
- * bootloader recording a boot count cannot erase what tfwprov wrote. */
+ * `raw` is read as well as written. Every field in `in` is written from `in`,
+ * the device serial included: it lies inside the modelled span
+ * (TFW_BOOT_EE_O_SPAN). What is preserved from what is already there rather
+ * than zeroed is what the structure does not model -- the flags byte, the
+ * reserved bytes and operator_bind -- so the bootloader recording a boot count
+ * cannot erase those. A caller that has not parsed the block first overwrites
+ * the serial with whatever `in` holds. */
 void tfw_boot_platform_serialise(const tfw_boot_platform_t *in, uint8_t *raw);
 
 /* The CRC over bytes [0, TFW_BOOT_EE_O_CRC). Exposed because tfwprov must compute

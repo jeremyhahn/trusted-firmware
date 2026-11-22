@@ -202,6 +202,7 @@ static call_t     s_call;
 static psa_invec  s_in[2];
 static psa_outvec s_out[2];
 static uint8_t    s_out0[300], s_out1[8];
+static size_t   (*s_read)(void *, uint32_t, void *, size_t) = call_read;
 
 static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
                              const void *in1, size_t len1,
@@ -228,7 +229,7 @@ static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
     m.in_size[1] = s_in[1].len;
     m.out_size[0] = out0;
     m.out_size[1] = out1;
-    m.read = call_read;
+    m.read = s_read;
     m.write = call_write;
     m.ctx = &s_call;
     return tfw_dice_dispatch(op, &m);
@@ -250,6 +251,7 @@ void setUp(void)
     s_calls = 0u;
     s_framework_error = PSA_SUCCESS;
     s_lie_vec = -1;
+    s_read = call_read;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_partition_start(UDS, MEAS, TFW_CRYPTO_SOFTWARE));
 }
 
@@ -530,6 +532,34 @@ static void test_missing_read_or_write_is_range_untouched(void)
     assert_nothing_written();
 }
 
+/* A read that comes back one byte short of the vector's size is refused
+ * like a wrong size, so no operation runs on an input it did not get all of.
+ * short_read copies the whole vector and reports one byte less, so a
+ * dispatcher that ignores the count runs on defined bytes and answers OK. */
+static int s_short_vec;
+
+static size_t short_read(void *ctx, uint32_t vec, void *buf, size_t len)
+{
+    size_t n = call_read(ctx, vec, buf, len);
+
+    return (int)vec == s_short_vec && n > 0u ? n - 1u : n;
+}
+
+static void test_short_read_is_bad_argc_untouched(void)
+{
+    uint32_t off = 0u;
+
+    s_read = short_read;
+    s_short_vec = 0;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_SIGN, DIGEST, 32u, NULL, 0u, 64u, 0u));
+    assert_nothing_written();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_CERT, NONCE, 32u, &off, 4u, 255u, 4u));
+    assert_nothing_written();
+    s_short_vec = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_CERT, NONCE, 32u, &off, 4u, 255u, 4u));
+    assert_nothing_written();
+}
+
 /* ---- not started: every call answers NOT_PROVISIONED --------------------- */
 
 static void test_without_start_every_call_is_not_provisioned(void)
@@ -574,6 +604,7 @@ int main(void)
     RUN_TEST(test_exact_outputs_are_written_once);
     RUN_TEST(test_unknown_operations_are_refused_untouched);
     RUN_TEST(test_missing_read_or_write_is_range_untouched);
+    RUN_TEST(test_short_read_is_bad_argc_untouched);
     RUN_TEST(test_without_start_every_call_is_not_provisioned);
     return UNITY_END();
 }

@@ -55,6 +55,7 @@ func TestMainExitCodes(t *testing.T) {
 	port := filepath.Join(dir, "no-such-port")
 	tmpl := writeTemplate(t, goodTemplate+block32+"\n")
 	serial := strings.Repeat("00", 16)
+	goodSerial := strings.Repeat("01", 16)
 	const usageLine = "tfwprov -- provision an trusted-firmware device's secure element"
 	for _, tc := range []struct {
 		name  string
@@ -74,6 +75,10 @@ func TestMainExitCodes(t *testing.T) {
 		{"bake-netblock with --serial", []string{"--bake-netblock", "--out", out, "--serial", serial}, 1, "tfwprov: --serial/--pubkey-hash/--operator-pubkey belong to --bake-eeprom"},
 		{"bake-eeprom with --mac", []string{"--bake-eeprom", "--out", out, "--serial", serial, "--mac", "02:00:00:00:00:01"}, 1, "tfwprov: --mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock"},
 		{"bake-eeprom with a bad serial", []string{"--bake-eeprom", "--out", out, "--serial", "zz"}, 1, "tfwprov: tfwprov: --serial: encoding/hex: invalid byte"},
+		{"bake-eeprom with --config", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--config", tmpl}, 1, "tfwprov: --config does not combine with --bake-eeprom"},
+		{"bake-eeprom with --yes-i-mean-it", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--yes-i-mean-it"}, 1, "tfwprov: --yes-i-mean-it does not combine with --bake-eeprom"},
+		{"bake-eeprom with --baud", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--baud", "9600"}, 1, "tfwprov: --baud does not combine with --bake-eeprom"},
+		{"bake-netblock with --timeout", []string{"--bake-netblock", "--out", out, "--timeout", "5s"}, 1, "tfwprov: --timeout does not combine with --bake-netblock"},
 		{"a wire mode with --out", []string{"--dry-run", "--out", out, port}, 1, "tfwprov: --out belongs to --bake-eeprom"},
 		{"a wire mode with --mac", []string{"--dry-run", "--mac", "02:00:00:00:00:01", port}, 1, "tfwprov: --mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"},
 		{"bake-netblock with --record", []string{"--bake-netblock", "--out", out, "--record", filepath.Join(dir, "r.json")}, 1, "tfwprov: --record needs the serial: pass --bake-eeprom --serial"},

@@ -48,7 +48,7 @@ F_CPU          := 800000000
 #               reset vector points (the System Manager configuration's M7
 #               start address; TO CONFIRM). Reserved: tfw-boot is not yet built
 #               for this board (mk/boot.mk has no row for it).
-#   0x00008000  the application slot, 192 KiB of code.
+#   0x00008000  the application slot, 192 KiB of code (ITCM 0 under IMX_BOOT=1).
 #   0x0003F000  the platform block, the last 4 KiB of the ITCM.
 #   0x20000000  .data, .bss, the stack, the reset marker and the handoff
 #               block at the top (RAM_END), in the DTCM.
@@ -67,8 +67,10 @@ RAM_BASE       := 0x20000000
 RAM_END        := 0x2003FFFF
 
 # The region tfw-boot measures (mk/release.mk's provenance): the application
-# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h. Not
-# ITCM 0, which is tfw-boot's region.
+# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h, not
+# tfw-boot's region at ITCM 0. IMX_BOOT=1 (below) moves it, with APP_BASE, to
+# ITCM 0. board_profile.h keeps the slot's values: only tfw-boot and OTA staging
+# read them, and this board builds neither.
 FWHASH_BASE    := $(APP_BASE)
 FWHASH_SIZE    := $(FLASH_BUDGET)
 

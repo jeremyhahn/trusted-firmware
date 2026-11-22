@@ -55,8 +55,8 @@ struct tfw_imx95_wipe {
  * acknowledged every delete: anything less is not a wipe, and the engine
  * locks down (R3). A refused open or delete is TFW_ERR_CRYPTO, no answer
  * TFW_ERR_TIMEOUT; the remaining keys are still tried. TFW_ERR_UNSUPPORTED,
- * with nothing sent, while the MU, the delete's id or the first key id is
- * zero, and for a layout the client refuses.
+ * with nothing sent, while the MU or the delete's id is zero or no key id is
+ * set, and for a layout the client refuses.
  *
  * A3 is not here: it is open (architecture.md section 3, question 4). The
  * key-group delete is not either (question 5). */

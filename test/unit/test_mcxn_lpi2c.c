@@ -300,7 +300,7 @@ static void assert_timing(uint32_t hz, uint32_t pre, uint32_t lo, uint32_t hi,
     TEST_ASSERT_EQUAL_UINT32(datavd, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_DATAVD_SHIFT));
 }
 
-/* 12 MHz / (61 + 1 + 55 + 1 + 2) = 100 kHz exactly, prescale 1; CLKHI cut
+/* 12 MHz / (61 + 1 + 55 + 1 + 2) = 100 kHz exactly, prescale 0; CLKHI cut
  * from 57 to 55 for tBUF, as LPI2C_MasterSetBaudRate does. */
 static void test_100k_from_fro12m(void)
 {
@@ -323,6 +323,32 @@ static void test_1m_from_fro12m(void)
 static void test_a_slow_rate_takes_a_prescale(void)
 {
     assert_timing(10000u, 4u, 38u, 35u, 36u, 17u, 15u);
+}
+
+/* 2 kHz: prescale 6 (div 64, latency 0) takes round(93.75) = 94 ticks, cycle
+ * 92, 187500 / 94 = 1994 Hz, error 6; prescale 7 takes 47 ticks, cycle 45,
+ * 93750 / 47 = 1994 Hz, error 6 too. The tie keeps the first, smaller
+ * prescale. CLKHI 46 is cut to 45 for tBUF (45 + 48 <= 92 + 1), CLKLO 92 - 45
+ * = 47; a period is 93 prescaled clocks, SETHOLD 93 / 2 - 1 = 45, DATAVD
+ * 93 / 4 - 1 = 22; FILTSDA 300 - 64 - 2 is capped at 15. */
+static void test_a_tie_goes_to_the_smaller_prescale(void)
+{
+    assert_timing(2000u, 6u, 47u, 45u, 45u, 22u, 15u);
+}
+
+/* The ceiling is CLKLO + CLKHI <= 120 - SCL_LATENCY, inclusive. 98 kHz:
+ * prescale 0 takes round(122.45) = 122 ticks, cycle 122 - 2 - 2 = 118 = 120 - 2,
+ * at the ceiling and taken; 12e6 / 122 = 98360 Hz, error 360, tied by
+ * prescale 1 (6e6 / 61). CLKHI 58 cut to 56 for tBUF (56 + 63 <= 118 + 1),
+ * CLKLO 62; a period is 122 clocks, SETHOLD 60, DATAVD 29; FILTSDA
+ * 6 - 1 - 2 = 3. 97 kHz: prescale 0 takes round(123.71) = 124 ticks, cycle
+ * 120 > 118, refused; prescale 1 takes 62 ticks, cycle 59, 6e6 / 62 = 96774
+ * Hz, error 226. CLKHI 29 cut to 28 (28 + 32 <= 60), CLKLO 31; a period is
+ * 61 clocks, SETHOLD 29, DATAVD 14; FILTSDA 6 - 2 - 2 = 2. */
+static void test_the_cycle_ceiling_is_inclusive(void)
+{
+    assert_timing(98000u, 0u, 62u, 56u, 60u, 29u, 3u);
+    assert_timing(97000u, 1u, 31u, 28u, 29u, 14u, 2u);
 }
 
 static void test_a_rate_out_of_reach_is_refused(void)
@@ -809,6 +835,8 @@ int main(void)
     RUN_TEST(test_400k_from_fro12m);
     RUN_TEST(test_1m_from_fro12m);
     RUN_TEST(test_a_slow_rate_takes_a_prescale);
+    RUN_TEST(test_a_tie_goes_to_the_smaller_prescale);
+    RUN_TEST(test_the_cycle_ceiling_is_inclusive);
     RUN_TEST(test_a_rate_out_of_reach_is_refused);
     RUN_TEST(test_the_five_percent_bound_is_inclusive);
     RUN_TEST(test_init_routes_clocks_pins_and_the_unit);

@@ -6,8 +6,9 @@
  * The pin is a plain digital pin (the Pico 2 W's TFW_TONE_PIN, GP7), so the
  * tone needs no pin function other than SIO: each alarm XORs the pin through
  * GPIO_OUT_XOR and re-arms the alarm half a period on. The step is
- * soc_calc.h's tfw_rp_tone_half_period on TIMER1's 1 us tick; a frequency it
- * refuses is TFW_ERR_RANGE.
+ * soc_calc.h's tfw_rp_tone_half_period on TIMER1's 1 us tick; 0 Hz stops
+ * the tone, and a frequency it refuses (a half period under
+ * TFW_RP_TONE_MIN_STEP ticks, above about 25.6 kHz) is TFW_ERR_RANGE.
  *
  * The alarm compares TIMELR for equality ([RP-DS] §12.8.4), so the interrupt
  * re-arms from the previous target, not from now: a late interrupt does not
@@ -93,6 +94,10 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     uint32_t step;
     uint32_t bit;
 
+    /* include/tfw/hal.h: "hz of 0 stops it" */
+    if (hz == 0u) {
+        return tfw_hal_tone_stop();
+    }
     if (p->port != PORT_GPIO || p->bit >= GPIO_COUNT) {
         return TFW_ERR_BAD_PIN;
     }

@@ -56,8 +56,9 @@ static tfw_status_t wait_ready(void)
 #if TFW_FEATURE_ANALOG
 /* PLL_USB at 48 MHz, §8.6.4's sequence: out of reset, REFDIV and FBDIV,
  * power and VCO on, a bounded wait for CS.LOCK, then the post dividers and
- * their power. A PLL already locked at this setting is left running, as the
- * pico-sdk's pll_init does, so a second init does not reset it. */
+ * their power. A PLL already locked at this setting, with its post dividers
+ * powered, is left running, as the pico-sdk's pll_init does, so a second init
+ * does not reset it; a locked PLL whose output is off is brought up again. */
 static tfw_status_t pll_usb_48mhz(void)
 {
     uint32_t i;
@@ -65,7 +66,9 @@ static tfw_status_t pll_usb_48mhz(void)
     if ((TFW_RP_PLL_USB_CS & TFW_RP_PLL_CS_LOCK) != 0u &&
         (TFW_RP_PLL_USB_CS & 0x3Fu) == TFW_RP_PLL_CS_REFDIV_1 &&
         (TFW_RP_PLL_USB_FBDIV & 0xFFFu) == TFW_RP_PLL_FBDIV_48MHZ &&
-        (TFW_RP_PLL_USB_PRIM & TFW_RP_PLL_PRIM_MASK) == TFW_RP_PLL_PRIM_48MHZ) {
+        (TFW_RP_PLL_USB_PRIM & TFW_RP_PLL_PRIM_MASK) == TFW_RP_PLL_PRIM_48MHZ &&
+        (TFW_CM_REG(TFW_RP_PLL_USB_PWR) &
+         (TFW_RP_PLL_PWR_PD | TFW_RP_PLL_PWR_VCOPD | TFW_RP_PLL_PWR_POSTDIVPD)) == 0u) {
         return TFW_OK;
     }
 

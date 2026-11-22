@@ -303,6 +303,24 @@ static void test_an_image_that_leaves_no_room_for_the_length_is_refused(void)
     TEST_ASSERT_FALSE(marked());
 }
 
+static void test_an_image_len_raised_past_the_trailer_after_ota_end_is_refused(void)
+{
+    static uint8_t image[132];
+    uint8_t        digest[TFW_SHA256_LEN];
+    uint32_t       programs;
+
+    memset(image, 0x5A, sizeof image);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(image, (uint16_t)sizeof image, digest));
+    build(image, sizeof image, digest, NULL, 0u, 7u);
+    stage();
+    /* image_len byte 1 goes 0x00 -> 0x01: 132 -> 388, past the bytes before the trailer. */
+    tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + TOTAL - TRAILER + 13u);
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, manifest());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_FALSE(marked());
+}
+
 /* Every store transfer the check makes -- the trailer, the envelope's
  * length, the envelope -- failed in turn: each failure is the status
  * returned, and none marks. The first n past the last transfer passes. */
@@ -344,6 +362,7 @@ int main(void)
     RUN_TEST(test_a_stage_that_never_ended_is_refused_before_the_store_is_read);
     RUN_TEST(test_a_trailer_changed_after_ota_end_is_refused);
     RUN_TEST(test_an_image_that_leaves_no_room_for_the_length_is_refused);
+    RUN_TEST(test_an_image_len_raised_past_the_trailer_after_ota_end_is_refused);
     RUN_TEST(test_every_failed_store_read_is_returned_and_marks_nothing);
     return UNITY_END();
 }

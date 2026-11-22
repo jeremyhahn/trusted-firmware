@@ -88,6 +88,14 @@ static const uint8_t SET_C[] = {
     0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x81u, 0x83u, 0x03u, 0x58u, 0x20u, DIG_A, 0xF4u,
     0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
 };
+
+/* Set D: policy 0, S5: [record]; policy 1, S3: script A. */
+static const uint8_t SET_D[] = {
+    0xA5u, 0x01u, 0x01u, 0x02u, 0x82u,
+    0x81u, 0x83u, 0x05u, 0x81u, 0x06u, 0xF4u,
+    0x81u, 0x83u, 0x03u, 0x58u, 0x20u, DIG_A, 0xF4u,
+    0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
+};
 /* SET_A with signal 7 where S2 is: refused by the reader. */
 static const uint8_t SET_BAD[] = {
     0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x81u, 0x83u, 0x07u, 0x81u, 0x01u, 0xF4u,
@@ -635,6 +643,23 @@ static void test_scripts_are_held_while_named_and_bounded(void)
     ACTS(TFW_HSM_ACT_PHY_OFF, TFW_HSM_ACT_PHY_OFF);
 }
 
+/* A script named by a policy past the first is named by the set: it loads,
+ * the next set that names it keeps it, and it runs once that policy is
+ * selected. */
+static void test_a_script_named_by_the_second_policy_alone_loads_and_is_kept(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_D, 1u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, script(SCRIPT_A, sizeof SCRIPT_A));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL_UINT32(0u, h.refused);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_D, 2u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_select(&h, 1u));
+    tfw_hsm_signal(&h, S3, 0u);
+    ACTS(TFW_HSM_ACT_RECORD, TFW_HSM_ACT_SHUTDOWN);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+}
+
 /* load_script's TFW_ERR_NO_SLOT: a named, readable script past the last slot
  * is refused and counted, and the scripts held, the set and the floor stay. */
 static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
@@ -1078,6 +1103,7 @@ int main(void)
     RUN_TEST(test_a_selection_out_of_range_is_refused_and_unchanged);
     RUN_TEST(test_a_script_the_engine_does_not_hold_locks_down);
     RUN_TEST(test_scripts_are_held_while_named_and_bounded);
+    RUN_TEST(test_a_script_named_by_the_second_policy_alone_loads_and_is_kept);
     RUN_TEST(test_a_script_past_the_last_slot_is_refused_and_the_held_stay);
     RUN_TEST(test_a_named_script_that_does_not_read_is_refused);
     RUN_TEST(test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection);

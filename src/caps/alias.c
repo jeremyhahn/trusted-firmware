@@ -531,7 +531,7 @@ static tfw_status_t mint(const uint8_t *challenge)
  * it. The difference is the header -- a certificate is longer than 255 bytes,
  * so the total is two bytes where the evidence frame's is one.
  *
- *   response  [page:1][total:2 little-endian][bytes:0..TFW_ALIAS_PAGE]
+ *   response  [page:1][total:2 little-endian][bytes:1..TFW_ALIAS_PAGE]
  *
  * A host reads total from page 0 and asks for ceil(total / TFW_ALIAS_PAGE)
  * pages. The pages are regenerated, not cached, so they are consistent only for

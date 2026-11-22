@@ -9,7 +9,7 @@
 /* Applies the boot defaults to whichever of I2C/SPI this build has -- called
  * once from main.c. Exactly one of this and bus_none.c's stub is linked, so
  * main.c can call it unconditionally regardless of TFW_FEATURE_I2C/SPI/ONEWIRE:
- * see the BUS_SRCS selection in mk/avr.mk, the same shape CRYPTO_SRCS uses for
+ * see the BUS_SRCS selection in mk/firmware.mk, the same shape CRYPTO_SRCS uses for
  * the crypto tier. */
 void        tfw_bus_init(void);
 

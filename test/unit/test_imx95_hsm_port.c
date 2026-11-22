@@ -817,6 +817,20 @@ static void test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing(voi
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
 
+static void test_s3_attest_with_a_bad_layout_is_unsupported_and_closes_its_session(void)
+{
+    struct tfw_imx95_attest bad = att;
+    tfw_hsm_set_t set;
+
+    bad.l.cmd_words = 1u;
+    memset(&set, 0, sizeof set);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, attest(&bad, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(2u, ele_n);   /* opened and closed, no attestation */
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -863,5 +877,6 @@ int main(void)
     RUN_TEST(test_s3_a_report_too_short_for_a_field_is_range);
     RUN_TEST(test_s3_a_buffer_too_small_sends_no_attestation);
     RUN_TEST(test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing);
+    RUN_TEST(test_s3_attest_with_a_bad_layout_is_unsupported_and_closes_its_session);
     return UNITY_END();
 }

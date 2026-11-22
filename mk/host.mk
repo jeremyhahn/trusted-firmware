@@ -2319,8 +2319,8 @@ lint-test-sleep:
 ## lint-no-delay: no blocking delay call in the firmware C
 # The device-capabilities SPEC row: "There is no delay()". Every poll in the
 # superloop returns promptly, so a timed output fires within one iteration and
-# the device answers while it waits (src/main.c). The sweep is every .c and .h under src/ and
-# boot/, bar src/third_party, and it enters the HAL directories too: the
+# the device answers while it waits (src/main.c). The sweep is every .c and .h under src/, boot/,
+# boards/ and include/, bar third_party, and it enters the HAL directories too: the
 # arch-leak gate lets src/hal/esp32 name vTaskDelay, this one does not.
 # _delay_us stays allowed: it is the bus-timing primitive behind
 # tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
@@ -2329,7 +2329,8 @@ lint-test-sleep:
 # split across lines (delay, then blank or comment-only lines, then the open
 # parenthesis) is still a call: the finding names the line of the identifier. The gate
 # fails closed: a root it cannot enter or a file awk cannot read fails it,
-# never passes as no hits (scripts/test_lint_no_delay.py).
+# never passes as no hits (scripts/test_lint_no_delay.py); boards/ and include/
+# are swept when present.
 LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
 LINT_NO_DELAY_AWK := \
 	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
@@ -2342,7 +2343,7 @@ LINT_NO_DELAY_AWK := \
 	$$0 ~ tail { pend = FILENAME ":" FNR ": delay-call" }
 lint-no-delay:
 	@cd $(LINT_GREP_ROOT) || exit 1; \
-	hits=$$(find src boot -name third_party -prune -o -type f \
+	hits=$$(find src boot $$(for d in boards include; do [ -d $$d ] && echo $$d; done) -name third_party -prune -o -type f \
 	     \( -name '*.c' -o -name '*.h' \) \
 	     -exec awk -v id='$(LINT_NO_DELAY_ID)' '$(LINT_NO_DELAY_AWK)' {} +); rc=$$?; \
 	if [ $$rc -ne 0 ]; then \
@@ -2359,8 +2360,8 @@ lint-no-delay:
 ## lint-grep-selftest: the grep gates fail on a plant and print path and line only
 # Plants go into a throwaway tree, never into this one. Each plant must fail its
 # gate with `path:line: ` and without the planted text; an include guard, an
-# exempt HAL directory, a sleep outside a test file and a comment naming
-# delay() must not.
+# exempt HAL directory, a sleep outside a test file, a microsecond bus delay
+# and a comment that names delay() must not.
 lint-grep-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/optee/ta $$t/boards $$t/include $$t/sdk $$t/scripts && \
@@ -2368,6 +2369,7 @@ lint-grep-selftest:
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
 	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
 	printf '/*\n * delay() is banned\n */\n// vTaskDelay(1) too\n' > $$t/src/core/comment.c && \
+	printf '_delay_us(1);\ntfw_hal_delay_us(1);\n/* there is no delay() */\n * nor _delay_ms(), vTaskDelay()\n// nor delayMicroseconds()\n' > $$t/src/core/ok.c && \
 	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep lint-no-delay LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
@@ -2375,7 +2377,11 @@ lint-grep-selftest:
 	             'timestamps:src/core/plant.c:const char *d = __DATE__; /* TFW_PLANTED_TEXT */' \
 	             'test-sleep:sdk/plant_test.go:time.Sleep(1) // TFW_PLANTED_TEXT' \
 	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT' \
-             'no-delay:src/core/plant.c:void f(void){ delay(10); } /* TFW_PLANTED_TEXT */'; do \
+	             'no-delay:src/core/plant.c:void f(void){ delay(10); } /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:    delay(100); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:boot/plant.c:_delay_ms(5); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:boards/plant.h:{ delayMicroseconds (10); } /* TFW_PLANTED_TEXT */' \
+	             'no-delay:include/plant.h:if (x) vTaskDelay(1); /* TFW_PLANTED_TEXT */'; do \
 	  gate=$${plant%%:*}; rest=$${plant#*:}; f=$${rest%%:*}; printf '%s\n' "$${rest#*:}" > $$t/$$f; \
 	  if out=$$($(MAKE) --no-print-directory lint-$$gate LINT_GREP_ROOT=$$t 2>&1); then \
 	    echo "selftest: lint-$$gate passed a plant"; exit 1; \

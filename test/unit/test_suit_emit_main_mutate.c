@@ -246,6 +246,8 @@ static void test_tbs_refuses_a_missing_or_empty_image(void)
     TEST_ASSERT_NOT_NULL(strstr(errbuf, p_bad));
     put(p_img, img, 0u);
     TEST_ASSERT_EQUAL_INT(1, tbs(p_img, "1", p_man, p_tbs));
+    TEST_ASSERT_NOT_NULL(strstr(errbuf, "suit-emit: "));
+    TEST_ASSERT_NOT_NULL(strstr(errbuf, "is empty"));
     TEST_ASSERT_FALSE(exists(p_man));
 }
 
@@ -336,16 +338,19 @@ static void test_envelope_refuses_a_missing_empty_or_oversized_manifest(void)
 {
     make_inputs(0u, 64u);
     TEST_ASSERT_EQUAL_INT(1, envelope(p_man, p_sig, p_env));
-    TEST_ASSERT_NOT_NULL(strstr(errbuf, "encoding overflowed"));
+    TEST_ASSERT_NOT_NULL(strstr(errbuf, "is empty"));
+    TEST_ASSERT_NULL(strstr(errbuf, "encoding overflowed"));
     TEST_ASSERT_FALSE(exists(p_env));
 
     make_inputs(OUT_MAX + 1u, 64u);
     TEST_ASSERT_EQUAL_INT(1, envelope(p_man, p_sig, p_env));
     TEST_ASSERT_NOT_NULL(strstr(errbuf, "is larger than 512 bytes"));
+    TEST_ASSERT_NULL(strstr(errbuf, "encoding overflowed"));
     TEST_ASSERT_FALSE(exists(p_env));
 
     TEST_ASSERT_EQUAL_INT(1, envelope(p_bad, p_sig, p_env));
     TEST_ASSERT_NOT_NULL(strstr(errbuf, "cannot open"));
+    TEST_ASSERT_NULL(strstr(errbuf, "encoding overflowed"));
 }
 
 static void test_envelope_refuses_what_does_not_fit_the_output(void)

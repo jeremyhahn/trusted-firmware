@@ -51,6 +51,7 @@ static uint32_t last_i2c_hz;
 static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
 static tfw_status_t bus_fail;            /* every bus transfer's status; TFW_OK = none */
 static tfw_status_t gpio_io_fail;        /* every gpio read/write's status; TFW_OK = none */
+static tfw_status_t pwm_fail;            /* every pwm write/stop's status; TFW_OK = none */
 
 /* Pin and PWM state, kept per OPAQUE KEY and not in a register file.
  *
@@ -155,7 +156,7 @@ void tfw_mock_reset(void)
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
-    bus_fail = TFW_OK; gpio_io_fail = TFW_OK;
+    bus_fail = TFW_OK; gpio_io_fail = TFW_OK; pwm_fail = TFW_OK;
 }
 
 void tfw_mock_set_bus_response(const uint8_t *b, uint8_t n)
@@ -175,6 +176,7 @@ uint8_t  tfw_mock_last_spi_clkdiv(void)  { return last_spi_clkdiv; }
 uint8_t  tfw_mock_last_spi_lsb(void)     { return last_spi_lsb; }
 void     tfw_mock_bus_fails(tfw_status_t st)     { bus_fail = st; }
 void     tfw_mock_gpio_io_fails(tfw_status_t st) { gpio_io_fail = st; }
+void     tfw_mock_pwm_fails(tfw_status_t st)     { pwm_fail = st; }
 
 uint8_t tfw_mock_pwm_duty(uint16_t duty_key)
 {
@@ -481,6 +483,7 @@ void tfw_hal_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
+    if (pwm_fail != TFW_OK) { return pwm_fail; }
     word_find(pwm_ctl, p->ctl, 1u)->val |= (uint8_t)(1u << p->bit);
     word_find(pwm_duty, p->duty, 1u)->val = duty;
     return TFW_OK;
@@ -488,8 +491,10 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 
 tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
-    mock_word_t *w = word_find(pwm_ctl, p->ctl, 1u);
+    mock_word_t *w;
 
+    if (pwm_fail != TFW_OK) { return pwm_fail; }
+    w = word_find(pwm_ctl, p->ctl, 1u);
     w->val = (uint8_t)(w->val & (uint8_t)~(1u << p->bit));
     return TFW_OK;
 }

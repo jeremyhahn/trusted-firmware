@@ -89,6 +89,10 @@ func TestMainExitCodes(t *testing.T) {
 		{"no --config", []string{"--dry-run", port}, 1, "tfwprov: --config is required"},
 		{"a missing template", []string{"--dry-run", "--config", filepath.Join(dir, "absent.tmpl"), port}, 1, "tfwprov: open "},
 		{"a port that cannot be opened", []string{"--verify", "--config", tmpl, port}, 1, "tfwprov: serialport: opening "},
+		{"a wire mode with --timeout 0", []string{"--verify", "--config", tmpl, "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
+		{"a wire mode with a negative --timeout", []string{"--dry-run", "--config", tmpl, "--timeout", "-1s", port}, 1, "tfwprov: --timeout is -1s; it must be positive"},
+		{"a wire mode with --baud 0", []string{"--verify", "--config", tmpl, "--baud", "0", port}, 1, "tfwprov: --baud is 0; it must be positive"},
+		{"write-pubkey with --timeout 0", []string{"--write-pubkey", filepath.Join(dir, "absent.pem"), "--slot", "2", "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, first := runMain(t, tc.args...)

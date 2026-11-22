@@ -88,8 +88,12 @@ BOOT_BUDGET    := 32768
 #   make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware
 # tfw-boot's geometry above stays: no tfw-boot is built for this board.
 IMX_BOOT       ?= 0
+ifneq ($(filter-out 0 1,$(IMX_BOOT)),)
+$(error IMX_BOOT is 0 or 1, not "$(IMX_BOOT)")
+endif
 ifeq ($(IMX_BOOT),1)
-ifeq ($(BUILD_DIR),build)
+# Absolute paths: build/, ./build and the repo's absolute build/ all match.
+ifeq ($(abspath $(BUILD_DIR)),$(abspath build))
 $(error IMX_BOOT=1 links the application at ITCM 0, not the slot: give it its own BUILD_DIR (make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware), or the ELF linked for the other mode is reused)
 endif
 APP_BASE       := 0x00000000

@@ -5,17 +5,17 @@
  *
  * A plain `memset` on a local buffer whose only remaining use is going out of
  * scope is a DEAD STORE, and an optimizer is free to remove it -- confirmed on
- * this codebase's own `-Os` build (see the verification this file's .c
- * carries). The secret would then survive on the stack for as long as nothing
- * overwrites that memory, defeating the "drain it even with no use for it"
- * rule every CDI-copy site in this tree follows. `tfw_secure_zero` writes
- * through a `volatile`-qualified pointer, which the C standard treats as an
- * observable side effect the compiler must not remove, regardless of whether
- * anything reads the memory afterward.
+ * this codebase's own `-Os` build. The secret would then survive on the stack
+ * for as long as nothing overwrites that memory, defeating the "drain it even
+ * with no use for it" rule every CDI-copy site in this tree follows.
+ * `tfw_secure_zero` writes through a `volatile`-qualified pointer, which the C
+ * standard treats as an observable side effect the compiler must not remove,
+ * regardless of whether anything reads the memory afterward.
  *
  * One definition, referenced by every CDI-copy site (src/core/handoff.c,
- * boot/boot_main.c, each of the three crypto providers under src/crypto/,
- * and the element driver's response buffer in src/crypto/atecc608a/atecc.c,
+ * boot/boot_main.c, each crypto provider under src/crypto/ (none,
+ * soft, atecc608a, optiga), and the element driver's response buffer in
+ * src/crypto/atecc608a/atecc.c,
  * which the element-root CDI passes through) rather than a volatile loop written out again at each one --
  * the same reasoning this project applies to the CRC and the reset-cause
  * decoder.

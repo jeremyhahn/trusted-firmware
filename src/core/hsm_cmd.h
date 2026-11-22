@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The channel's five commands (docs/hsm-self-defence/ slice 4): the A55's
+ * The channel's six commands (docs/hsm-self-defence/ slice 4): the A55's
  * messages to the response engine, carried by the wire protocol. Linked only
  * where TFW_FEATURE_HSM is built; commands.def is the one place that reads it.
  */

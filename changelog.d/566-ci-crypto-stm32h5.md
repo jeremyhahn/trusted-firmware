@@ -4,3 +4,5 @@
   job builds `make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5` in the
   toolchain image after the `CRYPTO=soft` image, so a build break in the PKA
   and HASH provider (#544) fails CI and not the hardware check.
+  `scripts/test_ci_crypto_tiers.py` holds ci.yml to a build step for every
+  tier a board profile declares in `ARCH_CRYPTO_TIERS` (#599).

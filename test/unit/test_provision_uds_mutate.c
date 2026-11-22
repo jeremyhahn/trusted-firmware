@@ -362,6 +362,17 @@ static void test_a_refused_hmac_leaves_the_point_buffer_untouched(void)
     tfw_mock_prov_uds_fail_hmac(TFW_OK);
 }
 
+/* src/caps/provision_uds.c tfw_prov_genkey(): the drawn UDS is scrubbed once the
+ * burn has taken, so the HMAC the DeviceID is derived through is asked while
+ * that buffer reads zero. */
+static void test_the_drawn_uds_is_scrubbed_before_the_deviceid_is_derived(void)
+{
+    uint8_t pub[64];
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_prov_genkey(0u, pub));
+    TEST_ASSERT_EQUAL_INT(1, tfw_mock_prov_uds_scrubbed_at_hmac());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -371,5 +382,6 @@ int main(void)
     RUN_TEST(test_every_length_and_mutated_byte_on_every_handler);
     RUN_TEST(test_random_requests_with_a_fixed_seed);
     RUN_TEST(test_a_refused_hmac_leaves_the_point_buffer_untouched);
+    RUN_TEST(test_the_drawn_uds_is_scrubbed_before_the_deviceid_is_derived);
     return UNITY_END();
 }

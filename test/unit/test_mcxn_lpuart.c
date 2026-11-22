@@ -103,6 +103,16 @@ static void test_a_rate_more_than_3_percent_off_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, reg);
 }
 
+/* 12e6 / 773195 = 15.52: ratio 16 x SBR 1 gives 750000 baud, 23195 slow,
+ * 2.9999%, inside the 3% (23195.85). */
+static void test_a_rate_just_inside_3_percent_is_accepted(void)
+{
+    uint32_t reg = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_mcxn_lpuart_baud(FRO12M, 773195u, &reg));
+    TEST_ASSERT_EQUAL_HEX32((15u << 24) | 1u, reg);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -115,5 +125,6 @@ int main(void)
     RUN_TEST(test_a_rate_above_the_reach_is_refused);
     RUN_TEST(test_a_rate_below_the_reach_is_refused);
     RUN_TEST(test_a_rate_more_than_3_percent_off_is_refused);
+    RUN_TEST(test_a_rate_just_inside_3_percent_is_accepted);
     return UNITY_END();
 }

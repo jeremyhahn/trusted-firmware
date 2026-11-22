@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: commercial
 #
 # Every pinned tool, in one file (handbook devcontainer.md §2). Read by
-# build/docker/devcontainer/Dockerfile, which sources it, by the Makefile's
-# tool check (mk/stages.mk) and by `make deps-check` (scripts/deps-check.py),
-# so the image, the gates and the latest-version check cannot disagree.
+# build/docker/devcontainer/Dockerfile, which sources it, by mk/docker.mk's
+# image build arguments and image hash, and by `make deps-check`
+# (scripts/deps-check.py), so the image, the gates and the latest-version check cannot disagree.
 #
 # Plain NAME=value lines, no expansion; a value with spaces is double-quoted.
 # A shell sources it and a script parses it.

@@ -2,7 +2,7 @@
 /*
  * The application's half of the one trial (src/core/ota_trial.c), on the mock
  * HAL's clock: in TRIAL the watchdog is re-armed and petted, the deadline
- * resets, a confirm request stops nothing, and any other state arms nothing.
+ * resets and holds across the 32-bit millisecond wrap, a confirm request stops nothing, and any other state arms nothing.
  * After the runner's start, the trial asks after_update once (ADR decision 9):
  * a refusal resets at once, TFW_OK leaves the deadline running, and outside
  * TRIAL nothing is asked.
@@ -63,6 +63,28 @@ static void test_the_deadline_resets_and_not_before(void)
     tfw_mock_advance(1u);
     tfw_ota_trial_poll();
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
+/* A trial started 1 s before the 32-bit millisecond wrap resets neither before
+ * the wrap nor after it short of the deadline, and does reset at it. */
+static void test_the_deadline_holds_across_the_millis_wrap(void)
+{
+    tfw_mock_set_millis(0xFFFFFFFFu - 999u);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+
+    tfw_mock_advance(500u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(DEADLINE_MS - 501u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+    TEST_ASSERT_EQUAL_UINT(3u, tfw_mock_watchdog_pets());
 }
 
 /* OTA_CONFIRM writes its request and leaves the count alone (#137): there is
@@ -248,6 +270,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_trial_boot_rearms_and_pets);
     RUN_TEST(test_the_deadline_resets_and_not_before);
+    RUN_TEST(test_the_deadline_holds_across_the_millis_wrap);
     RUN_TEST(test_a_confirmed_trial_still_resets_at_the_deadline);
     RUN_TEST(test_any_other_state_arms_nothing);
     RUN_TEST(test_no_platform_block_arms_nothing);

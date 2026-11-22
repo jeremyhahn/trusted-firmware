@@ -20,6 +20,10 @@ const FormatDICE = "dice"
 // coseES256 is the attStmt alg: COSE ES256.
 const coseES256 = -7
 
+// diceUEIDLen is the length of the UEID the device writes: the RFC 9711
+// 4.2.1.1 type byte 0x01 (RAND), then the 16-byte device id.
+const diceUEIDLen = 1 + 16
+
 // DICEEvidence is what VerifyDICEAttestation proved: the chain it checked and
 // the alias certificate's claims.
 type DICEEvidence struct {
@@ -85,7 +89,8 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 //   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
 //   - the alias certificate's eat_nonce and authData are nonce;
 //   - sig verifies under the alias key over SHA-256(authData);
-//   - the UEID (claim 256) is present;
+//   - the UEID (claim 256) is present, and is the type byte 0x01 then the
+//     16-byte device id;
 //   - the TCB measurement (claim 273's file hash) is present, and equals
 //     measurement unless that is nil.
 func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error) {
@@ -137,8 +142,8 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement 
 
 // aliasClaims reads eat_nonce (10), ueid (256) and the measurement (273,
 // [[258, CoSWID]] with the file hash at evidence/file/hash) from the alias
-// certificate's UCCS, and refuses a claims set whose ueid is absent or not a
-// byte string.
+// certificate's UCCS, and refuses a claims set whose ueid is absent, not a
+// byte string, or not the type byte 0x01 then the 16-byte device id.
 func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	uccs, err := AliasUCCS(der)
 	if err != nil {
@@ -153,6 +158,9 @@ func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	ueid, _ = claims[256].([]byte)
 	if len(ueid) == 0 {
 		return nil, nil, nil, evidenceErr("no UEID (claim 256)")
+	}
+	if len(ueid) != diceUEIDLen || ueid[0] != 0x01 {
+		return nil, nil, nil, evidenceErr("the UEID is not 0x01 and a 16-byte device id")
 	}
 	meas, _ := claims[273].([]any)
 	if len(meas) != 1 {

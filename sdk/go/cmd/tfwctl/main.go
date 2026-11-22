@@ -289,8 +289,14 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 
 	case "reset":
 		mode := tfw.ResetSoft
-		if len(args) > 0 && args[0] == "boot" {
+		switch {
+		case len(args) > 1:
+			return fmt.Errorf("usage: reset [soft|boot]")
+		case len(args) == 0 || args[0] == "soft":
+		case args[0] == "boot":
 			mode = tfw.ResetBootloader
+		default:
+			return fmt.Errorf("usage: reset [soft|boot]")
 		}
 		if err := dev.Reset(ctx, mode); err != nil {
 			return err

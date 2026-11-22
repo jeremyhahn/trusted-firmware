@@ -70,7 +70,8 @@ static void test_the_table_is_word_aligned(void)
  * fw_rsc_carveout and fw_rsc_devmem are five u32 and char name[32] (52
  * bytes), fw_rsc_trace three u32 and the name (44), fw_rsc_vdev five u32,
  * u8 status, u8 num_of_vrings and u8 reserved[2] (24), each
- * fw_rsc_vdev_vring five u32 (20). */
+ * fw_rsc_vdev_vring five u32 (20). A vdev has at most two vrings, the
+ * size of struct rproc_vdev's vring array. */
 
 enum rsc_verdict {
     RSC_OK,
@@ -150,6 +151,9 @@ static enum rsc_verdict linux_parse(const uint8_t *t, size_t size)
             }
             if (rsc[22] != 0u || rsc[23] != 0u) {
                 return RSC_VDEV_RESERVED_SET;
+            }
+            if (rsc[21] > 2u) { /* rproc_handle_vdev: "too many vrings" */
+                return RSC_TOO_MANY_VRINGS;
             }
             break;
         default:

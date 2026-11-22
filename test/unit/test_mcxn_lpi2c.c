@@ -624,6 +624,66 @@ static void test_a_bus_this_master_still_holds_is_not_started_on(void)
     TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
 }
 
+/* hal_bus.c 216-217: a flag left from the last transfer is cleared at the
+ * start, so the first push does not read a stale ALF as this transfer's. */
+static void test_a_flag_left_from_before_is_cleared_at_the_start(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+    static const uint16_t want[] = {
+        CMD(4, DEV_ADDR << 1), CMD(0, 0x01), CMD(0, 0x02), CMD(2, 0)
+    };
+
+    m.flags = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    assert_log(want, 4u);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.flags);
+}
+
+/* hal_bus.c 218-219 (RRF): a byte left in the receive FIFO is dropped at
+ * the start, not handed to the next read as its first byte. */
+static void test_a_byte_left_in_the_receive_fifo_is_not_read(void)
+{
+    uint8_t in[2];
+
+    m.rx[0] = 0xEEu;
+    m.rx_head = 1u;
+    memcpy(m.answer, "\x11\x22", 2u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, in, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(m.answer, in, 2u);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+}
+
+/* hal_bus.c 218-219 (RTF): a command left in the transmit FIFO is dropped
+ * at the start, so it does not run ahead of the new START. */
+static void test_a_command_left_in_the_transmit_fifo_is_not_run(void)
+{
+    static const uint8_t out[] = { 0x01 };
+    static const uint16_t want[] = { CMD(4, DEV_ADDR << 1), CMD(0, 0x01), CMD(2, 0) };
+
+    m.fifo[0] = CMD(4, 0x50u << 1);    /* a START to another address */
+    m.fifo_n = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, out, 1u, NULL, 0u));
+    assert_log(want, 3u);
+    TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
+    TEST_ASSERT_EQUAL_UINT(1u, m.got_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+}
+
+/* hal_bus.c 154-171: a STOP that is queued but never shows is a timeout,
+ * and the master is reset so the next transfer starts clean. */
+static void test_a_stop_that_never_shows_is_a_timeout_and_aborted(void)
+{
+    static const uint8_t out[] = { 0x01 };
+
+    m.lag = 1000000;                   /* nothing queued runs within the wait */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(3u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_EQUAL_UINT(0u, m.fifo_n);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
 static void test_an_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, NULL, 0u));
@@ -669,6 +729,10 @@ int main(void)
     RUN_TEST(test_a_stuck_controller_is_a_timeout);
     RUN_TEST(test_a_stalled_transfer_is_aborted_and_the_next_starts_clean);
     RUN_TEST(test_a_bus_this_master_still_holds_is_not_started_on);
+    RUN_TEST(test_a_flag_left_from_before_is_cleared_at_the_start);
+    RUN_TEST(test_a_byte_left_in_the_receive_fifo_is_not_read);
+    RUN_TEST(test_a_command_left_in_the_transmit_fifo_is_not_run);
+    RUN_TEST(test_a_stop_that_never_shows_is_a_timeout_and_aborted);
     RUN_TEST(test_an_empty_transfer_touches_nothing);
     RUN_TEST(test_spi_and_onewire_are_unsupported);
     return UNITY_END();

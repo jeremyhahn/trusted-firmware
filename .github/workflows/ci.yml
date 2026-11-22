@@ -1407,6 +1407,8 @@ jobs:
       # v1.52 (Tenant Agent order): a fork's head under pull_request, as under
       # pull_request_target (v1.51), gets no unset-variable exemption, and the
       # selection outputs read for it are the hosted default the step emits.
+      # runs-on expressions are read under CTX's events too (workflow_run,
+      # merge_group, release, create, issue_comment, repository_dispatch).
       # Its tests: scripts/test_ci_runner_expr.py.
       - name: Runner labels (ruling 633)
         run: |
@@ -1827,6 +1829,9 @@ jobs:
               # v1.51: the base-defined PR event code-review.yml and signatures.yml run on.
               ("pull_request_target", "refs/heads/main", "o/r"), ("pull_request_target", "refs/heads/main", "fork/r"),
           ]
+          # v1.52 fix-653a (Codex #653 round 2): every event the release guard knows
+          # is a github.com event a runs-on is read under, so CTX's events join too.
+          HOSTED_CTX += [(ev, ref, None) for ev, ref in CTX if ev not in PR and (ev, ref, None) not in HOSTED_CTX]
 
 
           def hosted_ctx(text):

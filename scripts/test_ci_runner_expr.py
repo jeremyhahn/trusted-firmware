@@ -25,6 +25,10 @@
    fork clause before the variable.
 6. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
    handbook template byte for byte; the header names v5.12.11.
+7. #653 Codex round 2: a runs-on is read under every event the release
+   guard knows (workflow_run, merge_group, release, create, issue_comment,
+   repository_dispatch), so a format()-built `release`, an unwaived
+   `self-hosted` or a `codex` label gated on github.event_name cannot pass.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -200,7 +204,8 @@ class ReleaseGuardBranches(unittest.TestCase):
                 ro = OPEN + f" github.event_name == '{ev}' && 'self-hosted' || 'ubuntu-latest' }}}}"
                 r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
                 self.assertNotEqual(r.returncode, 0, r.stdout)
-                self.assertIn("(c)", r.stdout)
+                # Under release the event name itself names `release`: (b) first.
+                self.assertIn("(b) names `release`" if ev == "release" else "(c)", r.stdout)
                 ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 'co', 'dex') || 'ubuntu-latest' }}}}"
                 r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
                 self.assertNotEqual(r.returncode, 0, r.stdout)

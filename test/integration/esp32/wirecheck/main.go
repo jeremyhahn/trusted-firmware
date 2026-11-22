@@ -568,6 +568,9 @@ func trailerOf(img []byte) (uint32, [32]byte, error) {
 	if binary.LittleEndian.Uint32(t) != trailerMagic {
 		return 0, m, errors.New("no trailer v1 after the appended SHA-256")
 	}
+	if v := binary.LittleEndian.Uint16(t[trVersion:]); v != trailerVersion {
+		return 0, m, fmt.Errorf("trailer version %d, not %d", v, trailerVersion)
+	}
 	copy(m[:], t[trMeasurement:trMeasurement+32])
 	if !bytes.Equal(m[:], img[digest:at]) {
 		return 0, m, errors.New("the trailer's measurement is not the appended SHA-256")

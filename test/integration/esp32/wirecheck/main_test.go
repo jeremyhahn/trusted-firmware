@@ -58,6 +58,7 @@ func image(version uint32, measurement []byte) []byte {
 	img = append(img, digest[:]...)
 	tr := make([]byte, trailerLen)
 	binary.LittleEndian.PutUint32(tr, trailerMagic)
+	binary.LittleEndian.PutUint16(tr[trVersion:], trailerVersion)
 	binary.LittleEndian.PutUint32(tr[trImageVersion:], version)
 	if measurement == nil {
 		measurement = digest[:]

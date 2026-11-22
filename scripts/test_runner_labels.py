@@ -9,8 +9,8 @@ misspelled self-hosted label would reach main through a green gate. These tests
 read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
 group/labels mapping, a flow list or mapping on one line or across several,
 and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
-key) of .github/workflows/*.yml and *.yaml with
-the standard library alone (no actionlint binary, no PyYAML) and fail naming
+key; a key may have spaces before its colon, `runs-on : codex`) of
+.github/workflows/*.yml and *.yaml with the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. The built-in labels, the self-hosted ones
 (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`),
@@ -69,9 +69,9 @@ GITHUB_HOSTED = {
     "macos-14",
 }
 
-RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?:(.*)$""")
+RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?\s*:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
-ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?:(\s.*)?$")
+ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?\s*:(\s.*)?$")
 FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
 
 
@@ -133,7 +133,8 @@ def plain_labels(text):
     the next, deeper-indented line (`runs-on:` then `  codex`); a plain scalar
     folded over several lines is not read. The
     key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
-    `labels:` keys of its mapping (`'labels':`, `"group":`), and a flow list or
+    `labels:` keys of its mapping (`'labels':`, `"group":`); each of these
+    keys may have spaces before its colon (`runs-on : codex`). A flow list or
     mapping that does not close on the `runs-on:` line takes the following
     lines until it closes (an unclosed one yields nothing); its labels carry
     the `runs-on:` line number. A value that starts with `${{` is an

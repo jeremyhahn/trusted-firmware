@@ -31,7 +31,8 @@ set -u
 # through MAKEFLAGS, a GO_BUILD_TAGS among them: each case sets its own.
 unset MAKEFLAGS MFLAGS MAKELEVEL GO_BUILD_TAGS
 
-# stage: target. Where a target needs arguments they follow it.
+# stage: target, one make target per entry; boot-bridge-run's arguments come
+# from GO_TAGS_BRIDGE and GO_TAGS_BRIDGE_PREREQS.
 targets=(
   "build:sdk-build"
   "build:$TFWPROV_BIN"

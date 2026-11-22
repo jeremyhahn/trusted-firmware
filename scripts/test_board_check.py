@@ -61,7 +61,7 @@ BOOT_MK = """BOOT_SUPPORTED := \\
 bootloader-check:
 """
 
-# An ATmega328P board: a boot section at the top of flash, three pins.
+# An ATmega328P board: a boot section at the top of flash, four pins.
 ALPHA_MK = """ARCH           := avr
 MCU            := atmega328p
 FLASH_BUDGET   := 16384

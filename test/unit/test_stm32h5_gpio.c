@@ -151,6 +151,46 @@ void test_a_write_is_bsrr_alone(void)
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(AHB2ENR));
 }
 
+void test_pin_15_low_write_is_bsrr_bit_31(void)
+{
+    tfw_pinref_t p = pin(8u, 15u);   /* the top pin: its reset half is the word's top bit */
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x80000000u, regfile_model_peek(GPIOI + 0x18u));
+}
+
+void test_any_nonzero_level_drives_high(void)
+{
+    static const uint8_t levels[] = { 2u, 0x80u, 0xFFu };
+    tfw_pinref_t p = pin(5u, 2u);
+    uint8_t i;
+
+    for (i = 0u; i < (uint8_t)(sizeof levels / sizeof levels[0]); i++) {
+        regfile_model_reset();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, levels[i]));
+        TEST_ASSERT_EQUAL_HEX32(0x1u << 2u, regfile_model_peek(GPIOF + 0x18u));
+    }
+}
+
+void test_pin_15_mode_is_moder_bits_31_30_and_keeps_pin_14(void)
+{
+    tfw_pinref_t p = pin(8u, 15u);   /* the top pin: its field is bits 31:30 */
+
+    TFW_H5_GPIO_MODER(GPIOI) = MODER_RESET;
+    TFW_H5_GPIO_PUPDR(GPIOI) = 0xAAAAAAAAu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, field2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, field2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+    TEST_ASSERT_EQUAL_HEX32(others2(MODER_RESET, 15u),
+                            others2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(others2(0xAAAAAAAAu, 15u),
+                            others2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, field2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, field2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+}
+
 void test_a_read_is_the_pins_idr_bit(void)
 {
     tfw_pinref_t p = pin(7u, 10u);   /* PH10, ARD_D6 */
@@ -214,6 +254,9 @@ int main(void)
     RUN_TEST(test_a_high_write_sets_bsrr_bs);
     RUN_TEST(test_a_low_write_sets_bsrr_br);
     RUN_TEST(test_a_write_is_bsrr_alone);
+    RUN_TEST(test_pin_15_low_write_is_bsrr_bit_31);
+    RUN_TEST(test_any_nonzero_level_drives_high);
+    RUN_TEST(test_pin_15_mode_is_moder_bits_31_30_and_keeps_pin_14);
     RUN_TEST(test_a_read_is_the_pins_idr_bit);
     RUN_TEST(test_a_bank_past_the_part_is_refused);
     RUN_TEST(test_a_pin_past_the_bank_is_refused);

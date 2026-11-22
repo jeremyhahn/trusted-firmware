@@ -771,6 +771,34 @@ static void test_at_t1_the_lease_is_renewed_beside_the_connection(void)
     renewal_sent();
 }
 
+/* RFC 2131 §4.1: the xid matches a reply to the request pending. A renewal
+ * asks under a new xid (dhcp.c tfw_dhcp_renew, new_xid() at BOUND), so a late
+ * DHCPACK of the first exchange is not taken as the renewal's answer. */
+static void test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+    uint8_t  first[4], renew[4];
+
+    memcpy(first, xid, 4u);
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    memcpy(renew, xid, 4u);
+    TEST_ASSERT_FALSE(memcmp(first, renew, 4u) == 0);
+
+    now_ms += 2000u;
+    memcpy(xid, first, 4u);                                 /* the first exchange's */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    memcpy(xid, renew, 4u);
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
+}
+
 static void test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s(void)
 {
     tfw_ms_t asked = bind();
@@ -967,6 +995,7 @@ int main(void)
     RUN_TEST(test_a_decline_the_chip_has_no_room_for_gives_the_socket_back);
     RUN_TEST(test_a_probe_the_chip_never_finishes_is_given_up_after_4_s);
     RUN_TEST(test_at_t1_the_lease_is_renewed_beside_the_connection);
+    RUN_TEST(test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one);
     RUN_TEST(test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s);
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);

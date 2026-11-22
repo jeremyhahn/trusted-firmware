@@ -82,6 +82,29 @@ static void test_half_duplex_10m_clears_fes_and_dm(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_ETH_MACCR_ACS | TFW_ETH_MACCR_CST, R(TFW_ETH_MACCR));
 }
 
+/* hal_eth_netif.c line 305 inits the MAC again at every link-up, over the
+ * same rings: hal_eth_mac.c lines 67-81 must zero every TX descriptor and
+ * rewind the tail to tx[0], or a slot left owned blocks TX for good. */
+static void test_init_again_takes_back_a_used_tx_ring(void)
+{
+    uint8_t frame[64] = { 0 };
+
+    TEST_ASSERT_EQUAL_INT(0, tfw_eth_mac_tx(&m, frame, sizeof frame));
+    TEST_ASSERT_EQUAL_INT(0, tfw_eth_mac_tx(&m, frame, sizeof frame));
+    memset(tx, 0xA5, sizeof tx);
+    tfw_eth_mac_init(&m, mac_addr, TFW_ETH_MACCR_FES | TFW_ETH_MACCR_DM);
+    for (uint32_t i = 0u; i < TFW_ETH_DESC_COUNT; i++) {
+        TEST_ASSERT_EQUAL_HEX32(0u, tx[i].des0);
+        TEST_ASSERT_EQUAL_HEX32(0u, tx[i].des1);
+        TEST_ASSERT_EQUAL_HEX32(0u, tx[i].des2);
+        TEST_ASSERT_EQUAL_HEX32(0u, tx[i].des3);
+    }
+    TEST_ASSERT_EQUAL_HEX32(addr32(&tx[0]), R(TFW_ETH_DMACTDTPR));
+    TEST_ASSERT_EQUAL_INT(0, tfw_eth_mac_tx(&m, frame, 42u));
+    TEST_ASSERT_EQUAL_UINT32(42u, tx[0].des2);
+    TEST_ASSERT_EQUAL_HEX32(addr32(&tx[1]), R(TFW_ETH_DMACTDTPR));
+}
+
 static void test_start_and_stop(void)
 {
     tfw_eth_mac_start(&m);
@@ -210,6 +233,7 @@ int main(void)
     RUN_TEST(test_init_configures_mac_mtl_and_dma);
     RUN_TEST(test_init_hands_every_rx_descriptor_to_the_dma);
     RUN_TEST(test_half_duplex_10m_clears_fes_and_dm);
+    RUN_TEST(test_init_again_takes_back_a_used_tx_ring);
     RUN_TEST(test_start_and_stop);
     RUN_TEST(test_reset_times_out_when_swr_sticks);
     RUN_TEST(test_tx_fills_the_descriptor_and_moves_the_tail);

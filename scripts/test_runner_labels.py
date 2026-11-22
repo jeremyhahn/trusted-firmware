@@ -131,6 +131,37 @@ class RunnerLabelsTest(unittest.TestCase):
         )
         self.assertEqual(found, [])
 
+    def test_a_mapping_label_list_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n"
+            "      group: g\n      labels: [self-hosted, qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_mapping_scalar_label_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on:\n      group: g\n      labels: qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:5: qwne"])
+
+    def test_a_flow_mapping_is_read(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: {group: g, labels: codex}\n"
+        )
+        self.assertEqual(found, [])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: {group: g, labels: qwne}\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_yaml_workflow_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "w.yaml").write_text(
+                "jobs:\n  review:\n    runs-on: qwne\n"
+            )
+            found = unknown(tmp, allowlist(ACTIONLINT))
+        self.assertEqual(found, ["w.yaml:3: qwne"])
+
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)
         for label in ("codex", "qwen", "ci-gate"):

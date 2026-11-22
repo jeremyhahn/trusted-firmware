@@ -29,14 +29,24 @@
    preflight's `Balanced runner pool (ruling 1137)` step sends a run hosted
    with a ::warning on a short listing or a reply that is not 200, and a
    fork's head to the hosted default with a ::notice.
+8. Codex round 1 P1 on #1042: the balancing decision is run against a fake
+   API with run and job lists per URL: the lower of hosted use H/HS and
+   self-hosted use max(S1/C1, S2/C2) wins and a tie goes hosted; one full
+   pool sends the run to the other, both full take the shorter queue and
+   equal queues go hosted; uncounted jobs stay uncounted; a fork's head
+   stays hosted where self-hosted would win. Both self-hosted label lists
+   are asserted exactly, and each test also asserts the self-hosted side
+   of its boundary.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -273,6 +283,60 @@ done
 printf '%s' "$FAKE_CODE"
 """
 
+# The fake Actions API (after a "#!python" line): the first $FAKE_ROUTES
+# entry [key, code, body] whose key is in the URL answers it, else a 404.
+# Each URL goes to $FAKE_LOG; a token on the command line fails the call.
+FAKE_API = r'''import json, os, sys
+args = sys.argv[1:]
+if any(os.environ["FAKE_TOKEN"] in a for a in args):
+    sys.stderr.write("token on the curl command line\n")
+    sys.exit(97)
+out, url = args[args.index("-o") + 1], args[-1]
+with open(os.environ["FAKE_LOG"], "a") as f:
+    f.write(url + "\n")
+code, body = 404, '{"message": "Not Found"}'
+with open(os.environ["FAKE_ROUTES"]) as f:
+    for key, c, b in json.load(f):
+        if key in url:
+            code, body = c, b
+            break
+with open(out, "w") as f:
+    f.write(body)
+sys.stdout.write(str(code))
+'''
+TOKEN = "<fake-token-0123456789>"
+HOSTED_OUT = 'runner="ubuntu-latest"\nrunner_docker="ubuntu-latest"\n'
+SELF_OUT = ('runner=["self-hosted","linux","x64","bigdisk"]\n'
+            'runner_docker=["self-hosted","linux","x64","bigdisk-docker"]\n')
+HOSTED_LABELS = ["ubuntu-latest"]
+SH_BIGDISK = ["self-hosted", "linux", "x64", "bigdisk"]
+SH_DOCKER = ["self-hosted", "linux", "x64", "bigdisk-docker"]
+
+
+def jobj(run, status, labels):
+    return {"run_id": run, "status": status, "labels": labels}
+
+
+def runs(*ids, total=None):
+    return json.dumps({"total_count": len(ids) if total is None else total,
+                       "workflow_runs": [{"id": i} for i in ids]})
+
+
+def jobs(*js, total=None):
+    return json.dumps({"total_count": len(js) if total is None else total, "jobs": list(js)})
+
+
+def pool(h=0, hq=0, s1=0, s1q=0, s2=0, s2q=0, extra=()):
+    """Routes where run 101 holds h hosted jobs in progress and hq queued,
+    s1/s1q bigdisk and s2/s2q bigdisk-docker; run 100 (this run) is listed,
+    and its jobs are never asked for (the fake would answer 404)."""
+    js = ([jobj(101, "in_progress", HOSTED_LABELS)] * h + [jobj(101, "queued", HOSTED_LABELS)] * hq
+          + [jobj(101, "in_progress", SH_BIGDISK)] * s1 + [jobj(101, "queued", SH_BIGDISK)] * s1q
+          + [jobj(101, "in_progress", SH_DOCKER)] * s2 + [jobj(101, "queued", SH_DOCKER)] * s2q
+          + list(extra))
+    return [["runs?status=queued", 200, runs()], ["runs?status=in_progress", 200, runs(100, 101)],
+            ["runs/101/jobs", 200, jobs(*js)]]
+
 
 @unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
 class OverflowShortList(unittest.TestCase):
@@ -328,6 +392,181 @@ class OverflowShortList(unittest.TestCase):
         self.assertNotIn("::warning::", out)
         self.assertIn("::notice::runner selection: use hosted 0/12", out)
         self.assert_hosted(outputs)
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
+class BalancedPool(unittest.TestCase):
+    """Codex round 1 P1 on #1042: the balancing decision itself, the template's
+    testdata/runner-select-tests.py parts A, B and E mirrored. The step runs
+    as the runner runs it, against a fake API that answers run and job lists
+    by URL (run 100 is this run). Every test also asserts a case on the
+    other side of its boundary, so an unconditional hosted pick fails it."""
+
+    def balance(self, routes, hs="10", c1="10", c2="10", event="push", head=""):
+        run = step_run(CI, "Balanced runner pool (ruling 1137)")
+        with tempfile.TemporaryDirectory() as d:
+            bindir = os.path.join(d, "bin")
+            os.makedirs(bindir)
+            curl = os.path.join(bindir, "curl")
+            with open(curl, "w", encoding="utf-8") as f:
+                f.write("#!" + sys.executable + "\n" + FAKE_API)
+            os.chmod(curl, 0o755)
+            paths = {k: os.path.join(d, k) for k in ("out", "log", "routes.json")}
+            for k in ("out", "log"):
+                open(paths[k], "w", encoding="utf-8").close()
+            with open(paths["routes.json"], "w", encoding="utf-8") as f:
+                json.dump(routes, f)
+            env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       API="https://api.github.com/repos/o/r/actions", RUN_ID="100", JOB_TOKEN=TOKEN,
+                       HS=hs, C1=c1, C2=c2, RUNNER_TEMP=d, GITHUB_OUTPUT=paths["out"],
+                       FAKE_ROUTES=paths["routes.json"], FAKE_LOG=paths["log"], FAKE_TOKEN=TOKEN)
+            r = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", run],
+                               env=env, capture_output=True, text=True, timeout=60)
+            with open(paths["out"], encoding="utf-8") as f:
+                outputs = f.read()
+            with open(paths["log"], encoding="utf-8") as f:
+                calls = f.read().splitlines()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(TOKEN, r.stdout + r.stderr)
+        return r.stdout, outputs, calls
+
+    def pick(self, routes, **kw):
+        out, outputs, _ = self.balance(routes, **kw)
+        self.assertNotIn("::warning::", out)
+        self.assertIn(outputs, (HOSTED_OUT, SELF_OUT), out)
+        return ("self" if outputs == SELF_OUT else "hosted"), out
+
+    def assert_pick(self, want, routes, says=(), **kw):
+        got, out = self.pick(routes, **kw)
+        self.assertEqual(got, want, out)
+        for s in says:
+            self.assertIn(s, out)
+
+    # A. balance: hosted H/HS against max(S1/C1, S2/C2); a tie goes hosted.
+
+    def test_self_hosted_outputs_are_the_two_label_lists(self):
+        out, outputs, _ = self.balance(pool(h=5, s1=2, s2=2))
+        self.assertEqual(outputs, 'runner=["self-hosted","linux","x64","bigdisk"]\n'
+                                  'runner_docker=["self-hosted","linux","x64","bigdisk-docker"]\n')
+        self.assertIn("::notice::runner selection: use hosted 5/10, bigdisk 2/10, bigdisk-docker 2/10", out)
+
+    def test_lower_utilization_wins(self):
+        self.assert_pick("hosted", pool(h=2, s1=5), ["hosted 2 of CI_HOSTED_SHARE=10",
+                         "bigdisk 5 of CI_SELF_HOSTED_BIGDISK=10", "bigdisk-docker 0 of CI_SELF_HOSTED_BIGDISK_DOCKER=10"])
+        self.assert_pick("self", pool(h=5, s1=2))
+        self.assert_pick("hosted", pool(h=2, s2=5))
+        self.assert_pick("self", pool(h=5, s2=2))
+
+    def test_tie_goes_hosted(self):
+        self.assert_pick("hosted", pool(h=3, s2=3), ["use hosted 3/10, bigdisk 0/10, bigdisk-docker 3/10"])
+        self.assert_pick("self", pool(h=3, s2=2))
+        self.assert_pick("hosted", pool(h=1, s1=1))
+        self.assert_pick("self", pool(h=1))
+        self.assert_pick("hosted", pool(), ["hosted 0 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+
+    def test_tie_by_cross_multiplication(self):
+        # 2/10 against 4/20, and 4/20 against 3/15 with HS=20, C2=15.
+        self.assert_pick("hosted", pool(h=2, s1=4), c1="20")
+        self.assert_pick("self", pool(h=2, s1=3), c1="20")
+        self.assert_pick("hosted", pool(h=4, s2=3), hs="20", c2="15")
+        self.assert_pick("self", pool(h=4, s2=2), hs="20", c2="15")
+
+    def test_larger_self_hosted_kind_decides(self):
+        # S2/C2 3/6 is above hosted 4/20 though S1 is 0; 9/20 is above 1/6 and 1/6.
+        self.assert_pick("hosted", pool(h=4, s2=3), hs="20", c2="6")
+        self.assert_pick("self", pool(h=9, s1=1, s2=1), hs="20", c1="6", c2="6")
+        self.assert_pick("hosted", pool(h=9, s1=1, s2=3), hs="20", c1="6", c2="6")
+
+    def test_queued_jobs_count_with_in_progress_ones(self):
+        self.assert_pick("self", pool(h=1, hq=3, s1=1, s1q=1, s2q=1), ["hosted 4 of", "(3 queued)",
+                         "bigdisk 2 of", "bigdisk-docker 1 of", "(2 self-hosted queued)"])
+        self.assert_pick("hosted", pool(h=1, s1=1, s1q=1, s2q=1))
+
+    def test_uncounted_jobs(self):
+        # Completed, unlabelled and other self-hosted jobs, and a self-hosted
+        # job naming a hosted image, count nowhere; one hosted job makes it self.
+        extra = ([jobj(101, "completed", SH_DOCKER) for _ in range(30)]
+                 + [jobj(101, "in_progress", []) for _ in range(5)]
+                 + [jobj(101, "in_progress", ["self-hosted", "linux", "x64", "release"])]
+                 + [jobj(101, "in_progress", ["self-hosted", "ubuntu-latest"])])
+        self.assert_pick("self", pool(h=1, extra=extra), ["hosted 1 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+        self.assert_pick("hosted", pool(extra=extra), ["hosted 0 of", "bigdisk 0 of"])
+
+    def test_bigdisk_docker_job_counts_as_s2_only(self):
+        both = [jobj(101, "in_progress", ["self-hosted", "bigdisk", "bigdisk-docker"])]
+        self.assert_pick("self", pool(h=5, extra=both), ["bigdisk 0 of", "bigdisk-docker 1 of"])
+        self.assert_pick("hosted", pool(h=1, extra=both), ["bigdisk-docker 1 of"])
+
+    def test_this_runs_jobs_are_not_read(self):
+        mine = [["runs/100/jobs", 200, jobs(*[jobj(100, "in_progress", SH_DOCKER) for _ in range(50)])]]
+        out, outputs, calls = self.balance(pool(h=1) + mine)
+        self.assertEqual(outputs, SELF_OUT, out)
+        self.assertFalse([c for c in calls if "/runs/100/" in c], calls)
+
+    def test_run_listed_twice_is_read_once(self):
+        routes = [["runs?status=queued", 200, runs(101)], ["runs?status=in_progress", 200, runs(100, 101)],
+                  ["runs/101/jobs", 200, jobs(*[jobj(101, "in_progress", HOSTED_LABELS) for _ in range(3)])]]
+        out, outputs, calls = self.balance(routes)
+        self.assertEqual(outputs, SELF_OUT, out)
+        self.assertIn("hosted 3 of", out)
+        self.assertEqual(len(calls), 3, calls)
+
+    def test_second_page_is_read(self):
+        routes = [["runs?status=queued", 200, runs()],
+                  ["runs?status=in_progress&per_page=100&page=1", 200, runs(100, total=2)],
+                  ["runs?status=in_progress&per_page=100&page=2", 200, runs(101, total=2)],
+                  ["runs/101/jobs", 200, jobs(*[jobj(101, "in_progress", HOSTED_LABELS) for _ in range(4)])]]
+        self.assert_pick("self", routes, ["hosted 4 of"])
+
+    # B. full pools.
+
+    def test_hosted_full_goes_self_hosted(self):
+        self.assert_pick("self", pool(h=10, s1=9, s2=9), ["the hosted pool is full (10 of 10)"])
+        self.assert_pick("hosted", pool(h=9, s1=9, s2=9))
+
+    def test_self_hosted_full_goes_hosted(self):
+        self.assert_pick("hosted", pool(h=9, s1=10, s2=10), ["the self-hosted pool is full"])
+        self.assert_pick("self", pool(h=10, s1=9, s2=9))
+
+    def test_bigdisk_alone_full(self):
+        # S1 >= C1 alone fills the self-hosted pool; one more C1 frees it.
+        self.assert_pick("hosted", pool(h=9, s1=2), ["the self-hosted pool is full (bigdisk 2 of 2, "
+                         "bigdisk-docker 0 of 10)"], c1="2")
+        self.assert_pick("self", pool(h=9, s1=2), c1="3")
+
+    def test_bigdisk_docker_alone_full(self):
+        self.assert_pick("hosted", pool(h=9, s2=3), ["the self-hosted pool is full (bigdisk 0 of 10, "
+                         "bigdisk-docker 3 of 3)"], c2="3")
+        self.assert_pick("self", pool(h=9, s2=3), c2="4")
+
+    def test_both_full_shorter_queue_wins(self):
+        self.assert_pick("self", pool(h=6, hq=4, s1=9, s1q=1),
+                         ["both pools full: hosted 4 queued, self-hosted 1 queued"])
+        self.assert_pick("hosted", pool(h=10, hq=1, s1=5, s2=8, s2q=2),
+                         ["both pools full: hosted 1 queued, self-hosted 2 queued"])
+
+    def test_both_full_self_hosted_queue_counts_both_kinds(self):
+        self.assert_pick("hosted", pool(h=8, hq=2, s1=8, s1q=1, s2=9, s2q=1), ["self-hosted 2 queued"])
+        self.assert_pick("self", pool(h=8, hq=2, s1=8, s1q=1, s2=10), ["self-hosted 1 queued"])
+
+    def test_both_full_equal_queues_go_hosted(self):
+        self.assert_pick("hosted", pool(h=12, s1=12), ["both pools full: hosted 0 queued, self-hosted 0 queued"])
+        self.assert_pick("self", pool(h=12, hq=1, s1=12), ["both pools full: hosted 1 queued, self-hosted 0 queued"])
+
+    # E. a fork's head stays hosted even where self-hosted would win.
+
+    def test_fork_head_stays_hosted_where_self_hosted_wins(self):
+        win = pool(h=9)
+        self.assert_pick("self", win)
+        self.assert_pick("self", win, event="pull_request", head="o/r")
+        for event, head in (("pull_request", "fork/r"), ("pull_request", ""), ("pull_request_target", "fork/r")):
+            with self.subTest(event=event, head=head):
+                out, outputs, calls = self.balance(win, event=event, head=head)
+                self.assertEqual(outputs, HOSTED_OUT, out)
+                self.assertIn("::notice::runner selection: this pull request's head repository is not "
+                              "this repository (a fork)", out)
+                self.assertEqual(calls, [])
 
 
 class PullRequestTarget(unittest.TestCase):

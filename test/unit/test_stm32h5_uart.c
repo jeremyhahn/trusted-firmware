@@ -6,7 +6,9 @@
  * tfw_hal_uart_rx and the USART1 service routine on the register file
  * (test/model/cortex-m/regfile_model.c): USART1's BRR for 115200 at 64 MHz,
  * CR1's UE/TE/RE, PA9 and PA10 on alternate function 7, TDR written from the
- * ring with TXE set and not with it clear, tx_idle on TC, and RDR into the
+ * ring with TXE set and not with it clear, the transmit ring sending past its
+ * 64-slot wrap in order and turning TXEIE off once empty, tx_idle on TC, and
+ * RDR into the
  * ring with RXNE set and nothing with it clear, a full receive ring dropping
  * the new byte and keeping the 63 queued in order, and an overrun beside a
  * byte both taking the byte and clearing ORE. The register file holds what
@@ -165,6 +167,26 @@ static void test_tx_try_refuses_while_txe_stays_clear_and_the_ring_fills(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xEEu));
 }
 
+/*
+ * 70 bytes through the 64-slot ring, one at a time: the head (hal_uart.c line
+ * 149) and the tail (lines 131-132) both wrap past slot 63, and each byte goes
+ * out in order. With the ring empty again the routine turns TXEIE off and
+ * writes nothing more.
+ */
+static void test_the_tx_ring_sends_past_its_wrap_in_order(void)
+{
+    init_115200();
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    for (uint32_t i = 0u; i < 70u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)(0x80u + i)));
+        tfw_cm_irq58();
+        TEST_ASSERT_EQUAL_HEX32(0x80u + i, TFW_H5_USART_TDR);
+    }
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1 & TFW_H5_USART_CR1_TXEIE);
+    TEST_ASSERT_EQUAL_HEX32(0x80u + 69u, TFW_H5_USART_TDR);
+}
+
 static void test_tx_idle_on_tc_with_the_ring_empty(void)
 {
     init_115200();
@@ -297,6 +319,7 @@ int main(void)
     RUN_TEST(test_tx_try_with_txe_set_writes_tdr);
     RUN_TEST(test_tx_with_txe_clear_writes_no_tdr);
     RUN_TEST(test_tx_try_refuses_while_txe_stays_clear_and_the_ring_fills);
+    RUN_TEST(test_the_tx_ring_sends_past_its_wrap_in_order);
     RUN_TEST(test_tx_idle_on_tc_with_the_ring_empty);
     RUN_TEST(test_tx_idle_waits_for_the_ring);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);

@@ -80,13 +80,17 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 // each step mirrors):
 //
 //   - fmt is "dice" and alg is ES256;
-//   - x5c[1], the DeviceID certificate, chains to roots;
+//   - x5c[1], the DeviceID certificate, chains to roots, which must be
+//     non-nil (nil is refused, never the host's system roots);
 //   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
 //   - the alias certificate's eat_nonce and authData are nonce;
 //   - sig verifies under the alias key over SHA-256(authData);
 //   - the TCB measurement (claim 273's file hash) is present, and equals
 //     measurement unless that is nil.
 func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error) {
+	if roots == nil {
+		return nil, evidenceErr("no trusted roots for the DeviceID certificate")
+	}
 	st, err := decodeDICEObject(obj)
 	if err != nil {
 		return nil, errors.Join(evidenceErr("not a dice attestation object"), err)

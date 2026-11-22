@@ -168,6 +168,7 @@ func TestDICEAttestationRefusals(t *testing.T) {
 		{"alg EdDSA", bytes.Replace(good, []byte("\x63alg\x26"), []byte("\x63alg\x27"), 1), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 		{"trailing byte", append(bytes.Clone(good), 0x00), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 		{"truncated", good[:len(good)-1], v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
+		{"nil roots", good, v.nonce, nil, v.fwHash, "no trusted roots for the DeviceID certificate"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -45,10 +45,10 @@ row's, and everything around it is the standards above.
 ## Context
 
 - `src/core/suit.c` already reads a SUIT envelope with a `COSE_Sign1_Tagged`
-  authentication, ES256 and SHA-256. `tfw_suit_read` (`src/core/suit.h:74`)
+  authentication, ES256 and SHA-256. `tfw_suit_read` (`src/core/suit.h:75`)
   verifies against the board's image key only. Its subset has a detached
   payload and no integrated one ([`../ota/adr-ota-image-format-and-trust.md`](../ota/adr-ota-image-format-and-trust.md), subset table).
-- `tfw_suit_gate` (`src/core/suit.h:138`) binds a manifest to the vendor id and
+- `tfw_suit_gate` (`src/core/suit.h:139`) binds a manifest to the vendor id and
   the board's class id, and maps each refusal to a status that already exists:
   binding `TFW_ERR_UNSUPPORTED`, digest `TFW_ERR_CRYPTO`, size `TFW_ERR_RANGE`,
   sequence `TFW_ERR_PROTECTED_REGION` (`include/tfw/status.h`).
@@ -219,7 +219,7 @@ none is renumbered.
 ## Consequences
 
 - One SUIT reader for images, policy sets and scripts (L1). Slice 1 adds
-  `tfw_suit_read_integrated` (`src/core/suit.h:113`), which takes the key
+  `tfw_suit_read_integrated` (`src/core/suit.h:114`), which takes the key
   and reads the integrated-payload member; `tfw_suit_read` still takes no
   key and verifies against the board's image key. The image
   gate and its vectors do not change.

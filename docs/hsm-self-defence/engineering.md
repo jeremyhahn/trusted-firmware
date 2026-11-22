@@ -14,8 +14,8 @@ Design: [architecture.md](architecture.md). Policy format and check:
 
 | Code | Today | What the row needs from it |
 |---|---|---|
-| `tfw_suit_read` (`src/core/suit.h:66`) | Reads and authenticates an envelope against the board's image key; detached payload only | A key argument and the integrated payload (ADR D1, D3), slice 1. **Met:** `tfw_suit_read_integrated` (`src/core/suit_integrated.c`), beside `tfw_suit_read` so no image link grows; vectors `SUIT_POLICY_*` and `SUIT_TENANT_PUB`; `test/unit/test_suit_integrated.c` |
-| `tfw_suit_gate` (`src/core/suit.h:80`) | The image gate before activation | Unchanged, with its vectors |
+| `tfw_suit_read` (`src/core/suit.h:75`) | Reads and authenticates an envelope against the board's image key; detached payload only | A key argument and the integrated payload (ADR D1, D3), slice 1. **Met:** `tfw_suit_read_integrated` (`src/core/suit_integrated.c`), beside `tfw_suit_read` so no image link grows; vectors `SUIT_POLICY_*` and `SUIT_TENANT_PUB`; `test/unit/test_suit_integrated.c` |
+| `tfw_suit_gate` (`src/core/suit.h:139`) | The image gate before activation | Unchanged, with its vectors |
 | `TFW_SUIT_VENDOR_ID` (`include/tfw/config.h`), `TFW_SUIT_CLASS_ID` (`boards/*/board_profile.h`) | Vendor id; one class id per board | Two more class ids per board that runs the row (ADR D2), in its board profile. **Met:** `TFW_SUIT_POLICY_CLASS_ID` and `TFW_SUIT_SCRIPT_CLASS_ID` in every profile with an image class id (328P, 2560, 32U4, ESP32 QEMU, ESP32-P4), all zero by default in `include/tfw/config.h` (no class); `tfw_suit_read_integrated` holds them and returns the kind |
 | `tools/suit-emit/` | Emits image envelopes for the vectors | Emits policy sets and scripts, signed with a throwaway test key |
 | `testdata/suit_vectors.h` | Literal SUIT vectors | New literal vectors beside the old ones; no old vector changes |

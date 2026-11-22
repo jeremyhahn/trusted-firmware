@@ -14,8 +14,9 @@
  * OTA_BEGIN, OTA_DATA, OTA_END and OTA_STATUS carry the same payloads and the
  * same states as tfw-boot's session (boot/boot_session.c), so a host drives
  * either the same way. The difference is where the bytes go: here they stream
- * into the external store's STAGE area, and a verified image leaves a MARK
- * record for tfw-boot to find. Nothing here touches the application's flash.
+ * into the external store's STAGE area, and a verified image is marked for
+ * tfw-boot only by OTA_ACTIVATE (tfw_stage_activate). Nothing here touches the
+ * application's flash.
  */
 
 /* OTA_STATUS's state byte -- tfw-boot's numbering, which is wire. */

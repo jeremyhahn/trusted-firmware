@@ -41,6 +41,10 @@
 #define O_RX_MAXCNT    0x708u
 #define O_TX_PTR       0x73Cu
 #define O_TX_MAXCNT    0x740u
+/* P1 PIN_CNF[0] (soc_regs.h lines 69, 75: TFW_NRF_P1_BASE + 0x080). */
+#define P1_PIN_CNF0    (0x500D8200u + 0x080u)
+/* Pull-up, S0D1 drive, input connected (soc_regs.h line 122). */
+#define PIN_CNF_TWI    ((3u << 2) | (2u << 10))
 
 #define SH_LASTTX_RXSTART (1u << 7)
 #define SH_LASTTX_STOP    (1u << 9)
@@ -85,6 +89,8 @@ typedef struct {
     uint32_t nread;
     uint32_t restarts;           /* repeated STARTs */
     uint32_t stops;              /* STOP conditions sent */
+    uint32_t tasks_resume;
+    uint32_t p1_pin_cnf[32];     /* P1 PIN_CNF[n] as last written */
 } twim_model_t;
 
 static twim_model_t s_twim;
@@ -198,13 +204,17 @@ static void model_write(uintptr_t addr, uint32_t v)
 {
     uint32_t off;
 
+    if (addr >= P1_PIN_CNF0 && addr < P1_PIN_CNF0 + 4u * 32u) {
+        s_twim.p1_pin_cnf[(addr - P1_PIN_CNF0) / 4u] = v;
+        return;
+    }
     if (addr < TWIM_BASE || addr >= TWIM_BASE + TWIM_SPAN) {
-        return; /* the pins' PIN_CNF: not modelled */
+        return;
     }
     off = (uint32_t)(addr - TWIM_BASE);
     switch (off) {
     case O_TASKS_STOP:   s_twim.tasks_stop++; bus_stop(); break;
-    case O_TASKS_RESUME: break;
+    case O_TASKS_RESUME: s_twim.tasks_resume++; break;
     case O_TASKS_TX:     s_twim.tasks_starttx++; bus_write(); break;
     case O_TASKS_RX:     s_twim.tasks_startrx++; bus_read(); break;
     case O_ERRORSRC:     s_twim.errorsrc &= ~v; break;
@@ -493,6 +503,46 @@ static void test_spi_and_onewire_refuse(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_ow_read(&p, &b, 1u));
 }
 
+/* Init over an earlier owner's INTEN, SHORTS and pins: both masks cleared and
+ * SCL P1.10, SDA P1.8 set to the TWI PIN_CNF (hal_bus.c lines 127-133). */
+static void test_twim_init_clears_inten_shorts_and_sets_the_pins(void)
+{
+    s_twim.regs[O_INTEN / 4u] = 0xFFFFFFFFu;
+    s_twim.shorts             = 0xFFFFFFFFu;
+    memset(s_twim.p1_pin_cnf, 0, sizeof s_twim.p1_pin_cnf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_INTEN / 4u]);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.shorts);
+    TEST_ASSERT_EQUAL_HEX32(PIN_CNF_TWI, s_twim.p1_pin_cnf[10]);
+    TEST_ASSERT_EQUAL_HEX32(PIN_CNF_TWI, s_twim.p1_pin_cnf[8]);
+}
+
+/* An ANACK left latched by the last transfer: cleared before the next starts,
+ * so a good write is not failed on it (hal_bus.c lines 38, 41, 149). */
+static void test_twim_stale_error_does_not_fail_the_next_transfer(void)
+{
+    static const uint8_t wr[1] = { 0x01u };
+
+    s_twim.events_error = 1u;
+    s_twim.errorsrc     = ES_ANACK;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, wr, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+}
+
+/* A data NACK suspends the TWIM: RESUME before the STOP, the nrfx sequence
+ * (hal_bus.c lines 66-71). */
+static void test_twim_data_nack_resumes_before_the_stop(void)
+{
+    static const uint8_t wr[3] = { 0x01u, 0x02u, 0x03u };
+
+    s_twim.dnack_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_resume);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -513,5 +563,8 @@ int main(void)
     RUN_TEST(test_twim_read_stopped_late);
     RUN_TEST(test_twim_empty_transaction_does_nothing);
     RUN_TEST(test_spi_and_onewire_refuse);
+    RUN_TEST(test_twim_init_clears_inten_shorts_and_sets_the_pins);
+    RUN_TEST(test_twim_stale_error_does_not_fail_the_next_transfer);
+    RUN_TEST(test_twim_data_nack_resumes_before_the_stop);
     return UNITY_END();
 }

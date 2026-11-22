@@ -281,15 +281,18 @@ static void test_the_manifest_refusals(void)
 
 static void test_the_uri_bound_is_thirty_two_characters(void)
 {
-    char at[TFW_SUIT_URI_MAX + 1u];
-    char past[TFW_SUIT_URI_MAX + 2u];
+    /* The bound as suit.h documents it, not read from TFW_SUIT_URI_MAX: a
+     * raised bound must fail here, not move the cases with it. */
+    enum { BOUND = 32 };
+    char at[BOUND + 1];
+    char past[BOUND + 2];
 
-    /* "#" then letters: one of TFW_SUIT_URI_MAX characters, one a character past it. */
-    memset(past, 'p', TFW_SUIT_URI_MAX + 1u);
+    /* "#" then letters: one of the bound's characters, one a character past it. */
+    memset(past, 'p', BOUND + 1);
     past[0] = '#';
-    past[TFW_SUIT_URI_MAX + 1u] = '\0';
-    memcpy(at, past, TFW_SUIT_URI_MAX);
-    at[TFW_SUIT_URI_MAX] = '\0';
+    past[BOUND + 1] = '\0';
+    memcpy(at, past, BOUND);
+    at[BOUND] = '\0';
 
     /* At the bound it reads; past it, as the URI or as the name, it does not. */
     expect_status(TFW_OK, buf, build(buf, vendor, policy_class, at, at, SUIT_POLICY_BODY,

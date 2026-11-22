@@ -271,8 +271,9 @@ _Static_assert(MUX5 == 5, "MUX5 bit position: ADC channels above 7 are unreachab
  * firmware speaks to the TTL pins rather than implementing CDC -- so a host
  * talks to it over an FTDI cable, not the native USB port.
  *
- * The register names are pasted from TFW_UART_N in src/hal/avr/hal_uart.c; the
- * vector names are spelled out because avr-libc is not consistent about them
+ * The register names are pasted from TFW_UART_N in
+ * src/hal/avr/avr_usart_regs.h; the vector names are spelled out because
+ * avr-libc is not consistent about them
  * and a pasted name that does not exist compiles to an ordinary function
  * nothing calls -- a device that simply never answers.
  */

@@ -7,8 +7,8 @@ Linked into a temporary directory under each tool's name (STM32_Programmer_CLI,
 picotool, JLinkExe, pyocd, arm-none-eabi-objcopy) and put first on PATH. It
 logs every call to $FAKE_LOG, one line each, and models the part's memory in
 $FAKE_MEM: a write stores the file's bytes at its address, a read of the same
-address and length gives them back, any other read gives 0xFF bytes. It talks
-to no device.
+address and length gives them back, any other read gives 0xFF bytes,
+FAKE_SHORT fewer than asked when that is set. It talks to no device.
 """
 
 import json

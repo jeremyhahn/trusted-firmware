@@ -56,7 +56,9 @@ struct tfw_imx95_wipe {
  * locks down (R3). A refused open or delete is TFW_ERR_CRYPTO, no answer
  * TFW_ERR_TIMEOUT; the remaining keys are still tried. TFW_ERR_UNSUPPORTED,
  * with nothing sent, while the MU or the delete's id is zero or no key id is
- * set, and for a layout the client refuses.
+ * set. A delete layout the client refuses is TFW_ERR_UNSUPPORTED too, after
+ * the session, key store and key management service are opened; they are
+ * closed again and no delete is sent.
  *
  * A3 is not here: it is open (architecture.md section 3, question 4). The
  * key-group delete is not either (question 5). */
@@ -114,8 +116,10 @@ struct tfw_imx95_attest {
  * cleared first, close the session, and compare the report
  * (tfw_imx95_hsm_compare_buf over the layout's report size).
  * TFW_ERR_UNSUPPORTED, with nothing sent, while the MU or the message's id is
- * zero, or for a layout the client refuses. A refused session or attestation, a nonce or a buffer the client
- * refuses, is TFW_ERR_CRYPTO, no answer TFW_ERR_TIMEOUT: S3 either way. */
+ * zero. A layout the client refuses is TFW_ERR_UNSUPPORTED after the session
+ * is opened; it is closed again and no attestation is sent. A refused session
+ * or attestation, a nonce or a buffer the client refuses, is TFW_ERR_CRYPTO,
+ * no answer TFW_ERR_TIMEOUT: S3 either way. */
 tfw_status_t tfw_imx95_hsm_attest(const struct tfw_ele_chan *c, const struct tfw_imx95_attest *a,
                                   uint8_t *report, uint32_t report_len, uint64_t report_addr,
                                   const uint8_t *nonce, uint32_t nonce_len,

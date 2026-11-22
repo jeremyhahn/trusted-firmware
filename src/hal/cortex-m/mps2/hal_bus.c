@@ -19,8 +19,9 @@
  * SPI is the shield 0 PL022 (pl022.h): a master in 8-bit Motorola frames, the
  * mode and divisor SPI_CONFIG passes mapped onto SSPCR0, the select the FPGA
  * I/O block's MISC bit 8, driven around each transfer as the AVR driver drives
- * its cs pin. The one select it accepts is that bit; no board table names it
- * yet, so the profiles say TFW_FEATURE_SPI 0.
+ * its cs pin. The one select it accepts is that bit; the board table's pin 2
+ * (TFW_PB(1, 8)) names it, and the profiles say TFW_FEATURE_SPI 1 in the
+ * SPI=1 row only.
  *
  * 1-Wire is bit-banged on GPIO block 0 bit 0 (gpio_line.h), the board table's
  * pin 3 in the ONEWIRE=1 row (TFW_CM_ONEWIRE, TFW_FEATURE_ONEWIRE 1), with the

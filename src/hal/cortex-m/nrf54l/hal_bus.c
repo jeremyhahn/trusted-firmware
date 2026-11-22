@@ -41,8 +41,9 @@ static void twim_clear_events(void)
     TFW_NRF_TWIM_ERRORSRC   = TFW_NRF_TWIM_ERRORSRC_ALL;
 }
 
-/* Waits for STOPPED. An ERROR stops the transfer with TASKS_STOP, and its
- * cause is kept for the status. */
+/* Clears EVENTS_ERROR and reads and clears ERRORSRC: an address or data NACK
+ * is TFW_ERR_NACK, anything else TFW_ERR_INTERNAL. twim_wait() does the STOP
+ * and the wait for STOPPED. */
 static tfw_status_t twim_error(void)
 {
     uint32_t src;

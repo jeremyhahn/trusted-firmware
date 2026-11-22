@@ -395,6 +395,28 @@ static void test_a_digest_above_n_signs_as_the_rfc_reduces_it(void)
     TEST_ASSERT_TRUE(verifies(SEED_PUB, h, sig));
 }
 
+/* h = n + 0xFF is above n, and h - n = 0xFF borrows out of the low byte
+ * (0x50 - 0x51), unlike FF..FF less n. bits2octets(h) is h mod n and ECDSA
+ * takes h mod n (RFC 6979 2.3.4), so h and 0xFF sign alike. */
+static void test_a_digest_above_n_that_borrows_signs_as_its_reduction(void)
+{
+    uint8_t h[32], r[32], sig[64], want[64];
+    uint16_t carry = 0xFFu;
+    int i;
+
+    for (i = 31; i >= 0; i--) {
+        uint16_t t = (uint16_t)(P256_N[i] + carry);
+        h[i] = (uint8_t)t;
+        carry = (uint16_t)(t >> 8);
+    }
+    memset(r, 0x00, sizeof r);
+    r[31] = 0xFFu;
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(SEED, r, want));
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(SEED, h, sig));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, sig, 64);
+    TEST_ASSERT_TRUE(verifies(SEED_PUB, h, sig));
+}
+
 /* ------------------------------------------------------------------- zeroing */
 
 /* The k we cannot see, the scalar we can: every buffer the scalar passed
@@ -451,6 +473,7 @@ int main(void)
     RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);
     RUN_TEST(test_a_digest_above_n_signs_as_the_rfc_reduces_it);
+    RUN_TEST(test_a_digest_above_n_that_borrows_signs_as_its_reduction);
     RUN_TEST(test_signing_zeroes_the_scalar_and_the_rfc_state);
     RUN_TEST(test_the_public_point_zeroes_the_scalar);
     return UNITY_END();

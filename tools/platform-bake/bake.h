@@ -40,8 +40,10 @@ extern const uint8_t tfw_bake_block[TFW_BOOT_EE_BLOCK_LEN];
  *                                      tfw_boot_platform_parse and compared:
  *                                      BAKED or READBACK_FAILED
  *
- * A `want` that does not itself parse is REFUSED before the region is read:
- * the image never writes a block the bootloader would reject. Nothing outside
+ * A `want` that does not itself parse, or whose serial is the all-zero
+ * unprovisioned sentinel, is REFUSED before the region is read: the image
+ * never writes a block the bootloader would reject, nor one the firmware
+ * cannot tell from no block at all. Nothing outside
  * the region is ever written.
  */
 tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_BLOCK_LEN]);

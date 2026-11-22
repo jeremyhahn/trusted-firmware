@@ -470,6 +470,18 @@ static void test_info_refuses_a_third_slot_and_an_unreadable_one(void)
     TEST_ASSERT_EQUAL(TFW_OK, info(1u, out));                  /* the session needs none */
 }
 
+/* OTA_INFO with no running partition found answers an internal error for
+ * either slot: slot 1's answer reads nothing of the running image, so only
+ * the check names the fault. */
+static void test_info_with_no_running_partition_is_internal(void)
+{
+    uint8_t out[INFO_LEN];
+
+    mock_esp.no_running = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(1u, out));
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(0u, out));
+}
+
 /* -------------------------------------------------- through the dispatcher */
 
 static tfw_status_t dispatch(uint8_t cmd, const uint8_t *in, uint8_t n, uint8_t *out, uint8_t cap)
@@ -1174,6 +1186,7 @@ int main(void)
     RUN_TEST(test_a_refused_begin_keeps_the_session_in_flight);
     RUN_TEST(test_init_gives_an_open_handle_back);
     RUN_TEST(test_info_refuses_a_third_slot_and_an_unreadable_one);
+    RUN_TEST(test_info_with_no_running_partition_is_internal);
     RUN_TEST(test_activate_writes_the_record_then_sets_the_boot_slot);
     RUN_TEST(test_install_pending_follows_activate);
     RUN_TEST(test_begin_is_refused_while_an_activation_is_pending);

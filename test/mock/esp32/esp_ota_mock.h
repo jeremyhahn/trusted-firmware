@@ -36,6 +36,7 @@ typedef struct {
     esp_ota_img_states_t state[2];     /* otadata; UNDEFINED = no entry */
     uint8_t              running;      /* 0 or 1 */
     uint8_t              no_next;      /* no update partition at all */
+    uint8_t              no_running;   /* no running partition found */
     uint32_t             secure_version;
     esp_err_t            begin_err;    /* returned instead, when set */
     esp_err_t            write_err;

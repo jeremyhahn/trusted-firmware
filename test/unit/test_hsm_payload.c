@@ -253,6 +253,17 @@ static void test_a_non_deterministic_encoding_is_refused(void)
     SCRIPT(TFW_ERR_UNSUPPORTED, 0x98u, 0x01u, 0x01u);
 }
 
+static void test_a_float64_is_a_type_the_cddl_lacks(void)
+{
+    /* wipe = 1.0 and 0.0 as float64: one status whatever the value. */
+    READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u, 0xFBu, 0x3Fu,
+         0xF0u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, TAIL);
+    READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u, 0xFBu, 0x00u,
+         0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, TAIL);
+    /* A script that is a float64 1.0. */
+    SCRIPT(TFW_ERR_UNSUPPORTED, 0xFBu, 0x3Fu, 0xF0u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u);
+}
+
 static void test_each_bound_at_its_limit_and_one_past(void)
 {
     /* Policies. */
@@ -370,6 +381,7 @@ int main(void)
     RUN_TEST(test_an_unknown_action_is_refused);
     RUN_TEST(test_a_rule_not_of_the_cddl_is_refused);
     RUN_TEST(test_a_non_deterministic_encoding_is_refused);
+    RUN_TEST(test_a_float64_is_a_type_the_cddl_lacks);
     RUN_TEST(test_each_bound_at_its_limit_and_one_past);
     RUN_TEST(test_every_truncation_is_refused);
     RUN_TEST(test_trailing_bytes_are_refused);

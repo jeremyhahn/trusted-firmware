@@ -32,6 +32,9 @@
    guard knows (workflow_run, merge_group, release, create, issue_comment,
    repository_dispatch), so a format()-built `release`, an unwaived
    `self-hosted` or a `codex` label gated on github.event_name cannot pass.
+9. #653 Codex round 3: a runs-on that computes a value (format, join, toJSON,
+   fromJSON of a literal) is refused unless waived, and a waived one is
+   checked as a release job.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -115,6 +118,29 @@ class RunnerExpression(unittest.TestCase):
 
     def test_waived_evaluated_release_passes_when_restricted(self):
         ro = OPEN + " format('{0}{1}', 're', 'lease') }}   # self-hosted: hardware: bench"
+        cond = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+        r = run_policy(job(ro, cond))
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_computed_ref_comparison_is_not_hosted(self):
+        # #653 Codex round 3: no literal names develop or release, so the
+        # sampled refs never select the computed value.
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="release"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && 'self-hosted' || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="self-hosted"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("(c)", r.stdout)
+
+    def test_waived_computed_ref_is_checked_as_release(self):
+        ro = (OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+              " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}   # self-hosted: hardware: bench")
+        r = run_policy(job(ro))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("names `release`", r.stdout)
         cond = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
         r = run_policy(job(ro, cond))
         self.assertEqual(r.returncode, 0, r.stdout)

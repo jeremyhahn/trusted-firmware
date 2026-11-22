@@ -38,6 +38,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -308,6 +309,7 @@ func rejectBakeFlags(serialHex, hashHex, opKeyHex, outPath string) error {
 }
 
 func fail(err error) {
-	fmt.Fprintln(os.Stderr, "tfwprov:", err)
+	// The bake errors (eeprom.go, netblock.go) carry the prefix already; print it once.
+	fmt.Fprintln(os.Stderr, "tfwprov:", strings.TrimPrefix(err.Error(), "tfwprov: "))
 	os.Exit(1)
 }

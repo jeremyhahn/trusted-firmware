@@ -43,7 +43,7 @@ type AttestationConfig struct {
 	// Optional, and the shape of the decision rather than an oversight. A
 	// device on a bench has nowhere to anchor to and its certificate is still
 	// worth collecting; a device enrolling with a CA is anchored by the CA,
-	// which holds the roots and is not this process. When it is nil, Attest
+	// which holds the roots and is not this process. When it is nil, AttestKey
 	// still checks everything that does not need a root -- the challenge, the
 	// curve, the signature algorithm -- and reports Anchored false so a caller
 	// cannot mistake one for the other.
@@ -145,15 +145,19 @@ type Attestation struct {
 //  1. The challenge is the enrolment width. Refused here, before a frame is
 //     built, because the device's other nonce is 16 bytes and a device handed
 //     the shorter one cannot tell it was truncated.
-//  2. The bytes parse as a certificate.
-//  3. Its key is on P-256 and its signature is ECDSA-SHA256. The element holds
-//     a key on no other curve and makes no other signature, so anything else
-//     was not minted by that hardware.
-//  4. Its tcg-dice-UCCS-evidence extension is readable.
-//  5. The eat_nonce claim is the challenge this host issued. A DICE device has
-//     no clock: this nonce is the only thing separating a live answer from a
-//     replayed recording, and it is compared in constant time.
-//  6. When roots are configured, the certificate descends from one.
+//  2. The key is addressed by KeyCN and the device has a key (hasDeviceKey).
+//  3. The device's CAPS advertise attestation and its tier can attest.
+//  4. The bytes parse as a certificate.
+//  5. dice.Verify, in one call: the device-signed leaf's key is on P-256 and
+//     its signature is ECDSA-SHA256 (the element holds a key on no other
+//     curve and makes no other signature, so anything else was not minted by
+//     that hardware), its tcg-dice-UCCS-evidence extension is readable, the
+//     eat_nonce claim is the challenge this host issued (a DICE device has no
+//     clock: this nonce is the only thing separating a live answer from a
+//     replayed recording, and it is compared in constant time), the
+//     operational flags are within PermittedFlags, and, when roots are
+//     configured, the certificate descends from one.
+//  6. Claim 273, the application evidence, decodes through sdk/go.
 //
 // The nonce check is NOT conditional on anything. Anchoring is, because roots
 // belong to whoever configured them and a bench device has none; Anchored says

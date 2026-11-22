@@ -39,7 +39,7 @@ tfw_status_t tfw_mcxn_lpuart_baud(uint32_t clk_hz, uint32_t baud, uint32_t *reg)
             best_sbr = (uint32_t)sbr;
         }
     }
-    if (best_diff > (baud / 100u) * 3u) {
+    if ((uint64_t)best_diff * 100u > (uint64_t)baud * 3u) {
         return TFW_ERR_RANGE;
     }
     v = ((best_osr - 1u) << TFW_MCXN_LPUART_BAUD_OSR_SHIFT) | best_sbr;

@@ -50,7 +50,26 @@ TIMER_QUERY   req  pin:u8                                     resp  active:u8  h
 ```
 
 `ms` must be in `[1, 0x7FFFFFFF]`. `remaining_ms` is clamped to zero for a
-deadline that has passed but not yet been swept.
+deadline that has passed but not yet been swept, or whose revert the HAL
+refused.
+
+`TIMER_SET` checks in this order: a reserved or in-use pin is
+`TFW_ERR_RESERVED_PIN`, a pin the board does not have returns the pin lookup's
+status, a `level` above 1 or an `ms` outside the bound is `TFW_ERR_RANGE`, and
+a new pin while all `TFW_SCHED_SLOTS` slots are held is `TFW_ERR_NO_SLOT`.
+Re-arming a pin that already has a timer reuses its slot and replaces its
+deadline and level; `slot` is that slot's index. A mode or level write the HAL
+refuses returns the HAL's status and arms nothing, so a failed re-arm keeps the
+first deadline. `TIMER_CANCEL` with an `apply_final` above 1 is
+`TFW_ERR_RANGE`, and of a pin with no timer is `TFW_ERR_NO_SLOT`.
+`apply_final` 1 drives the revert level (the complement of the held level);
+if the HAL refuses it, the command returns that status and the timer stays
+armed. `apply_final` 0 drops the timer and leaves the pin where it is.
+`TIMER_QUERY` of a pin with no timer answers `active` 0, `held_level` 0,
+`remaining_ms` 0. At the deadline the sweep drives the revert level; a write
+the HAL refuses keeps the timer armed and every later sweep retries it, so
+until one succeeds `TIMER_QUERY` answers `active` 1, the held level, and
+`remaining_ms` 0, for as long as the HAL keeps refusing.
 
 ## Analog
 

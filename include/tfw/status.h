@@ -37,11 +37,16 @@ typedef enum {
     TFW_ERR_BAD_PIN          = 6,  /* pin index out of range for this board */
     TFW_ERR_UNSUPPORTED      = 7,  /* compiled out, or this pin lacks the capability */
     TFW_ERR_BUSY             = 8,  /* peripheral already in use */
-    TFW_ERR_TIMEOUT          = 9,  /* pulse_in, i2c or onewire timed out */
+    TFW_ERR_TIMEOUT          = 9,  /* a bus, a pulse, an ADC conversion,
+                                    * a secure element or the external
+                                    * store did not answer in time */
     TFW_ERR_NACK             = 10, /* i2c address or data NACK */
     TFW_ERR_RANGE            = 11, /* value outside the permitted interval */
     TFW_ERR_NO_SLOT          = 12, /* scheduler or counter table full */
-    TFW_ERR_RESERVED_PIN     = 13, /* pin is /RESET, or claimed by the soft UART */
+    TFW_ERR_RESERVED_PIN     = 13, /* pin is TFW_PIN_RESERVED (/RESET,
+                                    * a software peripheral's) or
+                                    * TFW_PIN_IN_USE (claimed by this
+                                    * build) */
 
     /* trust -- raised once a crypto provider is present */
     TFW_ERR_CRYPTO           = 14, /* the crypto provider failed the operation */
@@ -62,8 +67,9 @@ typedef enum {
 #define TFW_STATUS_MAX 0xFEu
 
 /* Returns a short stable name, or "?" for a value this build does not know.
- * Present in host builds and debug firmware only -- TFW_STATUS_NAMES is off by
- * default so the string table costs a release image nothing. */
+ * Declared only for a build that defines TFW_STATUS_NAMES and supplies the
+ * string table; no build on main does, so no image carries it and the table
+ * costs a release image nothing. */
 #if defined(TFW_STATUS_NAMES) && TFW_STATUS_NAMES
 const char *tfw_status_name(tfw_status_t s);
 #endif

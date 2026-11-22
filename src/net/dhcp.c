@@ -8,7 +8,9 @@
  *
  *   INIT        Opens the socket on port 68 with no address and waits a random
  *               1 to 10 s before the first DHCPDISCOVER (§4.4.1).
- *   SELECTING   Broadcasts DHCPDISCOVER; takes the first DHCPOFFER for its xid.
+ *   SELECTING   Broadcasts DHCPDISCOVER; takes the first DHCPOFFER for its xid
+ *               that names a server and a non-zero address; an offer
+ *               without them is passed over.
  *   REQUESTING  Broadcasts DHCPREQUEST naming the offer's server and address
  *               (§4.3.2, Table 5); a DHCPACK probes, a DHCPNAK starts again.
  *   PROBING     Sends one datagram to the address while the controller still
@@ -30,10 +32,11 @@
  * Retransmission while asking is §4.1's: 4 s, doubling to 64 s, each randomised
  * by +-1 s; after the 64 s wait the attempt has failed and the link backs off.
  * While renewing or rebinding it is §4.4.5's: half the time left to T2 or to
- * the end of the lease, at least 60 s. Until it holds an address the client
- * sets the BROADCAST flag, because the controller cannot take a unicast to an
- * address it has not been given. DHCPDISCOVER and DHCPREQUEST carry the same
- * parameter request list (§4.3.1).
+ * the end of the lease, at least 60 s, and never past it. Until it holds an
+ * address the client sets the BROADCAST flag, because the controller cannot
+ * take a unicast to an address it has not been given; DHCPDECLINE goes
+ * without it, as it wants no answer. DHCPDISCOVER and DHCPREQUEST carry the
+ * same parameter request list (§4.3.1).
  *
  * T1 and T2 are the §4.4.5 defaults: the server's options 58 and 59 are not
  * read, because a lease start and length are all the RAM the client keeps for
@@ -112,7 +115,9 @@ typedef struct {
  * fit beside the rest of an Ethernet image's. */
 static uint8_t  state;
 static uint8_t  sends;               /* messages sent in this state */
-static tfw_ms_t deadline;            /* next send or give-up; BOUND: T1 */
+static tfw_ms_t deadline;            /* next send, give-up or end of a wait;
+                                        BOUND: the next renewal attempt, T1
+                                        at first */
 static tfw_ms_t req_ms;              /* when the lease began */
 static tfw_ms_t lease_ms;            /* how long it runs */
 static uint32_t rng;
@@ -372,8 +377,9 @@ static uint8_t *slot(reply_t *r, uint8_t code, uint8_t len, uint8_t *bit)
 
 /* Reads one datagram whole and hands it back to the controller. 1 when r holds
  * a reply to this client with its options parsed, 0 when there was none or it
- * was not one, and 0xFF when the socket holds less than the datagram's header
- * says, which the controller never does with a datagram it has whole. */
+ * was not one, and 0xFF when the socket holds less than a datagram header or
+ * less than the datagram's header says, which the controller never does with
+ * a datagram it has whole. */
 static uint8_t take(const tfw_netcfg_t *cfg, reply_t *r)
 {
     uint16_t avail = tfw_eth_udp_avail();
@@ -431,9 +437,10 @@ static uint8_t take(const tfw_netcfg_t *cfg, reply_t *r)
     return (uint8_t)(ok && (r->got & GOT_END) && r->type != 0u);
 }
 
-/* Acts on one reply in the current state. TFW_OK once bound again by a renewal,
- * TFW_ERR_NACK on the server's DHCPNAK, TFW_ERR_BUSY otherwise -- including
- * the DHCPACK of a first lease, which sends the probe. */
+/* Acts on one reply in the current state. TFW_OK once bound again by a renewal
+ * or a rebinding, TFW_ERR_NACK on the server's DHCPNAK, TFW_ERR_INTERNAL when
+ * the probe cannot be sent, TFW_ERR_BUSY otherwise -- including the DHCPACK of
+ * a first lease, which sends the probe. */
 static tfw_status_t on_reply(const reply_t *r, tfw_ms_t now)
 {
     uint32_t secs;

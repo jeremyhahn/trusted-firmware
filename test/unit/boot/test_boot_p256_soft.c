@@ -31,10 +31,10 @@
  *   tfw_boot_pubkey writes, or returns TFW_OK  -> the_contract
  *   tfw_boot_cose_alg 0x26 -> 0x27              -> the_contract
  * Survive, and equivalent from outside (24 tried, 22 killed with the slot's):
- *   dropping the erased-slot refusal (verify_p256_soft.c:59): micro-ecc refuses
+ *   dropping the erased-slot refusal (verify_p256_soft.c:60): micro-ecc refuses
  *   the all-0xFF point by itself; the line stays as the refusal that does not
  *   depend on a library's handling of an off-curve key.
- *   `ok == 1` -> `ok != 0` (verify_p256_soft.c:66): uECC_verify returns 0 or 1.
+ *   `ok == 1` -> `ok != 0` (verify_p256_soft.c:67): uECC_verify returns 0 or 1.
  *
  * xorshift32 with a literal seed feeds micro-ecc's RNG: a failure reproduces.
  */

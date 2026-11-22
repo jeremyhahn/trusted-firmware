@@ -13,6 +13,8 @@
  *   - a timer that will not divide to the frequency out of range with no
  *     channel configured, a channel that will not configure internal, and
  *     neither leaving a tone to stop;
+ *   - a refused start claims no pin and leaves a running tone, and its pin,
+ *     as they were;
  *   - a stop as the last channel stopped low, once, only while a tone runs,
  *     and a failed driver stop reported as internal with the tone left
  *     running, so a retry stops it;
@@ -107,6 +109,7 @@ static void test_a_frequency_the_timer_refuses_is_out_of_range(void)
         setUp();
         timer_err = errs[i];
         TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&p, 440u));
+        TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());   /* a refused start claims no pin */
         TEST_ASSERT_EQUAL_UINT(1u, n_timer);
         TEST_ASSERT_EQUAL_UINT(0u, n_chan);
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
@@ -124,11 +127,27 @@ static void test_a_channel_it_cannot_configure_is_internal(void)
         setUp();
         chan_err = errs[i];
         TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_tone_start(&p, 440u));
+        TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());   /* a refused start claims no pin */
         TEST_ASSERT_EQUAL_UINT(1u, n_timer);
         TEST_ASSERT_EQUAL_UINT(1u, n_chan);
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
         TEST_ASSERT_EQUAL_UINT(0u, n_stop);
     }
+}
+
+static void test_a_refused_start_keeps_the_running_tone_and_its_pin(void)
+{
+    const tfw_pinref_t p7 = { 7u };
+    const tfw_pinref_t p4 = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p7, 440u));
+    timer_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&p4, 880u));
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());      /* the loopback stays on the tone */
+    TEST_ASSERT_EQUAL_UINT(1u, n_chan);
+    timer_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());     /* the old tone still ran */
+    assert_stopped_once();
 }
 
 static void test_a_tone_is_the_last_timer_and_channel_at_half_duty(void)
@@ -216,6 +235,7 @@ int main(void)
     RUN_TEST(test_0_hz_with_no_tone_does_nothing);
     RUN_TEST(test_a_frequency_the_timer_refuses_is_out_of_range);
     RUN_TEST(test_a_channel_it_cannot_configure_is_internal);
+    RUN_TEST(test_a_refused_start_keeps_the_running_tone_and_its_pin);
     RUN_TEST(test_a_tone_is_the_last_timer_and_channel_at_half_duty);
     RUN_TEST(test_the_frequency_is_passed_whole);
     RUN_TEST(test_0_hz_stops_a_running_tone);

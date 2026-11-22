@@ -11,6 +11,8 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -596,6 +598,45 @@ func TestE2ELinksNetcfg(t *testing.T) {
 			var c map[string]any
 			cliJSON(t, serial, &c, "netcfg", "get")
 			assert.Equal(t, "192.0.2.10", c["ip"], "a set refused over TCP rewrote the network block")
+		},
+	}.run(t)
+}
+
+// hsmState checks an hsm-* reply is the HSM state with no envelope held.
+func hsmState(t *testing.T, out []byte) {
+	var st hsmStateJSON
+	jsonInto(t, out, &st)
+	assert.False(t, st.SetHeld, "no envelope is held: %+v", st)
+}
+
+func TestE2ELinksHSM(t *testing.T) {
+	env := filepath.Join(t.TempDir(), "envelope.cbor")
+	require.NoError(t, os.WriteFile(env, bytes.Repeat([]byte{0xA5}, 2*tfw.HSMLoadChunk+7), 0o600))
+	linkSuite{
+		cases: []linkCase{
+			{name: "heartbeat", verb: "hsm-heartbeat", check: hsmState},
+			{name: "record of the empty record", verb: "hsm-record", args: []string{"0"}, refused: tfw.StatusErrRange},
+			{name: "records of the empty record", verb: "hsm-records", check: func(t *testing.T, out []byte) {
+				var r hsmRecordJSON
+				jsonInto(t, out, &r)
+				assert.Equal(t, hsmRecordJSON{Entries: []hsmEntryJSON{}}, r)
+			}},
+			{name: "report", verb: "hsm-report", args: []string{"ima"}, check: hsmState},
+			{name: "verdict", verb: "hsm-verdict", args: []string{"clear"}, check: hsmState},
+			{name: "select with no set held", verb: "hsm-select", args: []string{"0"}, refused: tfw.StatusErrRange},
+			{name: "load of an unsigned envelope", verb: "hsm-load", args: []string{env}, refused: tfw.StatusErrUnsupported},
+			{name: "report of another signal", verb: "hsm-report", args: []string{"9"}, usage: "9"},
+			{name: "verdict of another value", verb: "hsm-verdict", args: []string{"2"}, usage: "2"},
+		},
+		settled: func(t *testing.T, l link, serial *tfw.Device) {
+			if l.name == "serial" {
+				return
+			}
+			st := cliHSMState(t, serial, "hsm-heartbeat")
+			assert.Zero(t, st.Refused, "an envelope refused over TCP reached the HSM: %+v", st)
+			var r hsmRecordJSON
+			cliJSON(t, serial, &r, "hsm-records")
+			assert.Empty(t, r.Entries, "a verb refused over TCP was recorded")
 		},
 	}.run(t)
 }

@@ -154,6 +154,44 @@ static void test_a_carried_block_with_a_zero_serial_is_refused_before_any_write(
 
 /* A block in a layout this build does not know is no identity the firmware
  * would accept, so baking over it loses nothing: it is written, not refused. */
+/* Bakes WANT with its serial replaced by s and asserts all 192 bytes land. */
+static void assert_serial_is_baked(const uint8_t s[TFW_BOOT_SERIAL_LEN])
+{
+    tfw_boot_platform_t p;
+    uint8_t             blk[TFW_BOOT_EE_BLOCK_LEN];
+    uint16_t            lo;
+    uint16_t            hi;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(WANT, &p));
+    memcpy(p.serial, s, sizeof p.serial);
+    memcpy(blk, WANT, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_boot_platform_serialise(&p, blk);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(blk, &p));
+
+    TEST_ASSERT_EQUAL(TFW_BAKE_BAKED, tfw_bake_run(blk));
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN, tfw_mock_eeprom_written(&lo, &hi));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(blk, tfw_mock_eeprom() + TFW_BOOT_EE_BASE,
+                                 TFW_BOOT_EE_BLOCK_LEN);
+    assert_outside_untouched();
+}
+
+static void test_a_serial_nonzero_only_in_its_last_byte_is_baked(void)
+{
+    uint8_t s[TFW_BOOT_SERIAL_LEN] = {0};
+
+    s[TFW_BOOT_SERIAL_LEN - 1u] = 0x01u;
+    assert_serial_is_baked(s);
+}
+
+static void test_a_serial_with_a_zero_first_byte_is_baked(void)
+{
+    uint8_t s[TFW_BOOT_SERIAL_LEN];
+
+    memset(s, 0x01, sizeof s);
+    s[0] = 0x00u;
+    assert_serial_is_baked(s);
+}
+
 static void test_a_region_in_an_unknown_layout_is_baked(void)
 {
     uint8_t            *ee = tfw_mock_eeprom();
@@ -202,6 +240,8 @@ int main(void)
     RUN_TEST(test_a_readback_that_disagrees_is_reported);
     RUN_TEST(test_an_invalid_carried_block_is_refused_before_any_write);
     RUN_TEST(test_a_carried_block_with_a_zero_serial_is_refused_before_any_write);
+    RUN_TEST(test_a_serial_nonzero_only_in_its_last_byte_is_baked);
+    RUN_TEST(test_a_serial_with_a_zero_first_byte_is_baked);
     RUN_TEST(test_a_region_in_an_unknown_layout_is_baked);
     RUN_TEST(test_the_result_line);
     RUN_TEST(test_every_result_has_its_name);

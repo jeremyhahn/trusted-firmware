@@ -67,9 +67,9 @@ void tz_s_reset(void)
     const volatile uint32_t *ns_vec = (const volatile uint32_t *)(uintptr_t)TZ_NS_CODE_BASE;
     tz_ns_entry_fn *ns_reset;
 
-    for (dst = &__data_start; dst < &__data_end; )
+    for (dst = &__data_start; (uintptr_t)dst < (uintptr_t)&__data_end; )
         *dst++ = *src++;
-    for (dst = &__bss_start; dst < &__bss_end; )
+    for (dst = &__bss_start; (uintptr_t)dst < (uintptr_t)&__bss_end; )
         *dst++ = 0u;
 
     tz_soc_open();

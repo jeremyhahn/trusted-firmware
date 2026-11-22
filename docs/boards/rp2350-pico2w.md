@@ -1,6 +1,6 @@
 # Raspberry Pi Pico 2 W (RP2350)
 
-> **Status: INFORMATIVE** · SPEC rows: `rp2350`, `cortex-m` (future) · Scope:
+> **Status: INFORMATIVE** · SPEC rows: `rp2350`, `cortex-m` (in progress) · Scope:
 > the board's first port slice, `boards/rp2350-pico2w/` · Last verified: 2026-10-21
 >
 > A profile of a board on the bench. The port's application is built in CI and
@@ -36,7 +36,7 @@ functions, Go `Test` functions or Python methods in the files named.
 
 | # | Requirement | Status | Code | Test |
 |---|---|---|---|---|
-| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM does not reach tfw-boot (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
+| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM's request reaches tfw-boot's platform block since #500, host-tested only (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
 | R2 | The core's boot stage on the board (tfw-boot, row `rp2350-pico2w:soft:soft:p256-soft:0:0`) | **partial**: built and size-checked in CI, host-tested; never run on the board | `mk/boot.mk` (`BOOT_SUPPORTED`); `boot/hal/cortex-m/rp2350/rp_flash_rom.c`, `rp_flash.c`, `boot_uart.c` | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` `test_a_sector_is_erased_and_programmed_in_the_roms_order`; `test/unit/boot/test_boot_rp2350_map.c` `test_the_platform_block_is_the_last_sector`; `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` `test_init_releases_uart0_and_sets_115200_8n1` |
 | R3 | DICE evidence on the part's OTP | **not started**: tfw-boot's row is the soft tier, holding the soft DeviceID seed; no OTP is read, and the UDS page, layer 0 and the lock are the owner's (ADR open questions 1-3) | `boot/boot_cdi.h` (the generic CDI the board would feed); no RP2350 OTP code | none for the RP2350; the generic derivation is `test/unit/boot/test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_device_seed` |
 | R4 | Secure boot | **not started** for the boot ROM's own secure boot (the key fingerprint in OTP); tfw-boot verifies the application's P-256 signature in software (R2), and the IMAGE_DEF block is unsigned by design | `src/hal/cortex-m/rp2350/soc_calc.h` (IMAGE_DEF), `mk/arch/cortex-m/rp2350.ld` | `test/unit/test_rp2350_soc.c` `test_image_def_is_the_minimal_secure_arm_exe_block` (pins the unsigned block) |
@@ -46,7 +46,9 @@ functions, Go `Test` functions or Python methods in the files named.
 
 ### Remaining slices
 
-1. **OTA_CONFIRM to tfw-boot** (no hardware): route the confirm request at
+1. **OTA_CONFIRM to tfw-boot** (no hardware): **done** by #500, proven by
+   `test/unit/test_rp2350_eeprom.c`
+   `test_the_confirm_request_is_programmed_into_the_platform_sector`. It was to route the confirm request at
    `TFW_BOOT_CONFIRM_ADDR` through the flash helper in
    `src/hal/cortex-m/rp2350/hal_eeprom.c` so it lands in the platform block,
    proven by a new test in `test/unit/test_rp2350_eeprom.c` that reads the
@@ -160,7 +162,7 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
 | `tfw_hal_tone_start`, `_stop` | S `hal_tone.c` | `TFW_FEATURE_TONE` 1, so CAPS lists tone: the tone pin is logical 5, GP7 (`TFW_TONE_PIN`), toggled through SIO's GPIO_OUT_XOR by TIMER1 alarm 0 on NVIC line 4; the alarm steps half a period on the 1 us tick, re-armed from the previous target so a late interrupt does not drift the period; 1 Hz to 25 kHz, 0 Hz and faster refused `TFW_ERR_RANGE`; a start while playing retargets with the old pin low; stop disarms and drives the pin low. Host test: `test/unit/test_rp2350_tone.c` over `test/model/cortex-m/rp2350/tone/` |
 | `tfw_hal_adc_*` | S `hal_adc.c` | the SAR converter, one conversion per read on GPIO26-28 (ADC0-2, `adc_ch` 0-2; GPIO29/ADC3 is the radio's and the temperature sensor is not exposed); clk_adc at 48 MHz from PLL_USB, as §12.4.3 requires (REFDIV 1, FBDIV 100, POSTDIV 5/5; a PLL that never locks is `TFW_ERR_TIMEOUT`); the pad's IE cleared and OD set before a conversion; READY polled with a bound (`TFW_ERR_TIMEOUT`), CS.ERR is `TFW_ERR_INTERNAL`; 12-bit RESULT; only `TFW_ADC_REF_VCC` (ADC_AVDD). Host-tested against `test/model/cortex-m/rp2350/adc/adc_model.c` (`test_rp2350_adc.c`); built, not run on the board |
-| `tfw_hal_i2c_init`, `_xfer` | S `hal_bus.c` | the DW_apb_i2c I2C0 master, polled, fast mode; SCL counts and spike length from clk_sys (12 MHz: HCNT 7, LCNT 17, SPKLEN 1, about 364 kHz for 400 kHz, never faster), a rate the 16-bit counts cannot make refused with `TFW_ERR_RANGE`. `TFW_ERR_NACK` from IC_TX_ABRT_SOURCE bits 0-4, `TFW_ERR_BUSY` on arbitration lost, `TFW_ERR_TIMEOUT` on a bus that does not come free; a STOP on every return that reached the bus (STOP_DET, else IC_ENABLE.ABORT). **Built and host-tested, not run on the board** |
+| `tfw_hal_i2c_init`, `_xfer` | S `hal_bus.c` | the DW_apb_i2c I2C0 master, polled, standard mode up to 100 kHz (`TFW_RP_I2C_SS_HZ_MAX`, the SS_SCL counts) and fast mode above it (the FS_SCL counts); SCL counts and spike length from clk_sys (12 MHz: HCNT 7, LCNT 17, SPKLEN 1, about 364 kHz for 400 kHz, never faster), a rate the 16-bit counts cannot make refused with `TFW_ERR_RANGE`. `TFW_ERR_NACK` from IC_TX_ABRT_SOURCE bits 0-4, `TFW_ERR_BUSY` on arbitration lost, `TFW_ERR_TIMEOUT` on a bus that does not come free; a STOP on every return that reached the bus (STOP_DET, else IC_ENABLE.ABORT). **Built and host-tested, not run on the board** |
 | `tfw_hal_spi_*`, `tfw_hal_ow_*` | S `hal_bus.c` | `TFW_ERR_UNSUPPORTED` |
 | `tfw_hal_pwm_write`, `_stop` | S `hal_pwm.c` | the PWM block, set up on first use, not at boot: PWM out of reset, then per slice the divider from `tfw_rp_pwm_div` (`soc_calc.h`; 12 MHz gives INT 46, FRAC 14), TOP 255 and EN, free-running; FUNCSEL 4 (PWM) on a pin's first write. Duty 0 is CC 0, 255 is CC 256 (TOP + 1), so both are exact. A row whose slice or channel is not the GPIO's is `TFW_ERR_BAD_PIN`. Stop clears the slice's EN, which stops both its channels, and hands the pin back to SIO driven low |
 
@@ -258,10 +260,13 @@ count, carrying the part of a millisecond to the next write, so
 `tfw_hal_millis` (scheduled GPIO holds, execution time) stays right across a
 write. `tfw_cm_soc_early` starts TIMER0's 1 µs tick and takes it out of reset.
 
-OTA_CONFIRM. The confirm request is stored as the generic Cortex-M file stores
-it, into the XIP window, which on this part writes nothing to flash. Until a
-slice routes it through the flash helper, OTA_CONFIRM's request does not reach
-tfw-boot on this board, and a trial image is not confirmed by it.
+OTA_CONFIRM. Since #500 the confirm request (`TFW_BOOT_CONFIRM_ADDR`,
+`TFW_BOOT_CONFIRM_LEN`) is a read-modify-write of the platform block's first
+sector through the same flash helper, so it reaches tfw-boot on this board;
+any other write into the platform window is refused. Host-tested
+(`test/unit/test_rp2350_eeprom.c`
+`test_the_confirm_request_is_programmed_into_the_platform_sector`), not run on
+the board.
 
 Not validated on the board: no bench run has erased, written or read back the
 user sector, or timed a write, on a Pico 2 W.

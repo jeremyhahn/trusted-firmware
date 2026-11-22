@@ -13,6 +13,30 @@
 > 2026-11-14; the open questions it does not answer stay open.
 > This ADR changes no code, no wire vector and no SPEC row.
 
+## Amended by ruling 1024 (owner, 2026-11-20)
+
+The owner decided on 2026-11-20 (Tenant Agent ruling 1024 (a), row #608),
+verbatim:
+
+> "the TrustZone-M secure world is built on Trusted Firmware-M with our DICE
+> layer on top, not a secure monitor written from scratch."
+
+For this ADR it means:
+
+- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, (b1), TF-M
+  Profile Medium with our DICE layer as an Application RoT partition, is taken
+  in place of ruling 935's option (a), our own secure world. Option (a) goes
+  back to reserve, as ruling 632 left it;
+- ruling 935's other two points stand: no vendor secure world (not ST's Secure
+  Manager, and upstream TF-M rather than a vendor's build of it), and no PSA
+  token. TF-M is built without its Initial Attestation partition, or with it
+  present but not exposed to the non-secure side; the only evidence offered
+  is the DICE evidence through go-xkms device-attest-01.
+
+The TF-M pin is the one `scripts/tfm-measure.sh` measures, v2.3.1. Which of
+our boards that release has a platform port for is in
+[`../plans/608.md`](../plans/608.md).
+
 ## Amended by ruling 935 (owner queue 236)
 
 Ruling 935 sets one attestation path for every MCU: TCG DICE evidence through
@@ -23,8 +47,9 @@ decision and its slices are in
 [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md).
 For this ADR it means:
 
-- on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK) and the nRF54L15, option (a),
-  our own secure world, is taken in place of (b1);
+- *superseded by ruling 1024*: on the STM32H5 (NUCLEO-H563ZI, STM32H573I-DK)
+  and the nRF54L15, option (a), our own secure world, is taken in place of
+  (b1);
 - open question 2 (vendor secure worlds) is closed: no vendor secure world,
   not ST's Secure Manager;
 - open question 4 (the PSA token) is closed: no PSA token is offered and no
@@ -72,7 +97,7 @@ stub. It then builds tf-m-extras' example non-secure application as the
 non-secure stub. The compiler is `arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1
 20241119`, the toolchain image's Debian package (`docker/packages.txt`), with
 CMake 3.31.6. The command was `scripts/tfm-measure.sh /tmp/tfm-measure`, and
-it ran to the end on dl385-01. Its output, verbatim:
+it ran to the end on a development host. Its output, verbatim:
 
 ```
 TF-M TF-Mv2.3.1 (0b40d7806136baadf489febf8e2f91bf87aca63d), tf-m-extras 2ac90aff6da35cde4a67f2d34076b1adf6ca9161
@@ -325,7 +350,7 @@ replaces it. The vendor documents are listed by title, revision and URL in
 | i.MX 95 M7 (reference part) | inside the ELE; no M7 code reads it. The ELE holds the keys and AHAB verifies the M7 image (RM00284 Rev. 4.5, as in question 12) | the Boot ROM and the ELE, NXP's. tfw-boot does not run (#14 decision 8) | the ELE boundary: the secret never leaves the enclave, so no lock is ours | an ELE key, or a key derived in the ELE from the measured M7 image | whether the ELE derives a key bound to the M7's measurement (a CDI) is in IMX95SRM, not read: question 12 |
 | STM32H573I-DK (row `stm32h5`) | not named in any ST document read. STiRoT and OEMiRoT keep their keys in the OBKeys area (STM32CubeH5, `OEMiROT_Boot/README.md`, directory contents, `keys_map.c`). Whether the part has a hardware unique key that only Secure code before HDP can use is in RM0481, not retrieved | STiRoT, ST's immutable root, which offers secure boot and secure firmware update (STM32CubeH5, `ROT_Provisioning/STiROT/README.md`, description); or an OEMiRoT of ours on MCUboot and mbed-crypto, full Secure (`OEMiROT_Boot/README.md`, description). Neither readme names DICE | HDP, the hide-protection area, and the TrustZone boundary: RM0481, to confirm | the Secure Manager's attestation key, a key in our partition ((b1)), or a key in our own secure world ((a)) | which of these is the UDS and the engine: the STM32H573I-DK onboarding ADR's questions 2 and 3, and question 13 here |
 | nRF54L15-DK | a 384-bit seed in the KMU, provisioned or generated at first boot by the CRACEN RNG. Only the KMU can push it to CRACEN's seed register, and the CPU and software never see it (sdk-nrf, `kmu_cracen_overview.rst`, "CRACEN Isolated Key Generator") | the immutable boot region: UICR BOOTCONF makes the RRAM controller apply it before any code runs, and writes to it are blocked except by a full chip erase (sdk-nrf, `bootloader_nrf54l_memory_protection.rst`, "At reset (before bootloader software runs)"). The NSIB, or a layer 0 of ours, sits in it | the region can be made no longer readable, writable or executable at NSIB hand-off (same document, "At NSIB hand-off"). The IKG keys are not retained and are regenerated at each CRACEN power cycle ("CRACEN Isolated Key Generator") | the IKG derives three keys from the seed, used through PSA Crypto builtin key ids; under TF-M the identity key is the Initial Attestation Key ("CRACEN Isolated Key Generator") | whether the IKG identity key is the DeviceID, or a CDI over the seed and the next layer's measurement is: question 13 |
-| QEMU `mps2-an505` (CI) | none: the machine is RAM only, with no key store and no one-time memory (QEMU 10.0.0, `hw/arm/mps2-tz.c`) | none; the whole image runs Secure (#14 decision 3) | none | none until this ADR is accepted; a soft root for tests only, never a DeviceID | whether CI carries a TF-M build at all: question 11 |
+| QEMU `mps2-an505` (CI) | none: the machine is RAM only, with no key store and no one-time memory (QEMU 10.0.0, `hw/arm/mps2-tz.c`) | none; the whole image runs Secure (#14 decision 3) in the default build. As built, `TZ=1` splits it: a secure image sets up the SAU and enters a non-secure image (`src/hal/cortex-m/tz/tz_map_mps2_an505.h`, `tz_s_main.c`, `tz_ns_main.c`), run by `integration-test-cortex-m-tz` (`mk/arch/cortex-m-targets.mk`), not in `ci.yml` | none | none until this ADR is accepted; a soft root for tests only, never a DeviceID | whether CI carries a TF-M build at all: question 11 |
 
 On every M33 part the HUK, if TF-M owns the secure world, is a builtin key for
 derivation "by any secure partition or NS caller that requires keys that are

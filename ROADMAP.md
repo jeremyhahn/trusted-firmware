@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status: REFERENCE** · Last verified: 2026-10-17
+> **Status: REFERENCE** · Last verified: 2026-11-20
 > What is complete and what remains, in milestone order. Features and requirements: [docs/SPEC.md](docs/SPEC.md).
 
 ## Mission
@@ -38,7 +38,12 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Next
 
-None queued.
+- **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — in progress: the generic HAL and boot-HAL port on QEMU mps2-an505 ([#161](../../issues/161)), first slice landed (P-256 soft boot, `make integration-test-cortex-m` in CI), then hardware in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269)
+- **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — done; ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
+- **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — done; ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
+- **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F as the reference trusted device — [docs/multi-arch/](docs/multi-arch/architecture.md) — open; onboarding ADR [#126](../../issues/126) and the P4's composed vendor-boot proof [#79](../../issues/79) (ruling 269) done; the board as data (id 0x43) and the boot-only flash driver landed; open: [#570](../../issues/570)
+- **rp2350** — RP2350 on the Pico 2 W — [docs/multi-arch/](docs/multi-arch/architecture.md) — open; onboarding ADR [#128](../../issues/128) done; the owner lifted the AVR gate (#7) for it (ruling 697)
+- **mcxn947** — MCXN947 on the FRDM-MCXN947 — [docs/boards/frdm-mcxn947.md](docs/boards/frdm-mcxn947.md) — in progress: the application builds for board id 0x46 on the MCXN94x HAL (soft tier, CI build step, host tests); tfw-boot's row, polled UART and ROM-API flash writer added (host tests); next: the boot's measured fit, the open board-page items and a run on the board
 
 ## Later
 
@@ -48,15 +53,10 @@ None queued.
 
 - **secure-element-se05x** — the SE052F element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7), which waits on the soft DICE root ([#130](../../issues/130)) and go-xkms's signing key, not on the element
 - **hsm-self-defence** — i.MX 95 M7 tamper-response enforcement under tenant-signed policies — [#50](../../issues/50) — blocked: AVR gate (#7)
-- **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F as the reference trusted device — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#126](../../issues/126); port: after [#79](../../issues/79), the P4's composed vendor-boot proof (ruling 269)
 - **optiga-trust-m** — the OPTIGA Trust M element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: the provider (signing, the element tier's board and config) on the read-only command layer in `src/crypto/optiga/`; port blocked: AVR gate (#7), which waits on [#130](../../issues/130) and go-xkms's signing key, not on the element
-- **rp2350** — RP2350 on the Pico 2 W — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#128](../../issues/128); port blocked: AVR gate (#7)
 - **nrf54l15** — nRF54L15 on the nRF54L15-DK — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#129](../../issues/129); port ([#17](../../issues/17)): the board builds on the generic cortex-m HAL, next tfw-boot, then the KMU and TrustZone; not in ruling 269's hardware order
-- **mcxn947** — MCXN947 on the FRDM-MCXN947 — [docs/boards/frdm-mcxn947.md](docs/boards/frdm-mcxn947.md) — in progress: the application builds for board id 0x46 on the MCXN94x HAL (soft tier, CI build step, host tests); tfw-boot's row, polled UART and ROM-API flash writer added (host tests); next: the boot's measured fit, the open board-page items and a run on the board
 - **optee-trustzone** — OP-TEE / Arm TrustZone-A: the trusted-firmware side of a TrustZone-A secure world — owner ruling 2026-10-15 (go-enclave #206) — future: no milestone, no lane; go-enclave owns its arm-trustzone row
-- **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — in progress: the generic HAL and boot-HAL port on QEMU mps2-an505 ([#161](../../issues/161)), first slice landed (P-256 soft boot, `make integration-test-cortex-m` in CI), then hardware in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269)
-- **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
-- **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
+- **optee-vault-ta** — the vault TA for go-enclave's arm-trustzone backend: store, fetch and wipe by handle, secure-world RAM only, configurable heap — owner ruling 586 — future: kept in trusted-firmware as its TrustZone-A component, an OP-TEE client, not a Cortex-A port (owner rulings 771 and 840, 2026-11-17); no lane
 - **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — [#53](../../issues/53) — open; T1 (`tfwprov --record`) and T2 done, T3 and T4 wait on the owner
 
 ## Dependencies
@@ -69,5 +69,6 @@ None queued.
 - go-xkms profiles the possession CSR and verifies the DICE evidence — [go-xkms#1441](../../../go-xkms/issues/1441).
 - go-trusted-platform enrolls devices — [go-trusted-platform#696](../../../go-trusted-platform/issues/696), [go-trusted-platform#772](../../../go-trusted-platform/issues/772).
 - Downstream: go-xkms and go-trusted-platform import `sdk/go`, so it keeps zero in-house dependencies.
+- Downstream: `v0.5.0-alpha`, the first tag that carries the OP-TEE TA's `SEAL` and `UNSEAL` (#288, landed in #327 on 2026-11-08, after v0.4.2-alpha) for go-xkms's sealed blob (owner ruling 586) — the tag waits for a green main and the release checklist; no release lane yet
 - Standards watch: draft-ietf-suit-manifest, pinned -37 — `src/core/suit.c`, `tools/suit-emit/`.
 - Standards watch: draft-ietf-suit-mti, pinned -23 — `src/core/suit.c` (the ES256 profile's authentication half).

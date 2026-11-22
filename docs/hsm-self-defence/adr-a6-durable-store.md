@@ -2,7 +2,7 @@
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Scope:
 > trusted-firmware (`src/core/hsm_store.h` and the file behind it) · Last
-> verified: 2026-10-30
+> verified: 2026-11-21
 >
 > Docs only. It adds no code, no command id and no status code. What it does
 > not settle is under [Open questions](#open-questions), worded as questions;
@@ -33,8 +33,9 @@ This ADR takes the ATECC608C. The EdgeLock side is not written here.
 - **The interface.** `src/core/hsm_store.h` has a head
   (`tfw_hsm_store_head_t`: `n`, `spare`, `dropped`; four bytes), 32 slots
   (`TFW_HSM_RECORD_MAX`) of `tfw_hsm_entry_t` (`at`, `kind`, `what`, `result`,
-  `spare`; eight bytes), `tfw_hsm_store_erase`, and a `tfw_hsm_store_head_get`
-  that returns `void`. The record puts an entry before the head that counts it
+  `spare`; eight bytes), and `tfw_hsm_store_head_get` and `tfw_hsm_store_erase`,
+  both returning `tfw_status_t` since #295 (`src/core/hsm_store.h:30`, `:39`),
+  which the record checks (`src/core/hsm_record.c:27`, `:56`, `:66`). The record puts an entry before the head that counts it
   (`hsm_store.h`, header comment), so a store that loses power between the two
   loses that entry and keeps a whole record. The whole store is 4 + 32 × 8 =
   260 bytes.
@@ -62,12 +63,14 @@ This ADR takes the ATECC608C. The EdgeLock side is not written here.
   slot 8 to no role, and its status is PROPOSED, not accepted.
 - **The driver.** `src/crypto/atecc608a/atecc.h` has `tfw_atecc_exec` with
   `TFW_ATECC_OP_READ`, `TFW_ATECC_OP_WRITE`, `TFW_ATECC_ZONE_DATA` and
-  `TFW_ATECC_ZONE_32`. The only data-zone read and write that use them are the
-  provisioning ones (`src/caps/provision_atecc.c`); no helper for runtime slot
-  bytes exists.
-- **The host model.** `test/model/atecc608a.c` models one counter: its
-  `TFW_ATECC_OP_COUNTER` case ignores the counter index and reads or increments
-  `counter0`. Its clear slots (`clear_slots[16][72]`, `CLEAR_READ_SLOTS`) are 72
+  `TFW_ATECC_ZONE_32`. Since #293 it also has `tfw_atecc_data_read` and
+  `tfw_atecc_data_write` (`src/crypto/atecc608a/atecc.h:214-215`), slot bytes
+  for runtime callers in 4- and 32-byte forms; the provisioning reads and
+  writes (`src/caps/provision_atecc.c`) predate them.
+- **The host model.** `test/model/atecc608a.c` models two counters
+  (`counters[TFW_MODEL_COUNTERS]`, line 82): its `TFW_ATECC_OP_COUNTER` case
+  reads or increments the one `param2` names and refuses a higher index, and
+  `tfw_model_set_counter_n` (line 371) sets either. Its clear slots (`clear_slots[16][72]`, `CLEAR_READ_SLOTS`) are 72
   bytes each, slot 8 included, and a write needs the config zone locked and the
   slot's SlotLocked bit set (config bytes 88-89). A 260-byte store fits neither.
 - **Where an image keeps durable bytes today.** The AVR EEPROM, through
@@ -143,12 +146,15 @@ first four.
 7. **What does `tfw_hsm_store_head_get` return on an element error?** It
    returns `void`, so a counter or storage failure cannot reach the caller.
    Does the header change to return a status, or does a failed read present as
-   an erased store?
+   an erased store? Answered on main (#295): it and `tfw_hsm_store_erase`
+   return `tfw_status_t` (`src/core/hsm_store.h:30`, `:39`), and on a failed head
+   read the record's append and read return its status while its count and
+   dropped count read zero (`src/core/hsm_record.c:27`, `:56`, `:66`).
 8. **Is a stale store erased or refused?** When D4 finds a stale copy, does the
    store read as empty, keep its bytes and return an error, or both?
 
 ## What waits
 
 `src/core/hsm_store_atecc.c` and its host test wait on questions 1 to 4. The
-host model also needs two changes the store cannot make for itself: a counter
-per index (it has one) and a slot 8 of at least 260 bytes (it has 72).
+host model already has a counter per index (two); it still needs a slot 8 of
+at least 260 bytes (it has 72), which the store cannot give itself.

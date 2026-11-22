@@ -15,6 +15,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -222,6 +223,69 @@ func (m *meddler) fill(n int) error {
 		}
 	}
 	return nil
+}
+
+// cutConn is a wire whose reads come in the steps given: a step's bytes, as
+// many reads as they take, or its error alone, as a tcp: conn's read deadline
+// returns one between two halves of a frame.
+type cutConn struct{ steps []cutStep }
+
+type cutStep struct {
+	data []byte
+	err  error
+}
+
+func (c *cutConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (c *cutConn) Read(p []byte) (int, error) {
+	if len(c.steps) == 0 {
+		return 0, io.EOF
+	}
+	s := &c.steps[0]
+	if s.err != nil {
+		c.steps = c.steps[1:]
+		return 0, s.err
+	}
+	n := copy(p, s.data)
+	if s.data = s.data[n:]; len(s.data) == 0 {
+		c.steps = c.steps[1:]
+	}
+	return n, nil
+}
+
+// A read timeout inside a frame's header or its body fails that Read, and the
+// next Read resumes the frame from what arrived before it: one response,
+// rewritten as the meddler asks, and nothing after it (Codex P1, PR #564).
+func TestMeddlerKeepsAPartialFrameAcrossAReadTimeout(t *testing.T) {
+	frame, err := tfw.EncodeResponse(7, tfw.CmdPing, tfw.StatusOK, []byte("pong"))
+	require.NoError(t, err)
+	for name, cut := range map[string]int{"header": 1, "body": 4} {
+		t.Run(name, func(t *testing.T) {
+			conn := &cutConn{steps: []cutStep{
+				{data: append([]byte(nil), frame[:cut]...)},
+				{err: os.ErrDeadlineExceeded},
+				{data: append([]byte(nil), frame[cut:]...)},
+			}}
+			m := &meddler{conn: conn, reply: func(f tfw.Frame) []byte { return []byte("PONG") }}
+			buf := make([]byte, 2*len(frame))
+
+			_, err := m.Read(buf)
+			require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+			assert.Equal(t, frame[:cut], m.part, "the bytes before the timeout are kept")
+
+			n, err := m.Read(buf)
+			require.NoError(t, err)
+			f, used, err := tfw.Decode(buf[:n])
+			require.NoError(t, err, "the resumed frame decodes")
+			assert.Equal(t, n, used, "one frame, whole")
+			assert.EqualValues(t, 7, f.Seq)
+			assert.Equal(t, tfw.CmdPing, f.Cmd())
+			assert.Equal(t, "PONG", string(f.Payload), "the meddler rewrote the resumed frame")
+
+			_, err = m.Read(buf)
+			assert.ErrorIs(t, err, io.EOF, "nothing follows the one response")
+		})
+	}
 }
 
 // floored bounds every Read on a pipe end by floor, as peer's floorConn does

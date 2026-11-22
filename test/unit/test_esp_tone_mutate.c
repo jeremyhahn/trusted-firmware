@@ -14,7 +14,8 @@
  *     channel configured, a channel that will not configure internal, and
  *     neither leaving a tone to stop;
  *   - a stop as the last channel stopped low, once, only while a tone runs,
- *     and successful even when the driver's stop fails;
+ *     and a failed driver stop reported as internal with the tone left
+ *     running, so a retry stops it;
  *   - a tone of 0 Hz a stop.
  *
  * The unit's running flag is static, so the tests run in the order main()
@@ -26,6 +27,7 @@
 #include "unity.h"
 #include "driver/ledc.h"
 #include "tfw/hal.h"
+#include "hal_esp32.h"
 
 static unsigned              n_timer, n_chan, n_stop;
 static ledc_timer_config_t   timer_seen;
@@ -60,6 +62,8 @@ esp_err_t ledc_stop(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t idl
 
 void setUp(void)
 {
+    stop_err = ESP_OK;
+    tfw_esp_tone_release(tfw_esp_tone_gpio()); /* MODE takes the last test's pin back */
     n_timer = n_chan = n_stop = 0u;
     memset(&timer_seen, 0x5A, sizeof timer_seen);
     memset(&chan_seen, 0x5A, sizeof chan_seen);
@@ -177,8 +181,12 @@ static void test_0_hz_stops_a_running_tone(void)
 {
     const tfw_pinref_t p = { 7u };
 
+    TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p, 440u));
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());      /* #573: the RMT loopback pin */
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p, 0u));
+    /* #561: stopped, the pad is still LEDC's and still loops back. */
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL_UINT(1u, n_timer);
     TEST_ASSERT_EQUAL_UINT(1u, n_chan);
     assert_stopped_once();
@@ -186,16 +194,19 @@ static void test_0_hz_stops_a_running_tone(void)
     TEST_ASSERT_EQUAL_UINT(1u, n_stop);
 }
 
-static void test_a_failed_driver_stop_still_stops(void)
+static void test_a_failed_driver_stop_is_reported(void)
 {
     const tfw_pinref_t p = { 7u };
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p, 440u));
     stop_err = ESP_FAIL;
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_tone_stop());
     assert_stopped_once();
+    stop_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());     /* the retry stops it */
+    TEST_ASSERT_EQUAL_UINT(2u, n_stop);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
-    TEST_ASSERT_EQUAL_UINT(1u, n_stop);
+    TEST_ASSERT_EQUAL_UINT(2u, n_stop);
 }
 
 int main(void)
@@ -208,6 +219,6 @@ int main(void)
     RUN_TEST(test_a_tone_is_the_last_timer_and_channel_at_half_duty);
     RUN_TEST(test_the_frequency_is_passed_whole);
     RUN_TEST(test_0_hz_stops_a_running_tone);
-    RUN_TEST(test_a_failed_driver_stop_still_stops);
+    RUN_TEST(test_a_failed_driver_stop_is_reported);
     return UNITY_END();
 }

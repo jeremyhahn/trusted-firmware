@@ -25,7 +25,8 @@
 #define TFW_STORE_CHUNK   64u      /* the most one read or write moves */
 
 /* Selects the part and parks every other select on the shared bus high. Safe to
- * call again: the stager calls it at each OTA_BEGIN. */
+ * call again: the stager calls it at start-up (tfw_stage_init) and again at
+ * each OTA_BEGIN. */
 tfw_status_t tfw_store_init(void);
 
 /* Asks the part for its JEDEC ID, one transaction, and touches nothing in it.
@@ -35,10 +36,13 @@ tfw_status_t tfw_store_init(void);
 tfw_status_t tfw_store_probe(void);
 
 /* Erases the sector holding addr. Returns once the part reports ready, or
- * TFW_ERR_TIMEOUT when it does not within the part's worst case. */
+ * TFW_ERR_TIMEOUT when it does not within the part's worst case;
+ * TFW_ERR_RANGE for an address the store cannot reach, TFW_ERR_NO_STORE when
+ * the part will not latch a write enable. */
 tfw_status_t tfw_store_erase(uint32_t addr);
 
-/* len <= TFW_STORE_CHUNK, else TFW_ERR_RANGE. */
+/* TFW_ERR_RANGE when len > TFW_STORE_CHUNK or addr + len runs past the
+ * store. */
 tfw_status_t tfw_store_read(uint32_t addr, uint8_t *buf, uint8_t len);
 tfw_status_t tfw_store_write(uint32_t addr, const uint8_t *src, uint8_t len);
 

@@ -51,6 +51,12 @@ int uECC_sign_with_k(const uint8_t *private_key, const uint8_t *message_hash,
                      unsigned hash_size, const uint8_t *k, uint8_t *signature,
                      uECC_Curve curve);
 
+/* patches/0002 in src/third_party/micro-ecc: the ladder's per-step hook. */
+void uECC_set_yield(void (*yield_function)(void));
+
+/* No-op unless a build defines it (deviceid_p256.h). */
+__attribute__((weak)) void tfw_sign_yield(void) {}
+
 /* The order n of the P-256 base point, big-endian (SEC 2, section 2.4.2). */
 static const uint8_t P256_N[32] = {
     0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
@@ -167,6 +173,7 @@ int tfw_p256_sign_rfc6979(const uint8_t d[32], const uint8_t digest[32],
     m[32] = 0x01u;
     tfw_hmac_sha256(k_key, 32u, m, 97u, k_key);       /* step f */
     tfw_hmac_sha256(k_key, 32u, v, 32u, v);           /* step g */
+    uECC_set_yield(tfw_sign_yield);
     for (round = 0u; round < SIGN_ROUNDS; round++) {  /* step h */
         /* qlen = hlen = 256: T is one V, and k = bits2int(T) is V itself.
          * uECC_sign_with_k refuses a k outside [1, n-1] and an r of zero,
@@ -180,6 +187,7 @@ int tfw_p256_sign_rfc6979(const uint8_t d[32], const uint8_t digest[32],
         tfw_hmac_sha256(k_key, 32u, m, 33u, k_key);
         tfw_hmac_sha256(k_key, 32u, v, 32u, v);
     }
+    uECC_set_yield(0);
     if (!ok) {
         memset(sig, 0x00, 64u);
     }
@@ -192,8 +200,14 @@ int tfw_deviceid_p256_sign(const uint8_t seed[32], const uint8_t digest[32],
                            uint8_t sig[64])
 {
     uint8_t d[32];
-    int     ok = tfw_deviceid_p256_scalar(seed, d)
-                 && tfw_p256_sign_rfc6979(d, digest, sig);
+    int     ok;
+
+    /* #584: deriving d runs a full P-256 multiplication (the public key) as
+     * long as the sign's own, so the deadline-only hook covers both. */
+    uECC_set_yield(tfw_sign_yield);
+    ok = tfw_deviceid_p256_scalar(seed, d);
+    ok = ok && tfw_p256_sign_rfc6979(d, digest, sig);
+    uECC_set_yield(0);
 
     if (!ok) {
         memset(sig, 0x00, 64u);

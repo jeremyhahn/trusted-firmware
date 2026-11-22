@@ -20,22 +20,13 @@
 /* TFW_NSC, the lengths, tfw_dice_cert_page_t and the four non-secure
  * calls: the API the non-secure image links against. */
 #include "tfw/tz_s_api.h"
+/* TFW_NS_CHECK and TFW_NS_CHECK_READ: CMSE under -mcmse, plain on host. */
+#include "../hal/cortex-m/cm_nsc.h"
 
-#if defined(__ARM_FEATURE_CMSE) && (__ARM_FEATURE_CMSE & 2)
-#include <arm_cmse.h>
-/* A buffer the non-secure caller hands in: it must lie wholly in memory the
- * non-secure world may write (outputs) or read (inputs), or it is refused. */
-#define TFW_NS_CHECK(ptr, len) \
-    (cmse_check_address_range((void *)(ptr), (len), CMSE_NONSECURE | CMSE_MPU_READWRITE) != NULL)
-#define TFW_NS_CHECK_READ(ptr, len) \
-    (cmse_check_address_range((void *)(ptr), (len), CMSE_NONSECURE | CMSE_MPU_READ) != NULL)
-#else
-/* Host: non-NULL, a non-empty length, and no wrap past the address space. */
-#define TFW_NS_CHECK(ptr, len) \
-    ((ptr) != NULL && (len) != 0u && \
-     (uintptr_t)(ptr) <= UINTPTR_MAX - (uintptr_t)((len) - 1u))
-#define TFW_NS_CHECK_READ(ptr, len) TFW_NS_CHECK(ptr, len)
-#endif
+/* The alias seed is HMAC-SHA256(CDI, TFW_DICE_ALIAS_LABEL): a key apart from
+ * the DeviceID key, so no entry point reaches a DeviceID private-key operation. */
+#define TFW_DICE_ALIAS_LABEL     "tfw-dice-alias-v1"
+#define TFW_DICE_ALIAS_LABEL_LEN 17u
 
 /* What secure boot hands the service. Copied in; the caller zeroes its own. */
 typedef struct {

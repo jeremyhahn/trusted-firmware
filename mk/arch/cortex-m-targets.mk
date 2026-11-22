@@ -17,7 +17,9 @@
 #
 # Every Cortex-M board QEMU models, so every change to the core boots on both
 # cores: the ARMv8-M Cortex-M33 (mps2-an505, #161) and the ARMv7-M Cortex-M7
-# (mps2-an500). Each runs the same three cases.
+# (mps2-an500). Each runs the same four cases (genuine, tampered, otherkey,
+# unprovisioned; test/integration/cortex-m/qemu_test.sh), plus the hsm-* cases
+# on an HSM=1 image.
 CM_QEMU_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_TIER  := soft
 CM_QEMU_ROW   := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
@@ -103,6 +105,36 @@ CM_QEMU_PULSE_BUILD  := $(BUILD_DIR)/qemu-pulse
 CM_QEMU_ONEWIRE_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_ONEWIRE_BUILD  := $(BUILD_DIR)/qemu-onewire
 
+## cm-frame-bound-check: the Cortex-M build refuses a frame past TFW_CM_FRAME_MAX, and a VLA (row 482)
+# The MPU's stack guard holds only while no frame is larger than it
+# (src/hal/cortex-m/hal_mpu.h). test/unit/cm_frame_probe.c is compiled and
+# LTO-linked with the image's own flags (mk/arch/cortex-m.mk CM_FRAME_CFLAGS)
+# on the M7 board that arms the MPU: a frame well under the bound links, one
+# just past it and one past the guard are refused for their frame size, and a
+# VLA is refused as one. bootloader-check runs it, so the build stage does.
+CM_FRAME_PROBE_BOARD ?= mps2-an500
+cm-frame-bound-check:
+	@$(MAKE) --no-print-directory cm-frame-bound-probe BOARD=$(CM_FRAME_PROBE_BOARD)
+
+CM_FRAME_PROBE_DIR := $(BUILD_DIR)/cm-frame-probe
+cm-frame-bound-probe:
+	@d=$(CM_FRAME_PROBE_DIR); mkdir -p $$d; \
+	 probe() { $(ARCH_CC) -std=c11 -Wall -Wextra -Werror $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
+	             -c -o $$d/probe.o test/unit/cm_frame_probe.c "$$1" > $$d/probe.log 2>&1 && \
+	           $(ARCH_CC) $(ARCH_LDFLAGS) -nostdlib -Wl,-e,probe_entry -o $$d/probe.elf $$d/probe.o \
+	             >> $$d/probe.log 2>&1; }; \
+	 fail=0; \
+	 probe -DPROBE_FRAME=256 || { echo "$@: a 256-byte frame is refused:"; cat $$d/probe.log; fail=1; }; \
+	 for n in $$(( $(CM_FRAME_MAX) + 8 )) 4096; do \
+	   if probe -DPROBE_FRAME=$$n; then echo "$@: a $$n-byte frame links past the $(CM_FRAME_MAX)-byte bound"; fail=1; \
+	   elif ! grep -q 'frame size of' $$d/probe.log; then echo "$@: a $$n-byte frame failed, not for its size:"; cat $$d/probe.log; fail=1; fi; \
+	 done; \
+	 if probe -DPROBE_VLA; then echo "$@: a variable-length array links"; fail=1; \
+	 elif ! grep -q 'variable length array' $$d/probe.log; then echo "$@: the VLA failed, not as one:"; cat $$d/probe.log; fail=1; fi; \
+	 [ $$fail = 0 ] && echo "$@: $(BOARD) refuses frames past $(CM_FRAME_MAX) bytes and VLAs"; exit $$fail
+
+.PHONY: cm-frame-bound-check cm-frame-bound-probe
+
 ## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; with no platform block tfw-boot refuses and names TFW_ERR_NOT_PROVISIONED; on mps2-an505 the tamper-response loop decides as its sets require
 #
 # One board after the other, not in parallel: a red board names itself, and
@@ -176,7 +208,7 @@ cortex-m-qemu-spi-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) SPI=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_SPI_BUILD) CM_QEMU_SPI=1
 
-# The tone row's run, beside the SPI row's: the base row's tfw-boot and the
+# The tone row's run, after the I2C row's: the base row's tfw-boot and the
 # TONE=1 application, every path under CM_QEMU_TONE_BUILD.
 cortex-m-qemu-tone-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -203,7 +235,7 @@ cortex-m-qemu-i2c-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) I2C=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD) CM_QEMU_I2C=1
 
-# The PULSE row's run, after the I2C row's: the base row's tfw-boot and the
+# The PULSE row's run, after the tone row's: the base row's tfw-boot and the
 # PULSE=1 application, every path under CM_QEMU_PULSE_BUILD.
 cortex-m-qemu-pulse-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -212,7 +244,7 @@ cortex-m-qemu-pulse-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) PULSE=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_PULSE_BUILD) CM_QEMU_PULSE=1
 
-# The 1-Wire row's run, after the I2C row's: the base row's tfw-boot and the
+# The 1-Wire row's run, after the PULSE row's: the base row's tfw-boot and the
 # ONEWIRE=1 application, every path under CM_QEMU_ONEWIRE_BUILD.
 cortex-m-qemu-onewire-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -227,9 +259,15 @@ cortex-m-qemu-onewire-wire:
 # CYCLE_TEST names the test: the store row's TestQEMUOTACycle
 # (sdk/go/cmd/tfwctl/ota_cycle_qemu_test.go), or one of the A/B row's
 # TestQEMUAB* (ota_ab_qemu_test.go), or the SPI row's TestQEMUSPIXfer
-# (spi_qemu_test.go), or the I2C row's TestQEMUI2CXfer (i2c_qemu_test.go), or
-# the base row's TestQEMUResetCause (reset_qemu_test.go) or TestQEMUFaultPanic
-# (fault_qemu_test.go), which reads the fault record at TFW_QEMU_FAULTFRAME.
+# (spi_qemu_test.go), or the PWM row's TestQEMUPWMWrite (pwm_qemu_test.go), or
+# the I2C row's TestQEMUI2CXfer (i2c_qemu_test.go), or the tone row's
+# TestQEMUTone (tone_qemu_test.go), or the 1-Wire row's TestQEMUOneWire
+# (onewire_qemu_test.go), or the PULSE row's TestQEMUPulseTimeout
+# (pulse_qemu_test.go), or the base row's TestQEMUResetCause (reset_qemu_test.go)
+# or TestQEMUFaultPanic (fault_qemu_test.go), which reads the fault record at
+# TFW_QEMU_FAULTFRAME, or, on mps2-an500, TestQEMUMPUNullRead,
+# TestQEMUMPUBootRead or TestQEMUMPUStackGuard (mpu_qemu_test.go). The list
+# qemu_wire_test.sh runs is the reference.
 CYCLE_TEST ?= TestQEMUOTACycle
 cortex-m-qemu-cycle:
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_RESET='$(HW_RESET)' \
@@ -299,6 +337,83 @@ $(CM_QEMU_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c 
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -Isrc/third_party/micro-ecc $(UECC_DEFS) \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' $(BOARD_DEFS) \
+	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
+	@echo "built $@"
+
+## cortex-m-dk-image: the STM32H573I-DK's signed bench set, with its unprovisioned boot (BOARD=stm32h573i-dk)
+#
+# cortex-m-qemu-image's signing for a silicon board QEMU does not model, which
+# that target refuses (no CM_QEMU_BOARD_ID). The default build (soft tier,
+# P-256 DeviceID, the board's mk/boot.mk row) is signed by cm_image, built with
+# the board's load addresses and stage length on its compiler line. Into
+# CM_DK_DIR go cm_image's files: boot.bin (a fresh UDS: the bench boot),
+# boot-unprovisioned.bin (the same boot, its UDS slot erased: the attest
+# refusal row's boot, #570), app.bin, platform.bin and addrs.env, the address
+# of each; and two packed images for `make boot-flash BOOT_FLASH_HEX=`:
+# bench.hex (boot.bin) and bench-unprovisioned.hex. Nothing is written to a
+# board. docs/boards/stm32h573i-dk.md says how each is used.
+CM_DK_BOARDS := stm32h573i-dk
+CM_DK_DIR    := $(BOOT_INT_DIR)/bench
+CM_DK_DEFS   := -DTFW_CM_LOAD_APP_AT=TFW_APP_REGION_BASE -DTFW_CM_LOAD_PLATFORM_AT=TFW_CM_PLATFORM_BASE \
+                -DTFW_OTA_STORE_STAGE_LEN=0x020000ul
+
+cortex-m-dk-image:
+	@if [ -z "$(filter $(BOARD),$(CM_DK_BOARDS))" ]; then \
+	   echo "$@: BOARD=$(BOARD) is not one of $(CM_DK_BOARDS); a QEMU board runs cortex-m-qemu-image"; exit 1; fi
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) SOFT_ID=$(CM_QEMU_SOFT_ID)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW)
+	@$(MAKE) --no-print-directory cortex-m-dk-sign BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) $(CM_QEMU_ROW)
+
+# The signing step, recursive so TARGET and BOOT_TARGET are the board's.
+cortex-m-dk-sign: $(CM_DK_DIR)/cm_image
+	@$(ARCH_OBJCOPY) -O binary $(BOOT_TARGET).elf $(CM_DK_DIR)/tfw-boot.bin
+	@$(ARCH_NM) $(BOOT_TARGET).elf > $(CM_DK_DIR)/tfw-boot.nm
+	@$(ARCH_OBJCOPY) -O binary $(TARGET).elf $(CM_DK_DIR)/trusted-firmware.bin
+	@$(CM_DK_DIR)/cm_image $(CM_DK_DIR)/tfw-boot.bin $(CM_DK_DIR)/tfw-boot.nm \
+	   $(CM_DK_DIR)/trusted-firmware.bin $(CM_DK_DIR)
+	@$(call cm-dk-pack,boot.bin,bench.hex)
+	@$(call cm-dk-pack,boot-unprovisioned.bin,bench-unprovisioned.hex)
+	@echo "$(BOARD): bench set in $(CM_DK_DIR) (bench.hex, bench-unprovisioned.hex)"
+
+# One Intel HEX of a boot, app.bin and platform.bin at addrs.env's addresses:
+# each blob converted on its own, their end-of-file records dropped, one added.
+# objcopy gives every part a start-address record (type 03 or 05); pyOCD
+# refuses a HEX with more than one, so only the boot's, the first, is kept.
+# cm-dk-hex-check then fails the build unless exactly one of each remains.
+cm-dk-pack = d=$(CM_DK_DIR); . $$d/addrs.env || exit 1; \
+	{ keep=1; for p in "$(1) $$BOOT_AT" "app.bin $$APP_AT" "platform.bin $$PLATFORM_AT"; do \
+	    set -- $$p; $(ARCH_OBJCOPY) -I binary -O ihex --change-addresses $$2 $$d/$$1 $$d/part.hex || exit 1; \
+	    if [ $$keep = 1 ]; then grep -v '^:00000001FF' $$d/part.hex; \
+	    else grep -v -e '^:00000001FF' -e '^:0400000[35]' $$d/part.hex; fi; keep=0; \
+	    done; echo ':00000001FF'; } > $$d/$(2).tmp && \
+	mv $$d/$(2).tmp $$d/$(2) && rm -f $$d/part.hex && $(call cm-dk-hex-check,$$d/$(2))
+
+cm-dk-hex-check = s=$$(grep -c '^:0400000[35]' $(1)); e=$$(grep -c '^:00000001FF' $(1)); \
+	if [ "$$s" != 1 ] || [ "$$e" != 1 ]; then \
+	  echo "$(1): $$s start-address and $$e end-of-file records, want 1 and 1"; exit 1; fi
+
+# The packer on three small blobs with the host objcopy, no board image:
+# the packed HEX carries one start-address record and one end-of-file record.
+cm-dk-pack-test: CM_DK_DIR = $(BUILD_DIR)/cm-dk-pack-test
+cm-dk-pack-test: ARCH_OBJCOPY = $(or $(CM_DK_TEST_OBJCOPY),objcopy)
+cm-dk-pack-test:
+	@rm -rf $(CM_DK_DIR) && mkdir -p $(CM_DK_DIR)
+	@printf 'BOOT_AT=0x08000000\nAPP_AT=0x08020000\nPLATFORM_AT=0x081F0000\n' > $(CM_DK_DIR)/addrs.env
+	@for f in boot.bin app.bin platform.bin; do printf '%s-0123456789' $$f > $(CM_DK_DIR)/$$f; done
+	@$(call cm-dk-pack,boot.bin,bench.hex)
+	@echo "cm-dk-pack-test: one start-address and one end-of-file record"
+	@rm -rf $(CM_DK_DIR)
+
+# The signer for the DK: cm_image's sources, with CM_DK_DEFS added to the
+# board's BOARD_DEFS, in a directory of its own.
+$(CM_DK_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c boot/boot_platform.c boot/boot_cose.c \
+        src/crypto/sha256.c src/crypto/deviceid_p256.c src/core/secure_zero.c \
+        src/proto/crc16.c src/proto/crc16_update.c $(BOOT_INT_DIR)/uECC.o
+	@mkdir -p $(CM_DK_DIR)
+	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -Isrc/third_party/micro-ecc $(UECC_DEFS) \
+	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' $(BOARD_DEFS) $(CM_DK_DEFS) \
 	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
 	@echo "built $@"
 
@@ -411,6 +526,6 @@ cortex-m-qemu-tz-run: tz-firmware
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
         integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-pulse-wire cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
         cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire cortex-m-qemu-tone-wire cortex-m-qemu-onewire-wire cortex-m-qemu-pwm-wire \
-        cortex-m-qemu-cycle \
+        cortex-m-qemu-cycle cortex-m-dk-image cortex-m-dk-sign cm-dk-pack-test \
         $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \
         $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS))

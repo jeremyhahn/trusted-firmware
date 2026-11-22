@@ -1,6 +1,6 @@
 # AVR Device Backend — User Guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-20
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is for
@@ -82,13 +82,55 @@ device says about its own root of trust.
 - `avr backend: unrecognised crypto tier` — the firmware is newer than this
   host. The device still attaches; its keys are reported `unattested` until the
   host learns the tier, which is the safe direction to be wrong in.
+- `avr backend: device has no crypto provider` — the device reports no crypto
+  provider at all, so there is no identity key to address.
+- `avr backend: command requires an authenticated session` — the firmware
+  answers this command only inside an authenticated session.
+- `avr backend: target is platform-reserved on the device` — the write names a
+  region the firmware reserves for the platform, and it refuses it.
+- `avr backend: secure element did not answer its bus` — the element did not
+  acknowledge on its bus: unpowered, absent, or clocked too fast for the wake
+  pulse. Look at the bus, not the host.
+- `avr backend: device peripheral busy` — a peripheral on the device was busy.
+  Try again.
+- `avr backend: device refused the command` — the device answered with a status
+  this host has no name for: the firmware is newer than this host.
+- `avr backend: unreadable reply from device` — a truncated reply, a bad
+  checksum or a malformed frame. Usually the link: noise, the wrong baud rate,
+  or another reader on the port.
+- `avr backend: device crypto provider failed` and
+  `avr backend: device reported an internal error` — the device answered and
+  says it failed. Note its `Health` and look at the board.
+- `avr backend: device returned an invalid public point` — the key the device
+  reported is not on P-256. It is refused rather than stored.
+- `avr backend: argument outside the range the wire carries` — the call's
+  argument cannot be carried, refused before it left the host or by the device
+  on arrival.
 
 ## When an attestation is refused
 
-- `avr backend: device echoed a different challenge` — the certificate answers
-  some other challenge. The device has no clock, so that nonce is the only thing
+The backend checks the alias certificate with go-xkms's `dice.Verify` and hands
+its error back unwrapped (`checkAliasCertificate`,
+[`xkms/avr/attestation.go`](../../xkms/avr/attestation.go)). The message is
+go-xkms's, not this backend's; what each check means to you:
+
+- **The nonce.** The certificate answers some other challenge, compared in
+  constant time. The device has no clock, so that nonce is the only thing
   separating a live answer from a recording; this is refused and never
   downgraded to a warning.
+- **The device-resident key.** The certificate's key or signature is not what an
+  ATECC608A makes. It holds a key only on P-256 and signs only ECDSA-SHA256; the
+  backend requires the leaf itself to be device-signed, so an alias signed any
+  other way is refused.
+- **The chain.** You configured roots and this device does not descend from
+  them.
+- **The operational flags.** The certificate claims a state outside the flags
+  you permitted (`PermittedFlags` in the attestation configuration).
+
+The backend's own refusals here are these:
+
+- `avr backend: device returned an unparseable certificate` — the bytes the
+  device sent are not DER this host can parse.
 - `avr backend: attestation nonce is not the enrolment width` — the challenge is
   not 32 bytes. Most likely a raw key authorization instead of
   `DICENonce` of one, or the device's *other* nonce: the 16-byte one belongs in
@@ -96,14 +138,21 @@ device says about its own root of trust.
 - `avr backend: unsupported on this build or part` — a software-tier
   ATmega328P or ATmega32U4, whose HMAC signer has no public half to certify. This
   is a part to change, not a build.
-- `avr backend: the alias certificate was not produced by the device's element`
-  — the certificate's key or signature is not what an ATECC608A makes. It holds
-  a key only on P-256 and signs only ECDSA-SHA256.
-- `avr backend: certificate chain verification failed` — you configured roots
-  and this device does not descend from them.
-- `dice: tcg-dice-UCCS-evidence extension not found` — the device put its
-  challenge somewhere other than where the specification says. There is no
-  fallback to another field, deliberately.
+
+Once the chain verifies, the device's evidence is read by the SDK
+(`tfw.AliasUCCS` and `tfw.ApplicationEvidence`,
+[`sdk/go/appevidence.go`](../../sdk/go/appevidence.go)), whose errors begin
+`tfw: malformed evidence:`:
+
+- `no tcg-dice-UCCS-evidence extension` — the device put its challenge
+  somewhere other than where the specification says. There is no fallback to
+  another field, deliberately.
+- `tcg-dice-UCCS-evidence is not a UccsEvidence`,
+  `trailing bytes after the UccsEvidence` — the extension is there and is not
+  what the specification says it holds.
+- `no measurements claim (273)` and the other claims-set reasons — the
+  evidence does not carry exactly one SHA-256 measurement of the application
+  in the shape the firmware emits.
 
 ## A note about time
 

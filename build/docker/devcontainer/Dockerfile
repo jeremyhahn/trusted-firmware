@@ -65,16 +65,19 @@ RUN apk add --no-cache curl tar
 COPY scripts/tool-pins.sh /tmp/tool-pins.sh
 # gosec builds in a throwaway module so x/tools can be raised to XTOOLS_VERSION
 # (see tool-pins.sh); the others build with the x/tools their go.mod names.
+# Each download retries: one proxy stream reset (x/text, main 72bc7770, run
+# 44757017330, DS-9630) failed the whole image. go.sum and sha256 still verify.
 RUN set -eu; \
     . /tmp/tool-pins.sh; \
-    go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_VERSION}"; \
-    go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"; \
+    retry() { n=1; until "$@"; do [ "$n" -ge 3 ] && return 1; echo "retry $n: $*" >&2; n=$((n+1)); sleep $((n*5)); done; }; \
+    retry go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_VERSION}"; \
+    retry go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"; \
     ( d="$(mktemp -d)"; cd "$d"; \
       go mod init gosec-build; \
-      go get "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}" "golang.org/x/tools@${XTOOLS_VERSION}"; \
-      go install github.com/securego/gosec/v2/cmd/gosec; \
+      retry go get "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}" "golang.org/x/tools@${XTOOLS_VERSION}"; \
+      retry go install github.com/securego/gosec/v2/cmd/gosec; \
       cd /; rm -rf "$d" ); \
-    go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; \
+    retry go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; \
     case "${TARGETARCH:-amd64}" in \
       amd64) arch=64bit; sum="${TRIVY_SHA256_LINUX_AMD64}" ;; \
       arm64) arch=ARM64; sum="${TRIVY_SHA256_LINUX_ARM64}" ;; \
@@ -82,7 +85,7 @@ RUN set -eu; \
     esac; \
     v="${TRIVY_VERSION#v}"; \
     f="trivy_${v}_Linux-${arch}.tar.gz"; \
-    curl -fsSL -o "/tmp/${f}" "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${f}"; \
+    retry curl -fsSL -o "/tmp/${f}" "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${f}"; \
     echo "${sum}  /tmp/${f}" > /tmp/trivy.sha256; \
     sha256sum -c /tmp/trivy.sha256; \
     tar -xzf "/tmp/${f}" -C /out trivy; \
@@ -93,7 +96,7 @@ RUN set -eu; \
       *) echo "no gh pin for ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     d="gh_${GH_VERSION#v}_linux_${TARGETARCH:-amd64}"; \
-    curl -fsSL -o "/tmp/${d}.tar.gz" "https://github.com/cli/cli/releases/download/${GH_VERSION}/${d}.tar.gz"; \
+    retry curl -fsSL -o "/tmp/${d}.tar.gz" "https://github.com/cli/cli/releases/download/${GH_VERSION}/${d}.tar.gz"; \
     echo "${sum}  /tmp/${d}.tar.gz" > /tmp/gh.sha256; \
     sha256sum -c /tmp/gh.sha256; \
     tar -xzf "/tmp/${d}.tar.gz" -C /out --strip-components=2 "${d}/bin/gh"; \
@@ -116,7 +119,9 @@ WORKDIR /src
 # here, loudly. The template's RUN, over the three modules rather than a root
 # one: there is no go.mod at the root. test/integration/esp32's `replace
 # ../../../sdk/go` lands on the sdk/go/go.mod copied beside it. Requires
-# BuildKit.
+# BuildKit. Each download retries as the tools stage's do: one proxy stream
+# reset (x/text, main 329216b7, run 44795756466) failed the whole image. go.sum
+# still verifies, in the RUN after.
 COPY sdk/go/go.mod sdk/go/go.sum ./sdk/go/
 COPY test/integration/esp32/go.mod test/integration/esp32/go.sum ./test/integration/esp32/
 COPY xkms/go.mod xkms/go.sum ./xkms/
@@ -128,7 +133,8 @@ RUN --mount=type=secret,id=gomodauth \
     else \
       echo "==> go mod download: no module credentials mounted; github.com/jeremyhahn/* resolves from the public proxy only"; \
     fi; \
-    for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && go mod download); done
+    retry() { n=1; until "$@"; do [ "$n" -ge 3 ] && return 1; echo "retry $n: $*" >&2; n=$((n+1)); sleep $((n*5)); done; }; \
+    for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && retry go mod download); done
 RUN for d in sdk/go test/integration/esp32 xkms; do (cd "$d" && go mod verify) || exit 1; done
 
 # ---------------------------------------------------------------------------

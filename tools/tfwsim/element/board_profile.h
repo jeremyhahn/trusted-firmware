@@ -12,8 +12,9 @@
  * session on. This file is found BEFORE the board's, by -Itools/tfwsim/element,
  * and includes the board's own for everything else.
  *
- * It is on the include path of tfwsim-atecc608a only. No AVR image, no unit
- * suite and no software-tier simulator sees it.
+ * It is on the include path of the element-tier simulators (tfwsim-atecc608a,
+ * -manifest, -prov, -auto) and their application objects only. No AVR image,
+ * no unit suite and no software-tier simulator sees it.
  */
 #ifndef TFWSIM_ELEMENT_BOARD_PROFILE_H
 #define TFWSIM_ELEMENT_BOARD_PROFILE_H

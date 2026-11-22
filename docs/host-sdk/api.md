@@ -1,6 +1,6 @@
 # Host SDK — Go API surface
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-21
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 What a consumer imports. Every exported symbol, with its signature and the
@@ -17,10 +17,10 @@ import (
 )
 ```
 
-`ag` (package `tfw`) is stdlib-only. Import `serialport` only if you're
+`tfw` is stdlib-only. Import `serialport` only if you're
 opening a physical port — it's the sole reason `go.bug.st/serial` enters your
 build. A consumer that only decodes frames (verifying evidence, say) needs
-just `ag`.
+just `tfw`.
 
 ## Testing against the firmware: `sdk/go/tfwsim`
 
@@ -63,7 +63,7 @@ standard library, so `make sdk-verify` is unaffected.
 ## Connecting
 
 `tfw.New` wraps any `io.ReadWriter` — a serial port via `serialport.Open`, a
-pty, or an `tfwsim` subprocess pipe, which is how the SDK's own tests run
+pty, or a `tfwsim` subprocess pipe, which is how the SDK's own tests run
 without hardware:
 
 ```go
@@ -92,7 +92,7 @@ if !caps.Has(tfw.FeatureAttest) {
 ## Surface groups
 
 Everything below is a method on `*tfw.Device` unless noted. Signatures and the
-full constant list are in `engineering.md`; this is the shape a consumer
+full constant list are in [Exported symbols](#exported-symbols); this is the shape a consumer
 reaches for by task.
 
 | Task | Call |
@@ -123,7 +123,7 @@ Every method returns a typed error from `sdk/go/errors.go`. Match with
 `tfw.ErrTimeout`) for the category. Full table: `engineering.md#error-semantics`.
 
 ```go
-_, err := dev.EEPROMWrite(ctx, addr, data)
+err := dev.EEPROMWrite(ctx, addr, data)
 var rangeErr *tfw.ArgRangeError
 if errors.As(err, &rangeErr) {
     // rangeErr.Arg, .Value, .Min, .Max, .Unit — nothing was sent to the device

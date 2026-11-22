@@ -55,16 +55,17 @@ static void startup(void)
      * run (#19) while the first SPI_XFER hung the device forever (#16).
      *
      * tfw_hal_adc_init() is safe to call with no gate: src/caps/analog.c and
-     * hal_adc.c compile on every board this family builds (see mk/avr.mk).
+     * hal_adc.c compile on every image of every arch (mk/firmware.mk's
+     * FW_SRCS, and hal_adc.c is not in HAL_OPTIONAL).
      * tfw_bus_init() (src/caps/bus.c) covers I2C and SPI the same way its own
      * header comment explains -- it or bus_none.c's stub is ALWAYS the one
      * linked, so the call below is never a dangling reference regardless of
      * which buses a board has.
      *
-     * This runs BEFORE tfw_crypto_init(): the ATECC608A provider calls
-     * tfw_hal_i2c_init() again, at its own required rate, and that call must be
-     * the one left standing on an element build rather than being clobbered
-     * by the generic default that follows it. */
+     * This runs BEFORE tfw_crypto_init(): the element providers (ATECC608A,
+     * auto, OPTIGA) call tfw_hal_i2c_init() again, at their own required
+     * rate, and that call must be the one left standing on an element build
+     * rather than being clobbered by the generic default that follows it. */
     tfw_hal_adc_init();
     tfw_bus_init();
     /* The external store's select goes high before anything talks on the SPI
@@ -96,6 +97,13 @@ static void startup(void)
     tfw_ota_trial_after_init();
 }
 
+/* The SoC MAC's lwIP pass (include/tfw/hal.h). A build with the MAC
+ * (ETH_MAC=1, #581) links hal_eth_netif.c's strong definition; the ESP32
+ * HAL's hal_eth.c defines its own empty one (esp-netif runs its own task);
+ * every other build gets this empty one, so the loop calls it
+ * unconditionally. */
+__attribute__((weak)) void tfw_hal_eth_poll(void) {}
+
 int main(void)
 {
     startup();
@@ -116,5 +124,6 @@ int main(void)
         tfw_app_runner_poll();
         tfw_hsm_loop_poll();
         tfw_ota_trial_poll();
+        tfw_hal_eth_poll();
     }
 }

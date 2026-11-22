@@ -6,7 +6,7 @@
 > [`architecture.md`](architecture.md) §6,
 > [`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md) (#14),
 > [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md) (#15) ·
-> Last verified: 2026-10-22
+> Last verified: 2026-11-16
 >
 > Documentation only. Owner ruling 2026-10-17 05:51Z, queue item 26: each
 > arrived board gets one docs-only onboarding ADR, written now; the port itself
@@ -18,8 +18,8 @@
 > Reference Manual* is pinned in
 > [`../reference/README.md`](../reference/README.md), at Revision 3.70 since
 > question 9 was decided, and the §2 items it settles carry its section
-> (2026-10-22). The datasheet is still unread, so the supply item stays *to
-> confirm*.
+> (2026-10-22). The *Datasheet*, Revision 3.70, is pinned there too, and the
+> supply item cites its pages (2026-11-16).
 
 ## The question
 
@@ -55,8 +55,10 @@ without changing it?
 
 Vendor documents:
 
-- Infineon, *OPTIGA™ Trust M (SLS32AIA) Datasheet*, the V3 revision: not yet
-  read; revision and sections *to confirm*.
+- Infineon, *OPTIGA™ Trust M Datasheet* (SLS 32AIA010MH/S/K/L/M; the V3
+  parts are the ML and MK, Table 2, p. 8), Revision 3.70 (2024-10-09),
+  pinned by SHA-256 in [`../reference/README.md`](../reference/README.md).
+  Page numbers below are its own.
 - Infineon, *OPTIGA™ Trust M Solution Reference Manual*, Revision 3.70
   (2024-10-09), pinned by SHA-256 in
   [`../reference/README.md`](../reference/README.md). Sections below are its own
@@ -72,7 +74,7 @@ Item by item:
 | Data object slots | General data objects, monotonic counters (`0xE120`-`0xE123`), and objects that can hold a secret for HMAC or a platform binding secret (`0xE140`) | Confirmed, Rev 3.70 §5.4 Tables 68 and 70: counters `0xE120`-`0xE123`, the platform binding secret `0xE140`, and the arbitrary data objects `0xF1D0`-`0xF1DB` and `0xF1E0`-`0xF1E1` |
 | Lifecycle state | Each object carries a lifecycle state (LcsO: creation, initialisation, operational, termination) and access conditions in its metadata; the state only moves forward | Confirmed, Rev 3.70 §5.3 and §5.5 Table 71 (tag `0xC0`, LcsO): cr, in, op, te, forward only; an absent access condition reads as NEV |
 | Shielded connection | The I2C link can be protected by a session derived from the platform binding secret shared between host and element, so the bus carries no plaintext command or response | Confirmed, Rev 3.70 §2.3 and §6.6: the session is keyed by the platform binding secret (`0xE140`), and a `Conf` access condition makes an object readable or writable only through it. Not written here (question 4) |
-| Supply | The voltage range the element and the shield accept, which decides whether a 5 V AVR host needs a level shifter | *to confirm* (datasheet) |
+| Supply | The voltage range the element and the shield accept, which decides whether a 5 V AVR host needs a level shifter | Confirmed for the element, Datasheet Rev 3.70: VCC 1.62 V to 5.5 V, the overall functional range, and VCC_I2C the same (§5.1.3.1 Table 11, p. 20; §5.1 Table 7, p. 18); SDA and SCL accept −0.3 V to VCC_I2C + 0.5 V or 5.5 V, whichever is lower (Table 7, p. 18); RST high is 0.7 × VCC to VCC + 0.3 V (Table 11, p. 20); the VCC ramp from 400 mV to 90 % takes 1 µs to 1000 µs (§5.1.3.2 Table 12, p. 21). So an element supplied at 5 V takes a 5 V bus with no shifter; supplied at 3.3 V, its bus must not be pulled above 3.8 V. The shield's own supply path (regulator, pull-ups) is not in the datasheet: *to confirm* from the shield's documentation or on the bench |
 
 The read-only command layer (`src/crypto/optiga/optiga_cmd.c`) names only the
 objects it reads: `0xE0C2`, `0xE0C6`, `0xE0E0` and the last error code
@@ -181,7 +183,7 @@ test has none on main.
 | R14 | HMAC, pubkey and verify_image return `TFW_ERR_UNSUPPORTED` | done | `src/crypto/optiga/optiga_crypto.c`, `include/tfw/crypto.h` | `test/unit/test_optiga_crypto.c`: `test_the_unsupported_calls_send_nothing` |
 | R15 | `CRYPTO=optiga` links the provider | done; `PROVISION=1` and a build with the bus off are refused | `mk/firmware.mk` | `scripts/test_prov_absent_check.py`: `test_a_tier_make_refuses_to_provision_is_planned_production_only`; `scripts/test_optiga_bus_refused.py`: `test_optiga_with_the_bus_off_is_refused`, `test_optiga_with_i2c_on_links_the_transport` (slice 2) |
 | R16 | No board's tiers name it | holds | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` | none on main |
-| R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are not filled | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
+| R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are filled from those rows (#509) | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
 | R18 | Which boards it fits stays the owner's question | open: question 5, with the coordinator's proposal in the sixth part above | this ADR, "Follow-ups" | none |
 
 ## Remaining slices
@@ -189,13 +191,11 @@ test has none on main.
 In order. "Hardware" means the shield on the bench under §4; "owner" means a
 ruling first; "other project" means the work is not this repository's.
 
-1. **Fill the fit table** (no hardware, no owner): run `make firmware-matrix`
-   on the CI image, which has avr-gcc and the Arm toolchain, and write the
-   measured text+data and data+bss into the fit table above. Touches this ADR
-   only. Proven by `make firmware-matrix` passing its budget gate on the
-   `optiga` rows of `boards/atmega2560/profile.mk` and
-   `boards/mps2-an505/profile.mk`. The coordinator then answers question 5
-   under ruling 109.
+1. **Fill the fit table**: done (#509). The `optiga` rows of
+   `boards/atmega2560/profile.mk` and `boards/mps2-an505/profile.mk` and
+   their soft rows pass the budget gate, and the measured text+data and
+   data+bss are in the fit table above. The coordinator then answers
+   question 5 under ruling 109.
 2. **Test the bus-off refusal** (done, #510, #533; no hardware, no owner): a
    `scripts/test_optiga_bus_refused.py` in the pattern of
    `scripts/test_manifest_refused.py`, asking `make` for `CRYPTO=optiga` on a
@@ -212,7 +212,9 @@ ruling first; "other project" means the work is not this repository's.
    *OPTIGA Trust M (SLS32AIA) Datasheet*, newest revision (question 9's
    rule), pin it by SHA-256 in `docs/reference/README.md`, and settle §2's
    Supply item. Touches `docs/reference/README.md` and this ADR. No test.
-   Feeds question 1's level-shifter answer.
+   Feeds question 1's level-shifter answer. Done (#511): Revision 3.70 is
+   pinned and §2's Supply item cites its pages; the shield's own supply path
+   stays to confirm.
 5. **Bench factory record** (hardware, owner): needs question 1 (cabling and
    host) and question 2 (the reading tool). Reads `0xE0E0` and every object's
    metadata once, read-only (§4 step 3), kept off the repository; a bench page
@@ -251,8 +253,10 @@ ruling first; "other project" means the work is not this repository's.
 Question 9 is decided, by ruling 109; none of the others is decided here.
 
 1. **Cabling and host.** Which board on the bench host does the shield go on (the Mega, the
-   Nano or another), and does it need a level shifter at 5 V? (Supply range *to
-   confirm* from the datasheet.)
+   Nano or another), and does it need a level shifter at 5 V? (The element
+   accepts 1.62 V to 5.5 V on VCC and its bus up to VCC + 0.5 V, at most 5.5 V, Datasheet
+   Rev 3.70 Tables 7 and 11, pp. 18 and 20, §2 Supply; the shield's own
+   supply path is still *to confirm*.)
 2. **The factory-record tool.** Which tool reads the certificate and metadata
    read-only before our driver exists: Infineon's host tooling on a Linux I2C
    bus, or a read-only firmware build on the AVR host?
@@ -287,14 +291,17 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
    differences are page layout, footnote placement and wording ("OPTIGA™"
    becomes "OPTIGA™ Trust M", "KHz" becomes "kHz"). Every section and table
    number cited from 3.60 is the same in 3.70, so the citations stand under
-   the new revision. The datasheet's revision is decided the same way when it
-   is read.
+   the new revision. The datasheet's revision is decided the same way: 3.70
+   (2024-10-09), the newest in `optiga-trust-m-overview` (the
+   `optiga-trust-m` repository's `develop` branch holds 3.61), read
+   2026-11-16.
 
 ## Follow-ups (not in this ADR)
 
-- Confirm what is still *to confirm*: the supply range against the datasheet,
-  and the factory key's curve from its metadata on the bench. The other §2
-  items are confirmed against the Solution Reference Manual Rev 3.70.
+- Confirm what is still *to confirm*: the shield's own supply path, and the
+  factory key's curve from its metadata on the bench. The element's supply
+  range is confirmed against the Datasheet Rev 3.70; the other §2 items
+  against the Solution Reference Manual Rev 3.70.
 - The driver and its mock, after #7 and the SE052F and STM32H5, per SPEC order.
   Its first part is written: the I2C transport, `src/crypto/optiga/optiga_i2c.c`,
   to Infineon's *IFX I2C Protocol, Protocol Specification* v2.03
@@ -393,24 +400,34 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   The fit table, for question 5. "Without" is the board's default image, the
   first tier `BOARD_TIERS` names, on the same row settings; "with" is the
   optiga row. Each size is text+data and data+bss, as `make firmware-matrix`
-  prints and checks against the budget. No size is measured here: the lane
-  image has neither avr-gcc nor an Arm toolchain, and s6's figures are not
-  recorded in the tree. The cells read "measured in verify" until the
-  coordinator's verify fills them from `make firmware-matrix`.
+  prints and checks against the budget ("flash" and "ram" in its line).
+  Measured on main 9fb5bed51e94 (#596) with
+  avr-gcc 14.2.0 and arm-none-eabi-gcc 14.2.1 (14.2.rel1), one
+  `make firmware BOARD=<board> CRYPTO=<tier> <settings>` per matrix row, as
+  `make firmware-matrix` runs it; every row passed the budget gate. Each cell
+  is text+data / data+bss in bytes.
 
   | Board, row | Flash budget / part | RAM budget / part | Without the tier | With the tier |
   |---|---|---|---|---|
-  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=0`: measured in verify |
-  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=1`: measured in verify |
-  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | soft: measured in verify | `optiga:I2C=1`: measured in verify |
-  | mps2-an500 | 131072 | 16384 | soft: measured in verify | not built: no row turns its bus on |
+  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | `soft:ETH=0`: 20736 / 1036 | `optiga:ETH=0`: 16930 / 1010 |
+  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | `soft` (ETH=1): 26816 / 1170 | `optiga:ETH=1`: 23260 / 1144 |
+  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | `soft:I2C=1`: 17940 / 12784 | `optiga:I2C=1`: 9656 / 984 |
+  | mps2-an500 | 131072 | 16384 | `soft`: 10924 / 888 | not built: no row turns its bus on |
   | atmega32u4 | — | — | not measured | not built: no row |
   | atmega328p | — | — | not measured | not built: question 5 asks about it |
 
+  On every measured row the optiga image is smaller than the soft one. So
+  "without" is not "the same image minus the transport": on mps2-an505
+  (`make firmware-srcs`, both rows) the soft image links micro-ecc, the soft
+  provider, SUIT and the HSM engine with its RAM store, and the optiga image
+  links `src/crypto/optiga/` in their place, hence 8284 bytes less flash and
+  11800 less RAM. The table answers whether the tier fits; it is not the
+  transport's own cost.
+
   The proposal for question 5. This is not an architecture decision, so the
   coordinator takes it under ruling 109:
-  - The ATmega2560 carries the tier as an option. Its two rows already pass
-    the matrix's budget gate in s6's verify.
+  - The ATmega2560 carries the tier as an option. Its two rows pass the
+    matrix's budget gate, at 16930 and 23260 bytes of a 65536 flash gate.
   - mps2-an505 carries it as an option. Its gates are twice the 2560's flash
     and eight times its RAM, and the tier is the same code.
   - On both, the tier joins `BOARD_TIERS` after soft, not in its place. That
@@ -423,8 +440,8 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
   - mps2-an500 and the ATmega32U4 are not proposed until a row builds the
     tier there.
 - Left in the row:
-  - The fit table's measured cells, from verify's `make firmware-matrix`,
-    and the coordinator's answer to question 5.
+  - The coordinator's answer to question 5 (the fit table's cells are
+    measured, #509).
   - The bench factory record.
   - On the bench: the counter value's byte order and the factory key's curve.
 - Not in the row: pubkey from the factory certificate `0xE0E0`. Taking the

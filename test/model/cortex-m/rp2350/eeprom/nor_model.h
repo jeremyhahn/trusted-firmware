@@ -24,6 +24,8 @@ extern uint32_t rp_nor_write_us;
 /* Microseconds that pass between the next SysTick CVR read and the register
  * read after it, once: an expiration can land between the two reads. */
 extern uint32_t rp_nor_after_cvr_us;
+/* Nonzero: SysTick is off: CSR reads without ENABLE, CVR holds, no expiration pends. */
+extern int rp_nor_systick_stopped;
 
 /* Unmasked work: TIMER0 and SysTick advance by us microseconds, each SysTick
  * expiration running SysTick_Handler (pending it while masked). */

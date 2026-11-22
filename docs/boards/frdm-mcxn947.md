@@ -45,7 +45,7 @@ main on 2026-11-16 (#459). Every test is a `RUN_TEST` in the file named;
 | DICE evidence on the EdgeLock secure subsystem | not started | none: nothing under `src/hal/cortex-m/mcxn94x/` drives EdgeLock (`hal_soc.c` header) | none |
 | Enrollment through go-xkms into go-trusted-platform | not started on this board | the generic enrollment path only | none on this board: needs an image run on a board |
 | Writing the part over the MCU-Link (pyOCD), record first | partial: recipes written, never run | `boards/frdm-mcxn947/profile.mk` `CM_FLASH_TOOL`, `mk/arch/cortex-m.mk` | none: needs the board |
-| OTA_CONFIRM's request reaches flash | partial: a plain store into the platform window, which does not program flash ("Not confirmed", "OTA_CONFIRM's request") | `src/hal/cortex-m/mcxn94x/hal_eeprom.c`, storing as `src/hal/cortex-m/hal_eeprom.c` does | `test/unit/test_mcxn94x_eeprom.c`: `test_the_confirm_request_keeps_the_store_path_and_erases_nothing` |
+| OTA_CONFIRM's request reaches flash | done, host-tested only: a read-modify-write of the platform sector through `tfw_mcxn_flash_update` (#626); a power loss mid-rewrite can lose the platform block ("EEPROM") | `src/hal/cortex-m/mcxn94x/hal_eeprom.c` | `test/unit/test_mcxn94x_eeprom.c`: `test_the_confirm_request_is_programmed_into_the_platform_sector` |
 | Values the SDK does not settle ("Not confirmed" below) | partial | — | none: need the reference manual or UM12018 |
 
 ### Remaining slices
@@ -232,7 +232,7 @@ picks over the generic `src/hal/cortex-m/hal_eeprom.c`, keeps the AVR's map:
 
 | Address | Backing | Write |
 |---|---|---|
-| below `TFW_BOOT_EE_LEN` (`0x140`) | the platform window, `TFW_CM_PLATFORM_BASE` | refused (`TFW_ERR_RANGE`), but OTA_CONFIRM's request, stored as the generic file stores it |
+| below `TFW_BOOT_EE_LEN` (`0x140`) | the platform window, `TFW_CM_PLATFORM_BASE` | refused (`TFW_ERR_RANGE`), but OTA_CONFIRM's request, a read-modify-write of the platform sector |
 | `TFW_BOOT_EE_LEN` to 1023 | the user sector, `TFW_CM_USER_EE_BASE`, from its own zero | read-modify-write of the sector |
 
 The user sector is the 8 KiB sector directly below the platform block's
@@ -242,14 +242,27 @@ the application slot). A write calls tfw-boot's flash helper,
 interrupts masked: it reads the sector into its buffer, merges, erases and
 programs the whole sector through the ROM driver (the table above), and the
 HAL then reads the bytes back. The helper is given the user sector's end as
-the flash's end, so no write erases the platform sector. A ROM failure or a
-read-back mismatch is `TFW_ERR_INTERNAL` (the wire has no I/O status). A
-power loss mid-write loses the user sector only, as a power loss mid-write
-does on the AVR's EEPROM; the platform block is not touched. The test runs
-against a flash model (`test/unit/test_mcxn94x_eeprom.c`).
+the flash's end, so no user write erases the platform sector. A ROM failure
+or a read-back mismatch is `TFW_ERR_INTERNAL` (the wire has no I/O status).
+A power loss in the middle of a user write loses the user sector only, as a
+power loss mid-write does on the AVR's EEPROM; the platform block is not
+touched. The test runs against a flash model
+(`test/unit/test_mcxn94x_eeprom.c`).
 
-How OTA_CONFIRM's request reaches flash is unchanged by this: it is the
-generic file's plain store into the platform window.
+OTA_CONFIRM's request is the one write below `TFW_BOOT_EE_LEN`, and since
+#626 it goes through the same helper, handed the platform sector's end: a
+store into flash programs nothing, so the platform sector is read, merged,
+erased and programmed whole, and read back. Its other bytes, tfw-boot's
+provisioned block among them, are kept only in the helper's RAM buffer
+across the erase (`tfw_mcxn_flash_update`), so a power loss between the
+erase and the end of the program can lose the platform block as well as the
+request. The next boot then finds no usable block:
+`tfw_boot_platform_parse` (`boot/boot_platform.c`) returns
+`TFW_ERR_NOT_PROVISIONED` for a lost magic or `TFW_ERR_CRC` for a torn one,
+and `main` (`boot/boot_main.c`) goes to `tfw_boot_recovery`. With no pinned
+key nothing verifies or boots until a programmer provisions the block again;
+there is no second copy. Keep the supply up through OTA_CONFIRM on this
+board.
 
 ## Not confirmed
 
@@ -285,9 +298,13 @@ runs an image:
    below the platform block from the application, after tfw-boot has handed
    over, with the same `flash_init` call tfw-boot makes, is not in a pinned
    file: reference manual, flash chapter, and a run on the board.
-8. **OTA_CONFIRM's request: open.** It is stored into the platform window
-   with a plain store, as on QEMU; on flash that store does not program the
-   cell. Changing how it reaches flash is outside the EEPROM row.
+8. **OTA_CONFIRM's request: done (#620).** It is programmed into the
+   platform sector through tfw-boot's ROM flash helper
+   (`tfw_mcxn_flash_update`), a read-modify-write that keeps the platform
+   block's other bytes if it completes (a power loss mid-rewrite can lose
+   them: "EEPROM" above), where `tfw_boot_nvm_read` finds it; a plain store
+   into flash programmed nothing. Host-tested against the ROM flash model
+   (`test_mcxn94x_eeprom`), not yet on the board.
 9. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
    example's `pin_mux.c`. Which header pins they reach, and whether the board
    fits pull-ups, is not in a pinned file: UM12018, board schematic.

@@ -5,7 +5,9 @@
  *
  * A serial-only image links src/proto/link_serial.c: the UART and nothing
  * else. An Ethernet image links src/proto/link_eth.c, which serves the UART and
- * a W5x00 socket to the same transport. The transport keeps one framer and one
+ * a W5x00 socket to the same transport. An ETH_MAC=1 image links the SoC's
+ * hal_eth_wire.c instead: the UART and one TCP connection (hal_eth_wire_tcp.c).
+ * The transport keeps one framer and one
  * response buffer either way; the link decides which wire a byte came from and
  * which one its reply goes back on.
  *
@@ -36,5 +38,11 @@ void    tfw_link_tx_done(uint8_t serial);
 
 /* 1 if the wire the current frame arrived on may run cmd. */
 uint8_t tfw_link_admits(uint8_t cmd);
+
+/* 1, once, if the peer has changed since the last call (a connection dropped
+ * or replaced): the transport then forgets any partly received frame and any
+ * reply still owed, so the new peer's first request is not read as the old
+ * frame's tail. */
+uint8_t tfw_link_take_reset(void);
 
 #endif /* TFW_LINK_H */

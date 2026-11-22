@@ -703,15 +703,17 @@ jobs:
   # `set -x`), and lint steps and `make check-public-literals` report path and
   # line only (ci-standard.md §5, Company Agent m605 item 8).
   #
-  # Runners (DS-7400, CA m2066): every job runs on ubuntu-latest, the GitHub
-  # hosted runner, which has Docker. A job goes self-hosted only for a hardware
-  # reason, and none of these jobs touches hardware.
+  # Runners (owner ruling 999; DS-7400, CA m2066): every job runs on
+  # ubuntu-latest, the GitHub standard hosted runner, which has Docker. A job
+  # goes self-hosted only for hardware or a measured hosted limit (disk, memory,
+  # 6 h) recorded beside its runs-on line; none does: the longest leg is 40 min,
+  # and each Docker job frees disk first. Larger hosted runners stay out.
   image:
     # CUSTOMIZE (trusted-firmware, owner m751 (d), ci-standard.md §10 (d)): this
     # job builds the run's images once and runs the short stages; the long
     # stages are the legs below, each `needs: image`, run side by side.
     name: Devcontainer image [lint, build]
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: preflight   # v1.24 (CA m749, m751 (a)); v1.29.3; v1.34
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
@@ -750,6 +752,14 @@ jobs:
       # (dependency-resolution.md §6), which the log does not mask by itself,
       # and the token sits inside GIT_CONFIG_KEY_0's URL, so it is masked alone
       # as well.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1032,6 +1042,13 @@ jobs:
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=stm32h573i-dk CRYPTO=soft
 
+      # CUSTOMIZE (trusted-firmware): its hardware tier, the PKA and HASH
+      # provider (#544), so a missing include fails here and not on the bench
+      # (#566).
+      - name: make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=stm32h573i-dk CRYPTO=stm32h5
+
       - name: make bootloader BOARD=stm32h573i-dk (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: >-
@@ -1215,7 +1232,7 @@ jobs:
     name: Unit and race [${{ matrix.leg }}]
     needs: [image, preflight]   # v1.29.3; v1.34
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # One leg per shard plus the sdk/go race suite (CA ruling 580 follow-up).
     # fail-fast off: every leg reports, as the steps did under !cancelled();
     # the CI Gate's `check unit` reads the matrix's combined result, so any
@@ -1236,6 +1253,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1318,7 +1343,7 @@ jobs:
     name: Security [make security-novuln]
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
     # 10 + 11, plus margin.
     timeout-minutes: 35
@@ -1332,6 +1357,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1390,7 +1423,7 @@ jobs:
     # main is found at the merge, not the next night.
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.preflight.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
     # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
     # run 68240): 10 + 3 = 13, plus margin.
@@ -1405,6 +1438,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1447,7 +1488,7 @@ jobs:
     name: ESP32 QEMU Test [esp32-qemu-test]
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
     # esp32 run, where one OTA stream takes ~12, was 24 min in at the kill
@@ -1465,6 +1506,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1513,7 +1562,7 @@ jobs:
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and the optee job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE: run 70765, the one job built cold: setup, image and restore
     # miss 2 min, optee-tools 5, optee-qemu 133, the copy out of the
     # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
@@ -1532,6 +1581,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1657,7 +1714,7 @@ jobs:
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and this job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE: run 70765 on a cold cache: setup and image 2 min,
     # integration-test-optee 26. Warm, the restore and the copy into the
     # container add about what the save (over 2) and the copy out (13) took,
@@ -1674,6 +1731,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1713,10 +1778,16 @@ jobs:
           echo "host cache: enabled=$enabled hit=$hit ${dir:+dir=$dir}"
           { echo "enabled=$enabled"; echo "hit=$hit"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
 
+      # Fleet Ops 11-13: the 5.18 GiB restore died at 52% after the default
+      # 10-minute segment timeout on the shared link (run with ~60 jobs
+      # queued), and fail-on-cache-miss turned it red. 45 minutes fits the
+      # 90-minute job.
       - name: Restore the OP-TEE stack
         id: cache
         if: ${{ steps.host.outputs.hit != 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '45'
         with:
           path: ${{ runner.temp }}/optee-cache
           key: optee-${{ steps.pin.outputs.release }}
@@ -1785,7 +1856,7 @@ jobs:
   # docs-only path does; this job never needs the integration image.
   lint-gates:
     name: Lint Gates [toolchain image]
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: preflight     # v1.29.3
     # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
     # schedule guard's `run`.
@@ -1799,6 +1870,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: mask the forge credentials before any other step (as above).
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1862,7 +1941,7 @@ jobs:
     # only on the schedule guard's `run`.
     needs: preflight
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # CUSTOMIZE: trusted-firmware: full tier (#293; handbook sdlc.md §5a). The suite is
     # `make integration-test-host`: the real AVR images under simavr, and
     # tfwsim against the Go SDK, the example application and the xkms adapter.
@@ -1884,6 +1963,14 @@ jobs:
       # (dependency-resolution.md §6), which the log does not mask by itself,
       # and the token sits inside GIT_CONFIG_KEY_0's URL, so it is masked alone
       # as well.
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -1984,7 +2071,7 @@ jobs:
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     needs: preflight
     if: ${{ ((github.event_name == 'schedule' && needs.preflight.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
-    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
       SOAK_MINUTES: 30        # CUSTOMIZE
@@ -1995,6 +2082,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # v1.21.1: mask the forge credentials before any other step (as above).
+      - name: Free hosted runner disk
+        # Owner ruling 999: ubuntu-latest leaves about 14 GB free on /; the
+        # devcontainer images this job builds or pulls need more, so drop the
+        # preinstalled toolchains no job here uses instead of a self-hosted host.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force > /dev/null
+          df -h /
       - name: Mask the forge credentials
         run: |
           for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do

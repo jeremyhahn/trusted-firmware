@@ -160,3 +160,6 @@ tfw_status_t tfw_esp_eth_start(void)
     started = 1u;
     return TFW_OK;
 }
+
+/* ESP32 Ethernet runs under esp-netif's own task: the superloop's pass is empty. */
+void tfw_hal_eth_poll(void) {}

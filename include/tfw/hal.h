@@ -4,7 +4,8 @@
  * THE HAL CONTRACT.
  *
  * Plain extern functions, resolved at LINK time. The Makefile links exactly one
- * implementation: src/hal/avr for a device build, test/mock for the host.
+ * implementation: src/hal/<arch>/ (avr, cortex-m, esp32) for a device build,
+ * test/mock for the host.
  *
  * Not a function-pointer vtable, and the reason is not style. A vtable of this
  * many entries costs 68 bytes of RAM on an ATtiny85 -- thirteen percent of its
@@ -15,8 +16,9 @@
  * enforced by the linker: add a function here, forget the mock, and `make test`
  * fails to link rather than failing in some later test nobody wrote yet.
  *
- * Everything that can fail returns tfw_status_t. The four that cannot are the
- * trivial queries.
+ * Everything that can fail returns tfw_status_t. The rest cannot fail: queries,
+ * the non-blocking byte-link calls, and the calls that do not return or only
+ * arm a timer.
  *
  * This header grows as capabilities land. It is deliberately not the full
  * eventual surface up front: an unimplemented declaration is a link error in
@@ -58,7 +60,8 @@ void             tfw_hal_irq_enable(void);
 tfw_ms_t          tfw_hal_millis(void);
 
 /* Busy-waits. Callable ONLY from bus bit-banging, where the delay IS the
- * protocol -- 1-Wire slots, the USI clock, the ATECC608A wake pulse. Never
+ * protocol -- 1-Wire slots, the USI clock, and a secure element's I2C waits
+ * (the ATECC608A's wake and poll, the OPTIGA guard time). Never
  * from a command handler: this firmware has no delay() and must not grow one. */
 void             tfw_hal_delay_us(uint16_t us);
 
@@ -172,7 +175,7 @@ void              tfw_hal_flash_read(uint32_t addr, uint8_t *buf, uint8_t len);
  * Mutable and never NULL, because the reader owns clearing it once consumed
  * -- see boot.h for why the block must not outlive that one read. On the
  * device this is a fixed SRAM address the bootloader also names, placed
- * there at LINK time (mk/avr.mk); the mock returns a plain buffer a test can
+ * there at LINK time (mk/arch/avr.mk); the mock returns a plain buffer a test can
  * pre-load.
  */
 uint8_t          *tfw_hal_handoff_block(void);
@@ -195,8 +198,8 @@ tfw_status_t      tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t l
 
 /* ---------------------------------------------------------------- system */
 
-/* Bytes between the top of the heap and the current stack pointer. Reported by
- * SYS_INFO; a host watching it fall knows about a leak before the device dies
+/* Bytes between the top of the heap and the current stack pointer; on ESP32,
+ * where ESP-IDF allocates, the free internal heap. Reported by SYS_INFO; a host watching it fall knows about a leak before the device dies
  * of one. */
 uint32_t         tfw_hal_free_ram(void);
 
@@ -205,5 +208,10 @@ uint32_t         tfw_hal_free_ram(void);
  * has disarmed the one tfw-boot armed; pet restarts that period. */
 void             tfw_hal_watchdog_arm(void);
 void             tfw_hal_watchdog_pet(void);
+
+/* One pass of the SoC Ethernet MAC's interface under lwIP (ETH_MAC=1, #581:
+ * src/hal/cortex-m/stm32h5/hal_eth_netif.c). Called once per main-loop pass;
+ * a build without the MAC links src/main.c's weak empty definition. */
+void             tfw_hal_eth_poll(void);
 
 #endif /* TFW_HAL_H */

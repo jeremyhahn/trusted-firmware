@@ -103,25 +103,8 @@ tfw_reset_cause_t tfw_boot_reset_cause(void)
     return tfw_hal_early_reset_cause();
 }
 
-/* The application's vector table is the first thing in its region (the
- * linker script's .vectors): its stack top, then its reset handler. tfw-boot
- * enabled no interrupt and started no timer, so the UART is the only
- * peripheral to put back. The application's reset handler points VTOR at its
- * own table, as it does after a bare reset, so nothing here touches VTOR. */
-void tfw_boot_jump_application(void)
-{
-    const volatile uint32_t *vt = (const volatile uint32_t *)(uintptr_t)TFW_BOOT_APP_BASE;
-    uint32_t sp = vt[0];
-    uint32_t pc = vt[1];
-
-    tfw_cm_boot_uart_off();
-    tfw_cm_dsb();
-    tfw_cm_isb();
-    __asm__ volatile ("msr msp, %0\n\t"
-                      "bx  %1"
-                      : : "r"(sp), "r"(pc) : "memory");
-    for (;;) { }   /* unreachable */
-}
+/* tfw_boot_jump_application is boot_jump.c's: its msr and bx are the one
+ * Arm instruction in this HAL, and the host compiles this file (#628). */
 
 /* A system reset request, which marks itself as the application's
  * tfw_hal_reset does (src/hal/cortex-m/hal_early.c). */

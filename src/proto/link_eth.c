@@ -10,8 +10,9 @@
  *              the controller's socket buffer. Between frames the wire that did
  *              not carry the last one is read first, so neither starves.
  *   Events.    Serial only. They are for the bench host that owns the pins.
- *   Allow-list Ethernet runs the attestation and enrolment commands and nothing
- *              else. Everything else is answered as a command the image does
+ *   Allow-list Ethernet runs the attestation and enrolment commands and the
+ *              OTA staging four (0x68-0x6B, link_eth.h) and nothing else.
+ *              Everything else is answered as a command the image does
  *              not have -- which, from the network, it does not.
  *   Reconnect. On a deadline in tfw_hal_millis() time, never a delay: 1 s after
  *              a failure, doubling to 64 s, back to 1 s once connected. A blank
@@ -28,6 +29,7 @@
 #include "tfw/eth.h"
 #include "tfw/hal.h"
 #include "tfw/protocol.h"
+#include "link_eth.h"
 
 #define WIRE_SERIAL 0u
 #define WIRE_ETH    1u
@@ -145,25 +147,16 @@ void tfw_link_tx_done(uint8_t serial)
     }
 }
 
-/* The Ethernet allow-list. test_link_eth pins it, id by id, against literals:
- * a command added here is a decision about what the network may ask for. */
+/* The Ethernet allow-list (link_eth.h): serial carries every command. */
 uint8_t tfw_link_admits(uint8_t cmd)
 {
     if (cur == WIRE_SERIAL) {
         return 1u;
     }
-    switch (cmd) {
-    case TFW_CMD_CAPS:          /* enrolment: what the part can hold */
-    case TFW_CMD_APP_INFO:      /* enrolment: the device profile it runs under */
-    case TFW_CMD_ATTEST:        /* UCCS evidence over the verifier's nonce */
-    case TFW_CMD_ATTEST_CERT:   /* the alias certificate over the nonce */
-    case TFW_CMD_ATTEST_CSR:    /* the templated CSR for ACME finalize */
-    case TFW_CMD_OTA_BEGIN:     /* staging into the external store -- ADR */
-    case TFW_CMD_OTA_DATA:      /* decision 8's widening, owner answer 8; an */
-    case TFW_CMD_OTA_END:       /* image without the stager answers these */
-    case TFW_CMD_OTA_STATUS:    /* UNKNOWN_CMD as it always did */
-        return 1u;
-    default:
-        return 0u;
-    }
+    return tfw_link_eth_allows(cmd);
+}
+
+uint8_t tfw_link_take_reset(void)
+{
+    return 0u;                  /* this link keeps its own per-socket state */
 }

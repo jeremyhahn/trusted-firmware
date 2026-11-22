@@ -16,7 +16,8 @@
  * the platform block (include/tfw/boot.h) tfw-boot reads before it verifies
  * anything, with the hash of the public key pinned.
  *
- * Into <outdir> go boot.bin, platform.bin, three applications -- app.bin
+ * Into <outdir> go boot.bin, boot-unprovisioned.bin (the same boot with its
+ * UDS slot left erased), platform.bin, three applications -- app.bin
  * (genuine), app-tampered.bin (one bit of the image flipped after signing,
  * so its trailer claims the measurement of the image nobody edited) and
  * app-otherkey.bin (signed by a key tfw-boot does not hold) -- and addrs.env,
@@ -38,8 +39,9 @@
  * file: the application the cycle stages. It goes into <outdir> as staged.bin,
  * in the layout OTA stages and boot/boot_stage.c's take() reads -- the image,
  * erased padding to whole pages, the trailer last -- signed at version 2 by
- * the key app.bin is signed with, and beside it activate.sig, that key's
- * OTA_ACTIVATE authorization for it (#137). The private key never leaves this
+ * the key app.bin is signed with, and beside it activate.sig and confirm.sig,
+ * that key's OTA_ACTIVATE and OTA_CONFIRM authorizations for it (#137, #231).
+ * The private key never leaves this
  * process, so the signature is made here and not by the test that sends it.
  *
  *   cm_image <tfw-boot.bin> <tfw-boot.nm> <trusted-firmware.bin> <outdir> <staged.bin> ab

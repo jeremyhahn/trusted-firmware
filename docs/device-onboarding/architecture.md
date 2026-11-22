@@ -60,7 +60,7 @@ the earlier table, which `engineering.md` cites.
 | 10 | This project owns no enrollment, registry, profile or verification | this | met | none ships; the registry in `xkms/e2e/device_attest_dice_e2e_test.go` (`deviceRegistry`) is a test stand-in | none needed |
 | 11 | T1: `tfwprov --record` writes the provisioning record, `ueid` joined to the DeviceID point as a `cnf` `jwk`, and refuses a record of another serial or point | this | met (#173) | `sdk/go/cmd/tfwprov/record.go` | `sdk/go/cmd/tfwprov/record_test.go`; `sdk/go/cmd/tfwprov/e2e_record_test.go` |
 | 12 | go-trusted-platform's, go-quicbaas's and go-xkms's SPECs name the same seam | the three other projects | theirs; not checkable from this repository | none | none |
-| 13 | T3 (the ATmega328P enrols) waits on the owner | the owner | open: the 328P's element-tier `ETH=1` image is over its flash budget and its profile leaves `ATTEST_CSR` out | `boards/atmega328p/profile.mk` | none until the owner chooses |
+| 13 | T3 (the ATmega328P enrols) waits on the owner | the owner | open: the 328P's element-tier `ETH=1` image is over its flash budget and its profile leaves `ATTEST_CSR` out | `boards/atmega328p/profile.mk` (the flash budget), `boards/atmega328p/board_profile.h` (`TFW_FEATURE_ATTEST_CSR 0`) | none until the owner chooses |
 | 14 | T4 (the ATECC608C slot map) waits on the owner | the owner | open: `tfwprov --commit` refuses the pre-locked part | `sdk/go/cmd/tfwprov/template.go`; [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md) | `sdk/go/cmd/tfwprov/template_test.go` (the current map only) |
 
 ### Remaining slices
@@ -83,7 +83,9 @@ the earlier table, which `engineering.md` cites.
    shape. Needs another project and an owner decision.
 3. **T3: the ATmega328P enrols.** The owner's choice of the 328P budget
    ([ADR](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
-   Files: `boards/atmega328p/profile.mk` and whatever the choice drops. Proof:
+   Files: `boards/atmega328p/profile.mk` (the flash budget),
+   `boards/atmega328p/board_profile.h` (`TFW_FEATURE_ATTEST_CSR 0` leaves
+   `ATTEST_CSR` out) and whatever the choice drops. Proof:
    the 328P element-tier `ETH=1` image builds within its flash and answers
    `ATTEST_CSR` under `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`. Needs an
    owner decision.
@@ -248,7 +250,7 @@ verifier's nonce alone; no board in this family has a clock.
 ### Wire commands
 
 The Ethernet link admits exactly `0x00`, `0x06`, `0x60`, `0x63`, `0x64` and the
-OTA staging ids `0x68`–`0x6B` (`src/proto/link_eth.c`), pinned id by id against literals in `test/unit/test_link_eth.c`. Every other id received on
+OTA staging ids `0x68`–`0x6B` (`tfw_link_eth_allows` in `src/proto/link_eth.h`), pinned id by id against literals in `test/unit/test_link_eth.c`. Every other id received on
 Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 ([allow-list](../ethernet-transport/adr-wire-protocol-over-w5x00.md#2-allow-list)).
 
@@ -262,7 +264,7 @@ Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 | `0x68`–`0x6B` | `OTA_BEGIN`, `OTA_DATA`, `OTA_END`, `OTA_STATUS` | serial, Ethernet; images with the OTA stager only (any other answers `TFW_ERR_UNKNOWN_CMD`) | `Device.OTABegin`, `Device.OTAData`, `Device.OTAEnd`, `Device.OTAStatus` | the ids in `include/tfw/protocol.h`, literals in `test/unit/test_link_eth.c`; `TestEthernetDeviceAdmitsTheOTAIdsOverTCP` in `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` |
 | `0x41` | `EEPROM_WRITE` | serial only | `Device.WriteNetConfig` | the network block, a literal in both `test/unit/test_link_eth.c` (`NETCFG`) and `sdk/go/netcfg_test.go` (`netcfgVector`) |
 | `0x40` | `EEPROM_READ` | serial only | `Device.ReadNetConfig` | the same literal, decoded by `(*NetConfig).UnmarshalBinary` in `sdk/go/netcfg_test.go` |
-| `0x70`–`0x75` | `PROV_*` | serial, provisioning image only | `Device.Prov*` | [device-provisioning api](../device-provisioning/api.md) |
+| `0x70`–`0x75` and `0x7B` | `PROV_*` | serial, provisioning image only | `Device.Prov*` | [device-provisioning api](../device-provisioning/api.md) |
 
 `ATTEST_CSR` is built only where the board's profile carries it: today the
 ATmega2560's element tier

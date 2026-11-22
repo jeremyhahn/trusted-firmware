@@ -32,10 +32,15 @@ MCU            := stm32h573iik3q
 #                               the handoff block at the top (RAM_END)
 #
 # Unlike mps2-an505's, the code regions are flash: a store to them is not a
-# write. tfw-boot's writes to the slot and the platform block need the flash
-# controller, which this slice does not drive (docs/boards/stm32h573i-dk.md).
+# write. tfw-boot's writes to the slot and the platform block go through the
+# flash driver, boot/hal/cortex-m/stm32h5/h5_flash.c (mk/boot.mk).
 FLASH_BUDGET   := 131072
+# ETH_MAC=1 (#581) adds the MAC's rings (12 KiB of 1536-byte buffers) and
+# lwIP's heap and pbuf pool: 64 KiB of the 256 KiB bank.
 RAM_BUDGET     := 32768
+ifeq ($(ETH_MAC),1)
+  RAM_BUDGET   := 65536
+endif
 FLASH_TOTAL    := 2097152
 RAM_TOTAL      := 262144
 
@@ -83,11 +88,23 @@ ARCH_CRYPTO_SRCS_stm32h5 = src/crypto/sha256.c src/crypto/soft/provider.c \
 # I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
 # bus; the soft:I2C=1 row builds that image and size-check measures it. Built
 # and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
-# run on the kit.
+# run on the kit. The soft:ETH_MAC=1 row likewise builds and size-checks the
+# Ethernet image (mk/firmware.mk's ETH_MAC: hal_eth_netif.c, the TCP listener
+# hal_eth_wire_tcp.c and lwIP), which the default image does not link.
 I2C               ?= 0
-BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
-BOARD_ROWS        := soft:I2C=1
+# ETH_PROBE=1 prints one console line at boot, "eth: phy addr=N
+# id=XXXX:XXXX link=up|down", from an MDIO scan of the kit's Ethernet PHY
+# (src/hal/cortex-m/stm32h5/hal_eth_mdio.c, #579). Off by default: the default
+# image does not touch the MAC.
+ETH_PROBE         ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
+                     $(if $(filter 1,$(ETH_PROBE)),-DTFW_CM_ETH_PROBE=1)
+# Each -D above names the image directory too (mk/firmware.mk's
+# ROW_FEATURE_SUFFIX: -i2c, -eth_probe), so switching ETH_PROBE without a
+# clean rebuilds hal_uart.o and the objects that test the -D.
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) \
+                     $(if $(filter 1,$(ETH_PROBE)),ETH_PROBE)
+BOARD_ROWS        := soft:I2C=1 soft:ETH_MAC=1
 
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI
 # (UM2237), which reads and writes the STM32H5's flash and prints its option

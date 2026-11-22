@@ -25,8 +25,11 @@ TFW_BOOT_AT(ota_state,       TFW_BOOT_EE_O_OTA_STATE);
 TFW_BOOT_AT(fail_count,      TFW_BOOT_EE_O_FAIL_COUNT);
 TFW_BOOT_AT(serial,          TFW_BOOT_EE_O_SERIAL);
 TFW_BOOT_AT(operator_pubkey, TFW_BOOT_EE_O_OPERATOR_PUBKEY);
-_Static_assert(TFW_BOOT_EE_O_SPAN + sizeof(tfw_boot_platform_t) <= TFW_BOOT_EE_O_CRC,
-               "the modelled span runs into the CRC");
+/* operator_bind (#606) follows the span and survives a write-back with it. */
+_Static_assert(TFW_BOOT_EE_O_SPAN + sizeof(tfw_boot_platform_t) <= TFW_BOOT_EE_O_OPERATOR_BIND,
+               "the modelled span runs into operator_bind");
+_Static_assert(TFW_BOOT_EE_O_OPERATOR_BIND + TFW_BOOT_OPERATOR_BIND_LEN <= TFW_BOOT_EE_O_CRC,
+               "operator_bind runs into the CRC");
 
 uint32_t tfw_boot_rd_u32(const uint8_t *p)
 {

@@ -14,7 +14,7 @@ import (
 //
 // These exist on the wire permanently and are implemented almost nowhere: a
 // production firmware is built with TFW_FEATURE_PROVISION 0, so its dispatch
-// table has no entry for any of them and it answers ErrUnknownCommand. Only the
+// table has no entry for any of them and it answers StatusErrUnknownCmd. Only the
 // image on a provisioning jig carries the handlers, and that image is replaced
 // before the part leaves the bench.
 //
@@ -187,8 +187,9 @@ func (d *Device) provKey(ctx context.Context, cmd Cmd, slot uint8) ([]byte, erro
 // It takes a slot and NO key material, and that is the design rather than an
 // omission. A UDS the host generated is a UDS the host has seen, and a
 // provisioning station is exactly the machine an attacker would target to get
-// it. The secret goes Random -> TempKey -> slot entirely inside the element, so
-// a compromised jig learns nothing it could use.
+// it. The secret is drawn by the element's RNG and crosses only the I2C bus
+// (three times, through MCU SRAM), never the host link, so a compromised jig
+// learns nothing it could use.
 func (d *Device) ProvSeedUDS(ctx context.Context, slot uint8) error {
 	_, err := d.Do(ctx, CmdProvSeedUDS, []byte{slot})
 	return err

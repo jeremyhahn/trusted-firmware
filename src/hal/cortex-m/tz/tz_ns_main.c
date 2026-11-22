@@ -109,9 +109,9 @@ void tz_ns_reset(void)
     uint32_t *dst;
     uint32_t v;
 
-    for (dst = &__data_start; dst < &__data_end; )
+    for (dst = &__data_start; (uintptr_t)dst < (uintptr_t)&__data_end; )
         *dst++ = *src++;
-    for (dst = &__bss_start; dst < &__bss_end; )
+    for (dst = &__bss_start; (uintptr_t)dst < (uintptr_t)&__bss_end; )
         *dst++ = 0u;
 
     tz_puts("tz: ns: up\r\n");

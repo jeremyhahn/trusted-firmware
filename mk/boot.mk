@@ -220,11 +220,16 @@ BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(B
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
+# Cortex-M's jump to the application, apart from boot_hal_cortex-m.c because
+# its msr and bx are the one Arm instruction there, and the host compiles that
+# file (#628). mk/arch/cortex-m.mk's ARCH_BOOT_SRCS does not name it.
+BOOT_JUMP_SRCS := $(if $(filter cortex-m,$(ARCH)),$(BOOT_HAL_DIR)/boot_jump.c)
+
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
-  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) $(BOOT_JUMP_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
@@ -454,7 +459,7 @@ BOOT_SUPPORTED := \
 
 # A row's optional seventh field, ab, is BOOT_AB=1; a row without it leaves
 # BOOT_AB to the board's profile.mk (1 on the 2560, 0 on the MPS2 boards).
-bootloader-check:
+bootloader-check: cm-frame-bound-check
 	@fail=0; \
 	for row in $(BOOT_SUPPORTED); do \
 	  b=$${row%%:*}; r=$${row#*:}; \
@@ -704,6 +709,18 @@ $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
 $(BOOT_TEST_DIR)/test_boot_stm32h5_flash: test/unit/boot/test_boot_stm32h5_flash.c \
         boot/hal/cortex-m/stm32h5/h5_flash.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The STM32H5 SoC bring-up both images link, src/hal/cortex-m/stm32h5/hal_soc.c,
+# over a register model under the stm32h573i-dk profile: the clock raise's wait
+# states before the divider, the watchdog's keys. The test sits in the SoC's
+# test/ (the *.c wildcard does not descend), and the RP2350 test's cm_regs.h
+# comes ahead of the real one, so every TFW_CM_REG lands in the test's model.
+BOOT_TEST_STM32H5_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/stm32h573i-dk,\
+                             $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_h5_hal_soc
+$(BOOT_TEST_DIR)/test_h5_hal_soc: src/hal/cortex-m/stm32h5/test/test_h5_hal_soc.c \
+        src/hal/cortex-m/stm32h5/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_STM32H5_CFLAGS) -Iboot/hal/cortex-m/rp2350/test -Isrc/hal/cortex-m/stm32h5 \
+	   -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The RP2350's sector read-modify-write (row rp2350): the arithmetic every
 # tfw-boot flash write goes through, over a RAM flash the test supplies in
 # place of rp_flash_rom.c's boot ROM calls.
@@ -723,11 +740,22 @@ $(BOOT_TEST_DIR)/test_mcxn_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # Its polled LPUART, boot/hal/cortex-m/mcxn94x/mcxn_uart.c, over a register
 # model of the LP_FLEXCOMM unit; boot_uart.c, which hands it LP_FLEXCOMM4 and
-# sets the clock and the pins, is not here.
+# sets the clock and the pins, is test_mcxn_boot_uart below.
 $(BOOT_TEST_DIR)/test_mcxn_uart: boot/hal/cortex-m/mcxn94x/test/test_mcxn_uart.c \
         boot/hal/cortex-m/mcxn94x/mcxn_uart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# boot_uart.c itself under the FRDM-MCXN947's profile, which names the link's
+# port and pins: the RP2350's test cm_regs.h comes ahead of the real one, so
+# every SYSCON and PORT access lands in the test's register model, and the
+# test stands in for mcxn_uart.c.
+BOOT_TEST_MCXN_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/frdm-mcxn947,\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_mcxn_boot_uart
+$(BOOT_TEST_DIR)/test_mcxn_boot_uart: boot/hal/cortex-m/mcxn94x/test/test_mcxn_boot_uart.c \
+        boot/hal/cortex-m/mcxn94x/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_MCXN_CFLAGS) -Iboot/hal/cortex-m/rp2350/test -Iboot/hal/cortex-m/mcxn94x \
+	  -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The Pico 2 W's flash map by literal, under its own profile: the regions
 # tfw-boot writes, and the 4 MiB flash they must fit (pico-sdk's pico2_w.h).
@@ -755,6 +783,26 @@ BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_rom
 $(BOOT_TEST_DIR)/test_boot_rp2350_rom: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_rom.c \
         boot/hal/cortex-m/rp2350/rp_flash_rom.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The SoC half both images link (#621), src/hal/cortex-m/rp2350/hal_soc.c: the
+# clock bring-up, the watchdog and the reset cause over the same register model.
+# The test stands in for soc_reset.c's tfw_rp2350_reset_take and defines the
+# reset mark the startup code keeps.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_rp2350_hal_soc
+$(BOOT_TEST_DIR)/test_rp2350_hal_soc: $(RP2350_BOOT_TEST_DIR)/test_rp2350_hal_soc.c \
+        src/hal/cortex-m/rp2350/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m \
+	  -Isrc/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfw-boot's mps2 UART the RP2350's way, under mps2-an505's profile: its own
+# cm_regs.h in boot/hal/cortex-m/mps2/test/ comes ahead of src/hal/cortex-m, so
+# every TFW_CM_REG goes to the test's model of UART0, which sees each store.
+MPS2_BOOT_TEST_DIR := boot/hal/cortex-m/mps2/test
+BOOT_TEST_MPS2_AN505_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,\
+                                $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_mps2_uart
+$(BOOT_TEST_DIR)/test_boot_mps2_uart: $(MPS2_BOOT_TEST_DIR)/test_boot_mps2_uart.c \
+        boot/hal/cortex-m/mps2/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_MPS2_AN505_CFLAGS) -I$(MPS2_BOOT_TEST_DIR) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # tfw-boot's nRF54L15 UART and RRAM write (#512), the RP2350's way, under the
 # DK's profile, over the nRF54L register model (test/model/nrf54l_model.c):
@@ -778,12 +826,28 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
-# host-test runs the register-model suites of tfw-boot's RP2350 and nRF54L
-# halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# The MCXN947's early clock and WWDT0, src/hal/cortex-m/mcxn94x/hal_soc.c,
+# which both images link, the RP2350's way under the FRDM-MCXN947's profile:
+# the RP2350's test cm_regs.h comes ahead of the real one, so every SYSCON,
+# SCG and WWDT access lands in the test's register model and the interrupt
+# mask is the test's; the test stands in for soc_reset.c.
+MCXN_SOC_TEST_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/frdm-mcxn947,\
+                         $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_mcxn_hal_soc
+$(BOOT_TEST_DIR)/test_mcxn_hal_soc: src/hal/cortex-m/mcxn94x/test/test_mcxn_hal_soc.c \
+        src/hal/cortex-m/mcxn94x/hal_soc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(MCXN_SOC_TEST_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m/mcxn94x \
+	  -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# host-test runs the register-model suites of tfw-boot's RP2350, nRF54L and
+# mps2 halves and the MCXN947's boot UART as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
 # file, so they reach host-test as a prerequisite with its own verdict; a make
 # asked for both host-test and boot-test still runs each binary once.
 BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
-                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
+                           $(BOOT_TEST_DIR)/test_rp2350_hal_soc \
+                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram \
+                           $(BOOT_TEST_DIR)/test_boot_mps2_uart \
+                           $(BOOT_TEST_DIR)/test_mcxn_boot_uart
 .PHONY: boot-soc-host-test
 boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
 	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))
@@ -871,6 +935,19 @@ $(BOOT_TEST_DIR)/test_boot_recovery_halt_avr_mutate: test/unit/boot/test_boot_re
         boot/hal/avr/recovery_halt.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/avr_regs $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# boot/hal/cortex-m/recovery_halt.c alone (#628), with the framer it sends its
+# EVENT through, under the MPS2 AN505's profile. The suite defines the boot
+# UART and the host model's mask, so the endless loop is left by longjmp; it
+# names tfw_cm_*'s model hooks, so it lives under boot/hal/cortex-m/test/.
+# test/model/cortex-m/ goes ahead of src/hal/cortex-m/ for the host cm_regs.h.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_cm_recovery_halt
+$(BOOT_TEST_DIR)/test_boot_cm_recovery_halt: boot/hal/cortex-m/test/test_boot_cm_recovery_halt.c \
+        boot/hal/cortex-m/recovery_halt.c src/proto/frame.c src/proto/crc16.c src/proto/crc16_update.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot -Itest/model/cortex-m -Itest/model -Isrc/hal/cortex-m -Isrc/proto \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # boot_hal_avr.c alone (#163): the part's FLASHEND, SPM_PAGESIZE and, on the
 # 2560, EIND come from -D, as avr-libc brings them from the part's header. The
 # EEPROM address is a 16-bit pointer on the part, narrower than the host's.
@@ -885,6 +962,21 @@ $(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560: test/unit/boot/test_boot_hal_avr
         boot/hal/avr/boot_hal_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x3FFFFul -DSPM_PAGESIZE=256 \
 	   '-DEIND=(*tfw_avr_reg(TFW_AVR_EIND))' $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_hal_cortex-m.c alone (#628), under the MPS2 AN505's profile, over
+# boot/hal/cortex-m/test/'s stubs for the SoC's flash write, the factory copy
+# and the early latch. The test and its stubs live there because they name
+# tfw_cm_*, which lint-arch-leak allows only under the Cortex-M HAL directories.
+# boot/hal/cortex-m/ comes ahead of test/mock/ for the real boot_slots.h, and
+# test/model/cortex-m/ ahead of src/hal/cortex-m/ for the host's cm_regs.h.
+CM_BOOT_TEST_DIR := boot/hal/cortex-m/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_cortex-m
+$(BOOT_TEST_DIR)/test_boot_hal_cortex-m: $(CM_BOOT_TEST_DIR)/test_boot_hal_cortex-m.c \
+        $(CM_BOOT_TEST_DIR)/boot_hal_cortex-m_stubs.c boot/hal/cortex-m/boot_hal_cortex-m.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Iboot/hal/cortex-m -Itest/model/cortex-m -Isrc/hal/cortex-m \
+	   $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-an505,$(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds
@@ -1091,6 +1183,19 @@ BOOT_TEST_MPS2_CFLAGS = -Iboot/hal/cortex-m $(subst -Iboards/$(HOST_BOARD),-Iboa
 $(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/test_boot_slots_mps2.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(call BOOT_TEST_MPS2_CFLAGS,mps2-$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The factory copy of the A/B rows (#628), on host memory mapped at mps2-an505's
+# addresses; tfw_cm_dsb comes through the rp2350 test cm_regs.h.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_cm_boot_factory
+# host-test runs it too, through boot-soc-host-test: the rule above expanded its
+# prerequisites when it was read, so the binary joins them here; the verdict
+# reads BOOT_SOC_HOST_TEST_BINS when it runs and so checks its exit status.
+BOOT_SOC_HOST_TEST_BINS += $(BOOT_TEST_DIR)/test_cm_boot_factory
+boot-soc-host-test: $(BOOT_TEST_DIR)/test_cm_boot_factory $(BOOT_TEST_DIR)/test_cm_boot_factory.run
+$(BOOT_TEST_DIR)/test_cm_boot_factory: boot/hal/cortex-m/test/test_cm_boot_factory.c \
+        boot/hal/cortex-m/boot_factory.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -I$(RP2350_BOOT_TEST_DIR) $(call BOOT_TEST_MPS2_CFLAGS,mps2-an505) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \

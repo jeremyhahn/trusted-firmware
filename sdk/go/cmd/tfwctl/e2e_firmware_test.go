@@ -178,6 +178,13 @@ func TestPingRowOnTheESP32OverTCPAsALaterHost(t *testing.T) {
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
+	if target.Resets() || target.Hook != "" {
+		// StartBooted, not Start: a TCP board is not reset by the connect, so
+		// it is reset through its TFW_HW_RESET cmd: hook first (#583).
+		assertBootEvent(t, peer.StartBooted(t, simproc.Software))
+		return
+	}
+	// #550: with no hook, a TCP board is reset by pulsing its reset port.
 	conn, skip := bootEventLink(t, target, os.Getenv(resetPortEnv))
 	if skip != "" {
 		t.Skip(skip)
@@ -253,7 +260,7 @@ var pulseReset = func(port string) error {
 // skips by name, never passes on a boot it did not see.
 func bootEventLink(t *testing.T, target peer.Target, resetPort string) (conn io.ReadWriteCloser, skip string) {
 	t.Helper()
-	if !strings.HasPrefix(target.Port, peer.TCPPrefix) {
+	if !peer.IsTCP(target.Port) {
 		return peer.Start(t, simproc.Software), ""
 	}
 	if resetPort == "" {
@@ -532,15 +539,6 @@ func sysRow(t testing.TB, dev *tfw.Device, causes []tfw.ResetCause, resets bool)
 	assert.Equal(t, si.ResetCause, after.ResetCause, "reset cause changed across exchanges: the board restarted")
 }
 
-// causes are the reset causes the SYS row accepts: resetCause on a board the
-// run resets, heldCauses on one it finds running.
-func (b peerBoard) causes(resets bool) []tfw.ResetCause {
-	if resets || b.heldCauses == nil {
-		return []tfw.ResetCause{b.resetCause}
-	}
-	return b.heldCauses
-}
-
 // sysCountersHold runs a ping over dev and asserts the framer's CRC and
 // format counters still read as they did in before.
 func sysCountersHold(t *testing.T, dev *tfw.Device, before tfw.SysInfo) {
@@ -626,7 +624,8 @@ func TestFirmwarePin(t *testing.T) {
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
 	// The board's free PWM pin: pin 9 is OC1A on the 328P and OC2B on the
-	// Mega, neither timer the tick; LEDC0 on the ESP32-P4.
+	// Mega, neither timer the tick; LEDC0 on the ESP32-P4; TIM5_CH1 on the
+	// STM32H573I-DK.
 	if caps.Has(tfw.FeaturePWM) {
 		pwm := cliPin(t, dev, b.pwmPin)
 		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
@@ -642,7 +641,7 @@ func TestFirmwarePin(t *testing.T) {
 		assert.True(t, adc.HasADC, "pin %d has an adc channel", b.adcPin)
 		assert.Equal(t, b.adcChannel, adc.ADCChannel, "pin %d adc channel", b.adcPin)
 		assert.True(t, adc.Flags.Has(tfw.PinADC), "pin %d flags = %s, want adc", b.adcPin, adc.Flags)
-		assert.Equal(t, b.adcPort, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
+		assert.Equal(t, b.adcPort && !b.adcAnalog, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
 	}
 
 	// The UART pins are in use by this build; a host must be able to see that
@@ -764,7 +763,11 @@ func eepromReservedReadRow(t *testing.T, dev *tfw.Device) {
 }
 
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
-	attestRefusedUnprovisionedRow(t, startFirmware(t))
+	// The board's attest timeout, so a boot that signs instead of refusing
+	// fails on the status, not on a timeout (#570).
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	attestRefusedUnprovisionedRow(t, startFirmware(t, tfw.WithTimeout(attestTimeoutFor(target.Board))))
 }
 
 // attestRefusedUnprovisionedRow is the row's body, so a host test can run it
@@ -790,7 +793,10 @@ func TestFirmwareAnalog(t *testing.T) {
 		Raw uint16 `json:"raw"`
 	}
 	cliJSON(t, dev, &got, "analog", strconv.Itoa(int(b.analog)))
-	cliRefused(t, dev, "analog", "13") // digital-only
+	// The LED pin is a valid pin with a port and no ADC channel on every
+	// board (TestFirmwarePin asserts it), so the refusal is the digital-only
+	// one and not an out-of-range pin: 13 is past the DK's 13-pin table.
+	cliRefused(t, dev, "analog", strconv.Itoa(int(b.ledPin)))
 }
 
 func TestFirmwarePWM(t *testing.T) {
@@ -799,11 +805,17 @@ func TestFirmwarePWM(t *testing.T) {
 	requireFeature(t, dev, tfw.FeaturePWM)
 	require.NoError(t, run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "128"}, false, &strings.Builder{}),
 		"pin %d has a free compare unit and should accept a duty", b.pwmPin)
+	// A TCP wire does not reset the board between rows, and closing the socket
+	// leaves the timer running: duty 0 stops the pin before the connection
+	// closes (cleanups run last in, first out), even when a check below fails.
+	t.Cleanup(func() {
+		_ = run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "0"}, false, &strings.Builder{})
+	})
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
 	// wondering why nothing moves.
-	if b.tickPin >= 0 {
+	if b.tickPin >= 0 { // the ESP32-P4's and the STM32H573I-DK's ticks spend no compare pin
 		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
 	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
@@ -981,16 +993,21 @@ func TestFirmwareSPIConfig(t *testing.T) {
 		&ae, "a mode past 3")
 }
 
-func TestFirmwareOneWireAndPulseIn(t *testing.T) {
+func TestFirmwareOneWire(t *testing.T) {
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureOneWire)
-	requireFeature(t, dev, tfw.FeaturePulse)
 	var reset struct {
 		Present bool `json:"present"`
 	}
 	cliJSON(t, dev, &reset, "1wire-reset", "9")
-	// No signal on a simulated pin, so a timeout is the correct answer -- the
+}
+
+func TestFirmwarePulseIn(t *testing.T) {
+	_, b := firmwareBoard(t)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeaturePulse)
+	// Nothing drives the pin, so a timeout is the correct answer -- the
 	// point is that the command round-trips and is bounded.
-	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{"9", "1", "10ms"}, false, &strings.Builder{}),
+	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{strconv.Itoa(int(b.pulsePin)), "1", "10ms"}, false, &strings.Builder{}),
 		tfw.StatusErrTimeout, "silent line: want TFW_ERR_TIMEOUT")
 }

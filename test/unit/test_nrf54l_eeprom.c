@@ -7,7 +7,9 @@
  * store, with READY and READYNEXT the test sets (READY can drop after a given
  * store, a controller that never finishes it). A store without WEN programs
  * nothing, as on the part, so a write that lands went through the sequence
- * (rram_write.h, tfw-boot's too).
+ * (rram_write.h, tfw-boot's too). A read that runs past the window's end,
+ * TFW_CM_PLATFORM_SIZE, is TFW_ERR_RANGE with the caller's buffer as it was,
+ * so no RRAM beyond the platform block is ever copied out.
  *
  * The registers: the host build puts test/model/cortex-m/ ahead of
  * src/hal/cortex-m/, so its cm_regs.h is the one soc_regs.h includes, and
@@ -211,6 +213,34 @@ static void test_the_windows_last_byte_lands_and_one_past_it_is_range(void)
     TEST_ASSERT_EQUAL_UINT32(0u, outside);
 }
 
+static void test_a_read_past_the_window_is_range_and_leaves_the_buffer(void)
+{
+    static const struct {
+        uint16_t addr;
+        uint8_t  len;
+    } past[] = {
+        {(uint16_t)TFW_CM_PLATFORM_SIZE, 1u},
+        {(uint16_t)(TFW_CM_PLATFORM_SIZE - 1u), 2u},
+        {(uint16_t)(TFW_CM_PLATFORM_SIZE - 3u), 4u},
+        {0xFFFFu, 1u},
+    };
+    static const uint8_t aa[4]   = {0xAAu, 0xAAu, 0xAAu, 0xAAu};
+    static const uint8_t last[4] = {0x11u, 0x22u, 0x33u, 0x44u};
+    uint8_t              back[4];
+
+    for (size_t i = 0; i < sizeof past / sizeof past[0]; i++) {
+        memset(back, 0xAA, sizeof back);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_read(past[i].addr, back, past[i].len));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(aa, back, sizeof back);
+    }
+    assert_untouched(0u);
+
+    memcpy(&WINDOW[TFW_CM_PLATFORM_SIZE - 4u], last, sizeof last);
+    memset(back, 0xAA, sizeof back);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)(TFW_CM_PLATFORM_SIZE - 4u), back, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(last, back, sizeof back);
+}
+
 static void test_a_write_into_the_span_is_refused_before_wen(void)
 {
     static const uint8_t b[4] = {1u, 2u, 3u, 4u};
@@ -260,6 +290,7 @@ int main(void)
     RUN_TEST(test_a_controller_not_ready_after_the_last_store_is_timeout);
     RUN_TEST(test_a_read_is_the_window);
     RUN_TEST(test_the_windows_last_byte_lands_and_one_past_it_is_range);
+    RUN_TEST(test_a_read_past_the_window_is_range_and_leaves_the_buffer);
     RUN_TEST(test_a_write_into_the_span_is_refused_before_wen);
     RUN_TEST(test_the_confirm_request_lands_whole_where_tfw_boot_reads_it);
     return UNITY_END();

@@ -72,13 +72,14 @@ Differences from recovery:
   (`boot/hal/avr/boot_tick.h`), measured by the simavr suite, which fails if
   the real duration drifts; `TFW_BOOT_SESSION_MAX_BYTES`
   = application size + 10 bytes of framing per 32 data bytes + 16 + 8 KB slack
-  (about 83 KB on the ATmega2560, 46 KB on the 28 KB parts).
-  **Margin for a full legitimate update**, ATmega2560, 56 KB at 115200 baud,
-  stop-and-wait in 60-byte chunks: about 940 frames, roughly 6 s of request wire
-  time, 1 s of responses and 2 s of page writes, i.e. about 9 s with an instant
-  host; 60 s allows 64 ms of host latency per frame. In bytes the transfer uses
-  about 66 KB of the 83 KB ceiling (and fits it at 32-byte chunks with the whole
-  slack spare). The 28 KB parts have half the image and the same time ceiling.
+  (about 92 KB on the ATmega2560, 45 KB on the 28 KB parts).
+  **Margin for a full legitimate update**, ATmega2560, 64 KB at 115200 baud,
+  stop-and-wait in 60-byte chunks: about 1 100 frames, roughly 7 s of request
+  wire time, 1 s of responses and 2 s of page writes, i.e. about 10 s with an
+  instant host; 60 s allows 55 ms of host latency per frame. In bytes the
+  transfer uses about 75 KB of the 92 KB ceiling (and fits it at 32-byte chunks
+  with the whole slack spare). The 28 KB parts have under half the image and
+  the same time ceiling.
 - **One attempt.** The first `OTA_END` that does not end in a verified image --
   refused as short or out of order, or failed by `tfw_boot_evaluate` -- ends the
   requested session, so a bogus transfer cannot be followed by another.

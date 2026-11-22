@@ -401,13 +401,13 @@
  * byte or not, so a slow drip of valid frames meets it. Default six idle
  * windows (60 s).
  *
- * Margin for a legitimate update, ATmega2560 at 115 200 baud, a 56 KB image sent
- * stop-and-wait in 60-byte chunks: about 940 frames. Wire time is about 6 s for
- * the requests and 1 s for the responses; the 220 page erase-and-writes add
- * about 2 s that this count does not even see. So roughly 9 s end to end with a
- * host that answers instantly, and 60 s allows an average of 64 ms of host
+ * Margin for a legitimate update, ATmega2560 at 115 200 baud, a 64 KB image sent
+ * stop-and-wait in 60-byte chunks: about 1 100 frames. Wire time is about 7 s
+ * for the requests and 1 s for the responses; the 256 page erase-and-writes add
+ * about 2 s that this count does not even see. So roughly 10 s end to end with
+ * a host that answers instantly, and 60 s allows an average of 55 ms of host
  * latency per frame -- more than any USB-serial adapter adds. The smaller
- * parts have half the image and the same ceiling. If a board's host path is
+ * parts have under half the image and the same ceiling. If a board's host path is
  * slower than that, raise TFW_BOOT_SESSION_MAX_SECONDS rather than the idle time.
  */
 #ifndef TFW_BOOT_SESSION_MAX_SECONDS

@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * <util/atomic.h> for the host, as wide as src/hal/avr/hal_uart_soft.c needs
+ * <util/atomic.h> for the host, as wide as src/hal/avr/hal_gpio.c, hal_pwm.c,
+ * hal_tick.c, hal_tone.c and hal_uart_soft.c need
  * (#163). ATOMIC_BLOCK runs its body once between tfw_avr_atomic_enter() and
  * tfw_avr_atomic_leave(), which the suite defines, so the suite can see which
  * register accesses fall inside the block. Only on the -I of the suites that

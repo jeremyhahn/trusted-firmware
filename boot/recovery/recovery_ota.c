@@ -304,7 +304,10 @@ _Noreturn void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t entry_r
  * unauthenticated peer parking a healthy device here.
  *
  * WHAT A RETURN COSTS. The fall-through runs the same tfw_boot_evaluate as a cold
- * boot, so tfw-boot never jumps into anything unverified. But the region is
+ * boot, so tfw-boot never jumps into anything unverified. On a two-slot board
+ * the transfer writes the secondary, so the primary is whole and boots, as
+ * write_page above says. But where the session writes the region in place
+ * (TFW_OTA_STAGE_DEST is TFW_BOOT_APP_BASE), the region is
  * single-slot: OTA_DATA erases and rewrites application pages as each page
  * fills, and OTA_BEGIN touches nothing. A session abandoned or failed AFTER at
  * least one page was written has already destroyed the application it replaced,

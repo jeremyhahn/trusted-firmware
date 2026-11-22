@@ -53,15 +53,20 @@ type AVRBackend = avr.Backend
 type AVRConfig = avr.Config
 
 // AVRAttestationConfig is what an alias certificate must prove: the roots it
-// must descend from and the intermediates between. Both are optional, and a nil
+// must descend from, the intermediates between, and PermittedFlags, the DICE
+// operational flags it may report. The zero PermittedFlags permits none, so a
+// software root, which reports notSecure, is refused. Roots and intermediates
+// are optional, and a nil
 // AVRAttestationConfig is the unanchored profile -- the challenge, the curve
 // and the signature algorithm are still checked, and AVRAttestation.Anchored
 // reports false so a caller cannot mistake one for the other.
 type AVRAttestationConfig = avr.AttestationConfig
 
 // AVRAttestation is what the device answered and what the host made of it: the
-// alias certificate, the device's own bytes of it, the decoded CWT claims set,
-// the challenge that was matched, and whether anchoring ran.
+// alias certificate, the device's own bytes of it, the chain it was verified
+// with, the decoded CWT claims set, the claim-273 application evidence, the
+// UEID, the challenge that was matched, the crypto tier and the attestation
+// level it maps to, and whether anchoring ran.
 type AVRAttestation = avr.Attestation
 
 // AVRIdentity is the element's hardware identity -- serial number, die revision
@@ -183,7 +188,8 @@ var (
 	ErrAVRSigningUnsupported = avr.ErrSigningUnsupported
 
 	// ErrAVRInvalidAttestation reports a PossessionSigner asked for with an
-	// attestation AttestKey did not produce.
+	// attestation it cannot use: no alias certificate, a key that is not
+	// P-256, or a nonce of the wrong width.
 	ErrAVRInvalidAttestation = avr.ErrInvalidAttestation
 
 	// ErrAVRPossessionMismatch reports a possession signature that does not
@@ -219,7 +225,7 @@ var (
 	ErrAVRUnknownCryptoTier = avr.ErrUnknownCryptoTier
 
 	// ErrAVRNoDeviceKey reports a device with no crypto provider to hold an
-	// identity.
+	// identity, or one on a crypto tier this host cannot classify.
 	ErrAVRNoDeviceKey = avr.ErrNoDeviceKey
 
 	// ErrAVRInvalidDevicePoint reports a public point the element returned that

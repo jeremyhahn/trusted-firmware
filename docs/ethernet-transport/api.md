@@ -24,8 +24,9 @@ are those of [the wire protocol](../wire-protocol/). On Ethernet:
 | `0x6A` | `OTA_END` |
 | `0x6B` | `OTA_STATUS` |
 
-The list is `tfw_link_admits` in `src/proto/link_eth.c`. An id on it that the
-image does not carry still answers `TFW_ERR_UNKNOWN_CMD` (4), as it does on
+The list is `tfw_link_eth_allows` in `src/proto/link_eth.h`; `tfw_link_admits`
+(`src/proto/link_eth.c`) applies it on every link but serial. An id on it that
+the image does not carry still answers `TFW_ERR_UNKNOWN_CMD` (4), as it does on
 serial: `APP_INFO` needs an application, and the four `OTA_*` commands need the
 stager ([OTA API](../ota/api.md)).
 

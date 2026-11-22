@@ -1565,6 +1565,14 @@ $(HOST_DIR)/test_stm32h5_eeprom: test/unit/test_stm32h5_eeprom.c src/hal/cortex-
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/stm32h573i-dk -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_stm32h5_ee_flash_port includes ee_flash_port.c unchanged behind
+# test/model/cortex-m/stm32h5_ee_port_stubs.h, which takes cm_regs.h's place: the
+# fixed flash addresses, the BSY/WBNE/DBNE wait and the DSB-then-PRIMASK restore.
+$(HOST_DIR)/test_stm32h5_ee_flash_port: test/unit/test_stm32h5_ee_flash_port.c test/model/cortex-m/stm32h5_ee_port_stubs.h \
+                                        src/hal/cortex-m/stm32h5/ee_flash_port.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_stm32h5_ee_flash_port.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # test_cm_pulse compiles hal_pulse.c and hal_tick.c behind the model SysTick
 # in test/model/cortex-m/cm_pulse_model.h (mps2-an505's clock) and its own
 # model pin, so it links nothing else.
@@ -1592,7 +1600,7 @@ $(HOST_DIR)/test_rp2350_eeprom: test/unit/test_rp2350_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/rp2350-pico2w -DTFW_CM_PERIPH=1 -Itest/model/cortex-m/rp2350/eeprom -Isrc/hal/cortex-m/rp2350 \
 	  -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eeprom $(HOST_DIR)/test_stm32h5_uart_usart3 $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eeprom $(HOST_DIR)/test_stm32h5_ee_flash_port $(HOST_DIR)/test_stm32h5_uart_usart3 $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_mps2_pwm $(HOST_DIR)/test_mps2_tone $(HOST_DIR)/test_mps2_onewire $(HOST_DIR)/test_mps2_gpio_line $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_mps2_uart \
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
@@ -1657,6 +1665,13 @@ $(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
 $(HOST_DIR)/test_main: test/unit/main/test_main.c $(HOST_DIR)/test_main.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# tfwsim's bootloader options (#629): tools/tfwsim/boot_host.c alone, the rest
+# of the boot path stood in by the test.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_tfwsim_boot_option
+$(HOST_DIR)/test_tfwsim_boot_option: test/unit/main/test_tfwsim_boot_option.c tools/tfwsim/boot_host.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -Iboot/hal/host -Iboot -Itest/mock \
+	  -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
 HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate
@@ -1993,10 +2008,23 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 # test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
 # verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
 # bootloader-check builds, as a string; host-test runs it as boot-test does.
+#
+# The string is compiled in, so the binary depends on BOOT_SUPPORTED's value
+# through a stamp holding it (#640). The stamp is rewritten on every run, as
+# mk/platform-bake.mk's block is, and replaced only when its bytes differ: an
+# edited or overridden matrix rebuilds the binary, an unchanged one rebuilds
+# nothing (`make -q` still answers not up to date, the stamp being forced).
+# BOOT_SUPPORTED is set in mk/boot.mk, read after this file, so it is compared
+# in the recipe and never at parse time.
+BOOT_ROWS_STAMP := $(HOST_DIR)/boot/boot-supported.txt
+$(BOOT_ROWS_STAMP): FORCE | $(HOST_DIR)/boot
+	@printf '%s\n' '$(strip $(BOOT_SUPPORTED))' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
-                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+                                      $(HOST_DIR)/unity.o $(BOOT_ROWS_STAMP) | $(HOST_DIR)/boot
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
 # The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,

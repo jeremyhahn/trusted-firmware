@@ -5,8 +5,9 @@
  *
  * The table is the RGB LED (P0_10, P0_27, P1_2) and the two user switches
  * (SW2 P0_23, SW3 P0_6), as UM12018 and the SDK's board.h place them, then
- * the Arduino header's A2..A4, with A5 on SW2's pin, on LPADC0. No pin offers
- * a compare unit, since this port drives none.
+ * the Arduino header's A2..A4, with A5 on SW2's pin, on LPADC0, then the tone
+ * pin, P3_19 (CT2_MAT1). One pin offers a compare unit: the red LED, CTIMER0
+ * match 0.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */

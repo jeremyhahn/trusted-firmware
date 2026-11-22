@@ -15,7 +15,7 @@ alone, before it knows the board.
 
 | Range | Family | Go `Family()` |
 |---|---|---|
-| `0x00` | unset (`TFW_BOARD_ID` default in `config.h`; never allocated) | `unallocated` |
+| `0x00` | unset (`TFW_BOARD_ID` default in `include/tfw/config.h`; never allocated) | `unallocated` |
 | `0x01`-`0x3F` | AVR | `avr` |
 | `0x40`-`0x7F` | Cortex-M | `cortex-m` |
 | `0x80`-`0xBF` | ESP32 and other | `esp32/other` |

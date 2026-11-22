@@ -1,0 +1,3 @@
+### Fixed
+
+- **Thirteen host unit test comments say what their tests and code do** (#640): the FRDM-MCXN947, nRF54L15 DK, Pico 2 W and FRDM-IMX95 M7 headers name the converter, compare-unit and tone pins their tests pin; test_uccs's short buffer is 150 of 151 bytes; the soft tier's header names `--uds`; the STM32H5 BRR of 556 is 0.08% slow; test_secure_zero_mutate no longer cites a deleted suite; the ESP tone header says a failed driver stop is reported; and the source line cites in test_crypto_soft_mutate, test_boot_p256_soft, test_lookup and test_none_standins point at the lines they name. Comments only.

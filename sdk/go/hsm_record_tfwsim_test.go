@@ -13,6 +13,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"math/big"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -78,6 +82,29 @@ var simPolicyEnvelope = []byte("" +
 	"\x23\x70\x6f\x6c\x69\x63\x79\x56\xa5\x01\x01\x02\x81\x81\x83\x01\x82\x03\x05\xf4" +
 	"\x03\xa0\x04\x19\x03\xe8\x05\x19\x01\xf4")
 
+// TestSimPolicyEnvelopeIsTheSharedVector holds simPolicyEnvelope to the
+// header it copies: a re-signed or reshaped SUIT_POLICY_ENVELOPE fails here.
+// The name is matched up to its `[`, so the _DETACHED and _CLASS_ vectors
+// are not read. It needs no simulator.
+func TestSimPolicyEnvelopeIsTheSharedVector(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "suit_vectors.h"))
+	require.NoError(t, err)
+
+	m := regexp.MustCompile(`\bSUIT_POLICY_ENVELOPE\[(\d+)\] = \{([^}]*)\}`).FindSubmatch(src)
+	require.NotNil(t, m, "SUIT_POLICY_ENVELOPE[<n>] = { ... } in testdata/suit_vectors.h")
+	n, err := strconv.Atoi(string(m[1]))
+	require.NoError(t, err)
+
+	var header []byte
+	for _, b := range regexp.MustCompile(`0x([0-9a-fA-F]{2})`).FindAllSubmatch(m[2], -1) {
+		v, err := strconv.ParseUint(string(b[1]), 16, 8)
+		require.NoError(t, err)
+		header = append(header, byte(v))
+	}
+	require.Len(t, header, n)
+	require.Equal(t, header, simPolicyEnvelope)
+}
+
 // Where simPolicyEnvelope's parts sit: the manifest's SUIT_Digest in the
 // authentication wrapper, the COSE_Sign1 signature, the manifest, and the
 // 22-byte policy set at the end. The set's rule is [signal, [3, 5], wipe].
@@ -120,8 +147,10 @@ func simSigStructure(env []byte) [32]byte {
 }
 
 // simPolicyFor returns simPolicyEnvelope with its one rule naming signal and
-// wiping, bound to the element's policy class and re-signed. The original is checked first against the offsets and
-// the key, so a change to the vector fails here and not in the simulator.
+// wiping, bound to the element's policy class and re-signed. The copy is held to the header by
+// TestSimPolicyEnvelopeIsTheSharedVector, and to the offsets and the key by
+// the checks below, so a change to the vector fails in Go and not in the
+// simulator.
 func simPolicyFor(t *testing.T, signal byte) []byte {
 	t.Helper()
 	k := simTenantKey(t)

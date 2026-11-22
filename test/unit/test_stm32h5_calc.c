@@ -24,7 +24,7 @@ void tearDown(void) {}
 
 static void test_brr_at_the_session_rate_is_556(void)
 {
-    /* 64 MHz / 115200 = 555.6: rounded to the nearest, 0.08% fast. */
+    /* 64 MHz / 115200 = 555.6: rounded to the nearest, 556, 0.08% slow. */
     TEST_ASSERT_EQUAL_UINT32(556u, tfw_h5_usart_brr(64000000u, 115200u));
 }
 

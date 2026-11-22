@@ -208,7 +208,8 @@ the image path's key and verifier (`boot/boot_swap.c`, `confirm_requested`).
   the deadline at the confirm, as the pre-#137 handler does; no row does today.
 - Option (i), the application verifying at the
   command, was refused: the soft provider has no application verifier
-  (`src/crypto/soft/provider.c:258`), linking micro-ecc into the application
+  (`src/crypto/soft/provider.c:242`, `tfw_crypto_verify_image` returns
+  `TFW_ERR_UNSUPPORTED`), linking micro-ecc into the application
   costs kilobytes on the 4 KB parts, and a confirm verify at UECC_OPT 0 cannot
   finish inside the 60 s trial deadline (`TFW_OTA_TRIAL_TIMEOUT_S`). The cost of
   (ii), all estimates (the lane image has no AVR toolchain; slice 2 measures):

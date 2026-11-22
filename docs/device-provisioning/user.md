@@ -58,7 +58,7 @@ care about — several steps below cannot be undone.
    An Ethernet board (`ETH=1`) also needs its network block at `0x140`
    (`TFW_NETCFG_ADDR`), right after tfw-boot's reserved EEPROM. `--bake-netblock` encodes it with the SDK's
    `NetConfig` encoder, and given with `--bake-eeprom` it writes both blocks as
-   one image, the 224 bytes `[0x000, 0x0E0)`:
+   one image of two runs, `[0x000, 0x0C0)` and `[0x140, 0x160)`:
 
    ```sh
    tfwprov --bake-eeprom --serial <16-byte hex> \
@@ -85,7 +85,7 @@ care about — several steps below cannot be undone.
    avrdude -c <prog> -p <part> -U lfuse:w:...:m -U hfuse:w:...:m -U efuse:w:...:m
    ```
 
-3. **Flash a provisioning image.** `PROVISION=1` compiles in the six
+3. **Flash a provisioning image.** `PROVISION=1` compiles in the seven
    provisioning command handlers that a production image never carries.
 
    ```sh
@@ -153,8 +153,7 @@ care about — several steps below cannot be undone.
    refuses to call the part provisioned unless every bit the board's profile
    names (`BOOT_LOCK_PROGRAMMED`) reads programmed, naming each that does not.
    It writes nothing. Until it passes the part is not provisioned: its UDS is
-   not locked. A board whose profile names no bit — today the ATmega328P and
-   the ATmega32U4 — is refused, never passed.
+   not locked. A board whose profile names no bit is refused, never passed.
 
    ```sh
    make lock-check BOARD=<board>

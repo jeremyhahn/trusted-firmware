@@ -3,9 +3,9 @@
  * software part: the chunk limit, the page split, the JEDEC ID probe (#167)
  * and the bus-error paths.
  *
- * tfw_store_init's TFW_ERR_UNSUPPORTED (spi_nor.c:53) is not here: the select
- * comes from the board profile through tfw_board_pin, and the mock has no way
- * to make a board's own pin unresolvable.
+ * tfw_store_init's TFW_ERR_UNSUPPORTED (spi_nor.c:66-67) is not here: the
+ * select comes from the board profile through tfw_board_pin, and the mock has
+ * no way to make a board's own pin unresolvable.
  */
 #include <string.h>
 #include "unity.h"

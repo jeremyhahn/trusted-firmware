@@ -223,7 +223,11 @@ static void commit(void)
     switch (a) {
     case CR1:     on_cr1(v); break;
     case CR2:     on_cr2(v); break;
-    case TIMINGR: m.timingr = v; break;
+    case TIMINGR:
+        if ((m.cr1 & CR1_PE) == 0u) {   /* RM0481: TIMINGR is written with PE=0 */
+            m.timingr = v;
+        }
+        break;
     case ICR:     m.flags &= ~(v & 0x3F38u); break;
     case TXDR:    on_txdr((uint8_t)v); break;
     case ISR:
@@ -505,6 +509,29 @@ static void test_bus_error_with_a_byte_received_does_not_leak_it(void)
     TEST_ASSERT_EQUAL_HEX32(0u, m.flags & (F_BERR | F_RXNE));
 }
 
+/* Flags left by an earlier event are cleared before START; ARLO ends a wait at once; BUSY waits 25 ms, no more. */
+static void test_a_stale_flag_or_an_error_ends_the_wait_at_once(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    m.flags = F_NACKF | F_ARLO;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);
+
+    setUp();
+    m.arlo = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(0u, m.delays);
+
+    setUp();
+    m.held_busy = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(H5_I2C_POLL_US, m.delays);
+}
+
 static void test_spi_and_onewire_refuse(void)
 {
     uint8_t b = 0u;
@@ -537,6 +564,7 @@ int main(void)
     RUN_TEST(test_stop_that_never_completes_resets_the_block);
     RUN_TEST(test_lost_arbitration_times_out_and_stops);
     RUN_TEST(test_bus_error_with_a_byte_received_does_not_leak_it);
+    RUN_TEST(test_a_stale_flag_or_an_error_ends_the_wait_at_once);
     RUN_TEST(test_spi_and_onewire_refuse);
     return UNITY_END();
 }

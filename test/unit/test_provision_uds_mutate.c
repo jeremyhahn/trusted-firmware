@@ -335,6 +335,33 @@ static void test_random_requests_with_a_fixed_seed(void)
     }
 }
 
+/* src/caps/provision_uds.c deviceid(): a refused HMAC is the HMAC's status,
+ * and the backend writes no point, so nothing is derived from a seed the part never wrote. */
+static void test_a_refused_hmac_leaves_the_point_buffer_untouched(void)
+{
+    static const tfw_status_t sts[] = {
+        TFW_ERR_TIMEOUT, TFW_ERR_CRYPTO, TFW_ERR_INTERNAL, TFW_ERR_BAD_STATE
+    };
+    uint8_t pub[64];
+    uint8_t want[64];
+    char msg[64];
+
+    memset(want, 0xA5, sizeof want);
+    for (size_t k = 0u; k < sizeof sts / sizeof sts[0]; k++) {
+        part(0x00u);
+        tfw_mock_prov_uds_fail_hmac(sts[k]);
+        snprintf(msg, sizeof msg, "genkey st %d", (int)sts[k]);
+        memset(pub, 0xA5, sizeof pub);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(sts[k], tfw_prov_genkey(0u, pub), msg);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(want, pub, sizeof pub, msg);
+        snprintf(msg, sizeof msg, "pubkey st %d", (int)sts[k]);
+        memset(pub, 0xA5, sizeof pub);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(sts[k], tfw_prov_pubkey(0u, pub), msg);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(want, pub, sizeof pub, msg);
+    }
+    tfw_mock_prov_uds_fail_hmac(TFW_OK);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -343,5 +370,6 @@ int main(void)
     RUN_TEST(test_a_burn_failing_at_every_step_then_retried);
     RUN_TEST(test_every_length_and_mutated_byte_on_every_handler);
     RUN_TEST(test_random_requests_with_a_fixed_seed);
+    RUN_TEST(test_a_refused_hmac_leaves_the_point_buffer_untouched);
     return UNITY_END();
 }

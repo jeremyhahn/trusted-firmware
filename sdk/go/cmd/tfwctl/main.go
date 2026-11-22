@@ -271,6 +271,9 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		})
 
 	case "app":
+		if len(args) != 0 {
+			return fmt.Errorf("usage: app")
+		}
 		// APP_INFO: an image with no application answers it as an unknown
 		// command, and that status is returned as every other refusal is.
 		ai, err := dev.AppInfo(ctx)

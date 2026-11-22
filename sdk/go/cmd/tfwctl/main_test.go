@@ -362,6 +362,7 @@ func TestFlagVerbsRefuseMutatedFlags(t *testing.T) {
 		{"ota-stage", "--activate=later", "image.bin"},
 		{"ota-stage"},
 		{"ota-status", "extra"},
+		{"app", "extra"},
 		{"ota-info"},
 		{"ota-info", "1", "2"},
 		{"no-such-verb"},

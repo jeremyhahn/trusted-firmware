@@ -7,8 +7,9 @@ use, and actionlint reports any other label as an unknown runner. `make lint`
 does not run actionlint yet (#615), so no CI check reads the labels, and a
 misspelled self-hosted label would reach main through a green gate. These tests
 read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
-group/labels mapping, a flow list or mapping on one line or across several) of
-.github/workflows/*.yml and *.yaml with
+group/labels mapping, a flow list or mapping on one line or across several,
+and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
+key) of .github/workflows/*.yml and *.yaml with
 the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. The built-in labels, the self-hosted ones
@@ -112,13 +113,25 @@ def _labels(value):
             yield label
 
 
+def _value_labels(value):
+    """Yield the labels of a scalar, flow-list or flow-mapping value; of a
+    flow mapping only its `labels:` entry counts."""
+    if value.startswith("{") and value.endswith("}"):
+        entry = FLOW_LABELS.search(value)
+        value = _value(entry.group(1)) if entry else ""
+    yield from _labels(value)
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
     The value is a scalar (`codex`), a flow list (`[self-hosted, linux]`), a
     block list on the lines after an empty `runs-on:`, or a mapping whose
     `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
-    `labels:` keys on the lines after `runs-on:`); `group:` is not a label. The
+    `labels:` keys on the lines after `runs-on:`); `group:` is not a label. A
+    scalar or flow value of an empty `runs-on:` or `labels:` key may sit on
+    the next, deeper-indented line (`runs-on:` then `  codex`); a plain scalar
+    folded over several lines is not read. The
     key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
     `labels:` keys of its mapping (`'labels':`, `"group":`), and a flow list or
     mapping that does not close on the `runs-on:` line takes the following
@@ -141,12 +154,8 @@ def plain_labels(text):
                     break
             else:
                 continue
-        if value.startswith("{") and value.endswith("}"):
-            entry = FLOW_LABELS.search(value)
-            for label in _labels(_value(entry.group(1)) if entry else ""):
-                yield i + 1, label
-        elif value:
-            for label in _labels(value):
+        if value:
+            for label in _value_labels(value):
                 yield i + 1, label
         else:
             indent = len(key.group(1))
@@ -163,6 +172,13 @@ def plain_labels(text):
                         yield j + 1, label
                     continue
                 entry = ENTRY.match(lines[j])
+                depth = len(lines[j]) - len(lines[j].lstrip())
+                if listed and not item and not entry and depth > list_indent:
+                    # The value of the empty key, on the next line.
+                    for label in _value_labels(_value(lines[j])):
+                        yield j + 1, label
+                    list_indent = None
+                    continue
                 if not entry or len(entry.group(1)) <= indent:
                     break
                 list_indent = None

@@ -123,6 +123,23 @@ void test_boot_region_away_from_zero(void)
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_BOOT].rasr);
 }
 
+/* hal_mpu.h: -1 only when boot_size is not a power of two of at least 32
+ * bytes, so 32 itself is accepted: RASR.SIZE 4, 2^(4+1) = 32. */
+void test_the_smallest_boot_region_is_accepted(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, AN500_APP_BASE, AN500_HEAP,
+                                              0x20uL, TFW_CM_MPU_GUARD));
+    assert_all_rules();
+    TEST_ASSERT_EQUAL_HEX32(0x20uL | TFW_CM_MPU_RBAR_VALID | TFW_CM_MPU_BOOT, t[TFW_CM_MPU_BOOT].rbar);
+    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(4u), t[TFW_CM_MPU_BOOT].rasr);
+    TEST_ASSERT_EQUAL_UINT32(32u, bytes_of(TFW_CM_MPU_BOOT));
+    /* An image inside the 32 bytes is tfw-boot; the null guard stays (0x20 >= 32). */
+    TEST_ASSERT_EQUAL_INT(0, cm_model_mpu_table(t, 0x20uL, AN500_HEAP,
+                                              0x20uL, TFW_CM_MPU_GUARD));
+    TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_BOOT].rasr);
+    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(4u), t[TFW_CM_MPU_NULL].rasr);
+}
+
 void test_bad_boot_geometry_is_rejected(void)
 {
     uint32_t i;
@@ -145,6 +162,7 @@ int main(void)
     RUN_TEST(test_aligned_stack_floor_is_the_guard_base);
     RUN_TEST(test_no_stack_floor_no_stack_guard);
     RUN_TEST(test_boot_region_away_from_zero);
+    RUN_TEST(test_the_smallest_boot_region_is_accepted);
     RUN_TEST(test_bad_boot_geometry_is_rejected);
     return UNITY_END();
 }

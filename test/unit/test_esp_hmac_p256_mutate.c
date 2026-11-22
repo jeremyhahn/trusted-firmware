@@ -20,7 +20,9 @@
  *   - ES256 only with both a UDS and a CDI, the signature the derivation's own,
  *     a refused seed a crypto error; micro-ecc blinded by the part's RNG;
  *   - the algorithm bits as exactly what is held, re-read at every init;
- *   - RNG and SHA-256 passed through; counters and verification unsupported.
+ *   - RNG and SHA-256 passed through; counters and verification unsupported;
+ *   - the operator_bind tag computed for a presented key zeroed after its
+ *     compare, refused or not.
  */
 
 #include <stdarg.h>
@@ -138,6 +140,12 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message, size_t m
                              uint8_t *hmac)
 {
     hmac_calls++;
+    if (message_len == 13u + 64u) {
+        /* operator_bind: "tfw-opsess-v1" || key */
+        TEST_ASSERT_EQUAL_MEMORY("tfw-opsess-v1", message, 13u);
+        memset(hmac, 0xB1, 32u);
+        return ESP_OK;
+    }
     hmac_out = hmac;
     TEST_ASSERT_EQUAL_UINT(15u, (unsigned)message_len);
     TEST_ASSERT_EQUAL_MEMORY("tfw-deviceid-v1", message, 15u);
@@ -504,6 +512,22 @@ static void test_counters_and_verification_are_unsupported(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(z, z));
 }
 
+/* The tag is the UDS's MAC over the presented key: it is the operator_bind
+ * that would make the tier accept that key, so left in RAM it would bind an
+ * attacker's key after one refused verify (#606). */
+static void test_the_operator_bind_tag_is_wiped_after_its_compare(void)
+{
+    static const uint8_t z[64] = { 0u };
+    uint8_t              tag[32];
+
+    init_both();
+    nzeroed = hmac_calls = 0u;
+    memset(tag, 0xB1, sizeof tag);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(z, z, z));
+    TEST_ASSERT_EQUAL_UINT(1u, hmac_calls);
+    TEST_ASSERT_TRUE_MESSAGE(was_zeroed(tag, 32u), "the operator_bind tag is wiped");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -520,5 +544,6 @@ int main(void)
     RUN_TEST(test_neither_held_gives_no_algorithm);
     RUN_TEST(test_random_and_sha256_pass_through);
     RUN_TEST(test_counters_and_verification_are_unsupported);
+    RUN_TEST(test_the_operator_bind_tag_is_wiped_after_its_compare);
     return UNITY_END();
 }

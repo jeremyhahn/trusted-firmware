@@ -7,6 +7,8 @@
  * The genuine case is a literal: SUIT_POLICY_ENVELOPE's COSE_Sign1 signature
  * (testdata/suit_vectors.h), made outside this tree under the throwaway tenant
  * key, over SHA-256 of SUIT_POLICY_TBS. Every other case changes one input.
+ * The cases that set r or s to zero or to the group order n are FIPS 186-5
+ * section 6.4.2 step 1.
  */
 #include <string.h>
 #include "unity.h"
@@ -70,6 +72,38 @@ static void test_a_missing_argument_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, NULL));
 }
 
+/* The P-256 group order n, big-endian (SEC 2 section 2.4.2). */
+static const uint8_t P256_N[32] = {
+    0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x00u, 0x00u, 0x00u, 0x00u,
+    0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
+    0xBCu, 0xE6u, 0xFAu, 0xADu, 0xA7u, 0x17u, 0x9Eu, 0x84u,
+    0xF3u, 0xB9u, 0xCAu, 0xC2u, 0xFCu, 0x63u, 0x25u, 0x51u,
+};
+
+static void test_a_zero_r_is_refused(void)
+{
+    memset(sig, 0, 32u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+}
+
+static void test_a_zero_s_is_refused(void)
+{
+    memset(&sig[32], 0, 32u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+}
+
+static void test_an_r_equal_to_the_order_is_refused(void)
+{
+    memcpy(sig, P256_N, sizeof P256_N);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+}
+
+static void test_an_s_equal_to_the_order_is_refused(void)
+{
+    memcpy(&sig[32], P256_N, sizeof P256_N);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -79,5 +113,9 @@ int main(void)
     RUN_TEST(test_another_key_is_refused);
     RUN_TEST(test_a_point_off_the_curve_is_refused);
     RUN_TEST(test_a_missing_argument_is_refused);
+    RUN_TEST(test_a_zero_r_is_refused);
+    RUN_TEST(test_a_zero_s_is_refused);
+    RUN_TEST(test_an_r_equal_to_the_order_is_refused);
+    RUN_TEST(test_an_s_equal_to_the_order_is_refused);
     return UNITY_END();
 }

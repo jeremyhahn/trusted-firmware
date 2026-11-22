@@ -121,6 +121,26 @@ static void test_lpi2c_clock_smallest_cycle(void)
     TEST_ASSERT_EQUAL_UINT32(SENTINEL, c0);
 }
 
+/* The last prescaler is tried, and past it the rate is refused. 50 kHz from
+ * 400 MHz leaves LO 81 at prescaler 6 (a 122-count cycle) and fits at 7: a
+ * 59-count cycle, 39 and 20. 20 kHz leaves LO 102 even at 7 (a 153-count
+ * cycle): no prescaler fits, nothing written. */
+static void test_lpi2c_clock_prescaler_7_is_the_last(void)
+{
+    uint32_t c1 = SENTINEL, c0 = SENTINEL;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_clock(400000000uL, 50000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL_UINT32(7u, c1);
+    TEST_ASSERT_EQUAL_HEX32(0x0A141427u, c0);   /* DATAVD 10, SETHOLD 20, HI 20, LO 39 */
+
+    c1 = SENTINEL;
+    c0 = SENTINEL;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_clock(400000000uL, 20000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL_UINT32(SENTINEL, c1);
+    TEST_ASSERT_EQUAL_UINT32(SENTINEL, c0);
+    TEST_ASSERT_FALSE(ref(400000000uL, 20000uL).ok);
+}
+
 /* Every root against every standard bus rate gives Linux's prescale and split,
  * the counts fit six bits, and one prescale less would not fit. */
 static void test_lpi2c_clock_sweep_matches_linux(void)
@@ -168,6 +188,7 @@ int main(void)
     RUN_TEST(test_lpi2c_clock_low_count_63_keeps_prescaler_0);
     RUN_TEST(test_lpi2c_clock_low_count_64_takes_prescaler_1);
     RUN_TEST(test_lpi2c_clock_smallest_cycle);
+    RUN_TEST(test_lpi2c_clock_prescaler_7_is_the_last);
     RUN_TEST(test_lpi2c_clock_sweep_matches_linux);
     return UNITY_END();
 }

@@ -218,6 +218,28 @@ static void test_alias_cert_subject_is_the_alias_pub(void)
     TEST_ASSERT_FALSE(contains(got, n, dev + 32));
 }
 
+/* dice_service.c:187 clamps the caller's cap to TFW_DICE_PAGE_MAX; a cap
+ * cut to its low byte would give 256 an empty page and 300 a 44-byte one. */
+static void test_a_cap_past_page_max_returns_one_full_page(void)
+{
+    static const uint32_t caps[] = { 256u, 300u, 1024u };
+    static uint8_t        ref[1024], buf[1024];
+    uint8_t               digest[32], sig[64];
+    uint16_t              n = reference_cert(ref, sizeof ref, digest, sig);
+    size_t                i;
+
+    TEST_ASSERT_TRUE(n > TFW_DICE_PAGE_MAX);
+    for (i = 0u; i < sizeof caps / sizeof caps[0]; i++) {
+        memset(buf, 0xEE, sizeof buf);
+        TEST_ASSERT_EQUAL(TFW_OK, cert_page(buf, caps[i], 0u));
+        TEST_ASSERT_EQUAL_UINT32(n, s_page.total);
+        TEST_ASSERT_EQUAL_UINT32(TFW_DICE_PAGE_MAX, s_page.got);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, buf, TFW_DICE_PAGE_MAX);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf + TFW_DICE_PAGE_MAX,
+                                    sizeof buf - TFW_DICE_PAGE_MAX);
+    }
+}
+
 static void test_alias_sign_is_the_alias_key_signature(void)
 {
     uint8_t got[64], ref[64], seed[32];
@@ -411,6 +433,7 @@ int main(void)
     RUN_TEST(test_alias_cert_is_the_reference_chain);
     RUN_TEST(test_alias_cert_verifies_under_the_deviceid_pub_only);
     RUN_TEST(test_alias_cert_subject_is_the_alias_pub);
+    RUN_TEST(test_a_cap_past_page_max_returns_one_full_page);
     RUN_TEST(test_alias_sign_is_the_alias_key_signature);
     RUN_TEST(test_alias_sign_verifies_under_the_alias_pub);
     RUN_TEST(test_alias_sign_does_not_verify_under_the_deviceid_pub);

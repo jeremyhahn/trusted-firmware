@@ -118,6 +118,25 @@ static void test_the_last_byte_lands_and_one_past_the_size_is_range(void)
     assert_platform_untouched();
 }
 
+/* An empty write at the size passes the range check: it must not enter the
+ * masked sector write at the platform sector, whose first SysTick CVR read
+ * would take the model's armed one-shot delay. */
+static void test_a_zero_length_user_write_or_read_moves_nothing(void)
+{
+    uint8_t buf[1] = {0xAAu};
+
+    rp_nor_after_cvr_us = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, buf, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, buf, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)TFW_BOOT_EE_LEN, buf, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, buf, 0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_nor_after_cvr_us);
+    TEST_ASSERT_EQUAL_UINT(0u, n_erases);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, buf[0]);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, USER_EE, TFW_RP_FLASH_SECTOR);
+    assert_platform_untouched();
+}
+
 /* Below TFW_BOOT_EE_LEN only the confirm request is written, into the
  * platform sector with that sector's one erase; any
  * other write there is TFW_ERR_RANGE and changes nothing. */
@@ -362,6 +381,7 @@ int main(void)
     RUN_TEST(test_a_user_address_lands_at_its_byte_of_the_user_sector);
     RUN_TEST(test_a_second_write_keeps_the_rest_of_the_sector);
     RUN_TEST(test_the_last_byte_lands_and_one_past_the_size_is_range);
+    RUN_TEST(test_a_zero_length_user_write_or_read_moves_nothing);
     RUN_TEST(test_the_boot_area_takes_only_the_confirm_request);
     RUN_TEST(test_the_confirm_request_is_programmed_into_the_platform_sector);
     RUN_TEST(test_a_read_across_the_boot_areas_end_joins_both);

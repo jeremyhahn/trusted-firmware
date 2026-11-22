@@ -169,6 +169,8 @@ func TestDICEAttestationRefusals(t *testing.T) {
 		{"trailing byte", append(bytes.Clone(good), 0x00), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 		{"truncated", good[:len(good)-1], v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 		{"nil roots", good, v.nonce, nil, v.fwHash, "no trusted roots for the DeviceID certificate"},
+		{"long-form map head", append([]byte{0xb8, 0x03}, good[1:]...), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
+		{"long-form authData length", append(append(bytes.Clone(good[:len(good)-34]), 0x59, 0x00, 0x20), v.nonce...), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

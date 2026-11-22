@@ -181,7 +181,8 @@ type diceStatement struct {
 }
 
 // decodeDICEObject reads the object DICEAttestationObject writes, and only
-// that: the keys in deterministic order, x5c of exactly two, nothing after.
+// that: the shortest heads, the keys in deterministic order, x5c of exactly
+// two, nothing after.
 func decodeDICEObject(b []byte) (*diceStatement, error) {
 	r := &cborReader{b: b}
 	var st diceStatement
@@ -237,7 +238,7 @@ func decodeDICEObject(b []byte) (*diceStatement, error) {
 }
 
 func (r *cborReader) expectHead(major byte, arg uint64) error {
-	m, a, err := r.head()
+	m, a, err := r.shortestHead()
 	if err != nil {
 		return err
 	}
@@ -247,8 +248,22 @@ func (r *cborReader) expectHead(major byte, arg uint64) error {
 	return nil
 }
 
-func (r *cborReader) str(major byte) ([]byte, error) {
+// shortestHead reads a head and refuses it unless its argument has the
+// shortest form, the one cborHead writes (RFC 8949 4.2.1).
+func (r *cborReader) shortestHead() (byte, uint64, error) {
+	left := len(r.b)
 	m, a, err := r.head()
+	if err != nil {
+		return 0, 0, err
+	}
+	if left-len(r.b) != len(cborHead(nil, m, a)) {
+		return 0, 0, fmt.Errorf("head of major %d arg %d is not the shortest form", m, a)
+	}
+	return m, a, nil
+}
+
+func (r *cborReader) str(major byte) ([]byte, error) {
+	m, a, err := r.shortestHead()
 	if err != nil {
 		return nil, err
 	}

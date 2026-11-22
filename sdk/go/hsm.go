@@ -28,9 +28,10 @@ const (
 	CmdHSMRecordRead Cmd = 0x7C // [index:1] -> [count:1][dropped:2][at:4][kind:1][what:1][result:1]
 )
 
-// The signals the A55 may report (architecture.md section 1). S1-S3 are the
-// M7's own sensors and S6 its own timer; the device refuses them here with
-// StatusErrRange, and so does the SDK, before the wire.
+// The signals the A55 may report (docs/hsm-self-defence/architecture.md
+// section 2, Signals in). S1-S3 are the M7's own sensors and S6 its own
+// timer; the device refuses them here with StatusErrRange, and so does the
+// SDK, before the wire.
 const (
 	HSMSignalIMAViolation byte = 4 // S4: an IMA appraisal failure
 	HSMSignalHotplug      byte = 5 // S5: an unexpected device on a bus

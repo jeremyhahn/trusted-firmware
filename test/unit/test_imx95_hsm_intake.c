@@ -165,6 +165,20 @@ static void test_s1_notification_raises_the_tamper_signal_once(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
 }
 
+static void test_s1_back_to_back_notifications_raise_two_signals(void)
+{
+    no_s2();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();   /* the second arrives while the first is high */
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[0]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+}
+
 static void test_s1_takes_only_its_own_notification(void)
 {
     no_s2();
@@ -194,6 +208,20 @@ static void test_s5_pin_raises_the_hotplug_signal_once(void)
     tfw_hsm_loop_poll();
     TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
+}
+
+static void test_s5_back_to_back_pins_raise_two_signals(void)
+{
+    no_s2();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();   /* the second arrives while the first is high */
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
 }
 
 static void test_s1_and_s5_in_one_pass_raise_both(void)
@@ -301,9 +329,11 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_s1_notification_raises_the_tamper_signal_once);
+    RUN_TEST(test_s1_back_to_back_notifications_raise_two_signals);
     RUN_TEST(test_s1_takes_only_its_own_notification);
     RUN_TEST(test_s1_with_its_protocol_unknown_takes_nothing);
     RUN_TEST(test_s5_pin_raises_the_hotplug_signal_once);
+    RUN_TEST(test_s5_back_to_back_pins_raise_two_signals);
     RUN_TEST(test_s1_and_s5_in_one_pass_raise_both);
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
     RUN_TEST(test_s2_other_events_raise_nothing);

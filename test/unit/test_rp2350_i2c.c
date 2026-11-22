@@ -241,6 +241,21 @@ static void test_data_nack_stops_the_write(void)
     TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
 }
 
+/* Another master wins the bus during the second data byte: IC_TX_ABRT_SOURCE
+ * bit 12 is the only abort source, and the HAL reports TFW_ERR_BUSY, not the
+ * NACK of a refused byte or the TIMEOUT of a stuck bus. */
+static void test_arbitration_lost_is_busy(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    rp_i2c.arb_lost_at = 2u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, xfer(0x60u, wr, 3u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING(" S C0 01 02 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(1u, rp_i2c.dev_rx_n);
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.raw);       /* TX_ABRT and STOP_DET cleared */
+}
+
 /* Another master's STOP while the last byte still waits is not the end of
  * the write: the driver waits for its own STOP, here a NACK of that byte. */
 static void test_another_masters_stop_does_not_end_the_write(void)
@@ -351,6 +366,7 @@ int main(void)
     RUN_TEST(test_address_nack_on_write);
     RUN_TEST(test_address_nack_on_read);
     RUN_TEST(test_data_nack_stops_the_write);
+    RUN_TEST(test_arbitration_lost_is_busy);
     RUN_TEST(test_another_masters_stop_does_not_end_the_write);
     RUN_TEST(test_after_another_masters_stop_the_write_ends_on_its_own);
     RUN_TEST(test_abort_without_a_stop_is_ended_by_abort);

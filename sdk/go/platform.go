@@ -36,15 +36,17 @@ const (
 // BuildPlatformBlock serialises a factory-fresh platform block: the magic,
 // the layout version, the given pubkey hash, device serial and operator
 // public key, and a CRC over everything before it. Every field this function
-// does not take an argument for -- rollback_floor, boot_count, boot_state,
-// ota_state, boot_fail_count, and the reserved span -- is zero, which is the
-// correct value for a part that has never been booted: TFW_BOOT_STATE_EMPTY is
-// zero by definition, and the rest simply have not happened yet.
+// does not take an argument for -- flags, rollback_floor, boot_count,
+// boot_state, ota_state, boot_fail_count, operator_bind, and the two reserved
+// spans (bytes 6-7 and 164-189) -- is zero, which is the correct value for a
+// part that has never been booted: TFW_BOOT_STATE_EMPTY is zero by
+// definition, no fall-back has set a flag, operator_bind is written only on
+// the ESP32 hmac-p256 tier (#606), and the rest simply have not happened yet.
 //
 // pubkeyHash may be the zero value on an element-tier build, where
 // boot/boot_policy.c's pin check is skipped entirely (the element itself
 // holds the verifying key, never handed to the application) -- but NOT on a
-// software-tier (BOOT_SIG=ed25519-donna) build, where an tfw-boot with no
+// software-tier (BOOT_SIG=ed25519-donna) build, where a tfw-boot with no
 // matching hash refuses every image, signed or not. See docs/secure-boot/.
 //
 // operatorPubkey is the AUTH_CHALLENGE/AUTH_RESPONSE session's trust anchor

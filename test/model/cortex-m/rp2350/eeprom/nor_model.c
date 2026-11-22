@@ -47,6 +47,7 @@ int      rp_nor_corrupt_next;
 uint32_t rp_nor_write_us;
 uint32_t rp_nor_after_cvr_us;
 static uint32_t after_cvr_due;
+int rp_nor_systick_stopped;
 
 static volatile uint32_t timerawl;
 static uint32_t          systick_phase_us;
@@ -66,7 +67,10 @@ volatile uint32_t *tfw_rp_model_reg(uintptr_t addr)
     case TIMERAWL_ADDR:
         return &timerawl;
     case SYST_CSR_ADDR:
-        syst_reg = TFW_CM_SYST_CSR_ENABLE | TFW_CM_SYST_CSR_TICKINT | TFW_CM_SYST_CSR_CLKSOURCE;
+        syst_reg = TFW_CM_SYST_CSR_TICKINT | TFW_CM_SYST_CSR_CLKSOURCE;
+        if (rp_nor_systick_stopped == 0) {
+            syst_reg |= TFW_CM_SYST_CSR_ENABLE;
+        }
         return &syst_reg;
     case SYST_RVR_ADDR:
         syst_reg = SYST_RELOAD;
@@ -88,6 +92,9 @@ volatile uint32_t *tfw_rp_model_reg(uintptr_t addr)
 void rp_nor_model_run_us(uint32_t us)
 {
     timerawl += us;
+    if (rp_nor_systick_stopped != 0) {
+        return;
+    }
     systick_phase_us += us;
     while (systick_phase_us >= TICK_US) {
         systick_phase_us -= TICK_US;
@@ -138,6 +145,9 @@ tfw_status_t tfw_rp_flash_sector_write(uint32_t off, const uint8_t *buf)
         FLASH[off + TFW_RP_FLASH_SECTOR - 1u] ^= 0x01u;
     }
     timerawl += rp_nor_write_us;
+    if (rp_nor_systick_stopped != 0) {
+        return TFW_OK;
+    }
     systick_phase_us += rp_nor_write_us;
     if (systick_phase_us >= TICK_US) {
         systick_pending = 1;
@@ -169,6 +179,7 @@ void rp_nor_model_reset(void)
     rp_nor_write_us     = 0u;
     rp_nor_after_cvr_us = 0u;
     after_cvr_due       = 0u;
+    rp_nor_systick_stopped = 0;
     systick_pending     = 0;
     systick_phase_us    = 0u;
     masked              = 0u;

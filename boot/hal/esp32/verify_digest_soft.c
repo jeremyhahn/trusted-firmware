@@ -6,8 +6,8 @@
  * src/core/suit.c hashes the Sig_structure itself and passes the digest.
  * The check is boot/verify/verify_p256_soft.c's -- P-256 ECDSA (FIPS 186-5
  * section 6.4.2) of a 64-byte r || s, with the key the bootloader carries --
- * over a digest already taken. That file is the AVR boot's and stays as it is;
- * the ROM row has this entry in verify_p256_rom.c. The curve arithmetic is
+ * over a digest already taken. That file is shared with the AVR boot,
+ * unchanged; the ROM row has this entry in verify_p256_rom.c. The curve arithmetic is
  * micro-ecc's: ESP-IDF's component in the bootloader, as for
  * verify_p256_soft.c, and src/third_party/micro-ecc in the host tests.
  */

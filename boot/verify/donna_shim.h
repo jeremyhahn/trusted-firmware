@@ -14,7 +14,7 @@
  * THERE IS NO ENTROPY SOURCE HERE AND THIS IS NOT ONE. No AVR in this family
  * has a TRNG -- src/crypto/soft/provider.c refuses tfw_crypto_random for exactly
  * this reason rather than returning something that merely looks random. The
- * definition in verify_ed25519_donna.c is reachable only from
+ * definition in donna_shim.c is reachable only from
  * ed25519_sign_open_batch, which this bootloader never calls and --gc-sections
  * removes from the image. It exists to satisfy the compiler, it produces
  * nothing, and anything that started calling it would be a bug this comment is

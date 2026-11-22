@@ -6,10 +6,11 @@
  * docs/boards/mps2-an500.md).
  *
  * A test target, like mps2-an505. QEMU models the FPGA's two user LEDs and no
- * converter and no PWM, so the pins are the two LEDs and the shield 0 SPI
- * select, and every other capability is off by file selection. The two
- * buses, I2C over the shield 0 SBCon and SPI over its PL022, are linked only in
- * their rows (profile.mk).
+ * converter and no PWM peripheral, so the pins are the two LEDs and the
+ * shield 0 SPI select (plus the 1-Wire line in the ONEWIRE=1 row). EEPROM and
+ * attestation are always on; I2C over the shield 0 SBCon, SPI over its PL022,
+ * tone, pulse, 1-Wire and software PWM on the CMSDK timer are linked only in
+ * their rows (profile.mk); the converter is off.
  */
 #ifndef TFW_BOARD_MPS2_AN500_H
 #define TFW_BOARD_MPS2_AN500_H

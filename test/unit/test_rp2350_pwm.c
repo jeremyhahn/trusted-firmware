@@ -4,7 +4,9 @@
  * RP2350 PWM: the divider helper in soc_calc.h and hal_pwm.c driven against
  * the flat register model (test/model/cortex-m/rp2350/), which stands in for
  * a PWM slice's CSR, DIV, CTR, CC and TOP and for the GPIO and SIO registers
- * the driver touches.
+ * the driver touches. It also drives hal_gpio.c's mode, write and read, whose
+ * only host build is this binary: a bad pin, an unknown mode, the INPUT and
+ * INPUT_PULLUP pads and output enable, and the SIO set, clear and input bits.
  */
 #include "unity.h"
 #include "tfw/hal.h"
@@ -111,6 +113,42 @@ static void test_pwm_bad_slice_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CC(2u)));
 }
 
+/* hal_pwm.c tfw_hal_pwm_stop clears slice_on and pin_on (lines 89, 94), so
+ * the next write runs the slice setup and the pad write again (lines 43-71).
+ * The model does not apply the clear alias: zero the registers by hand. */
+static void test_pwm_write_after_stop_sets_the_slice_up_again(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&gp2, 128u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&gp2));
+    tfw_rp_model_poke(TFW_RP_PWM_CSR(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PWM_DIV(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PWM_TOP(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PADS_GPIO(2u), 0u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&gp2, 50u));
+    TEST_ASSERT_EQUAL_HEX32((46u << 4) | 14u, reg(TFW_RP_PWM_DIV(1u)));
+    TEST_ASSERT_EQUAL_HEX32(255u, reg(TFW_RP_PWM_TOP(1u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_PWM_CSR_EN, reg(TFW_RP_PWM_CSR(1u)));
+    TEST_ASSERT_EQUAL_HEX32(tfw_rp_pad_value(0u), reg(TFW_RP_PADS_GPIO(2u)));
+    TEST_ASSERT_EQUAL_HEX32(50u, reg(TFW_RP_PWM_CC(1u)) & 0xFFFFu);
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_PWM, reg(0x40028000u + 0x004u + 8u * 2u));
+    tfw_hal_pwm_stop(&gp2);
+}
+
+/* hal_pwm.c tfw_hal_pwm_stop clears EN only on a slice that is on (line 87);
+ * the pin still goes back to SIO, driven low (lines 91-93). */
+static void test_pwm_stop_on_a_slice_never_written(void)
+{
+    const tfw_pwmref_t gp4 = { 2u, 0u, 0u, 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&gp4));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CSR(2u) + 0x3000u));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CSR(2u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_SIO, reg(0x40028000u + 0x004u + 8u * 4u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 4, reg(TFW_RP_SIO_BASE + 0x020u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 4, reg(TFW_RP_SIO_BASE + 0x038u));
+}
+
 /* The board lookups PWM_WRITE makes, for logical pin 2 = GPIO2 (slice 1,
  * channel A). The suite supplies them so the command handler runs against
  * the RP2350 HAL alone. */
@@ -168,6 +206,103 @@ static void test_pwm_cmd_successive_writes_keep_pwm_function(void)
     TEST_ASSERT_EQUAL(TFW_OK, pwm_cmd(2u, 0u));
 }
 
+/* GPIO n's IO_BANK0 control register, and the SIO registers hal_gpio.c uses. */
+#define IO_CTRL(n) (0x40028000u + 0x004u + 8u * (n))
+#define SIO_IN      (TFW_RP_SIO_BASE + 0x004u)
+#define SIO_OUT_SET (TFW_RP_SIO_BASE + 0x018u)
+#define SIO_OUT_CLR (TFW_RP_SIO_BASE + 0x020u)
+#define SIO_OE_SET  (TFW_RP_SIO_BASE + 0x038u)
+#define SIO_OE_CLR  (TFW_RP_SIO_BASE + 0x040u)
+
+/* hal_gpio.c is_gpio and tfw_hal_gpio_mode's BAD_PIN return (lines 28-39). */
+static void test_gpio_mode_refuses_bad_pin(void)
+{
+    const tfw_pinref_t bank1 = { 1u, 2u };
+    const tfw_pinref_t gp30 = { 0u, 30u };
+    const tfw_pinref_t gp29 = { 0u, 29u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_mode(&bank1, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_mode(&gp30, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OE_SET));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(IO_CTRL(30u)));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(IO_CTRL(2u)));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&gp29, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL_HEX32(1u << 29, reg(SIO_OE_SET));
+}
+
+/* hal_gpio.c tfw_hal_gpio_mode's UNSUPPORTED return (lines 40-43). */
+static void test_gpio_mode_refuses_unsupported_mode(void)
+{
+    const tfw_pinref_t gp4 = { 0u, 4u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+                      tfw_hal_gpio_mode(&gp4, (tfw_pin_mode_t)3));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(IO_CTRL(4u)));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PADS_GPIO(4u)));
+}
+
+/* hal_gpio.c tfw_hal_gpio_mode's pad, function and OE_CLR writes (lines 45-51). */
+static void test_gpio_mode_input_and_pullup(void)
+{
+    const tfw_pinref_t gp5 = { 0u, 5u };
+    const tfw_pinref_t gp6 = { 0u, 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&gp5, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_HEX32(0x52u, reg(TFW_RP_PADS_GPIO(5u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_SIO, reg(IO_CTRL(5u)));
+    TEST_ASSERT_EQUAL_HEX32(1u << 5, reg(SIO_OE_CLR));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OE_SET));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&gp6, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(0x5Au, reg(TFW_RP_PADS_GPIO(6u)));
+    TEST_ASSERT_EQUAL_HEX32(1u << 6, reg(SIO_OE_CLR));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OE_SET));
+}
+
+/* hal_gpio.c tfw_hal_gpio_write (lines 56-70). */
+static void test_gpio_write_sets_and_clears(void)
+{
+    const tfw_pinref_t gp30 = { 0u, 30u };
+    const tfw_pinref_t bank1 = { 1u, 7u };
+    const tfw_pinref_t gp7 = { 0u, 7u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_write(&gp30, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_write(&bank1, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OUT_SET));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OUT_CLR));
+
+    /* Any non-zero level drives the pin high. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&gp7, 2u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 7, reg(SIO_OUT_SET));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(SIO_OUT_CLR));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&gp7, 0u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 7, reg(SIO_OUT_CLR));
+}
+
+/* hal_gpio.c tfw_hal_gpio_read (lines 72-79). */
+static void test_gpio_read_returns_the_pin_bit(void)
+{
+    const tfw_pinref_t gp30 = { 0u, 30u };
+    const tfw_pinref_t gp29 = { 0u, 29u };
+    const tfw_pinref_t gp28 = { 0u, 28u };
+    const tfw_pinref_t gp0 = { 0u, 0u };
+    uint8_t level = 0xAAu;
+
+    tfw_rp_model_poke(SIO_IN, (1u << 29) | 1u);
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_read(&gp30, &level));
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, level);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&gp29, &level));
+    TEST_ASSERT_EQUAL_UINT8(1u, level);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&gp28, &level));
+    TEST_ASSERT_EQUAL_UINT8(0u, level);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&gp0, &level));
+    TEST_ASSERT_EQUAL_UINT8(1u, level);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -179,6 +314,13 @@ int main(void)
     RUN_TEST(test_pwm_channel_a_and_b);
     RUN_TEST(test_pwm_stop);
     RUN_TEST(test_pwm_bad_slice_refused);
+    RUN_TEST(test_pwm_write_after_stop_sets_the_slice_up_again);
+    RUN_TEST(test_pwm_stop_on_a_slice_never_written);
     RUN_TEST(test_pwm_cmd_successive_writes_keep_pwm_function);
+    RUN_TEST(test_gpio_mode_refuses_bad_pin);
+    RUN_TEST(test_gpio_mode_refuses_unsupported_mode);
+    RUN_TEST(test_gpio_mode_input_and_pullup);
+    RUN_TEST(test_gpio_write_sets_and_clears);
+    RUN_TEST(test_gpio_read_returns_the_pin_bit);
     return UNITY_END();
 }

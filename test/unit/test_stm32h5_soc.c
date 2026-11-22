@@ -110,6 +110,21 @@ static void test_early_writes_the_reload_key_once(void)
     TEST_ASSERT_EQUAL_HEX32(0xAAAAu, kr_keys[0]);
 }
 
+/* hal_soc.c lines 13-16: the wait states are written first and read back,
+ * and the divider second, as the order of a clock raise must be. */
+static void test_early_raises_the_wait_states_before_the_divider(void)
+{
+    static const uint32_t want[] = {
+        IWDG_KR_ADDR,
+        FLASH_ACR_ADDR, FLASH_ACR_ADDR, FLASH_ACR_ADDR,
+        (uint32_t)RCC_CR_ADDR, (uint32_t)RCC_CR_ADDR, (uint32_t)RCC_CR_ADDR,
+    };
+
+    h5_soc_early();
+    TEST_ASSERT_EQUAL_UINT(sizeof want / sizeof want[0], access_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(want, access_log, sizeof want / sizeof want[0]);
+}
+
 /* RM0481 IWDG: 0xCCCC starts it, 0x5555 opens PR and RLR, 0xAAAA reloads. */
 static void test_arm_writes_start_access_reload_keys_in_order(void)
 {
@@ -175,6 +190,7 @@ int main(void)
     RUN_TEST(test_early_sets_flash_latency_3_for_64mhz);
     RUN_TEST(test_early_clears_hsidiv_only);
     RUN_TEST(test_early_writes_the_reload_key_once);
+    RUN_TEST(test_early_raises_the_wait_states_before_the_divider);
     RUN_TEST(test_arm_writes_start_access_reload_keys_in_order);
     RUN_TEST(test_arm_writes_pr_and_rlr_then_waits_on_sr);
     RUN_TEST(test_arm_sets_pr_3_and_rlr_3999);

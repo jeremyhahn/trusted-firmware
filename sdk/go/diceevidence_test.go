@@ -156,16 +156,18 @@ func TestDICEAttestationRefusals(t *testing.T) {
 		obj, nonce  []byte
 		roots       *x509.CertPool
 		measurement []byte
+		reason      string
 	}{
-		{"wrong nonce", good, wrongNonce, ca.roots, v.fwHash},
-		{"swapped chain order", build(ca.deviceID, v.aliasCert, v.aliasSig), v.nonce, ca.roots, v.fwHash},
-		{"tampered measurement", build(tampered, ca.deviceID, v.aliasSig), v.nonce, ca.roots, v.fwHash},
-		{"wrong reference measurement", good, v.nonce, ca.roots, wrongMeasurement},
-		{"signature by another key", build(v.aliasCert, ca.deviceID, otherSig), v.nonce, ca.roots, v.fwHash},
-		{"DeviceID under an unknown root", good, v.nonce, other.roots, v.fwHash},
-		{"another fmt", bytes.Replace(good, []byte("dice"), []byte("tpm\x00"), 1), v.nonce, ca.roots, v.fwHash},
-		{"trailing byte", append(bytes.Clone(good), 0x00), v.nonce, ca.roots, v.fwHash},
-		{"truncated", good[:len(good)-1], v.nonce, ca.roots, v.fwHash},
+		{"wrong nonce", good, wrongNonce, ca.roots, v.fwHash, "authData is not the challenge nonce"},
+		{"swapped chain order", build(ca.deviceID, v.aliasCert, v.aliasSig), v.nonce, ca.roots, v.fwHash, "the DeviceID certificate does not chain to a root"},
+		{"tampered measurement", build(tampered, ca.deviceID, v.aliasSig), v.nonce, ca.roots, v.fwHash, "the alias certificate is not signed by the DeviceID key"},
+		{"wrong reference measurement", good, v.nonce, ca.roots, wrongMeasurement, "the TCB measurement is not the reference value"},
+		{"signature by another key", build(v.aliasCert, ca.deviceID, otherSig), v.nonce, ca.roots, v.fwHash, "sig does not verify under the alias key"},
+		{"DeviceID under an unknown root", good, v.nonce, other.roots, v.fwHash, "the DeviceID certificate does not chain to a root"},
+		{"another fmt", bytes.Replace(good, []byte("dice"), []byte("tpm\x00"), 1), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
+		{"alg EdDSA", bytes.Replace(good, []byte("\x63alg\x26"), []byte("\x63alg\x27"), 1), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
+		{"trailing byte", append(bytes.Clone(good), 0x00), v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
+		{"truncated", good[:len(good)-1], v.nonce, ca.roots, v.fwHash, "not a dice attestation object"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -173,6 +175,7 @@ func TestDICEAttestationRefusals(t *testing.T) {
 			require.Error(t, err)
 			var ee *EvidenceError
 			require.ErrorAs(t, err, &ee)
+			require.Equal(t, c.reason, ee.Reason)
 		})
 	}
 }
@@ -302,15 +305,21 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 func TestDICEAttestationObjectRefusesBadInputs(t *testing.T) {
 	v := loadDICEVectors(t)
 	ca := newDICECA(t, v)
-	for name, args := range map[string][4][]byte{
-		"short nonce":     {v.aliasCert, ca.deviceID, v.nonce[:31], v.aliasSig},
-		"short signature": {v.aliasCert, ca.deviceID, v.nonce, v.aliasSig[:63]},
-		"no alias":        {nil, ca.deviceID, v.nonce, v.aliasSig},
-		"no DeviceID":     {v.aliasCert, nil, v.nonce, v.aliasSig},
+	for name, c := range map[string]struct {
+		alias, devID, nonce, sig []byte
+		reason                   string
+	}{
+		"short nonce":     {v.aliasCert, ca.deviceID, v.nonce[:31], v.aliasSig, "nonce is 31 bytes, want 32"},
+		"long nonce":      {v.aliasCert, ca.deviceID, append(bytes.Clone(v.nonce), 0x00), v.aliasSig, "nonce is 33 bytes, want 32"},
+		"short signature": {v.aliasCert, ca.deviceID, v.nonce, v.aliasSig[:63], "signature is 63 bytes, want r||s of 64"},
+		"long signature":  {v.aliasCert, ca.deviceID, v.nonce, append(bytes.Clone(v.aliasSig), 0x00), "signature is 65 bytes, want r||s of 64"},
+		"no alias":        {nil, ca.deviceID, v.nonce, v.aliasSig, "empty certificate"},
+		"no DeviceID":     {v.aliasCert, nil, v.nonce, v.aliasSig, "empty certificate"},
 	} {
-		_, err := DICEAttestationObject(args[0], args[1], args[2], args[3])
+		_, err := DICEAttestationObject(c.alias, c.devID, c.nonce, c.sig)
 		var ee *EvidenceError
 		require.ErrorAs(t, err, &ee, name)
+		require.Equal(t, c.reason, ee.Reason, name)
 	}
 }
 

@@ -91,6 +91,7 @@ typedef struct {
     uint32_t stops;              /* STOP conditions sent */
     uint32_t tasks_resume;
     uint32_t p1_pin_cnf[32];     /* P1 PIN_CNF[n] as last written */
+    uint32_t enable_at_config;   /* ENABLE, OR'd, at each PSEL or FREQUENCY write */
 } twim_model_t;
 
 static twim_model_t s_twim;
@@ -218,6 +219,12 @@ static void model_write(uintptr_t addr, uint32_t v)
     case O_TASKS_TX:     s_twim.tasks_starttx++; bus_write(); break;
     case O_TASKS_RX:     s_twim.tasks_startrx++; bus_read(); break;
     case O_ERRORSRC:     s_twim.errorsrc &= ~v; break;
+    case O_PSEL_SCL:
+    case O_PSEL_SDA:
+    case O_FREQUENCY:
+        s_twim.enable_at_config |= s_twim.regs[O_ENABLE / 4u];
+        *field(off) = v;
+        break;
     default:             *field(off) = v; break;
     }
 }
@@ -543,6 +550,31 @@ static void test_twim_data_nack_resumes_before_the_stop(void)
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
 }
 
+/* A write whose STOP never takes: the TWIM is disabled and both EasyDMA counts
+ * cleared, TX's too, so none is left armed (hal_bus.c lines 92-99). */
+static void test_twim_write_never_stopped_clears_the_tx_count(void)
+{
+    static const uint8_t wr[2] = { 0x01u, 0x02u };
+
+    s_twim.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x60u, wr, 2u, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.txd_maxcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.rxd_maxcnt);
+}
+
+/* Re-init of an enabled TWIM: PSEL and FREQUENCY written with it disabled,
+ * then enabled again (hal_bus.c lines 126-134). */
+static void test_twim_reinit_configures_with_the_twim_disabled(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+    s_twim.enable_at_config = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.enable_at_config);
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -566,5 +598,7 @@ int main(void)
     RUN_TEST(test_twim_init_clears_inten_shorts_and_sets_the_pins);
     RUN_TEST(test_twim_stale_error_does_not_fail_the_next_transfer);
     RUN_TEST(test_twim_data_nack_resumes_before_the_stop);
+    RUN_TEST(test_twim_write_never_stopped_clears_the_tx_count);
+    RUN_TEST(test_twim_reinit_configures_with_the_twim_disabled);
     return UNITY_END();
 }

@@ -8,7 +8,8 @@
  * model_settle) comes, so the model acts on it then, as the part would have.
  *
  * The device on the bus is scripted: present or not (ANACK), the write byte
- * it refuses (DNACK), the bytes it answers, or a bus that never stops.
+ * it refuses (DNACK), a read it overruns (OVERRUN), the bytes it answers, or
+ * a bus that never stops.
  */
 #include <stdint.h>
 #include <string.h>
@@ -46,6 +47,7 @@
 #define SH_LASTRX_STOP    (1u << 12)
 #define ES_ANACK          (1u << 1)
 #define ES_DNACK          (1u << 2)
+#define ES_OVERRUN        (1u << 0)
 
 /* The TWIM as the model holds it, and the bus it drives. */
 typedef struct {
@@ -71,6 +73,8 @@ typedef struct {
                                   * the next EVENTS_STOPPED access */
     int      late_pending;
     int      hang;               /* STOPPED never raised */
+    int      overrun;            /* the read raises ERRORSRC.OVERRUN instead
+                                  * of finishing */
     uint32_t stop_lag;           /* microseconds a STOP takes to raise STOPPED */
     int      stop_pending;
     uint8_t  answer[16];
@@ -141,6 +145,10 @@ static void bus_read(void)
 
     if (!s_twim.present) {
         bus_error(ES_ANACK);
+        return;
+    }
+    if (s_twim.overrun) {
+        bus_error(ES_OVERRUN);
         return;
     }
     for (i = 0u; i < s_twim.rxd_maxcnt; i++) {
@@ -355,6 +363,32 @@ static void test_twim_read_address_nack(void)
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
 }
 
+/* An RX overrun is a lost byte, not an absent device: TFW_ERR_INTERNAL, so a
+ * caller that retries on a NACK does not, and the bus is still stopped and
+ * the error latch cleared. */
+static void test_twim_read_overrun_is_internal_not_nack(void)
+{
+    s_twim.overrun = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+}
+
+static void test_twim_write_then_read_overrun_is_internal_not_nack(void)
+{
+    static const uint8_t wr[1] = { 0x10u };
+
+    s_twim.overrun = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, xfer(0x60u, wr, 1u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.nsent);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+}
+
 static void test_twim_data_nack(void)
 {
     static const uint8_t wr[3] = { 0x01u, 0x02u, 0x03u };
@@ -469,6 +503,8 @@ int main(void)
     RUN_TEST(test_twim_write_then_read_repeated_start);
     RUN_TEST(test_twim_address_nack);
     RUN_TEST(test_twim_read_address_nack);
+    RUN_TEST(test_twim_read_overrun_is_internal_not_nack);
+    RUN_TEST(test_twim_write_then_read_overrun_is_internal_not_nack);
     RUN_TEST(test_twim_data_nack);
     RUN_TEST(test_twim_last_byte_nack_with_stopped);
     RUN_TEST(test_twim_last_byte_nack_between_reads);

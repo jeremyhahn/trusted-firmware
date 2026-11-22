@@ -34,6 +34,7 @@
  * (m7-design.md question O2).
  */
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "core/hsm.h"
@@ -159,12 +160,25 @@ static int32_t delete_keys(const struct tfw_ele_chan *c, const struct tfw_imx95_
     return first;
 }
 
+/* True while any slot of `w` names a key: a zero slot is unused, not the end. */
+static bool names_a_key(const struct tfw_imx95_wipe *w)
+{
+    uint32_t i;
+
+    for (i = 0u; i < TFW_IMX95_WIPE_KEYS; i++) {
+        if (w->keys[i] != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 tfw_status_t tfw_imx95_hsm_wipe(const struct tfw_ele_chan *c, const struct tfw_imx95_wipe *w)
 {
     uint32_t session = 0u, store = 0u, mgmt = 0u;
     int32_t  rc;
 
-    if (c->mu == 0u || w->del.command == 0u || w->keys[0] == 0u) {
+    if (c->mu == 0u || w->del.command == 0u || !names_a_key(w)) {
         return TFW_ERR_UNSUPPORTED;
     }
     rc = tfw_ele_session_open(c, w->mu_irq, &session, NULL);

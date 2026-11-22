@@ -501,6 +501,18 @@ static void test_a4_a_zero_slot_between_keys_is_skipped_not_the_end(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
 }
 
+static void test_a4_a_zero_first_slot_still_deletes_the_named_keys(void)
+{
+    wipe.keys[0] = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(7u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 3);
+    assert_strict_delete(3u, 0x52u);
+    assert_wipe_closes(4u);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
 static void test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried(void)
 {
     uint32_t at;
@@ -550,7 +562,7 @@ static void test_a4_no_mu_command_or_key_is_unsupported_and_sends_nothing(void)
     wipe.del.command = 0u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_imx95_hsm_wipe(&ele, &wipe));
     wipe.del.command = 0x99u;
-    wipe.keys[0] = 0u;
+    memset(wipe.keys, 0, sizeof wipe.keys);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_imx95_hsm_wipe(&ele, &wipe));
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
@@ -830,6 +842,7 @@ int main(void)
     RUN_TEST(test_a4_acknowledged_deletes_every_key_strictly_and_closes);
     RUN_TEST(test_a4_all_four_key_slots_are_deleted_and_none_past_them);
     RUN_TEST(test_a4_a_zero_slot_between_keys_is_skipped_not_the_end);
+    RUN_TEST(test_a4_a_zero_first_slot_still_deletes_the_named_keys);
     RUN_TEST(test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried);
     RUN_TEST(test_a4_a_refused_open_deletes_nothing_and_closes_what_opened);
     RUN_TEST(test_a4_no_answer_to_a_delete_is_a_timeout_not_done);

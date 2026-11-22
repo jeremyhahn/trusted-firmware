@@ -20,7 +20,8 @@
  *     TX_BUF of exactly 512 bytes, and the pending reply sent before a new
  *     connection is weighed;
  *   - each socket error: EAGAIN keeps the host, anything else drops it with
- *     its errno, and a dropped host's unread and unsent bytes go with it.
+ *     its errno, and a dropped host's unread and unsent bytes go with it,
+ *     the byte offered to a full buffer whose send then fails too.
  *
  * Deterministic: a literal clock, literal counts.
  */
@@ -868,6 +869,28 @@ static void test_a_host_refused_in_the_window_ends_no_session(void)
     TEST_ASSERT_EQUAL_UINT(0u, session_ends);
 }
 
+/* The byte offered when the full buffer's send fails is the dropped host's:
+ * kept, it would reach the next host ahead of that host's first frame. */
+static void test_a_byte_after_a_failed_full_send_never_reaches_the_next_host(void)
+{
+    unsigned i;
+
+    take(3);
+    k.fd[3].send_block = 1;
+    for (i = 0u; i < TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x11u));
+    }
+    k.fd[3].send_err = ECONNRESET;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xCCu));
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].sends);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].out_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -904,5 +927,6 @@ int main(void)
     RUN_TEST(test_a_broken_recv_ends_the_operator_session);
     RUN_TEST(test_a_broken_send_ends_the_operator_session);
     RUN_TEST(test_a_host_refused_in_the_window_ends_no_session);
+    RUN_TEST(test_a_byte_after_a_failed_full_send_never_reaches_the_next_host);
     return UNITY_END();
 }

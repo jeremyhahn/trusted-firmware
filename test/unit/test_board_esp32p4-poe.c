@@ -140,6 +140,39 @@ static void test_every_pwm_row_drives_the_pin_that_names_it(void)
 }
 
 /*
+ * The flags byte is what a host is told each pin can do, but
+ * tfw_board_adc_channel() and tfw_board_pwm() read the adc_ch and pwm_idx
+ * fields beside it, so the two can disagree without either accessor
+ * noticing. Every pin is DIGITAL, and carries ADC and PWM exactly where its
+ * row resolves an ADC channel or a PWM unit: no more, no fewer.
+ */
+static void test_every_pins_flags_match_its_row(void)
+{
+    char msg[24];
+    uint8_t adc_pins = 0u;
+    uint8_t pwm_pins = 0u;
+
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t ch;
+        tfw_pwmref_t p;
+        uint8_t adc = (uint8_t)(tfw_board_adc_channel(i, &ch) == TFW_OK ? TFW_PIN_ADC : 0u);
+        uint8_t pwm = (uint8_t)(tfw_board_pwm(i, &p) == TFW_OK ? TFW_PIN_PWM : 0u);
+        uint8_t want = (uint8_t)(TFW_PIN_DIGITAL | adc | pwm);
+
+        snprintf(msg, sizeof msg, "pin %u", (unsigned)i);
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(want, tfw_board_pin_flags(i), msg);
+        if (adc != 0u) {
+            adc_pins++;
+        }
+        if (pwm != 0u) {
+            pwm_pins++;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT8(4u, adc_pins);
+    TEST_ASSERT_EQUAL_UINT8(TFW_PWM_COUNT, pwm_pins);
+}
+
+/*
  * The tone takes the last LEDC timer and channel on the low-speed mode
  * (src/hal/esp32/hal_tone.c), so no PWM row may name either. The P4 has
  * four timers, eight channels and one speed mode (mode 0): the tone's are
@@ -201,6 +234,7 @@ int main(void)
     RUN_TEST(test_no_two_pins_share_a_gpio);
     RUN_TEST(test_adc1_channel_n_is_gpio_16_plus_n);
     RUN_TEST(test_every_pwm_row_drives_the_pin_that_names_it);
+    RUN_TEST(test_every_pins_flags_match_its_row);
     RUN_TEST(test_no_pwm_row_names_the_tones_timer_or_channel);
     RUN_TEST(test_the_page_carries_bank_and_offset);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);

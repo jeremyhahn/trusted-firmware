@@ -30,8 +30,8 @@ qemu-system-arm          # the emulator: mps2-an505 (make integration-test-corte
 build-essential  # the host compiler, for the unit tests and tfwsim
 make
 
-clang-format     # [toolchain] stands in for gofmt
-clang-tidy       # [toolchain] stands in for golangci-lint
+clang-format     # [toolchain] installed, no make target runs it yet
+clang-tidy       # [toolchain] installed, not yet a gate (mk/stages.mk)
 cppcheck         # [toolchain] stands in for go vet
 
 gcovr            # [toolchain] coverage, with the 90% floor
@@ -39,8 +39,8 @@ lcov             # [toolchain]
 
 python3
 
-openssl          # tfwctl auth's external signer: parses/signs an operator
-                 # key in its own process so the key never enters tfwctl's
+openssl          # tfwctl auth's external signer: the operator key is read only in
+                 # openssl's process, never tfwctl's (tfwctl/peripherals.go)
 
 libssl-dev       # OpenSSL's headers and libcrypto, for one user: the OP-TEE
                  # TA's host test, test/mock/gp/tee_crypto_mock.c (AES-256-GCM

@@ -8,8 +8,11 @@
  * fact here and in src/hal/cortex-m/imx95/ is TO CONFIRM against it.
  *
  * The byte link is LPUART3, the M7's debug UART on NXP's i.MX 95 boards (TO
- * CONFIRM against UM12527, the debug UART section). The pins are two RGPIO
- * lines and every other capability is off by file selection. The System
+ * CONFIRM against UM12527, the debug UART section). The pins are four RGPIO
+ * lines, GPIO2_IO00 to GPIO2_IO03 (board.c): two GPIO pins and the two that
+ * carry the TPM's PWM channels. Pulse timing and attestation (the soft root)
+ * are on; analog, PWM, tone and I2C only in their profile.mk rows; every other
+ * capability is off by file selection. The System
  * Manager owns the pin mux (IOMUXC) and assigns pins and peripherals to the
  * M7, so the HAL muxes nothing: a pin the configuration did not give the M7
  * does not move.

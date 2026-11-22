@@ -233,6 +233,29 @@ static void test_a_duty_of_zero_disconnects_rather_than_holding_low(void)
     TEST_ASSERT_FALSE(tfw_mock_pwm_connected(TFW_ADDR_TCCR1A, COM1A1_BIT));
 }
 
+/* A HAL error is returned as the HAL gave it, with no reply bytes (#627): a
+ * host whose timer did not start must not read TFW_OK. A refused connect
+ * keeps the last duty and the connection; a refused disconnect keeps it
+ * connected. */
+static void test_a_pwm_the_hal_refuses_reports_it_and_leaves_the_unit(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_PWM_WRITE, (const uint8_t[]){ 9u, 200u }, 2u));
+    tfw_mock_pwm_fails(TFW_ERR_TIMEOUT);
+
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, run(TFW_CMD_PWM_WRITE, (const uint8_t[]){ 9u, 77u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_UINT8(200u, tfw_mock_pwm_duty(TFW_ADDR_OCR1AL));
+    TEST_ASSERT_TRUE(tfw_mock_pwm_connected(TFW_ADDR_TCCR1A, COM1A1_BIT));
+
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, run(TFW_CMD_PWM_WRITE, (const uint8_t[]){ 9u, 0u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_TRUE(tfw_mock_pwm_connected(TFW_ADDR_TCCR1A, COM1A1_BIT));
+
+    tfw_mock_pwm_fails(TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_PWM_WRITE, (const uint8_t[]){ 9u, 0u }, 2u));
+    TEST_ASSERT_FALSE(tfw_mock_pwm_connected(TFW_ADDR_TCCR1A, COM1A1_BIT));
+}
+
 /* Every pin byte against every duty byte, in one run with the state carried
  * through: each unit sees every duty, connected and then disconnected, and
  * every refusal lands on whatever the units were left doing. Pins 5 and 6 HAVE
@@ -453,6 +476,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_duty_of_zero_disconnects_rather_than_holding_low);
+    RUN_TEST(test_a_pwm_the_hal_refuses_reports_it_and_leaves_the_unit);
     RUN_TEST(test_every_pin_and_duty);
     RUN_TEST(test_duty_bounds_on_every_unit);
     RUN_TEST(test_pwm_every_other_length_is_refused);

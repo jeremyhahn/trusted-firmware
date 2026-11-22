@@ -139,6 +139,10 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
         /* DINIS and DCIS are rc_w0; BUSY reads only. */
         if (value & ~(ST_HASH_SR_DINIS | ST_HASH_SR_DCIS))
             m.fault = 1;
+        /* A clear while an earlier digest is in flight is undone when it
+         * lands: the driver must INIT first, which drops it (h5_hash.c). */
+        if (!(value & ST_HASH_SR_DCIS) && m.pending)
+            m.fault = 1;
         if (!(value & ST_HASH_SR_DCIS))
             m.dcis = 0;
         m.sr_clears++;
@@ -277,6 +281,19 @@ static void test_h5_hash_recovers_after_a_timeout(void)
     TEST_ASSERT_FALSE(m.fault);
 }
 
+static void test_h5_hash_clears_dcis_only_once_init_has_dropped_the_digest_in_flight(void)
+{
+    static const uint8_t other[] = "a later message";
+    uint8_t out[32];
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hash_sha256(BASE, (const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_TRUE(m.pending);
+    m.hang = 0;
+    check_against_soft(other, sizeof other - 1u);
+    TEST_ASSERT_EQUAL_UINT32(2u, m.sr_clears);
+}
+
 static void test_h5_hash_times_out_when_dcis_never_rises(void)
 {
     uint8_t out[32];
@@ -331,6 +348,7 @@ int main(void)
     RUN_TEST(test_h5_hash_waits_for_busy_after_each_block);
     RUN_TEST(test_h5_hash_of_distinct_messages_back_to_back);
     RUN_TEST(test_h5_hash_recovers_after_a_timeout);
+    RUN_TEST(test_h5_hash_clears_dcis_only_once_init_has_dropped_the_digest_in_flight);
     RUN_TEST(test_h5_hash_times_out_when_dcis_never_rises);
     RUN_TEST(test_h5_hash_times_out_when_busy_never_clears);
     return UNITY_END();

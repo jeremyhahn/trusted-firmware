@@ -140,7 +140,8 @@ static unsigned g_reads, g_erases, g_programs;
 static unsigned g_fail_read_at;
 static unsigned g_fail_erase_at;     /* the sector is erased, then it fails */
 static unsigned g_fail_program_at;   /* half the range is programmed, then it fails */
-static unsigned g_stuck_program_at;  /* reports OK, but byte 0 stays 0x00 */
+static unsigned g_stuck_program_at;  /* reports OK, but byte g_stuck_off stays 0x00 */
+static size_t g_stuck_off;          /* from the programmed range's start */
 
 const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
                                                 esp_partition_subtype_t subtype,
@@ -178,7 +179,7 @@ esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *
     g_programs++;
     if (g_programs == g_fail_program_at) n = size / 2u;
     for (size_t i = 0u; i < n; i++) g_flash[off + i] &= b[i];
-    if (g_programs == g_stuck_program_at) g_flash[off] = 0x00u;
+    if (g_programs == g_stuck_program_at) g_flash[off + g_stuck_off] = 0x00u;
     return g_programs == g_fail_program_at ? ESP_FAIL : ESP_OK;
 }
 
@@ -388,6 +389,7 @@ void setUp(void)
     g_pad_out = 0u;
     g_reads = g_erases = g_programs = 0u;
     g_fail_read_at = g_fail_erase_at = g_fail_program_at = g_stuck_program_at = 0u;
+    g_stuck_off = 0u;
     g_gpio_read_st = TFW_OK;
     g_gpio_read_as = -1;
     g_adc_st = TFW_OK;
@@ -667,6 +669,19 @@ static void test_a_restore_wrong_outside_the_tested_bytes_fails(void)
     TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom_restore"), "sector restored 0"));
 }
 
+static void test_a_pattern_that_reads_back_wrong_fails(void)
+{
+    /* The pattern write reports OK but its first byte did not take: the
+     * check compares what it read back, so the status alone is no PASS. */
+    g_stuck_program_at = 1u;
+    g_stuck_off = TFW_EEPROM_SIZE - 16u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom"), "status 0, pattern read back 0"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "PASS"));
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
 static void test_an_unreadable_sector_is_never_written(void)
 {
     g_fail_read_at = 1u;
@@ -690,6 +705,7 @@ int main(void)
     RUN_TEST(test_a_failed_readback_still_restores_the_whole_sector);
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
+    RUN_TEST(test_a_pattern_that_reads_back_wrong_fails);
     RUN_TEST(test_an_unreadable_sector_is_never_written);
     RUN_TEST(test_the_i2c_check_probes_the_empty_address);
     RUN_TEST(test_an_i2c_ack_at_the_empty_address_fails);

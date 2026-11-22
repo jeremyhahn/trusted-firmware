@@ -118,6 +118,12 @@ void tfw_mock_bus_fails(tfw_status_t st);
  * ESP32's gpio_set_level can. tfw_mock_reset turns it off again. */
 void tfw_mock_gpio_io_fails(tfw_status_t st);
 
+/* pwm: while st is not TFW_OK, every tfw_hal_pwm_write and tfw_hal_pwm_stop
+ * answers st and leaves the unit's control and duty words as they were. The
+ * AVR HAL cannot fail either; the MCXN94x's ct_start can. tfw_mock_reset turns
+ * it off again. */
+void tfw_mock_pwm_fails(tfw_status_t st);
+
 /* system */
 void   tfw_mock_set_reset_cause(tfw_reset_cause_t c);
 void   tfw_mock_set_free_ram(uint32_t n);

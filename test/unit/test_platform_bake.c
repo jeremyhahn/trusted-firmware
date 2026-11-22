@@ -134,6 +134,24 @@ static void test_an_invalid_carried_block_is_refused_before_any_write(void)
     assert_nothing_written();
 }
 
+/* All-zero is the unprovisioned sentinel: tfwprov refuses it, and a parsed
+ * zero serial reads the same as no block at all (src/core/platform_id.c). */
+static void test_a_carried_block_with_a_zero_serial_is_refused_before_any_write(void)
+{
+    tfw_boot_platform_t p;
+    uint8_t             zero[TFW_BOOT_EE_BLOCK_LEN];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(WANT, &p));
+    memset(p.serial, 0, sizeof p.serial);
+    memcpy(zero, WANT, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_boot_platform_serialise(&p, zero);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(zero, &p));
+
+    TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(zero));
+    assert_nothing_written();
+    assert_outside_untouched();
+}
+
 /* A block in a layout this build does not know is no identity the firmware
  * would accept, so baking over it loses nothing: it is written, not refused. */
 static void test_a_region_in_an_unknown_layout_is_baked(void)
@@ -183,6 +201,7 @@ int main(void)
     RUN_TEST(test_an_equal_block_is_already_and_writes_nothing);
     RUN_TEST(test_a_readback_that_disagrees_is_reported);
     RUN_TEST(test_an_invalid_carried_block_is_refused_before_any_write);
+    RUN_TEST(test_a_carried_block_with_a_zero_serial_is_refused_before_any_write);
     RUN_TEST(test_a_region_in_an_unknown_layout_is_baked);
     RUN_TEST(test_the_result_line);
     RUN_TEST(test_every_result_has_its_name);

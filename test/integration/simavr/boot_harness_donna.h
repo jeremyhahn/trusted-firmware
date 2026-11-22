@@ -7,8 +7,9 @@
  * Included ONCE, at the end of boot_harness.c, so that none of donna's macros
  * reach the harness's code. It is a header and not a .c because the harness's
  * build (mk/boot.mk) names its sources one by one, and this leg adds none.
- * The defines and the shim are the boot's own (DONNA_CFLAGS, mk/boot.mk), so
- * the host signs with the code the AVR verifies with. Not one vendored byte is
+ * The defines are DONNA_CFLAGS's plus ED25519_FORCE_32BIT, as BOOT_DONNA_HOST's
+ * are (mk/boot.mk), so the host takes the AVR's 32-bit field code and signs
+ * with the code the AVR verifies with. Not one vendored byte is
  * patched; the warnings are silenced for the vendored tree only, as every
  * vendored tree's are.
  */

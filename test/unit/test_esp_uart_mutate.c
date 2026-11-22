@@ -780,6 +780,27 @@ static void test_eagain_on_send_keeps_the_host_and_the_bytes(void)
     TEST_ASSERT_EQUAL_MEMORY("hold", k.fd[3].out, 4u);
 }
 
+static void test_a_reinit_with_a_host_keeps_its_reply_and_holds_nothing(void)
+{
+    /* Only an init with no host is boot: one while a host is connected
+     * keeps that host's unsent reply and starts no hold for the next. */
+    take(3);
+    k.fd[3].send_block = 1;
+    send_str("hold");
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].closes);
+    k.fd[3].send_block = 0;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_MEMORY("hold", k.fd[3].out, 4u);
+    k.fd[3].hung = 1;
+    idle_pass();
+    send_str("x");
+    arrive(5);
+    idle_pass();
+    (void)tfw_hal_uart_tx_idle();
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[5].out_len);
+}
+
 /* ---- the operator session goes with its host (#607) ------------------ */
 
 static void test_a_quiet_host_replaced_ends_its_operator_session(void)
@@ -876,6 +897,7 @@ int main(void)
     RUN_TEST(test_a_broken_recv_drops_the_host_with_its_errno);
     RUN_TEST(test_a_broken_send_drops_the_host_and_its_bytes);
     RUN_TEST(test_eagain_on_send_keeps_the_host_and_the_bytes);
+    RUN_TEST(test_a_reinit_with_a_host_keeps_its_reply_and_holds_nothing);
     RUN_TEST(test_a_quiet_host_replaced_ends_its_operator_session);
     RUN_TEST(test_a_host_that_hangs_up_ends_its_operator_session);
     RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_end_the_session_once);

@@ -10,7 +10,7 @@
 #define REG16(a) _SFR_MEM16(a)
 
 /*
- * Fast PWM, 8-bit, non-inverting.
+ * Phase-correct PWM, 8-bit, non-inverting.
  *
  * The timer is configured on first use rather than at boot: a board that never
  * calls pwm_write should not have its timers running, both for the power and
@@ -19,8 +19,9 @@
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-        /* WGM(n)0 selects fast PWM 8-bit on both timer families here, and the
-         * COM bit connects the pin to the compare output. */
+        /* WGM(n)0 alone selects phase-correct PWM, 8-bit (mode 1), on both
+         * timer families here, and the COM bit connects the pin to the
+         * compare output. */
         REG8(p->tccra) |= (uint8_t)(_BV(p->com_bit) | _BV(WGM00));
 
         if (p->is16) {

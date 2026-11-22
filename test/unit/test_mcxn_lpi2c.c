@@ -72,6 +72,7 @@ static struct {
                               * it for; < 0 is for good */
     int      accept;         /* commands still taken; < 0 is no limit */
     int      nack_at;        /* index of the data byte refused; < 0 none */
+    uint32_t refusal;        /* the flag that refusal raises: NDF */
     unsigned tx_index;
     uint16_t log[64];
     unsigned log_n;
@@ -186,7 +187,7 @@ static void model_run(uint32_t v)
     case TFW_MCXN_LPI2C_CMD_TX:
         TEST_ASSERT_TRUE(m.mbf);
         if ((int)m.tx_index++ == m.nack_at) {
-            m.flags |= TFW_MCXN_LPI2C_MSR_NDF;
+            m.flags |= m.refusal;
             break;
         }
         m.got[m.got_n++] = (uint8_t)data;
@@ -250,6 +251,7 @@ void setUp(void)
     memset(&m, 0, sizeof m);
     m.accept = -1;
     m.nack_at = -1;
+    m.refusal = TFW_MCXN_LPI2C_MSR_NDF;
     slot_n = 0u;
     delayed_us = 0u;
 }
@@ -469,6 +471,34 @@ static void test_a_refused_last_byte_is_nack_and_stopped(void)
     TEST_ASSERT_FALSE(m.mbf);
 }
 
+/* hal_bus.c lines 19-23 promise, and msr_error (lines 52-67) maps, each error
+ * flag to its own status: lost arbitration BUSY, pin low timeout TIMEOUT,
+ * FIFO error INTERNAL. Each one ends the transfer with a STOP. */
+static void test_each_error_flag_is_its_own_status_and_stopped(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02, 0x03 };
+    static const struct {
+        uint32_t   flag;
+        tfw_status_t st;
+    } rows[] = {
+        { TFW_MCXN_LPI2C_MSR_ALF, TFW_ERR_BUSY },
+        { TFW_MCXN_LPI2C_MSR_PLTF, TFW_ERR_TIMEOUT },
+        { TFW_MCXN_LPI2C_MSR_FEF, TFW_ERR_INTERNAL },
+    };
+
+    for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        setUp();
+        m.nack_at = 1;
+        m.refusal = rows[i].flag;
+        TEST_ASSERT_EQUAL(rows[i].st, tfw_hal_i2c_xfer(DEV_ADDR, out, 3u, NULL, 0u));
+        TEST_ASSERT_EQUAL_UINT(1u, m.got_n);
+        TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+        TEST_ASSERT_FALSE(m.mbf);
+        TEST_ASSERT_EQUAL_HEX16(CMD(2, 0), m.log[m.log_n - 1u]);
+        TEST_ASSERT_EQUAL_HEX32(0u, m.flags);
+    }
+}
+
 /* The controller runs the queue while the driver writes it: a refusal lands
  * after later commands, or the STOP itself, are queued and held behind it.
  * The driver empties the FIFO, so nothing queued after the refusal is sent,
@@ -630,6 +660,7 @@ int main(void)
     RUN_TEST(test_an_unanswered_read_address_is_nack_and_stopped);
     RUN_TEST(test_a_refused_data_byte_is_nack_and_the_bus_is_stopped);
     RUN_TEST(test_a_refused_last_byte_is_nack_and_stopped);
+    RUN_TEST(test_each_error_flag_is_its_own_status_and_stopped);
     RUN_TEST(test_an_address_refused_after_the_stop_is_queued_is_nack);
     RUN_TEST(test_a_byte_refused_after_the_stop_is_queued_is_nack);
     RUN_TEST(test_a_read_address_refused_behind_its_receive_is_nack);

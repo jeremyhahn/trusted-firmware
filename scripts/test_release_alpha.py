@@ -168,6 +168,29 @@ class ReleaseAlpha(unittest.TestCase):
         _, out = self.run_main("--dry-run")
         self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
 
+    def test_a_failed_second_signature_deletes_the_first_tag_and_pushes_nothing(self):
+        signer = os.path.join(self.tmp.name, "fake-gpg")
+        count = os.path.join(self.tmp.name, "fake-gpg-calls")
+        # Signs as FAKE_SIGNER does on the first call; the second call fails with
+        # nothing on stdout, after v0.4.2-alpha already exists.
+        write(signer, FAKE_SIGNER.replace("import sys\n", (
+            "import os, sys\n"
+            f"n = int(open({count!r}).read()) if os.path.exists({count!r}) else 0\n"
+            f"open({count!r}, 'w').write(str(n + 1))\n"
+            "if n >= 1:\n"
+            "    sys.exit(1)\n"), 1))
+        before = self.tags(self.repo)
+        self.assertIn("tag", self.refused())
+        with open(count) as f:
+            self.assertEqual(f.read(), "2")
+        self.assertEqual(self.tags(self.repo), before)
+        dev = self.tags(self.dev)
+        self.assertNotIn("v0.4.2-alpha", dev)
+        self.assertNotIn("sdk/go/v0.4.2-alpha", dev)
+        write(signer, FAKE_SIGNER)
+        _, out = self.run_main("--dry-run")
+        self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
+
 
 class Precedence(unittest.TestCase):
     def test_semver_precedence(self):

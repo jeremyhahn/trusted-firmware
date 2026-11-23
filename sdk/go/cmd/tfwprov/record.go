@@ -38,6 +38,10 @@ import (
 // ueidTypeRAND is RFC 9711 §4.2.1's UEID type byte for a random number.
 const ueidTypeRAND = 0x01
 
+// b64 is base64url without padding that refuses non-zero pad bits: one
+// encoding per value, so the record's string compares are byte compares.
+var b64 = base64.RawURLEncoding.Strict()
+
 type provRecord struct {
 	UEID string        `json:"ueid"`
 	Cnf  *confirmation `json:"cnf,omitempty"`
@@ -61,7 +65,7 @@ type recordError struct{ msg string }
 func (e *recordError) Error() string { return "--record: " + e.msg }
 
 func ueidOf(serial [tfw.SerialLen]byte) string {
-	return base64.RawURLEncoding.EncodeToString(append([]byte{ueidTypeRAND}, serial[:]...))
+	return b64.EncodeToString(append([]byte{ueidTypeRAND}, serial[:]...))
 }
 
 // jwkOf encodes the DeviceID point PROV_GENKEY and PROV_PUBKEY return, X||Y.
@@ -73,8 +77,8 @@ func jwkOf(xy []byte) (*ecJWK, error) {
 	return &ecJWK{
 		Kty: "EC",
 		Crv: "P-256",
-		X:   base64.RawURLEncoding.EncodeToString(xy[:half]),
-		Y:   base64.RawURLEncoding.EncodeToString(xy[half:]),
+		X:   b64.EncodeToString(xy[:half]),
+		Y:   b64.EncodeToString(xy[half:]),
 	}, nil
 }
 
@@ -99,7 +103,7 @@ func readRecord(path string) (*provRecord, error) {
 	if err := checkMembers(json.NewDecoder(bytes.NewReader(raw)), recordMembers); err != nil {
 		return nil, &recordError{fmt.Sprintf("%s is not a provisioning record: %v", path, err)}
 	}
-	id, err := base64.RawURLEncoding.DecodeString(r.UEID)
+	id, err := b64.DecodeString(r.UEID)
 	if err != nil || len(id) != 1+tfw.SerialLen || id[0] != ueidTypeRAND {
 		return nil, &recordError{fmt.Sprintf("%s: ueid is not 0x01 followed by a %d-byte serial", path, tfw.SerialLen)}
 	}
@@ -168,8 +172,8 @@ func pointOf(k *ecJWK) ([]byte, error) {
 	if k.Kty != "EC" || k.Crv != "P-256" {
 		return nil, fmt.Errorf("cnf.jwk is %s %s, want EC P-256", k.Kty, k.Crv)
 	}
-	x, errX := base64.RawURLEncoding.DecodeString(k.X)
-	y, errY := base64.RawURLEncoding.DecodeString(k.Y)
+	x, errX := b64.DecodeString(k.X)
+	y, errY := b64.DecodeString(k.Y)
 	if errX != nil || errY != nil || len(x) != 32 || len(y) != 32 {
 		return nil, errors.New("cnf.jwk x and y are not 32 bytes each, base64url")
 	}

@@ -2324,46 +2324,44 @@ lint-test-sleep:
 # arch-leak gate lets src/hal/esp32 name vTaskDelay, this one does not.
 # _delay_us stays allowed: it is the bus-timing primitive behind
 # tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
-# one transaction, not a wait. Comments (/* */ across lines, and //) and the
-# contents of string and character literals are blanked before matching, with
-# line numbers kept, so prose naming delay() is not a finding and code beside a
-# comment (/* wait */ _delay_ms(10); delay /* ms */ (10);) still is. A call
-# split across lines (delay, then blank or comment-only lines, then the open
-# parenthesis) is still a call: the finding names the line of the identifier. A
-# string, character literal or // comment continued by a backslash-newline stays
-# open on the next line, with line numbers still physical. A backslash-newline
-# outside a literal or comment is deleted before matching, as C does, so the
-# lines it joins are matched as one (delay\ then (10); or _delay\ then _ms(10);)
-# and the finding names the first physical line of the join. The gate
+# one transaction, not a wait. Every backslash-newline is deleted first, as C
+# does, so comments and literals are recognised on the spliced text: a comment
+# closed by a spliced * and / is closed, a spliced / and / or / and * opens one,
+# and a name or call split by a splice is matched whole (delay\ then (10); or
+# _delay\ then _ms(10);). Comments (/* */ across lines, and //) and the
+# contents of string and character literals are then blanked in place, so
+# prose naming delay() is not a finding and code beside a comment
+# (/* wait */ _delay_ms(10); delay /* ms */ (10);) still is. A call split
+# across lines (delay, then blank or comment-only lines, then the open
+# parenthesis) is still a call. A finding names the physical line where the
+# identifier starts. The gate
 # fails closed: a root it cannot enter or a file awk cannot read fails it,
 # never passes as no hits (scripts/test_lint_no_delay.py); boards/ and include/
 # are swept when present.
 LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
 LINT_NO_DELAY_AWK := \
+	function phys(o,   k) { for (k = ns; k > 1 && so[k] > o; k--) ; return sl[k] } \
+	function ident(s) { return RSTART + (substr(s, RSTART, 1) ~ /[A-Za-z0-9_]/ ? 0 : 1) } \
+	function scan(s, f,   n, i, c, d, q, out) { out = ""; q = ""; n = length(s); \
+	  for (i = 1; i <= n; i++) { c = substr(s, i, 1); d = substr(s, i, 2); \
+	    if (inc) { if (d == "*/") { inc = 0; i++; out = out "  " } else out = out " "; continue } \
+	    if (q != "") { if (c == "\\") { i++; out = out "  " } else if (c == q) { q = ""; out = out c } else out = out " "; continue } \
+	    if (d == "/*") { inc = 1; i++; out = out "  "; continue } \
+	    if (d == "//") break; \
+	    if (c == "\"" || c == "\047") q = c; \
+	    out = out c } \
+	  if (pend != "" && out ~ /^[[:space:]]*[(]/) print pend; \
+	  if (out !~ /^[[:space:]]*$$/) pend = ""; \
+	  if (match(out, call)) { print f ":" phys(ident(out)) ": delay-call"; return } \
+	  if (match(out, tail)) pend = f ":" phys(ident(out)) ": delay-call" } \
 	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
 	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
-	FNR == 1 && jn && jb ~ call { print jf ":" jl ": delay-call" } \
-	FNR == 1 { pend = ""; inc = 0; cq = ""; lc = 0; jn = 0; jb = "" } \
-	{ out = ""; q = cq; cq = ""; n = length($$0); sp = (substr($$0, n, 1) == "\\"); \
-	  if (lc) { lc = sp; n = 0 } \
-	  for (i = 1; i <= n; i++) { c = substr($$0, i, 1); d = substr($$0, i, 2); \
-	    if (inc) { if (d == "*/") { inc = 0; i++; out = out " " } continue } \
-	    if (q != "") { if (c == "\\") { i++ } else if (c == q) { q = ""; out = out c } continue } \
-	    if (d == "/*") { inc = 1; i++; continue } \
-	    if (d == "//") { lc = sp; break } \
-	    if (c == "\"" || c == "\047") { q = c } \
-	    out = out c } \
-	  if (q != "" && sp) { cq = q } \
-	  js = (sp && q == "" && !lc); \
-	  if (js && !inc) { out = substr(out, 1, length(out) - 1) } \
-	  if (jn) { out = jb out; ln = jl } else { ln = FNR } \
-	  if (js) { jb = out; jn = 1; jl = ln; jf = FILENAME; next } \
-	  jn = 0; jb = ""; $$0 = out } \
-	pend != "" && /^[[:space:]]*[(]/ { print pend } \
-	!/^[[:space:]]*$$/ { pend = "" } \
-	$$0 ~ call { print FILENAME ":" ln ": delay-call"; next } \
-	$$0 ~ tail { pend = FILENAME ":" ln ": delay-call" } \
-	END { if (jn && jb ~ call) print jf ":" jl ": delay-call" }
+	FNR == 1 { if (ns) scan(jb, jf); inc = 0; pend = ""; ns = 0; jb = "" } \
+	{ s = $$0; n = length(s); sp = (n > 0 && substr(s, n, 1) == "\\"); if (sp) s = substr(s, 1, n - 1); \
+	  ns++; so[ns] = length(jb) + 1; sl[ns] = FNR; jb = jb s; jf = FILENAME; \
+	  if (sp) next; \
+	  scan(jb, jf); ns = 0; jb = "" } \
+	END { if (ns) scan(jb, jf) }
 lint-no-delay:
 	@cd $(LINT_GREP_ROOT) || exit 1; \
 	hits=$$(find src boot $$(for d in boards include; do [ -d $$d ] && echo $$d; done) -name third_party -prune -o -type f \

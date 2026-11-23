@@ -10,9 +10,11 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"math/big"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +193,13 @@ func TestDICEAttestationRefusals(t *testing.T) {
 // UCCS gets past the alias signature to the claims checks.
 func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, roots *x509.CertPool) {
 	t.Helper()
+	return selfDICEChainWith(t, uccs, aliasPub, nil)
+}
+
+// selfDICEChainWith is selfDICEChain with mutate, when non-nil, applied to
+// the alias template before it is signed.
+func selfDICEChainWith(t *testing.T, uccs []byte, aliasPub any, mutate func(*x509.Certificate)) (obj, nonce []byte, roots *x509.CertPool) {
+	t.Helper()
 	now := time.Now()
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -227,6 +236,9 @@ func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, 
 	}
 	if uccs != nil {
 		aliasTmpl.ExtraExtensions = []pkix.Extension{{Id: oidUCCSEvidenceLiteral, Critical: true, Value: uccsEvidence(t, uccs)}}
+	}
+	if mutate != nil {
+		mutate(aliasTmpl)
 	}
 	aliasDER, err := x509.CreateCertificate(rand.Reader, aliasTmpl, devID, aliasPub, devKey)
 	require.NoError(t, err)
@@ -326,6 +338,52 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			var ee *EvidenceError
 			require.ErrorAs(t, err, &ee)
 			require.Equal(t, c.reason, ee.Reason)
+		})
+	}
+}
+
+func TestDICEAttestationAliasChainRefusals(t *testing.T) {
+	ex := []byte(vectors.AppEvExample)
+	uccs := build(t, ex, nil)
+
+	t.Run("valid alias verifies and stays unmodified", func(t *testing.T) {
+		obj, nonce, roots := selfDICEChainWith(t, uccs, nil, nil)
+		ev, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+		require.NoError(t, err)
+		require.True(t, slices.ContainsFunc(ev.Alias.UnhandledCriticalExtensions, func(id asn1.ObjectIdentifier) bool {
+			return id.Equal(oidUCCSEvidenceLiteral)
+		}), "the caller's alias certificate must still list tcg-dice-UCCS-evidence as unhandled")
+	})
+
+	const reason = "the alias certificate is not valid under the DeviceID certificate"
+	cases := []struct {
+		name   string
+		mutate func(*x509.Certificate)
+	}{
+		{"expired alias", func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(-2*time.Hour), time.Now().Add(-time.Minute)
+		}},
+		{"alias not yet valid", func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)
+		}},
+		{"unknown critical extension", func(c *x509.Certificate) {
+			c.ExtraExtensions = append(c.ExtraExtensions, pkix.Extension{
+				Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55555, 1}, Critical: true, Value: []byte{0x05, 0x00},
+			})
+		}},
+		{"TcbInfo marked critical", func(c *x509.Certificate) {
+			c.ExtraExtensions = append(c.ExtraExtensions, pkix.Extension{
+				Id: asn1.ObjectIdentifier{2, 23, 133, 5, 4, 1}, Critical: true, Value: []byte{0x30, 0x00},
+			})
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			obj, nonce, roots := selfDICEChainWith(t, uccs, nil, c.mutate)
+			_, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+			var ee *EvidenceError
+			require.ErrorAs(t, err, &ee)
+			require.Equal(t, reason, ee.Reason)
 		})
 	}
 }

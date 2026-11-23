@@ -343,6 +343,71 @@ static void test_cancel_and_query_of_an_unarmed_pin(void)
     }
 }
 
+static void test_rearming_with_the_other_level_flips_the_revert_level(void)
+{
+    uint8_t p[1] = { PIN };
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 0u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, outbuf[1]);      /* held low */
+
+    tfw_mock_advance(500u);
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* held high now */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(1000u, remaining);
+
+    tfw_mock_advance(999u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+
+    tfw_mock_advance(1u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());    /* reverts low, not high */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+
+    /* The mirror: armed high, re-armed low, reverts high. */
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 0u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    tfw_mock_advance(1000u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+static void test_rearming_to_a_shorter_duration_shortens_the_deadline(void)
+{
+    uint8_t p[1] = { PIN };
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(100u);
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 200u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(200u, remaining);
+
+    tfw_mock_advance(199u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+
+    tfw_mock_advance(1u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());    /* the shorter deadline won */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -362,5 +427,7 @@ int main(void)
     RUN_TEST(test_timer_set_refuses_a_level_above_one_and_a_zero_duration);
     RUN_TEST(test_a_full_table_refuses_a_new_pin_with_no_slot);
     RUN_TEST(test_cancel_and_query_of_an_unarmed_pin);
+    RUN_TEST(test_rearming_with_the_other_level_flips_the_revert_level);
+    RUN_TEST(test_rearming_to_a_shorter_duration_shortens_the_deadline);
     return UNITY_END();
 }

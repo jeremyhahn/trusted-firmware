@@ -35,6 +35,8 @@ set -euo pipefail
 # shellcheck source=scripts/tfm-pins.sh
 . "$(dirname "$0")/tfm-pins.sh"
 
+# The checkout root, absolute: TF-M's CMake takes the partition paths below.
+REPO=$(cd "$(dirname "$0")/.." && pwd -P)
 BOARD=${1:-}
 WORK=${2:-$HOME/.cache/trusted-firmware/tfm}
 
@@ -95,6 +97,12 @@ fi
 export VIRTUAL_ENV=$WORK/venv
 export PATH="$WORK/venv/bin:$PATH"
 
+# The DICE partition (src/tz/tfm, #608 slice 3) and tf-m-extras' Measured
+# Boot partition, whose slot 3 (the NS image's measurement, which BL2 shares
+# with MCUBOOT_DATA_SHARING) the DICE partition reads, both join the build
+# through TF-M's extra Secure Partition path (config/extra_build_config.cmake):
+# a ;-list of partition directories and one of manifest lists.
+MB_DIR=$WORK/tf-m-extras/partitions/measured_boot
 step "building the secure side for $BOARD ($PLATFORM)"
 cmake -S "$WORK/tf-m" -B "$BUILD_S" -G Ninja \
 	-DTFM_PLATFORM="$PLATFORM" \
@@ -103,6 +111,12 @@ cmake -S "$WORK/tf-m" -B "$BUILD_S" -G Ninja \
 	-DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
 	-DBL2=ON \
 	-DTFM_PARTITION_INITIAL_ATTESTATION=OFF \
+	-DTFM_EXTRA_MANIFEST_LIST_FILES="$REPO/src/tz/tfm/tfw_dice_manifest_list.yaml;$MB_DIR/measured_boot_manifest_list.yaml" \
+	-DTFM_EXTRA_PARTITION_PATHS="$REPO/src/tz/tfm;$MB_DIR" \
+	-DTFM_PARTITION_TFW_DICE=ON \
+	-DTFM_PARTITION_MEASURED_BOOT=ON \
+	-DCONFIG_TFM_BOOT_STORE_MEASUREMENTS=ON \
+	-DMCUBOOT_DATA_SHARING=ON \
 	>"$LOGS/configure-$BOARD-s.log" 2>&1 ||
 	die "configure $BOARD secure failed; see $LOGS/configure-$BOARD-s.log"
 cmake --build "$BUILD_S" -- install >"$LOGS/build-$BOARD-s.log" 2>&1 ||
@@ -150,6 +164,6 @@ if [ "$BOARD" = an521 ]; then
 fi
 
 echo "TF-M $TFM_TAG ($TFM_COMMIT), tf-m-extras $EXTRAS_COMMIT"
-echo "platform $PLATFORM, $PROFILE, BL2 on, Initial Attestation off, CMAKE_BUILD_TYPE=$BUILD_TYPE"
+echo "platform $PLATFORM, $PROFILE, BL2 on, Initial Attestation off, DICE + Measured Boot on, CMAKE_BUILD_TYPE=$BUILD_TYPE"
 cat "$OUT/sizes.txt"
 echo "tfm-build: $BOARD images in $OUT"

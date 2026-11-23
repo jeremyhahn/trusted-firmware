@@ -413,6 +413,29 @@ static void test_the_slowest_rate_takes_the_last_prescale(void)
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
 }
 
+/* From 12 MHz at prescale 0 (latency 2), a rate the search times exactly can
+ * still be refused: its CLKHI is 0. 2 MHz is 6 ticks, cycle 6 - 2 - 2 = 2, 0
+ * off, so the search stops there; CLKHI (2 - 2) / 2 = 0 while the period (6)
+ * and its quarter (1) pass, so only the CLKHI check refuses it. 1.75 MHz is 7
+ * ticks, cycle 3, 1714285 Hz (35715 off, within 87500), CLKHI (3 - 2) / 2 = 0:
+ * refused by the same check. 1.5 MHz, one tick slower at 8, is the fastest
+ * rate it accepts: cycle 4, CLKHI 1 (1 + 52 * 8 / 100 = 5 is not over 5),
+ * CLKLO 3, SETHOLD 3, DATAVD 1, FILTSDA 0. */
+static void test_a_rate_whose_clkhi_would_be_zero_is_refused(void)
+{
+    static const uint32_t refused[] = {1750000u, 2000000u};
+    tfw_mcxn_lpi2c_timing_t t;
+
+    assert_timing(1500000u, 0u, 3u, 1u, 3u, 1u, 0u);
+    for (size_t i = 0u; i < sizeof refused / sizeof refused[0]; i++) {
+        memset(&t, 0xA5, sizeof t);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, refused[i], &t));
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+    }
+}
+
 /* ---- init */
 
 static void test_init_routes_clocks_pins_and_the_unit(void)
@@ -440,6 +463,8 @@ static void test_init_refuses_a_rate_it_cannot_time(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(0u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(3000000u));
+    /* Timed exactly by the search but CLKHI would be 0. */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(2000000u));
     TEST_ASSERT_EQUAL_UINT(0u, slot_n);
 }
 
@@ -861,6 +886,7 @@ int main(void)
     RUN_TEST(test_a_rate_out_of_reach_is_refused);
     RUN_TEST(test_the_five_percent_bound_is_inclusive);
     RUN_TEST(test_the_slowest_rate_takes_the_last_prescale);
+    RUN_TEST(test_a_rate_whose_clkhi_would_be_zero_is_refused);
     RUN_TEST(test_init_routes_clocks_pins_and_the_unit);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_time);
     RUN_TEST(test_a_write_is_start_bytes_and_stop);

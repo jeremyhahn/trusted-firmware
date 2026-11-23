@@ -5,7 +5,8 @@
 # TF-M v2.3.1 on QEMU's mps2-an521 (#608 slice 2, ruling 1024 (a)): BL2
 # (MCUboot) verifies and boots the signed secure image, TF-M prints its
 # "Booting TF-M" banner and enters the non-secure image, and the non-secure
-# application prints its first line. TF-M is built out of tree by
+# application prints its first line and then, from the DICE partition
+# (slice 3), "tfw-dice: deviceid ok". TF-M is built out of tree by
 # scripts/tfm-build.sh (mk/arch/tfm-targets.mk tfm-qemu-test).
 #
 #   qemu_tfm_test.sh <dir> <ns-marker>
@@ -80,4 +81,22 @@ fi
 if grep -qa 'FATAL ERROR\|HardFault\|panic' "$log"; then
     fail "a fault on the way to the non-secure image"
 fi
-echo "qemu_tfm_test: green (BL2, TF-M secure image, non-secure '$ns_marker')"
+
+# The DICE partition (#608 slice 3): the NS app's check
+# (src/tz/tfm/ns/tfw_dice_ns_check.c) prints one "tfw-dice: " line after the
+# NS marker, "tfw-dice: deviceid ok" when the partition answered the DeviceID
+# public key. Waited for as the marker was: until it appears or QEMU is gone.
+while ! grep -qaF -- 'tfw-dice: ' "$log" 2>/dev/null; do
+    kill -0 "$pid" 2>/dev/null || break
+    [ $SECONDS -lt $deadline ] || break
+    sleep 0.2
+done
+dice_line=$(grep -aF -- 'tfw-dice: ' "$log" 2>/dev/null | head -n 1 | tr -d '\r')
+[ -n "$dice_line" ] || fail "no 'tfw-dice: ' line: the non-secure DICE check did not run"
+case $dice_line in
+*'tfw-dice: deviceid ok'*) ;;
+*) fail "the DICE partition did not answer the DeviceID key: $dice_line" ;;
+esac
+dice=$(at 'tfw-dice: ')
+[ "$dice" -gt "$ns" ] || fail "'tfw-dice: ' came before '$ns_marker'"
+echo "qemu_tfm_test: green (BL2, TF-M secure image, non-secure '$ns_marker', tfw-dice: deviceid ok)"

@@ -256,14 +256,29 @@ class RunnerLabelsTest(unittest.TestCase):
         self.assertEqual(unknown(WORKFLOWS, allowlist(ACTIONLINT)), [])
 
     def test_a_misspelled_label_is_reported(self):
+        self.assertNotIn(
+            "qwne", allowlist(ACTIONLINT), "fixture label is now allowlisted"
+        )
         found = self.check("jobs:\n  review:\n    runs-on: qwne  # typo\n")
         self.assertEqual(found, ["w.yml:3: qwne"])
 
     def test_a_list_label_missing_from_the_allowlist_is_reported(self):
-        found = self.check(
-            "jobs:\n  build:\n    runs-on: [self-hosted, linux, x64, release]\n"
+        self.assertNotIn(
+            "publish", allowlist(ACTIONLINT), "fixture label is now allowlisted"
         )
-        self.assertEqual(found, ["w.yml:3: release"])
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: [self-hosted, linux, x64, publish]\n"
+        )
+        self.assertEqual(found, ["w.yml:3: publish"])
+
+    def test_an_allowlisted_list_label_is_accepted(self):
+        for label in ("release", "bigdisk"):
+            with self.subTest(label=label):
+                found = self.check(
+                    "jobs:\n  build:\n"
+                    f"    runs-on: [self-hosted, linux, x64, {label}]\n"
+                )
+                self.assertEqual(found, [])
 
     def test_an_expression_label_is_skipped(self):
         found = self.check(
@@ -458,7 +473,7 @@ class RunnerLabelsTest(unittest.TestCase):
 
     def test_the_allowlist_is_read(self):
         labels = allowlist(ACTIONLINT)
-        for label in ("codex", "qwen", "ci-gate"):
+        for label in ("codex", "qwen", "ci-gate", "bigdisk", "release"):
             self.assertIn(label, labels)
 
 

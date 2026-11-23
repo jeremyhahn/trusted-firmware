@@ -52,8 +52,8 @@
  * map (#640, owner ruling 1234). Below it is the bootloader's
  * [0, TFW_BOOT_EE_LEN), which EEPROM_WRITE already refuses to touch. */
 #define TFW_APP_CONFIG_BASE  (TFW_NETCFG_ADDR + TFW_NETCFG_LEN)
-_Static_assert(TFW_APP_CONFIG_BASE >= TFW_NETCFG_ADDR + TFW_NETCFG_LEN,
-               "application config starts above the network block");
+_Static_assert(TFW_APP_CONFIG_BASE == 0x160u,
+               "application config starts at 0x160 on every image (owner ruling 1234)");
 _Static_assert(TFW_NETCFG_ADDR >= TFW_BOOT_EE_LEN,
                "the network block starts above the bootloader's EEPROM");
 

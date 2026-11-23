@@ -104,6 +104,52 @@ static void test_a_wait_that_never_ends_fails_the_write(void)
     TFW_NRF_RRAMC_READY = TFW_NRF_RRAMC_READY_BIT;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT,
                           tfw_cm_boot_flash_write((uint32_t)TFW_CM_PLATFORM_BASE, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+}
+
+/* A controller that is never READY when the write starts fails it with
+ * nothing stored and CONFIG left as it was. */
+static void test_a_controller_never_ready_at_the_start_stores_nothing(void)
+{
+    TFW_NRF_RRAMC_READYNEXT = TFW_NRF_RRAMC_READY_BIT;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_CM_PLATFORM_BASE, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_RRAMC_CONFIG);
+}
+
+/* CONFIG gets back the value it had before the write, not zero, both when
+ * the write is taken and when a wait times out. */
+static void test_config_gets_back_its_earlier_value(void)
+{
+    TFW_NRF_RRAMC_CONFIG = 0x00000100u;    /* WRITEBUFSIZE 1, WEN clear */
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_CM_PLATFORM_BASE, data, sizeof data));
+    TEST_ASSERT_TRUE(stores != 0u && stores_with_wen == stores);
+    TEST_ASSERT_EQUAL_HEX32(0x00000100u, TFW_NRF_RRAMC_CONFIG);
+
+    TFW_NRF_RRAMC_READYNEXT = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_CM_PLATFORM_BASE, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX32(0x00000100u, TFW_NRF_RRAMC_CONFIG);
+}
+
+/* A span that runs past the RRAM's end, or starts beyond it, is refused with
+ * nothing stored; the last word is still taken. */
+static void test_a_span_past_the_rram_end_is_refused(void)
+{
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_NRF54L_RRAM_SIZE - 2u, data, 4u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_NRF54L_RRAM_SIZE + 4u, data, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_NRF54L_RRAM_SIZE - 4u, data, 4u));
+    TEST_ASSERT_EQUAL_UINT(1u, logged);
 }
 
 /* ...with WEN put back on that path too. */
@@ -171,6 +217,9 @@ int main(void)
     RUN_TEST(test_a_refused_span_stores_nothing);
     RUN_TEST(test_a_wait_that_never_ends_fails_the_write);
     RUN_TEST(test_a_failed_wait_puts_wen_back);
+    RUN_TEST(test_a_controller_never_ready_at_the_start_stores_nothing);
+    RUN_TEST(test_config_gets_back_its_earlier_value);
+    RUN_TEST(test_a_span_past_the_rram_end_is_refused);
     RUN_TEST(test_each_byte_lands_at_its_address);
     RUN_TEST(test_an_unaligned_source_is_stored_whole);
     RUN_TEST(test_a_write_at_the_region_end_is_accepted);

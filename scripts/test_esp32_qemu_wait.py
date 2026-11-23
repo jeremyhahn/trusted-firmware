@@ -10,6 +10,7 @@ exits, after wait_for's last read of the log: the wait must still find it.
 
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -115,6 +116,30 @@ class TestEsp32QemuWait(unittest.TestCase):
                             str(cm.exception))
         finally:
             q.stop()
+
+    # (e) a line written during the last wait, with QEMU still running, is
+    # found by the read after the deadline, not reported missing
+    def test_line_written_during_the_last_wait_is_found(self):
+        q = self.qemu("import signal; signal.pause()")
+        reads = []
+
+        def line_after_first_read():
+            reads.append(1)
+            return "" if len(reads) == 1 else "tfw-l0: refused\n"
+
+        clock_calls = []
+
+        def clock():
+            # The deadline, the loop check and the wait's bound see t=0; every
+            # later check sees the deadline passed.
+            clock_calls.append(1)
+            return 0.0 if len(clock_calls) <= 3 else 1e9
+
+        with mock.patch.object(q, "text", side_effect=line_after_first_read), \
+                mock.patch.object(q.proc, "wait", side_effect=subprocess.TimeoutExpired("qemu", 0.25)), \
+                mock.patch.object(self.h, "time", types.SimpleNamespace(time=clock)):
+            q.wait_for(r"tfw-l0: refused", timeout=10)
+        self.assertEqual(len(reads), 2)
 
 
 if __name__ == "__main__":

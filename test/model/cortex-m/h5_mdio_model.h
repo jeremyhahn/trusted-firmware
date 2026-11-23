@@ -1,0 +1,61 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * The MAC stand-in for the STM32H5 MDIO register test (test/unit/
+ * test_h5_eth_mdio_regs.c). The register file is built with its
+ * tfw_cm_model_reg renamed regfile_model_reg (mk/host.mk), so the one here
+ * stands in for the MAC: it clears MACMDIOAR.MB once the driver has polled
+ * it busy_polls times. Include it once, from that test, after
+ * regfile_model.h; the test reads and sets the state below.
+ */
+#ifndef TFW_TEST_H5_MDIO_MODEL_H
+#define TFW_TEST_H5_MDIO_MODEL_H
+
+#include <stdint.h>
+
+#define MACMDIOAR  0x40028200u
+#define MACMDIODR  0x40028204u
+#define MB         0x1u
+#define GOC_READ   (0x3u << 2)
+#define NEVER      UINT32_MAX
+
+volatile uint32_t *regfile_model_reg(uintptr_t addr);
+
+static uint32_t busy_polls;   /* MB reads that see it set, then it clears */
+static uint32_t polls;        /* MB-set reads since the last command */
+static uint32_t issued;       /* MACMDIOAR as the last command wrote it */
+static uint32_t issued_dr;    /* MACMDIODR as the last command found it */
+static uint32_t seen;         /* MB-set reads in all */
+static uint32_t reply;        /* MACMDIODR a read's completion publishes */
+
+/*
+ * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
+ * A read's result reaches MACMDIODR only as MB clears, so a driver that
+ * reads the data register before its wait gets the stale value. A write's
+ * data is read as the command is first seen, so a driver that loads
+ * MACMDIODR after issuing the command sends the stale value.
+ */
+volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
+{
+    volatile uint32_t *r = regfile_model_reg(addr);
+
+    if (addr == MACMDIOAR && (*r & MB) != 0u) {
+        if (polls == 0u) {
+            issued = *r;
+            issued_dr = *regfile_model_reg(MACMDIODR);
+        }
+        if (busy_polls != NEVER && polls >= busy_polls) {
+            *r &= ~MB;
+            if ((issued & (0x3u << 2)) == GOC_READ) {
+                *regfile_model_reg(MACMDIODR) = reply;
+            }
+            polls = 0u;
+        } else {
+            polls++;
+            seen++;
+        }
+    }
+    return r;
+}
+
+#endif /* TFW_TEST_H5_MDIO_MODEL_H */

@@ -478,6 +478,41 @@ static void test_a_block_that_will_not_load_before_t1_leaves_the_connection_up(v
     TEST_ASSERT_EQUAL_UINT8(0u, eth.udp);
 }
 
+/* A DHCPNAK to the first request (src/net/dhcp.c:466) is not a lease: the
+ * link stays down, dials nothing and backs off (src/proto/link_eth.c:72-81). */
+static void test_a_nak_to_the_first_request_keeps_the_link_down_and_backs_off(void)
+{
+    unsigned opens;
+    tfw_ms_t waited;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, poll_until_sent(LONGEST_BACKOFF_MS + 11000u));
+    TEST_ASSERT_EQUAL_UINT8(DHCPDISCOVER, sent_as(bcast, 0x80u, none));
+    hand_up(DHCPOFFER, srv_a, 0u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT8(DHCPREQUEST, sent_as(bcast, 0x80u, none));
+
+    hand_up(DHCPNAK, srv_a, 0u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, eth.udp);               /* given back */
+    TEST_ASSERT_EQUAL_UINT(0u, eth.starts);             /* no address: no dial */
+    opens = eth.opens;
+
+    for (waited = 0u; waited < 990u; waited += STEP_MS) {
+        tfw_mock_advance(STEP_MS);
+        tfw_link_poll();
+        TEST_ASSERT_EQUAL_UINT(opens, eth.opens);       /* not before 1 s */
+    }
+    for (; waited <= LONGEST_BACKOFF_MS + STEP_MS && eth.opens == opens; waited += STEP_MS) {
+        tfw_mock_advance(STEP_MS);
+        tfw_link_poll();
+    }
+    TEST_ASSERT_EQUAL_UINT(opens + 1u, eth.opens);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, eth.open_cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT8(1u, poll_until_sent(11000u));
+    TEST_ASSERT_EQUAL_UINT8(DHCPDISCOVER, sent_as(bcast, 0x80u, none));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -489,5 +524,6 @@ int main(void)
     RUN_TEST(test_a_connection_lost_while_renewing_redials_from_the_lease_and_renews);
     RUN_TEST(test_a_block_that_will_not_load_at_t1_drops_the_connection_and_asks_nothing);
     RUN_TEST(test_a_block_that_will_not_load_before_t1_leaves_the_connection_up);
+    RUN_TEST(test_a_nak_to_the_first_request_keeps_the_link_down_and_backs_off);
     return UNITY_END();
 }

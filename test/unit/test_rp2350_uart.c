@@ -222,6 +222,19 @@ static void test_tx_idle_needs_txfe_and_not_busy(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
 }
 
+/* Init empties the ring: bytes received before a re-init are not handed out
+ * after it. */
+static void test_init_empties_the_ring(void)
+{
+    uint8_t b;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_uart_init(115200u));
+    feed(0x30u, 5u);
+    tfw_cm_irq33();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -232,5 +245,6 @@ int main(void)
     RUN_TEST(test_tx_try_writes_the_byte_when_the_fifo_has_room);
     RUN_TEST(test_tx_try_refuses_a_full_fifo_and_writes_nothing);
     RUN_TEST(test_tx_idle_needs_txfe_and_not_busy);
+    RUN_TEST(test_init_empties_the_ring);
     return UNITY_END();
 }

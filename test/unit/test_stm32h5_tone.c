@@ -229,6 +229,21 @@ static void test_a_refused_start_leaves_a_sounding_tone_as_it_was(void)
     TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
 }
 
+/* 0 Hz is stop whatever the pin: asked on another pin it still silences a
+ * sounding tone rather than refusing the pin and leaving it sounding. */
+static void test_zero_hz_on_any_pin_stops_a_sounding_tone(void)
+{
+    static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL_HEX32(0x4068u, peek(A_CCMR1));   /* forced inactive */
+    n_log = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 0u)); /* idle: touches nothing */
+    TEST_ASSERT_EQUAL(0u, n_log);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -238,5 +253,6 @@ int main(void)
     RUN_TEST(test_stop_halts_and_holds_the_pin_low);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);
     RUN_TEST(test_a_refused_start_leaves_a_sounding_tone_as_it_was);
+    RUN_TEST(test_zero_hz_on_any_pin_stops_a_sounding_tone);
     return UNITY_END();
 }

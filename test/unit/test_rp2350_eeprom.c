@@ -31,6 +31,7 @@
 #define erases       rp_nor_erases
 #define n_erases     rp_nor_n_erases
 #define corrupt_next rp_nor_corrupt_next
+#define refuse_next  rp_nor_refuse_next
 
 void setUp(void)
 {
@@ -247,6 +248,32 @@ static void test_a_kept_byte_corrupted_by_the_rewrite_is_internal(void)
     assert_platform_untouched();
 }
 
+static void test_a_refused_sector_write_is_returned_with_interrupts_unmasked(void)
+{
+    const uint8_t data[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    uint8_t kept = 0x5Au;
+    unsigned before;
+    uint32_t was;
+
+    TEST_ASSERT_EQUAL(TFW_OK,
+                      tfw_hal_eeprom_write((uint16_t)(TFW_BOOT_EE_LEN + 0x10u), &kept, 1u));
+    before = n_erases;
+    refuse_next = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+                      tfw_hal_eeprom_write((uint16_t)(TFW_BOOT_EE_LEN + 0x40u), data, 8u));
+    TEST_ASSERT_EQUAL_UINT(before, n_erases);
+    TEST_ASSERT_EQUAL_HEX8(0x5A, USER_EE[0x10]);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, &USER_EE[0x40], 8u);
+    was = tfw_rp_model_irq_save();
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, was, "the refused write left interrupts unmasked");
+    tfw_rp_model_irq_restore(was);
+    assert_platform_untouched();
+    TEST_ASSERT_EQUAL(TFW_OK,
+                      tfw_hal_eeprom_write((uint16_t)(TFW_BOOT_EE_LEN + 0x40u), data, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &USER_EE[0x40], sizeof data);
+    TEST_ASSERT_EQUAL_HEX8(0x5A, USER_EE[0x10]);
+}
+
 /* A write the flash takes 45 ms over, interrupts masked throughout, still
  * advances the millisecond clock by 45: the one SysTick left pending plus
  * the milliseconds TIMER0 counted. */
@@ -388,6 +415,7 @@ int main(void)
     RUN_TEST(test_a_write_to_the_user_sectors_end_never_erases_the_platform_sector);
     RUN_TEST(test_a_read_back_mismatch_is_internal);
     RUN_TEST(test_a_kept_byte_corrupted_by_the_rewrite_is_internal);
+    RUN_TEST(test_a_refused_sector_write_is_returned_with_interrupts_unmasked);
     RUN_TEST(test_a_45_ms_write_advances_the_clock_45_ms);
     RUN_TEST(test_a_run_of_writes_does_not_drift);
     RUN_TEST(test_writes_with_work_between_count_every_boundary);

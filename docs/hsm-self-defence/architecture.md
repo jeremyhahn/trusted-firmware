@@ -242,7 +242,10 @@ verified policy *P*, or none.
   previous policy stays (owner ruling 1234): an envelope that fails
   verification, a set below the floor or one the reader refuses, a script the
   current set does not name, a named script that does not read, and a script
-  past the last slot (`TFW_ERR_NO_SLOT`). A load chunk out of sequence, or
+  past the last slot (`TFW_ERR_NO_SLOT`). Before `tfw_hsm_load` runs, the
+  channel refuses and counts a first chunk whose total is 0 or past the
+  buffer (`TFW_ERR_RANGE`, ADR D7 step 1), and the held set stays. A load
+  chunk out of sequence, or
   longer than is left, drops the pending envelope with the same refusal
   status and is not counted.
 

@@ -90,9 +90,10 @@ state answers `TFW_ERR_BAD_STATE` and changes nothing — see
 tfw_boot_reset_action_t tfw_boot_trial_at_reset(const tfw_boot_platform_t *p);
 tfw_status_t tfw_boot_trial_arm(tfw_boot_platform_t *p);      // PENDING -> TRIAL
 tfw_status_t tfw_boot_trial_fail(tfw_boot_platform_t *p);     // TRIAL or PENDING -> TRIAL, FAILED
+tfw_status_t tfw_boot_trial_fall_back(tfw_boot_platform_t *p); // as fail, then GOOD: the 2560 put the previous image back
 tfw_status_t tfw_boot_trial_settle(tfw_boot_platform_t *p, uint32_t version,
                                    uint32_t floor, uint32_t *next); // CONFIRMED -> GOOD
-// no wire id yet (decision 8's ids are proposed): reached from tests only
+// confirm: OTA_CONFIRM (0x6E, src/core/ota_ctl.c) and tfw-boot's settle at reset (boot/boot_swap.c); activate: tests only, the wire's OTA_ACTIVATE writes the MARK (src/core/ota_activate.c)
 tfw_status_t tfw_boot_trial_confirm(tfw_boot_platform_t *p);  // TRIAL -> CONFIRMED
 tfw_status_t tfw_boot_trial_activate(tfw_boot_platform_t *p,
                                      const uint8_t measurement[TFW_BOOT_MEASURE_LEN],

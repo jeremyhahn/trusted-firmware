@@ -20,6 +20,7 @@
 #include "hal_mock.h"
 #include "tfw/protocol.h"
 #include "tfw/config.h"
+#include "tfw/eth.h"
 #include "vectors.h"
 
 _Static_assert(sizeof TFWV_APPINFO_OVERRUN_REPLY - 1u == TFWV_APPINFO_OVERRUN_REPLY_LEN,
@@ -284,6 +285,30 @@ static void test_configuration_lands_after_the_boot_block(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, 3);
 }
 
+/* #640, owner ruling 1234: [0x140, 0x160) is the network block on every
+ * image, Ethernet or not, and application config starts at 0x160 above it. */
+static void test_a_config_write_never_touches_the_network_block(void)
+{
+    uint8_t  want[TFW_NETCFG_LEN];
+    uint8_t  b;
+    uint16_t len = tfw_mock_app_descriptor()->config_len;
+    uint16_t off;
+    uint8_t  i;
+
+    TEST_ASSERT_NOT_EQUAL(0, len);
+    for (i = 0u; i < TFW_NETCFG_LEN; i++) {
+        want[i] = (uint8_t)(0xC3u ^ i);
+        tfw_mock_eeprom()[TFW_NETCFG_ADDR + i] = want[i];
+    }
+    tfw_app_runner_start();
+    for (off = 0u; off < len; off++) {
+        b = (uint8_t)(0x10u + off);
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_app_config_write(off, &b, 1u));
+    }
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, &tfw_mock_eeprom()[TFW_NETCFG_ADDR], TFW_NETCFG_LEN);
+    TEST_ASSERT_EQUAL_HEX8(0x10u, tfw_mock_eeprom()[0x160u]);
+}
+
 static void test_configuration_past_the_declared_length_is_out_of_range(void)
 {
     uint8_t buf[4] = { 0u, 0u, 0u, 0u };
@@ -505,6 +530,7 @@ int main(void)
     RUN_TEST(test_the_overrun_count_saturates);
     RUN_TEST(test_a_start_clears_the_overrun_count);
     RUN_TEST(test_configuration_lands_after_the_boot_block);
+    RUN_TEST(test_a_config_write_never_touches_the_network_block);
     RUN_TEST(test_configuration_past_the_declared_length_is_out_of_range);
     RUN_TEST(test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not);
     RUN_TEST(test_a_config_call_past_the_part_is_out_of_range_inside_the_declared_length);

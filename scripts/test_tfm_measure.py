@@ -11,7 +11,8 @@ build directory the case names, and arm-none-eabi-size prints the sizes the
 case wrote. No network, no TF-M, no CMake, no Arm toolchain.
 
 TFM_MEASURE_SCRIPT runs the suite against another copy of the script (a
-mutation check); it is not needed otherwise.
+mutation check); the copy needs its tfm-pins.sh next to it, as the script
+sources it from there. It is not needed otherwise.
 """
 
 import os
@@ -24,14 +25,17 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 SCRIPT = os.environ.get("TFM_MEASURE_SCRIPT") or os.path.join(REPO, "scripts", "tfm-measure.sh")
+# The pins live in tfm-pins.sh beside the script, which sources it (tfm-build.sh
+# shares them).
+PINS = os.path.join(os.path.dirname(SCRIPT), "tfm-pins.sh")
 
 
 def pin(name):
-    """The value of NAME=... in the script, so the test follows a re-pin."""
-    with open(SCRIPT, encoding="utf-8") as f:
+    """The value of NAME=... in the pins file, so the test follows a re-pin."""
+    with open(PINS, encoding="utf-8") as f:
         m = re.search(r"^%s=(\S+)$" % name, f.read(), re.M)
     if not m:
-        raise AssertionError("%s not found in %s" % (name, SCRIPT))
+        raise AssertionError("%s not found in %s" % (name, PINS))
     return m.group(1)
 
 

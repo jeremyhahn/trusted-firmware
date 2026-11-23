@@ -29,6 +29,7 @@
 #
 # Usage: scripts/tfm-build.sh an521|stm32h573i-dk [work-dir]
 #        (default work-dir $HOME/.cache/trusted-firmware/tfm)
+#        A relative work-dir is taken from the invocation directory.
 set -euo pipefail
 
 # shellcheck source=scripts/tfm-pins.sh
@@ -49,11 +50,15 @@ stm32h573i-dk) PLATFORM=stm/stm32h573i_dk ;;
 *) die "usage: tfm-build.sh an521|stm32h573i-dk [work-dir]" ;;
 esac
 
+# CMake resolves a relative TFM_TOOLCHAIN_FILE or CONFIG_SPE_PATH against its
+# own source/build directories, so every path below starts absolute.
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd -P)
 LOGS=$WORK/logs
 BUILD_S=$WORK/build-$BOARD-s
 BUILD_NS=$WORK/build-$BOARD-ns
 OUT=$WORK/out/$BOARD
-mkdir -p "$WORK" "$LOGS"
+mkdir -p "$LOGS"
 
 command -v arm-none-eabi-gcc >/dev/null || die "arm-none-eabi-gcc not found"
 command -v arm-none-eabi-size >/dev/null || die "arm-none-eabi-size not found"

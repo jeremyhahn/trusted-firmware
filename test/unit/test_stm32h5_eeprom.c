@@ -270,6 +270,46 @@ static void test_a_write_into_the_span_is_range_and_touches_no_flash(void)
     TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
 }
 
+static void test_a_refused_read_writes_no_byte_into_the_callers_buffer(void)
+{
+    uint8_t back[8];
+    uint8_t want[8];
+
+    memset(back, 0xA5, sizeof back);
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_read(USER_LAST, back, 2u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, back, 1u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_read(0xFFFFu, back, 8u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+}
+
+static void test_a_refused_write_past_the_end_touches_no_flash(void)
+{
+    uint8_t b = 0x3Cu, two[2] = { 1u, 2u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_write(USER_LAST, two, 2u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
+static void test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothing(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+
+    memset(req, 0xC3, sizeof req);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR + 1u, req, sizeof req));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR - 1u, req, sizeof req));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
 static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)
 {
     static const uint8_t data[2] = { 0x77u, 0x88u };
@@ -479,6 +519,9 @@ int main(void)
     RUN_TEST(test_an_overwrite_rewrites_the_user_sector_and_keeps_its_other_bytes);
     RUN_TEST(test_the_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_span_is_range_and_touches_no_flash);
+    RUN_TEST(test_a_refused_read_writes_no_byte_into_the_callers_buffer);
+    RUN_TEST(test_a_refused_write_past_the_end_touches_no_flash);
+    RUN_TEST(test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);

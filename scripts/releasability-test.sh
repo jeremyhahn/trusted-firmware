@@ -150,8 +150,22 @@ printf 'neutral text\n' > "$t/doc.md"
 printf 'no-such-class\tfoo\t# note\n' > "$tmp/bad.patterns"
 git -C "$t" add -A
 rc=0
-RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/bad.patterns "$gate" > /dev/null 2>&1 || rc=$?
-if [ "$rc" -ne 2 ]; then fail "an unknown class exited $rc, want 2"; fi
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/bad.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "an unknown class exited $rc, want 2: $out"
+else case "$out" in *"unknown class 'no-such-class'"*) ;; *) fail "an unknown class: no class named in: $out" ;; esac
+fi
+
+# An unknown class after a rule that matches still fails the whole list: the
+# gate refuses the list before it scans, so the earlier hit is not reported.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\t(^|[.])example\\.internal\nno-such-class\tfoo\n' > "$tmp/late.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/late.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "an unknown class after a matching rule exited $rc, want 2: $out"
+else case "$out" in *"unknown class 'no-such-class'"*) ;; *) fail "an unknown class after a matching rule: no class named in: $out" ;; esac
+fi
 
 # A last line with no final newline is still a rule.
 checks=$((checks + 1)); fresh

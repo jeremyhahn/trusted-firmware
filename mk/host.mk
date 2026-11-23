@@ -2820,7 +2820,7 @@ host-dir:
 # The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
 # becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
 # by the same line. -include, because the first build has none.
--include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
+-include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d $(MPS2_BUS_REGS_DIR)/*.d)
 
 .PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest

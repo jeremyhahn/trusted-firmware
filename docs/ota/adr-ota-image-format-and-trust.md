@@ -546,7 +546,7 @@ where only one fits, its image links one link file, chosen by its profile, as
   - bit 1: the fall-back followed a refusal at evaluation, not an unconfirmed
     trial (`INFO_FLAG_REFUSED` 0x02, `src/core/ota_ctl.c:54`; `SlotRefused`,
     `sdk/go/ota.go:69`). It is set only beside bit 0, when the platform
-    block's `TFW_BOOT_EE_FLAG_REFUSED` (`include/tfw/boot.h:244`) is set
+    block's `TFW_BOOT_EE_FLAG_REFUSED` (`include/tfw/boot.h:257`) is set
     (`src/core/ota_ctl.c:87-88`); tfw-boot writes that flag in the block write
     of a fall-back after a refusal (`boot/boot_prev.c:58`, stored at
     `boot/boot_prev.c:49`) and clears it at a fall-back from an unconfirmed
@@ -677,7 +677,7 @@ The machine is drawn in
   `flags`: bit 0, set because the `OTA_STATE` it clears to is `FAILED`
   (`src/core/ota_ctl.c:85-86`); and bit 1, "refused at evaluation", beside it
   when the fall-back followed a refusal rather than an unconfirmed trial: the
-  platform block's `TFW_BOOT_EE_FLAG_REFUSED` (`include/tfw/boot.h:244`),
+  platform block's `TFW_BOOT_EE_FLAG_REFUSED` (`include/tfw/boot.h:257`),
   written by `boot/boot_prev.c:58`, read at `src/core/ota_ctl.c:87-88`. A
   refusal reads `0x03`, an unconfirmed trial `0x01`.
   `state` is `FAILED`, and slot 1's `image_version` and `measurement` are zero, the

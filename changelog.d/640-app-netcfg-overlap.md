@@ -1,3 +1,3 @@
 ### Fixed
 
-- **An application's configuration no longer overwrites the Ethernet network block** (row #640). On an ETH=1 or ETH_MAC=1 image the runner refuses an application with a nonzero `config_len` (UNSUPPORTED), and `tfw_app_config_read`/`tfw_app_config_write` return `TFW_ERR_PROTECTED_REGION`; the EEPROM layout is unchanged.
+- **An application's configuration no longer overwrites the Ethernet network block** (row #640, owner ruling 1234). Application config starts at `TFW_APP_CONFIG_BASE` = 0x160 on every image, above the network block `[0x140, 0x160)`, so an application that owns config runs on ETH=1 and ETH_MAC=1 images too; the runner still refuses (UNSUPPORTED) a `config_len` past the end of the board's EEPROM.

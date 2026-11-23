@@ -80,7 +80,7 @@ running image, 1 the staged one), and `active` the slot that runs, always 0
 `0x02`, only beside `0x01`, the fall-back followed a refusal at evaluation
 rather than an unconfirmed trial (`INFO_FLAG_REFUSED`, `src/core/ota_ctl.c:54`
 and `:87-88`, from the platform block's `TFW_BOOT_EE_FLAG_REFUSED`,
-`include/tfw/boot.h:244`, which `boot/boot_prev.c:58` writes; `SlotRefused` in
+`include/tfw/boot.h:257`, which `boot/boot_prev.c:58` writes; `SlotRefused` in
 `sdk/go`), so a refusal reads `0x03`; `0x04` a trial is running. `floor` is the rollback floor, the element's where there is one. For
 slot 0, `state` is the platform block's boot state (0 empty, 1 staged, 2 good,
 3 trial, 4 confirmed) and `image_version` and `measurement` are zero. For slot 1 it is

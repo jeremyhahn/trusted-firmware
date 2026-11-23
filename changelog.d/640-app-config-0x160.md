@@ -1,1 +1,3 @@
-- Application config starts at 0x160 on every image, above the network block [0x140, 0x160); the Ethernet-image refusal is gone; config stored at 0x140 by an out-of-tree application must be re-provisioned; the host SDK gains `tfw.AppConfigBase` (#640, owner ruling 1234).
+### Changed
+
+- **Application config moved from 0x140 to 0x160** (#640, owner ruling 1234): config stored at 0x140 by an out-of-tree application must be re-provisioned at `0x160 + offset`; the host SDK gains `tfw.AppConfigBase`.

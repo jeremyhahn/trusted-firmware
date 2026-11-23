@@ -378,6 +378,32 @@ class RunnerLabelsTest(unittest.TestCase):
         ):
             self.assertEqual(self.check(head + value), want, value)
 
+    def test_an_anchored_or_tagged_value_is_read(self):
+        head = "jobs:\n  build:\n    runs-on:"
+        for value, want in (
+            (" &r qwne\n", ["w.yml:3: qwne"]),
+            (" &r codex\n", []),
+            (' !!str "qwne"\n', ["w.yml:3: qwne"]),
+            (" &r [self-hosted, qwne]\n", ["w.yml:3: qwne"]),
+            (" &r\n      - self-hosted\n      - qwne\n", ["w.yml:5: qwne"]),
+            ("\n      &r qwne\n", ["w.yml:4: qwne"]),
+            ("\n      &r [self-hosted,\n       qwne]\n", ["w.yml:4: qwne"]),
+            ("\n      - &a qwne\n", ["w.yml:4: qwne"]),
+            ("\n      labels: &l [self-hosted, qwne]\n", ["w.yml:4: qwne"]),
+        ):
+            self.assertEqual(self.check(head + value), want, value)
+
+    def test_an_alias_value_is_skipped(self):
+        head = "jobs:\n  build:\n    runs-on:"
+        for value, want in (
+            (" *r\n", []),
+            (" [*r, qwne]\n", ["w.yml:3: qwne"]),
+            ("\n      *r\n", []),
+            ("\n      - *r\n      - qwne\n", ["w.yml:5: qwne"]),
+            ("\n      group: g\n      labels: *l\n", []),
+        ):
+            self.assertEqual(self.check(head + value), want, value)
+
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

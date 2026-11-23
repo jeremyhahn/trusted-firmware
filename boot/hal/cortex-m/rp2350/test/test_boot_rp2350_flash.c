@@ -22,7 +22,7 @@
 #include <string.h>
 #include "unity.h"
 #include "rp_flash.h"
-#include "../boot_soc.h"
+#include "../../boot_soc.h"
 
 #define FLASH_LEN    0x400000u                      /* 4 MiB, the Pico 2 W's */
 #define FLASH_END    (TFW_RP_XIP_BASE + FLASH_LEN)

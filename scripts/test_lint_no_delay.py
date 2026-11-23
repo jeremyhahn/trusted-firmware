@@ -69,6 +69,37 @@ class LintNoDelayTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn("boot/plant.c:2: delay-call", r.stdout)
 
+    def test_delay_call_spliced_before_paren_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  _delay_ms\\\n(10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_delay_call_spliced_with_space_before_paren_fails(self):
+        self.write("src/core/plant.c", "  delay \\\n  (10);\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:1: delay-call", r.stdout)
+
+    def test_delay_name_split_by_a_splice_fails(self):
+        self.write("src/core/plant.c", "  _delay\\\n_ms(10);\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:1: delay-call", r.stdout)
+
+    def test_continued_macro_with_a_delay_call_fails(self):
+        self.write("src/core/plant.c",
+                   "#define W() do { \\\n  vTaskDelay\\\n  (1); } while (0)\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:1: delay-call", r.stdout)
+
+    def test_a_splice_with_no_delay_passes(self):
+        self.write("src/core/plant.c",
+                   "#define X(a) \\\n  ((a) + 1)\nint delayed_x;\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_comment_and_bus_timing_pass(self):
         self.write("src/core/prose.c",
                    "// a poll, never delay()\n"

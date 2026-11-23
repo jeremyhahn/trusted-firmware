@@ -170,8 +170,22 @@ printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-strin
 printf 'lab-host\tfoo(\n' > "$tmp/badre.patterns"
 git -C "$t" add -A
 rc=0
-RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/badre.patterns "$gate" > /dev/null 2>&1 || rc=$?
-if [ "$rc" -ne 2 ]; then fail "a regex grep -E refuses exited $rc, want 2"; fi
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/badre.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a regex grep -E refuses exited $rc, want 2: $out"
+else case "$out" in *"pattern grep -E refuses for lab-host"*) ;; *) fail "a regex grep -E refuses: no class named in: $out" ;; esac
+fi
+
+# A class with no pattern fails the list: an empty regex would match every
+# line of every published file, and skipping the line would scan nothing.
+checks=$((checks + 1)); fresh
+printf 'neutral text\n' > "$t/doc.md"
+printf 'lab-host\t\n' > "$tmp/empty.patterns"
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/empty.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a class with an empty pattern exited $rc, want 2: $out"
+else case "$out" in *"empty pattern for lab-host"*) ;; *) fail "a class with an empty pattern: no class named in: $out" ;; esac
+fi
 
 # This tree passes its own list.
 checks=$((checks + 1))

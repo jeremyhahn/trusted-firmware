@@ -254,35 +254,35 @@ static void test_reset_cause_sreq_is_software_only_under_the_resetreq_mark(void)
 {
     TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
     TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
     TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
     TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_WATCHDOG));
     TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
     TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_PANIC));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_PANIC));
     TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
-    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_cm_soc_reset_cause(0u));
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_nrf54l_model_reset_cause(0u));
 }
 
 static void test_reset_cause_reads_resetreas(void)
 {
     TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT;
     TEST_ASSERT_EQUAL(TFW_RESET_WATCHDOG,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
     TFW_NRF_RESETREAS = RESETREAS_RESETPIN_BIT;
     TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
     TFW_NRF_RESETREAS = 0u;
     TEST_ASSERT_EQUAL(TFW_RESET_POWER_ON,
-                      tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
 }
 
 /* RESETREAS is write-1-to-clear: the take writes every bit. */
 static void test_reset_cause_clears_every_bit(void)
 {
     TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT | RESETREAS_SREQ_BIT;
-    (void)tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ);
+    (void)tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(RESETREAS_ADDR));
 }
 

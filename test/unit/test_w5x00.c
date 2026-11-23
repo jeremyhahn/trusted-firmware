@@ -170,6 +170,32 @@ static void test_a_refused_or_timed_out_connect_reads_down(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
 }
 
+/* w5x00.c:236-244: FIN_WAIT 0x18, CLOSING 0x1A, TIME_WAIT 0x1B, LAST_ACK 0x1D. */
+static void test_a_closing_state_reads_down_closes_the_socket_and_drops_the_queued_reply(void)
+{
+    static const uint8_t status[4] = { 0x18u, 0x1Au, 0x1Bu, 0x1Du };
+    static const char *const name[4] = {
+        "SOCK_FIN_WAIT 0x18", "SOCK_CLOSING 0x1A",
+        "SOCK_TIME_WAIT 0x1B", "SOCK_LAST_ACK 0x1D"
+    };
+    static const uint8_t reply[3] = { 7u, 8u, 9u };
+    uint8_t i;
+
+    for (i = 0u; i < 4u; i++) {
+        uint16_t w0;
+
+        setUp();
+        connect();
+        w0 = w5x_model_sock16(S_TX_WR);
+        send_bytes(reply, 3u);
+        w5x_model_set_sr(status[i]);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(TFW_ETH_DOWN, tfw_eth_state(), name[i]);
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(0x00u, w5x_model_sock(S_SR), name[i]);
+        tfw_eth_send();
+        TEST_ASSERT_EQUAL_HEX16_MESSAGE(w0, w5x_model_sock16(S_TX_WR), name[i]);
+    }
+}
+
 static void test_receive_reads_in_order_across_batches_and_returns_the_space(void)
 {
     static const uint8_t a[3] = { 1u, 2u, 3u };
@@ -527,6 +553,7 @@ int main(void)
     RUN_TEST(test_every_transaction_reapplies_mode_0_msb_first);
     RUN_TEST(test_state_follows_the_connection_and_a_hang_up_closes_it);
     RUN_TEST(test_a_refused_or_timed_out_connect_reads_down);
+    RUN_TEST(test_a_closing_state_reads_down_closes_the_socket_and_drops_the_queued_reply);
     RUN_TEST(test_receive_reads_in_order_across_batches_and_returns_the_space);
     RUN_TEST(test_receive_wraps_the_pointer_and_the_buffer);
     RUN_TEST(test_send_puts_each_reply_on_the_wire);

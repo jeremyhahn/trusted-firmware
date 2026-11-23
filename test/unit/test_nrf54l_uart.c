@@ -194,6 +194,36 @@ void test_tx_idle_follows_txdrdy(void)
     TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x168u)));
 }
 
+/* A second init starts the console clean. hal_uart.c turns the UARTE's
+ * interrupt off in the NVIC (line 85) before it touches the peripheral, then
+ * resets both rings and tx_busy (lines 109-110). Without that, a re-init keeps
+ * the received bytes nobody read and a tx_busy that no TXDRDY will ever clear,
+ * so the console never sends again. Here two bytes wait unread in the receive
+ * ring and two are queued with the first stalled on the wire; after the
+ * re-init the receive ring is empty, the UARTE is idle, init itself starts no
+ * transfer, and the first byte sent goes out at once. */
+void test_a_second_init_starts_with_empty_rings_and_nothing_on_the_wire(void)
+{
+    uint8_t b = 0u;
+
+    byte_arrives(0x01u);
+    byte_arrives(0x02u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x11u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x22u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+
+    TFW_NRF_UARTE_TX_START = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x050u)));
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x33u));
+    TEST_ASSERT_EQUAL_HEX8(0x33u, tx_dma);
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x050u)));
+}
+
 /* DMA.RX.END: the byte reaches the ring, the event is cleared and the next
  * one-byte receive started. */
 void test_rx_returns_the_byte_on_rx_end(void)
@@ -286,6 +316,7 @@ int main(void)
     RUN_TEST(test_tx_try_queues_behind_a_byte_on_the_wire);
     RUN_TEST(test_tx_try_refuses_a_full_ring);
     RUN_TEST(test_tx_idle_follows_txdrdy);
+    RUN_TEST(test_a_second_init_starts_with_empty_rings_and_nothing_on_the_wire);
     RUN_TEST(test_rx_returns_the_byte_on_rx_end);
     RUN_TEST(test_rx_keeps_the_order);
     RUN_TEST(test_rx_returns_nothing_without_rx_end);

@@ -526,17 +526,43 @@ static void test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried(void)
     }
 }
 
+/* What an A4 wipe sends when its session (1), key store (2) or key
+ * management (3) open is refused or unanswered: that open, then a close for
+ * each handle that did open, innermost first, and no delete. */
+static const uint32_t open_fail_n[3] = { 1u, 3u, 5u };
+static const uint32_t open_fail_seq[3][5] = {
+    { TFW_ELE_SESSION_OPEN },
+    { TFW_ELE_SESSION_OPEN, TFW_ELE_KEY_STORE_OPEN, TFW_ELE_SESSION_CLOSE },
+    { TFW_ELE_SESSION_OPEN, TFW_ELE_KEY_STORE_OPEN, TFW_ELE_KEY_MGMT_OPEN,
+      TFW_ELE_KEY_STORE_CLOSE, TFW_ELE_SESSION_CLOSE },
+};
+
 static void test_a4_a_refused_open_deletes_nothing_and_closes_what_opened(void)
 {
-    static const uint32_t sent[3] = { 1u, 3u, 5u };
     uint32_t at;
 
     for (at = 1u; at <= 3u; at++) {
         setUp();
         ele_fail_at = at;
         TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
-        TEST_ASSERT_EQUAL_UINT32(sent[at - 1u], ele_n);
-        TEST_ASSERT_NOT_EQUAL(0x99u, ele_cmd[3]);
+        TEST_ASSERT_EQUAL_UINT32(open_fail_n[at - 1u], ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(open_fail_seq[at - 1u], ele_cmd, ele_n);
+    }
+}
+
+static void test_a4_an_unanswered_open_is_a_timeout_and_closes_what_opened(void)
+{
+    uint32_t at, i;
+
+    for (at = 1u; at <= 3u; at++) {
+        setUp();
+        ele_silent_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(open_fail_n[at - 1u], ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(open_fail_seq[at - 1u], ele_cmd, ele_n);
+        for (i = 0u; i < ele_n; i++) {
+            TEST_ASSERT_NOT_EQUAL(0x99u, ele_cmd[i]);
+        }
     }
 }
 
@@ -959,6 +985,7 @@ int main(void)
     RUN_TEST(test_a4_a_zero_first_slot_still_deletes_the_named_keys);
     RUN_TEST(test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried);
     RUN_TEST(test_a4_a_refused_open_deletes_nothing_and_closes_what_opened);
+    RUN_TEST(test_a4_an_unanswered_open_is_a_timeout_and_closes_what_opened);
     RUN_TEST(test_a4_no_answer_to_a_delete_is_a_timeout_not_done);
     RUN_TEST(test_a4_two_failed_deletes_answer_the_first_failure);
     RUN_TEST(test_a4_a_refused_or_silent_close_keeps_an_acknowledged_wipe_done);

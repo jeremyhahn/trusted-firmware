@@ -140,7 +140,7 @@ static void test_the_last_sector_is_writable(void)
  * wraps: each refused before a sector is read or written. */
 static void test_an_address_outside_the_flash_is_refused(void)
 {
-    uint8_t b[2] = { 0u, 0u };
+    const uint8_t b[2] = { 0u, 0u };
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
         tfw_rp_flash_update(TFW_RP_XIP_BASE - 1u, b, 1u, FLASH_END));
@@ -171,7 +171,7 @@ static void test_the_boot_entry_writes_the_last_byte_of_the_part(void)
  * written. */
 static void test_the_boot_entry_refuses_the_first_byte_past_the_part(void)
 {
-    uint8_t b[2] = { 0u, 0u };
+    const uint8_t b[2] = { 0u, 0u };
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(FLASH_END, b, 1u));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(FLASH_END - 1u, b, 2u));

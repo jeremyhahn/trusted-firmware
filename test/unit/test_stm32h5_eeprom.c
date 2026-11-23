@@ -282,6 +282,23 @@ static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(voi
     TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back + 2, sizeof data);
 }
 
+static void test_a_read_across_the_spans_end_fills_only_the_callers_bytes(void)
+{
+    static const uint8_t data[2] = { 0x77u, 0x88u };
+    uint8_t back[8];
+    size_t i;
+
+    memset(back, 0xA5, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 2u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 2u], back[0]);
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 1u], back[1]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back + 2, sizeof data);
+    for (i = 4u; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, back[i]);
+    }
+}
+
 static void test_data_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
@@ -463,6 +480,7 @@ int main(void)
     RUN_TEST(test_the_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_span_is_range_and_touches_no_flash);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
+    RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
     RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);

@@ -2,23 +2,22 @@
 # SPDX-License-Identifier: commercial
 """Unit tests holding every workflow's runner labels to actionlint's allowlist.
 
-.github/actionlint.yaml lists the self-hosted runner labels the workflows may
-use, and actionlint reports any other label as an unknown runner. `make lint`
-does not run actionlint yet (#615), so no CI check reads the labels, and a
-misspelled self-hosted label would reach main through a green gate. These tests
-read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
-group/labels mapping, a flow list or mapping on one line or across several,
-and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
-key; a flow `labels:` or next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped) of
-.github/workflows/*.yml and *.yaml with the standard library alone (no actionlint binary, no PyYAML) and fail naming
-file:line and label for any plain-text label the allowlist and actionlint's
-built-in labels do not accept. The built-in labels, the self-hosted ones
-(`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`),
-match in any case (`Linux`, `Windows-Latest`), as in actionlint. Allowlist
-entries are glob patterns (`gpu-*`) matched case-sensitively with fnmatch;
-actionlint's Go path.Match differs only for `/`, `\\` escapes and `[^...]`,
-none of which a runner label uses. A label with a `${{ }}` expression anywhere in it is skipped, as actionlint skips it:
-its value is known only when the workflow runs.
+.github/actionlint.yaml lists the self-hosted runner labels the workflows may use, and actionlint
+reports any other label as an unknown runner. These tests hold every plain-text label to that
+allowlist with the standard library alone (no actionlint binary, no PyYAML), so `make scripts-test`
+catches a misspelled self-hosted label on any host; `make lint-actionlint` checks the same in the
+toolchain image. The tests read the allowlist and every `runs-on:` key, bare or quoted (scalar,
+list, or group/labels mapping, a flow list or mapping on one line or across several, and a scalar
+or flow value on the line after an empty `runs-on:` or `labels:` key; a flow `labels:` or
+next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a
+value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped) of
+.github/workflows/*.yml and *.yaml, and fail naming file:line and label for any plain-text label
+the allowlist and actionlint's built-in labels do not accept. The built-in labels, the self-hosted
+ones (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`), match in any case
+(`Linux`, `Windows-Latest`), as in actionlint. Allowlist entries are glob patterns (`gpu-*`)
+matched case-sensitively with fnmatch; actionlint's Go path.Match differs only for `/`, `\\`
+escapes and `[^...]`, none of which a runner label uses. A label with a `${{ }}` expression
+anywhere in it is skipped, as actionlint skips it: its value is known only when the workflow runs.
 """
 
 import fnmatch

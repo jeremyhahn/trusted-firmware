@@ -118,7 +118,7 @@
 # customized: the Releasability (private patterns) step reads the RELEASABILITY_PATTERNS secret.
 # customized: pull_request also fires on ready_for_review (#376).
 # customized: the Signatures job stays in ci.yml (no signatures.yml in this repository yet).
-# customized: no publish-images job: .github/actionlint.yaml has no `release` label yet, and RELEASE_RUNNER is unset.
+# customized: no publish-images job yet: it waits on the release runner, RELEASE_RUNNER and an owner ruling (#615 slice 2).
 #
 # v1.49 (2026-11-20, Tenant Agent ruling 1047 (3) and (2), CI priority 1,
 # defect fix): the preflight job ran on ubuntu-latest on github.com, about

@@ -582,6 +582,27 @@ static void test_h5_provider_leaves_a_timed_out_pka_alone(void)
     TEST_ASSERT_EQUAL(1, m.runs);
 }
 
+/* A working PKA's answer is the provider's answer: its accept, and its
+ * reject of a bad signature, come back as they are, and a rejection is not
+ * a reason to leave the PKA for software (only a timeout is). setUp resets
+ * the model to a healthy PKA. */
+static void test_h5_provider_returns_a_working_pka_answer_and_keeps_it(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(2, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(3, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
 /* The model decodes with ST's facts (h5_vendor_facts.h), not the driver's;
  * every PKA and RCC fact the driver uses equals its ST literal, so a wrong
  * operand offset, mode, result code or bit in h5_crypto_regs.h fails here. */
@@ -664,5 +685,6 @@ int main(void)
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
     RUN_TEST(test_h5_provider_leaves_a_timed_out_pka_alone);
+    RUN_TEST(test_h5_provider_returns_a_working_pka_answer_and_keeps_it);
     return UNITY_END();
 }

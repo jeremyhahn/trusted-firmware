@@ -59,11 +59,12 @@ tfw_status_t tfw_ota_manifest(tfw_boot_platform_t *p)
     if (st != TFW_OK) {
         return st;
     }
-    room = tot - TFW_BOOT_TRAILER_LEN - tr.image_len;
-    at   = ((uint32_t)TFW_OTA_STORE_STAGE_ADDR) + tr.image_len;
-    if (room < 2u) {
+    /* OTA_END's bound (ota_stage.c verify()), re-checked before the subtraction. */
+    if (tr.image_len > tot - TFW_BOOT_TRAILER_LEN || tot - TFW_BOOT_TRAILER_LEN - tr.image_len < 2u) {
         return TFW_ERR_RANGE;
     }
+    room = tot - TFW_BOOT_TRAILER_LEN - tr.image_len;
+    at   = ((uint32_t)TFW_OTA_STORE_STAGE_ADDR) + tr.image_len;
     st = get(at, buf, 2u);
     if (st != TFW_OK) {
         return st;

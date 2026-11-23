@@ -59,9 +59,6 @@ static uint8_t descriptor_ok(void)
     if ((uint32_t)TFW_APP_CONFIG_BASE + cfg > (uint32_t)TFW_EEPROM_SIZE) {
         return 0u;
     }
-    if (TFW_APP_CONFIG_SHARES_NETCFG && cfg != 0u) {
-        return 0u;
-    }
     return 1u;
 }
 
@@ -182,9 +179,6 @@ static tfw_status_t config_span(uint16_t off, uint8_t len)
     if (end > tfw_pgm_u16(&tfw_app_descriptor.config_len) ||
         (uint32_t)TFW_APP_CONFIG_BASE + end > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
-    }
-    if (TFW_APP_CONFIG_SHARES_NETCFG) {
-        return TFW_ERR_PROTECTED_REGION;
     }
     return TFW_OK;
 }

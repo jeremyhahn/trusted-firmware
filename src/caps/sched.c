@@ -208,12 +208,16 @@ void tfw_sched_poll(void)
 
             if (tfw_board_pin(g_slots[i].pin, &ref) == TFW_OK) {
                 /* A revert the HAL refused stays armed so the next sweep drives
-                 * it: dropping it would leave the pin held for good. */
+                 * it: dropping it would leave the pin held for good. The
+                 * deadline restarts at now so the signed difference stays
+                 * below 2^31 ms however long the HAL refuses. */
                 st = tfw_hal_gpio_write(&ref,
                     (uint8_t)((g_slots[i].flags & SLOT_FINAL_LEVEL) ? 1u : 0u));
             }
             if (st == TFW_OK) {
                 g_slots[i].flags = 0u;
+            } else {
+                g_slots[i].deadline = now;
             }
         }
     }

@@ -54,6 +54,15 @@ class AppMkGateTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("app-ok", out)
 
+    def test_dotted_names_accepted(self):
+        # Only a ".." path component climbs; a name with two dots does not.
+        for src in ("a..b.c", "sub/..x/a.c"):
+            with self.subTest(src=src):
+                rc, out = self._make(
+                    "APP_NAME := ok\nAPP_SRCS := %s\n" % src, [src])
+                self.assertEqual(rc, 0, out)
+                self.assertIn("app-ok", out)
+
     def test_fifteen_character_name_accepted(self):
         rc, out = self._make(
             "APP_NAME := abcdefghijklmno\nAPP_SRCS := a.c\n", ["a.c"])
@@ -75,11 +84,14 @@ class AppMkGateTest(unittest.TestCase):
 
     def test_escaping_srcs_refused(self):
         # A ".." anywhere, not only at the start, lets an object path climb.
-        for src in ("/a.c", "../a.c", "sub/../../a.c", "sub/../a.c"):
+        # An escaping second entry is refused too, beside a first that exists.
+        for src in ("/a.c", "../a.c", "sub/../../a.c", "sub/../a.c",
+                    "a.c sub/../b.c"):
             with self.subTest(src=src):
                 self._refused(
                     "APP_NAME := ok\nAPP_SRCS := %s\n" % src,
-                    "relative paths inside the application directory")
+                    "relative paths inside the application directory",
+                    ["a.c"])
 
     def test_not_c_refused(self):
         self._refused("APP_NAME := ok\nAPP_SRCS := a.h\n", "not .c", ["a.h"])

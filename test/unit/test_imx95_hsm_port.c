@@ -960,6 +960,43 @@ static void test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_mor
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);   /* nothing stale */
 }
 
+static void test_s3_a_refused_or_silent_close_keeps_an_acknowledged_attestation(void)
+{
+    tfw_hsm_set_t set;
+    uint32_t k;
+    uint32_t pass;
+
+    memset(&set, 0, sizeof set);
+    for (k = 0u; k < TFW_IMX95_S3_FIELDS; k++) {
+        expect(&set, att.s3.f[k].key, &report_image[att.s3.f[k].off], att.s3.f[k].len);
+    }
+    for (pass = 0u; pass < 2u; pass++) {
+        setUp();
+        if (pass == 0u) {
+            ele_fail_at = 3u;      /* the close is refused */
+        } else {
+            ele_silent_at = 3u;    /* the close goes unanswered */
+        }
+        TEST_ASSERT_EQUAL_INT(TFW_OK, attest(&att, ATT_LEN, &set));
+        TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+        TEST_ASSERT_EQUAL_HEX32(ATT_ID, ele_cmd[1]);
+        TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+        TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[2][1]);   /* the session opened is closed */
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(report_image, report, ATT_LEN);
+
+        set.expected[2].value[7] ^= 0x01u;                /* a mismatch stays a mismatch */
+        setUp();
+        if (pass == 0u) {
+            ele_fail_at = 3u;
+        } else {
+            ele_silent_at = 3u;
+        }
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, attest(&att, ATT_LEN, &set));
+        set.expected[2].value[7] ^= 0x01u;
+    }
+}
+
 static void test_s3_a_report_too_short_for_a_field_is_range(void)
 {
     struct tfw_imx95_attest bad = att;
@@ -1063,6 +1100,7 @@ int main(void)
     RUN_TEST(test_s3_attest_opens_attests_closes_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_enclave_is_not_a_match);
     RUN_TEST(test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_more);
+    RUN_TEST(test_s3_a_refused_or_silent_close_keeps_an_acknowledged_attestation);
     RUN_TEST(test_s3_a_report_too_short_for_a_field_is_range);
     RUN_TEST(test_s3_a_buffer_too_small_sends_no_attestation);
     RUN_TEST(test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing);

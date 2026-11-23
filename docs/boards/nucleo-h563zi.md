@@ -56,25 +56,11 @@ this table and in the code comments that carry it.
   the board no secure element, so `BOARD_TIERS` is `soft`. There is no
   tfw-boot row for this board (`mk/boot.mk`); the boot geometry in
   `profile.mk` is stated for the day one is added.
-- **TrustZone-M split, built only (TZ=1, #590).** `profile.mk` sets
-  `TZ_MAP` to `src/hal/cortex-m/tz/tz_map_nucleo_h563zi.h`, whose SAU table
-  splits the part in five regions (`docs/plans/590.md`):
-
-  | Region | Base | Size |
-  |---|---|---|
-  | Secure code | `0x0C000000` | `0x1F800` |
-  | Non-secure callable | `0x0C01F800` | `0x800` |
-  | Non-secure code | `0x08020000` | `0x40000` |
-  | Secure RAM | `0x30000000` | `0x10000` |
-  | Non-secure RAM | `0x20010000` | `0x10000` |
-
-  `make tz-firmware BOARD=nucleo-h563zi` (`mk/arch/cortex-m-targets.mk`)
-  builds the secure image, its veneer import library and the non-secure
-  image, and size-checks them; the host test
-  `test_tz_regions_nucleo_h563zi` (`test/unit/test_tz_regions.c`) checks the
-  board's SAU table. Running the images needs TZEN=1 and the bank 1 secure
-  watermark over the secure image's 128 KiB: option bytes the owner sets
-  (CA 583). Nothing in this tree writes an option byte.
+- **The own TrustZone-M split (TZ=1, #590) is retired (#608).** TF-M with
+  the DICE partition is the TrustZone-M path, below; `make firmware TZ=1`
+  stops with an error. Running a secure image needs TZEN=1 and the bank 1
+  secure watermark: option bytes the owner sets (CA 583). Nothing in this
+  tree writes an option byte.
 
 - **TF-M v2.3.1, built only (#608).** `make tfm-image TFM_BOARD=nucleo-h563zi`
   (`mk/arch/tfm-targets.mk`, `scripts/tfm-build.sh`) builds BL2, the secure
@@ -89,5 +75,5 @@ this table and in the code comments that carry it.
 - Every value marked TO CONFIRM above.
 - Nothing has run on the board: no image has been flashed, and the console,
   the LEDs and the watchdog have not been seen to work.
-- The TZ=1 images: built and size-checked, never flashed; they need option
-  bytes this tree does not write.
+- The TF-M images: built, never flashed; they need option bytes this tree
+  does not write.

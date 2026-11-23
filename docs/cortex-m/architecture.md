@@ -172,10 +172,10 @@ either board.
   reading tfw-boot's region. mps2-an500 sets `TFW_CM_MPU 1` in its
   `board_profile.h`, and `tfw_cm_reset` (`src/hal/cortex-m/hal_early.c`) calls
   `tfw_cm_mpu_arm()` (`src/hal/cortex-m/hal_mpu.c`): MPU-only isolation on the
-  M7 (#482, #497). The `TZ=1` row's secure image
-  (`src/hal/cortex-m/tz/tz_s_main.c`, built by `tz-firmware` in
-  `mk/arch/cortex-m-targets.mk`) programs the SAU and enters a Non-secure image
-  with BLXNS on mps2-an505 (#590). The open MPU question is in
+  M7 (#482, #497). The own TrustZone-M split
+  (`TZ=1`, #590) is retired in #608: the TrustZone-M path is the TF-M build
+  (`make tfm-image`, `mk/arch/tfm-targets.mk`), with TF-M and our DICE
+  partition as the secure world. The open MPU question is in
   [engineering.md](engineering.md), and the isolation design is
   [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md)'s.
 - `tfw_boot_flash_write_page` refuses any page outside the application region.

@@ -64,8 +64,14 @@ tfw_status_t tfw_boot_trial_settle(tfw_boot_platform_t *p, uint32_t version,
                                    uint32_t floor, uint32_t *next);
 
 /* --------------------------------------------- the application's transitions */
-/* OTA_CONFIRM and OTA_ACTIVATE have no wire id yet (decision 8's ids are
- * PROPOSED), so these are reached only from tests until they do. */
+/* OTA_ACTIVATE (0x6D) and OTA_CONFIRM (0x6E) have ids
+ * (include/tfw/protocol.h:177-178; the ADR still lists decision 8's ids as
+ * PROPOSED). tfw_boot_trial_confirm is called by the application's
+ * OTA_CONFIRM to check TRIAL (src/core/ota_ctl.c) and by tfw-boot at reset to
+ * settle a confirmed trial (boot_swap.c). tfw_boot_trial_activate is reached
+ * only from tests: the wire's OTA_ACTIVATE writes the store's MARK
+ * (src/core/ota_activate.c). tfw_boot_trial_begin_permit is the stager's and
+ * the boot session's OTA_BEGIN gate. */
 
 /* TRIAL -> CONFIRMED. Refused outside a running trial, including a trial that
  * has already failed. */

@@ -49,3 +49,8 @@ uint32_t regfile_model_peek(uintptr_t addr)
     }
     return 0u;
 }
+
+void regfile_model_poke(uintptr_t addr, uint32_t val)
+{
+    *tfw_cm_model_reg(addr) = val;
+}

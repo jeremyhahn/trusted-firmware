@@ -414,6 +414,30 @@ static void linkoutput_cases(void)
     TEST_ASSERT_EQUAL_INT(ERR_BUF, n->linkoutput(n, p));
     TEST_ASSERT_EQUAL_UINT(before, tx_frames);
     pbuf_free(p);
+
+    /* (c) exactly the frame buffer's size is sent */
+    p = raw_pbuf((u16_t)TFW_ETH_BUF_SIZE, 0x30u);
+    tx_last_len = 0u;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(TFW_ETH_BUF_SIZE, tx_last_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(p->payload, tx_last, TFW_ETH_BUF_SIZE);
+    pbuf_free(p);
+
+    /* (d) a ring full for a few tries still sends the frame once */
+    p = raw_pbuf(64u, 0x40u);
+    tx_busy = 3u;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(0u, tx_busy);
+    TEST_ASSERT_EQUAL_UINT(before + 1u, tx_frames);
+
+    /* (e) a ring that never drains ends in an error, not a hang */
+    tx_busy = UINT_MAX;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_IF, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(before, tx_frames);
+    tx_busy = 0u;
+    pbuf_free(p);
 }
 
 static void test_the_netif_link_output_refuses_flattens_and_bounds_the_send(void)

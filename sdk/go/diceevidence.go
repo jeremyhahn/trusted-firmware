@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 )
 
 // FormatDICE is the fmt of a device-attest-01 attestation object whose
@@ -95,6 +96,9 @@ type DICERegistry func(ueid []byte) (*ecdsa.PublicKey, bool)
 //   - x5c[1], the DeviceID certificate, chains to roots, which must be
 //     non-nil (nil is refused, never the host's system roots);
 //   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
+//   - the alias certificate is valid now (NotBefore to NotAfter);
+//   - the alias certificate has no critical extension but
+//     tcg-dice-UCCS-evidence, the one DICE extension read here;
 //   - the alias certificate's eat_nonce and authData are nonce;
 //   - sig verifies under the alias key, a P-256 key (ES256), over
 //     SHA-256(authData);
@@ -129,11 +133,20 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, registered D
 	if err != nil {
 		return nil, errors.Join(evidenceErr("x5c[1] is not a certificate"), err)
 	}
-	if _, err = devID.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
+	now := time.Now()
+	if _, err = devID.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
 		return nil, errors.Join(evidenceErr("the DeviceID certificate does not chain to a root"), err)
 	}
 	if err = alias.CheckSignatureFrom(devID); err != nil {
 		return nil, errors.Join(evidenceErr("the alias certificate is not signed by the DeviceID key"), err)
+	}
+	if now.Before(alias.NotBefore) || now.After(alias.NotAfter) {
+		return nil, evidenceErr("the alias certificate is not valid now")
+	}
+	for _, oid := range alias.UnhandledCriticalExtensions {
+		if !oid.Equal(oidUCCSEvidence) {
+			return nil, evidenceErr("the alias certificate has an unhandled critical extension")
+		}
 	}
 	ev := &DICEEvidence{Alias: alias, DeviceID: devID}
 	var gotNonce []byte

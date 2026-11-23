@@ -92,7 +92,7 @@ class LintNoDelayTest(unittest.TestCase):
                    "#define W() do { \\\n  vTaskDelay\\\n  (1); } while (0)\n")
         r = lint(self.root)
         self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("src/core/plant.c:1: delay-call", r.stdout)
+        self.assertIn("src/core/plant.c:2: delay-call", r.stdout)
 
     def test_a_splice_with_no_delay_passes(self):
         self.write("src/core/plant.c",
@@ -162,6 +162,28 @@ class LintNoDelayTest(unittest.TestCase):
         self.write("boot/plant.c", 'const char *s = "a\\\n delay(1) b";\n')
         r = lint(self.root)
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_comment_closed_by_a_splice_then_a_call_fails(self):
+        self.write("src/core/plant.c", "void f(void) { /* note *\\\n/ _delay_ms(10); }\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:2: delay-call", r.stdout)
+
+    def test_a_comment_opened_by_a_splice_hides_its_prose_passes(self):
+        self.write("src/core/plant.c", "int x; /\\\n* delay(1) */\nint y;\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_line_comment_opened_by_a_splice_passes(self):
+        self.write("src/core/plant.c", "int x; /\\\n/ delay(1)\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_call_after_a_spliced_block_comment_names_its_own_line(self):
+        self.write("src/core/plant.c", "/* a \\\n b */ x = 1; \\\ndelay(3);\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("src/core/plant.c:3: delay-call", r.stdout)
 
     def test_missing_root_fails(self):
         r = lint(os.path.join(self.root, "no-such-dir"))

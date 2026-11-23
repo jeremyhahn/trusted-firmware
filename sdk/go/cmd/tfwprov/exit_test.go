@@ -81,6 +81,11 @@ func TestMainExitCodes(t *testing.T) {
 		{"bake-eeprom with --yes-i-mean-it", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--yes-i-mean-it"}, 1, "tfwprov: --yes-i-mean-it does not combine with --bake-eeprom"},
 		{"bake-eeprom with --baud", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--baud", "9600"}, 1, "tfwprov: --baud does not combine with --bake-eeprom"},
 		{"bake-netblock with --timeout", []string{"--bake-netblock", "--out", out, "--timeout", "5s"}, 1, "tfwprov: --timeout does not combine with --bake-netblock"},
+		{"bake-netblock with --config", []string{"--bake-netblock", "--out", out, "--mac", "02:00:00:00:00:01", "--config", tmpl}, 1, "tfwprov: --config does not combine with --bake-netblock"},
+		{"bake-netblock with --yes-i-mean-it", []string{"--bake-netblock", "--out", out, "--mac", "02:00:00:00:00:01", "--yes-i-mean-it"}, 1, "tfwprov: --yes-i-mean-it does not combine with --bake-netblock"},
+		{"bake-netblock with --baud", []string{"--bake-netblock", "--out", out, "--mac", "02:00:00:00:00:01", "--baud", "9600"}, 1, "tfwprov: --baud does not combine with --bake-netblock"},
+		{"bake-eeprom with --timeout", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--timeout", "5s"}, 1, "tfwprov: --timeout does not combine with --bake-eeprom"},
+		{"both bake modes with --config", []string{"--bake-eeprom", "--serial", goodSerial, "--bake-netblock", "--mac", "02:00:00:00:00:01", "--out", out, "--config", tmpl}, 1, "tfwprov: --config does not combine with --bake-eeprom"},
 		{"a wire mode with --out", []string{"--dry-run", "--out", out, port}, 1, "tfwprov: --out belongs to --bake-eeprom"},
 		{"a wire mode with --mac", []string{"--dry-run", "--mac", "02:00:00:00:00:01", port}, 1, "tfwprov: --mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"},
 		{"bake-netblock with --record", []string{"--bake-netblock", "--out", out, "--record", filepath.Join(dir, "r.json")}, 1, "tfwprov: --record needs the serial: pass --bake-eeprom --serial"},
@@ -92,6 +97,8 @@ func TestMainExitCodes(t *testing.T) {
 		{"a wire mode with --timeout 0", []string{"--verify", "--config", tmpl, "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
 		{"a wire mode with a negative --timeout", []string{"--dry-run", "--config", tmpl, "--timeout", "-1s", port}, 1, "tfwprov: --timeout is -1s; it must be positive"},
 		{"a wire mode with --baud 0", []string{"--verify", "--config", tmpl, "--baud", "0", port}, 1, "tfwprov: --baud is 0; it must be positive"},
+		{"a wire mode with a negative --baud", []string{"--verify", "--config", tmpl, "--baud", "-1", port}, 1, "tfwprov: --baud is -1; it must be positive"},
+		{"write-pubkey with --baud 0", []string{"--write-pubkey", filepath.Join(dir, "absent.pem"), "--slot", "2", "--baud", "0", port}, 1, "tfwprov: --baud is 0; it must be positive"},
 		{"write-pubkey with --timeout 0", []string{"--write-pubkey", filepath.Join(dir, "absent.pem"), "--slot", "2", "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,6 +108,40 @@ func TestMainExitCodes(t *testing.T) {
 			}
 			if !strings.HasPrefix(first, tc.first) {
 				t.Errorf("stderr first line = %q, want prefix %q", first, tc.first)
+			}
+		})
+	}
+}
+
+// TestMainBakeRefusingAWireFlagWritesNothing pins that the wire-flag refusal
+// comes before the bake: a refused --bake-eeprom leaves neither the image nor
+// the provisioning record behind.
+func TestMainBakeRefusingAWireFlagWritesNothing(t *testing.T) {
+	const refusal = "does not combine with --bake-eeprom"
+	tmpl := writeTemplate(t, goodTemplate+block32+"\n")
+	for _, extra := range [][]string{
+		{"--config", tmpl},
+		{"--yes-i-mean-it"},
+		{"--baud", "9600"},
+		{"--timeout", "5s"},
+	} {
+		t.Run(extra[0], func(t *testing.T) {
+			dir := t.TempDir()
+			out := filepath.Join(dir, "p.eep")
+			record := filepath.Join(dir, "r.json")
+			args := append([]string{"--bake-eeprom", "--serial", strings.Repeat("01", 16),
+				"--out", out, "--record", record}, extra...)
+			code, first := runMain(t, args...)
+			if code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+			if !strings.HasPrefix(first, "tfwprov: "+extra[0]+" ") || !strings.Contains(first, refusal) {
+				t.Errorf("stderr first line = %q, want the %s refusal %q", first, extra[0], refusal)
+			}
+			for _, path := range []string{out, record} {
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("%s: stat err %v, want nothing written", path, err)
+				}
 			}
 		})
 	}

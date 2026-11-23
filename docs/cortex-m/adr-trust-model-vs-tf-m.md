@@ -253,7 +253,8 @@ L2 say.
     and the RP2354 variants carry 2 MB stacked.
 
   The facts bear on open questions 2 (Secure Manager, UM3254; Nordic's TF-M as
-  the only nRF54L15 secure world) and 5 (the RP2350's OTP key store has no
+  the only nRF54L15 secure world; closed, the vendor secure worlds **not
+  taken**, ruling 935) and 5 (the RP2350's OTP key store has no
   public-key accelerator; the nRF54L15's KMU hides keys from secure code).
 
 ## What TF-M is, in the terms that matter here
@@ -323,8 +324,8 @@ checked against those pinned pages.
 
 | Board | Core | Secure world | Where it sits | What is ours |
 |---|---|---|---|---|
-| STM32H573I-DK (second target, row `stm32h5`) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
-| nRF54L15-DK (bench board) | M33, TrustZone-M | Nordic's TF-M from its SDK; keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
+| STM32H573I-DK (second target, row `stm32h5`) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) (upstream TF-M Profile Medium taken, ruling 1024) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
+| nRF54L15-DK (bench board) | M33, TrustZone-M | Nordic's TF-M from its SDK (upstream TF-M Profile Medium taken, ruling 1024); keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
 | QEMU `mps2-an505` (CI) | M33, TrustZone-M | none until this ADR is accepted; TF-M v2.3.1 has no platform for it (open question 11) | the whole image runs Secure (#14 question 2) | the whole image |
 | i.MX 95 M7 (reference part, #49) | M7, no TrustZone | none on the core; the ELE holds the keys, AHAB verifies, the System Manager on the M33 sets domain access | off the core: the ELE and the M33, both NXP's, configured by trusted-imx95 | the privileged layer, the SVC gate and the unprivileged firmware (option (c)) |
 
@@ -373,10 +374,10 @@ Under the recommended option (b1), one owner per capability (L1):
 |---|---|
 | Secure partition manager, isolation, IPC (FF-M) | TF-M |
 | Crypto, key store and builtin-key policy (PSA Crypto API) | TF-M (TF-PSA-Crypto inside it) |
-| Initial Attestation token (PSA Attestation API, RFC 9783) | TF-M |
+| Initial Attestation token (PSA Attestation API, RFC 9783) | TF-M (built without, or not exposed to the non-secure side, ruling 1024) |
 | Firmware update service (PSA FWU API) | TF-M |
 | BL2: image verification, security counters, A/B | MCUboot |
-| The vendor RoT on parts that ship one | ST (Secure Manager), Nordic (its SDK's TF-M) |
+| The vendor RoT on parts that ship one | ST (Secure Manager), Nordic (its SDK's TF-M); **not taken** (ruling 935) |
 | The three template builders, and the partition that holds them | this project |
 | The partition manifest and the board integration | this project |
 | The non-secure firmware: wire protocol, capabilities, application | this project |

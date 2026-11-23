@@ -69,6 +69,7 @@ func TestParsePubKeyTakesTheRawPointOrAPEMPublicKey(t *testing.T) {
 		"PEM PUBLIC KEY":            gPEM,
 		"PEM with trailing newline": append(append([]byte(nil), gPEM...), "\n\n"...),
 		"PEM with leading newline":  append([]byte("\n"), gPEM...),
+		"PEM in whitespace":         append(append([]byte(" \t\r\n"), gPEM...), " \r\n\t"...),
 	} {
 		got, err := parsePubKey(in)
 		if err != nil {
@@ -85,6 +86,7 @@ func TestParsePubKeyNamesWhyItRefuses(t *testing.T) {
 	offCurve := append([]byte(nil), g...)
 	offCurve[63] ^= 1
 	badPrivBlock := "-----BEGIN EC " + "PRIVATE" + " KEY-----\n!!!\n-----END EC " + "PRIVATE" + " KEY-----\n"
+	badPubBlock := "-----BEGIN PUBLIC KEY-----\n!!!\n-----END PUBLIC KEY-----\n"
 	gPEM := pubKeyPEM(t, elliptic.P256(), append([]byte{0x04}, g...))
 	for name, c := range map[string]struct {
 		in   []byte
@@ -99,6 +101,8 @@ func TestParsePubKeyNamesWhyItRefuses(t *testing.T) {
 		"text before the block": {append([]byte("garbage\n"), gPEM...), "before the PEM"},
 		// pem.Decode skips a block whose body does not decode.
 		"a malformed private key before the block": {append([]byte(badPrivBlock), gPEM...), "before the PEM"},
+		"a malformed public key before the block":  {append([]byte(badPubBlock), gPEM...), "before the PEM"},
+		"whitespace, then a malformed public key":  {append([]byte("\n  "+badPubBlock), gPEM...), "before the PEM"},
 		"bad DER": {pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte{1}}), "PEM PUBLIC KEY: "},
 		"ed25519": {marshalPEM(t, ed25519.PublicKey(make([]byte, ed25519.PublicKeySize))), "want an ECDSA P-256 key"},
 		"P-384":   {pubKeyPEM(t, elliptic.P384(), p384Generator()), "ECDSA P-384 key: want P-256"},

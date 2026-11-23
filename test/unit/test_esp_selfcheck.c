@@ -127,11 +127,22 @@ int gpio_get_level(gpio_num_t n)
 
 /* --------------------------------------------------------------- the LEDC */
 
+/* The HAL and LEDC calls the check makes, in order. */
+static char g_trace[512];
+
+static void trace(const char *fmt, unsigned v)
+{
+    size_t n = strlen(g_trace);
+
+    (void)snprintf(g_trace + n, sizeof g_trace - n, fmt, v);
+}
+
 static uint32_t g_duty;
 static int g_ledc_as;   /* the duty LEDC reads back, -1: the one written */
 
 uint32_t ledc_get_duty(ledc_mode_t mode, ledc_channel_t channel)
 {
+    trace("duty? ", 0u);
     (void)mode;
     (void)channel;
     return g_ledc_as < 0 ? g_duty : (uint32_t)g_ledc_as;
@@ -279,6 +290,7 @@ tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
+    trace("mode:%u ", (unsigned)mode);
     (void)p;
     g_gpio_mode = mode;
     return TFW_OK;
@@ -286,6 +298,7 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
+    trace("w%u ", level);
     (void)p;
     g_gpio_level = level;
     return TFW_OK;
@@ -293,15 +306,21 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
+    trace("r ", 0u);
     (void)p;
     *out = g_gpio_read_as < 0 ? g_gpio_level : (uint8_t)g_gpio_read_as;
     return g_gpio_read_st;
 }
 
-tfw_status_t tfw_hal_adc_init(void) { return TFW_OK; }
+tfw_status_t tfw_hal_adc_init(void)
+{
+    trace("adc_init ", 0u);
+    return TFW_OK;
+}
 
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
+    trace("adc_read:%u ", channel);
     g_adc_ch_read = channel;
     *out_raw = g_adc_raw;
     return g_adc_st;
@@ -309,6 +328,7 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
+    trace("pwm:%u ", duty);
     (void)p;
     g_duty = duty;
     return g_pwm_st;
@@ -316,22 +336,29 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 
 tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
+    trace("pwm_stop ", 0u);
     (void)p;
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
 {
+    trace("tone:%u ", hz);
     (void)p;
     (void)hz;
     return g_tone_start_st;
 }
 
-tfw_status_t tfw_hal_tone_stop(void) { return g_tone_stop_st; }
+tfw_status_t tfw_hal_tone_stop(void)
+{
+    trace("tone_stop ", 0u);
+    return g_tone_stop_st;
+}
 
 tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
                               uint32_t timeout_us, uint32_t *out_us)
 {
+    trace("pulse ", 0u);
     (void)p;
     (void)level;
     (void)timeout_us;
@@ -339,10 +366,14 @@ tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
     return g_pulse_st;
 }
 
-void tfw_hal_delay_us(uint16_t us) { (void)us; }
+void tfw_hal_delay_us(uint16_t us)
+{
+    trace("delay:%u ", us);
+}
 
 tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
+    trace("i2c_init ", 0u);
     (void)hz;
     return TFW_OK;
 }
@@ -350,6 +381,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                              uint8_t *rd, uint8_t rlen)
 {
+    trace("i2c ", 0u);
     g_i2c_addr = addr7;
     g_i2c_probe = wr == NULL && wlen == 0u && rd == NULL && rlen == 0u;
     return g_i2c_st;
@@ -357,6 +389,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 
 tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 {
+    trace("spi_init ", 0u);
     (void)mode;
     (void)clkdiv;
     (void)lsb_first;
@@ -366,6 +399,7 @@ tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                              uint8_t *rd, uint8_t len)
 {
+    trace("spi ", 0u);
     (void)cs;
     (void)wr;
     memset(rd, 0xff, len);
@@ -376,6 +410,7 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
 
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 {
+    trace("ow_reset ", 0u);
     (void)p;
     *out_presence = g_ow_presence;
     return TFW_OK;
@@ -383,6 +418,7 @@ tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
+    trace("ow_read ", 0u);
     (void)p;
     memset(buf, g_ow_byte, len);
     return TFW_OK;
@@ -395,6 +431,7 @@ static uint8_t g_before[PART_SIZE];
 void setUp(void)
 {
     g_log[0] = '\0';
+    g_trace[0] = '\0';
     /* As tfw_esp_board_init() leaves the enable: an output driven low and
      * held, its input buffer off. */
     g_pad_ext = 0;
@@ -746,6 +783,27 @@ static void test_an_unreadable_sector_is_never_written(void)
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
 }
 
+/* Each check's set-up and tear-down calls, in the order they run:
+ * the gpio pin goes to output and back to input;
+ * the ADC is set up before its read;
+ * each duty read waits 20 ms after its write;
+ * LEDC is stopped, and the tone sounds 20 ms before it stops;
+ * the pulse pin is pulled up;
+ * SPI is set up before its transfer. */
+static void test_a_good_board_sets_up_settles_and_releases_each_peripheral_in_order(void)
+{
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_STRING("mode:1 w1 r w0 r mode:0 "
+                             "adc_init adc_read:4 "
+                             "pwm:128 delay:20000 duty? pwm:0 delay:20000 duty? pwm_stop "
+                             "tone:1000 delay:20000 tone_stop "
+                             "mode:2 pulse "
+                             "i2c_init i2c "
+                             "mode:1 w1 spi_init spi mode:0 "
+                             "ow_reset ow_read ",
+                             g_trace);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -777,5 +835,6 @@ int main(void)
     RUN_TEST(test_a_wrong_pwm_duty_fails);
     RUN_TEST(test_a_tone_that_fails_to_start_or_stop_fails);
     RUN_TEST(test_an_unexpected_pulse_result_fails);
+    RUN_TEST(test_a_good_board_sets_up_settles_and_releases_each_peripheral_in_order);
     return UNITY_END();
 }

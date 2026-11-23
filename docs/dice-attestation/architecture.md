@@ -456,7 +456,7 @@ no operator key, so no session could be opened there, and the gate stays.
 
 **The rollback floor.** OTA_INFO's floor follows the boot's tier, not the
 application's dispatch. `src/core/ota_floor_auto.c` reads the `tier` byte
-tfw-boot wrote into the handoff (offset 5, `include/tfw/boot.h:328`):
+tfw-boot wrote into the handoff (offset 5, `include/tfw/boot.h:341`):
 
 - an element boot reports the element's boot counter;
 - a soft boot reports the platform block's EEPROM floor;

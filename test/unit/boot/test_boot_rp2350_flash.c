@@ -9,6 +9,12 @@
  * refuses an address outside the flash, and leaves no copy of the bytes in
  * its buffer.
  *
+ * boot_flash.c, the entry tfw-boot calls (tfw_cm_boot_flash_write,
+ * boot_soc.h), is linked too, under the Pico 2 W's profile: its tests pin
+ * that it bounds every write by the profile's flash end, against FLASH_END
+ * as a literal (pico-sdk's pico2_w.h), so a wrong bound in the profile or in
+ * the entry fails here and is not echoed.
+ *
  * The ROM table codes are pinned as literals: they are the ROM's interface,
  * and a code computed from TFW_RP_ROM_CODE would move with it.
  */
@@ -16,6 +22,7 @@
 #include <string.h>
 #include "unity.h"
 #include "rp_flash.h"
+#include "../boot_soc.h"
 
 #define FLASH_LEN    0x400000u                      /* 4 MiB, the Pico 2 W's */
 #define FLASH_END    (TFW_RP_XIP_BASE + FLASH_LEN)
@@ -148,6 +155,29 @@ static void test_an_address_outside_the_flash_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0u, writes);
 }
 
+/* tfw-boot's entry reaches the part's last byte: its bound is the flash's
+ * end address, not its 4 MiB length. */
+static void test_the_boot_entry_writes_the_last_byte_of_the_part(void)
+{
+    uint8_t b = 0x00u;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(FLASH_END - 1u, &b, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, flash[FLASH_LEN - 1u]);
+    TEST_ASSERT_EQUAL_UINT32(1u, writes);
+    TEST_ASSERT_EQUAL_HEX32(FLASH_LEN - TFW_RP_FLASH_SECTOR, written[0]);
+}
+
+/* ...and no further: a byte past the part is refused, and nothing is
+ * written. */
+static void test_the_boot_entry_refuses_the_first_byte_past_the_part(void)
+{
+    uint8_t b[2] = { 0u, 0u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(FLASH_END, b, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(FLASH_END - 1u, b, 2u));
+    TEST_ASSERT_EQUAL_UINT32(0u, writes);
+}
+
 /* A zero-length write is a write of nothing. */
 static void test_a_zero_length_write_is_ok(void)
 {
@@ -239,6 +269,8 @@ int main(void)
     RUN_TEST(test_a_write_across_a_sector_boundary_writes_both);
     RUN_TEST(test_the_last_sector_is_writable);
     RUN_TEST(test_an_address_outside_the_flash_is_refused);
+    RUN_TEST(test_the_boot_entry_writes_the_last_byte_of_the_part);
+    RUN_TEST(test_the_boot_entry_refuses_the_first_byte_past_the_part);
     RUN_TEST(test_a_zero_length_write_is_ok);
     RUN_TEST(test_a_failed_sector_write_stops_and_is_returned);
     RUN_TEST(test_the_sector_buffer_is_zeroed_after_a_write);

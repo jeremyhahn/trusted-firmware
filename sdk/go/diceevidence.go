@@ -79,6 +79,13 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 	return b, nil
 }
 
+// DICERegistry returns the DeviceID public key the provisioning record
+// registered for ueid (0x01 then the 16-byte device id), and false when the
+// UEID is not registered. The record's ueid, x and y members are where the
+// key comes from. It mirrors device-attest-01's RegisteredDeviceVerifier:
+// the verifier trusts a UEID only with the key registered for it.
+type DICERegistry func(ueid []byte) (*ecdsa.PublicKey, bool)
+
 // VerifyDICEAttestation checks a "dice" attestation object the way
 // device-attest-01's dice verifier does, with the standard library (sdk/go
 // imports nothing of the stack; docs/plans/590c.md names the go-xkms checks
@@ -94,10 +101,18 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 //   - the UEID (claim 256) is present, and is the type byte 0x01 then the
 //     16-byte device id;
 //   - the TCB measurement (claim 273's file hash) is present, and equals
-//     measurement unless that is nil.
-func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error) {
+//     measurement unless that is nil;
+//   - registered, which must be non-nil, knows the UEID (refused as not a
+//     registered device otherwise);
+//   - the key registered for the UEID is x5c[1]'s key: a DeviceID chaining
+//     to roots proves a manufactured device, not which one, so another
+//     device's DeviceID claiming this UEID is refused.
+func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, registered DICERegistry, measurement []byte) (*DICEEvidence, error) {
 	if roots == nil {
 		return nil, evidenceErr("no trusted roots for the DeviceID certificate")
+	}
+	if registered == nil {
+		return nil, evidenceErr("no registry for the device identity")
 	}
 	st, err := decodeDICEObject(obj)
 	if err != nil {
@@ -141,6 +156,14 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement 
 	}
 	if measurement != nil && !bytes.Equal(ev.FWHash, measurement) {
 		return nil, evidenceErr("the TCB measurement is not the reference value")
+	}
+	regKey, ok := registered(bytes.Clone(ev.UEID))
+	if !ok {
+		return nil, evidenceErr("the UEID is not a registered device")
+	}
+	devKey, ok := devID.PublicKey.(*ecdsa.PublicKey)
+	if !ok || regKey == nil || !regKey.Equal(devKey) {
+		return nil, evidenceErr("the DeviceID key is not the one registered for the UEID")
 	}
 	return ev, nil
 }

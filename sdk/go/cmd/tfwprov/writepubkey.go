@@ -104,8 +104,13 @@ func parsePubKey(b []byte) ([]byte, error) {
 		return append([]byte(nil), b...), nil
 	}
 	// pem.Decode skips text before the first block it can decode, a block
-	// whose body does not decode included.
-	if !bytes.HasPrefix(bytes.TrimLeft(b, " \t\r\n"), []byte("-----BEGIN "+block.Type+"-----")) {
+	// whose body does not decode included, even one of the same type. The
+	// bytes it consumed must start with this block's BEGIN line and hold no
+	// other BEGIN line, so the decoded block is the first one in the file.
+	t := bytes.TrimLeft(b, " \t\r\n")
+	consumed := t[:len(t)-len(rest)]
+	if !bytes.HasPrefix(consumed, []byte("-----BEGIN "+block.Type+"-----")) ||
+		bytes.Count(consumed, []byte("-----BEGIN ")) != 1 {
 		return nil, errors.New("more before the PEM PUBLIC KEY block: want one key")
 	}
 	if strings.Contains(block.Type, "PRIVATE") {

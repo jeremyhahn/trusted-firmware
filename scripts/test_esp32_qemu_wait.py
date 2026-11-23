@@ -73,14 +73,24 @@ class TestEsp32QemuWait(unittest.TestCase):
         return q
 
     # (a) a line printed just before QEMU exits is found, not reported missing
+    # (the first read of the log misses the line, then QEMU has exited)
     def test_line_printed_just_before_exit_is_found(self):
-        q = self.qemu('import time; time.sleep(0.1); '
-                      'print("tfw-l0: refused", flush=True)')
-        q.wait_for(r"tfw-l0: refused", timeout=10)
+        q = self.qemu('print("tfw-l0: refused", flush=True)')
+        q.proc.wait(10)
+        real_text = q.text
+        reads = []
+
+        def first_read_misses():
+            reads.append(1)
+            return "" if len(reads) == 1 else real_text()
+
+        with mock.patch.object(q, "text", side_effect=first_read_misses):
+            q.wait_for(r"tfw-l0: refused", timeout=10)
+        self.assertGreater(len(reads), 1)
 
     # (b) QEMU exiting without the line still fails the wait
     def test_exit_without_the_line_fails(self):
-        q = self.qemu('import time; time.sleep(0.1); print("other", flush=True)')
+        q = self.qemu('print("other", flush=True)')
         with self.assertRaises(self.h.Failure) as cm:
             q.wait_for(r"tfw-l0: refused", timeout=10)
         self.assertTrue(str(cm.exception).startswith("QEMU exited ("),
@@ -88,8 +98,7 @@ class TestEsp32QemuWait(unittest.TestCase):
 
     # (c) fewer than `count` lines before the exit still fails the wait
     def test_exit_with_fewer_than_count_fails(self):
-        q = self.qemu('import time; time.sleep(0.1); '
-                      'print("tfw-l0: refused", flush=True)')
+        q = self.qemu('print("tfw-l0: refused", flush=True)')
         with self.assertRaises(self.h.Failure) as cm:
             q.wait_for(r"tfw-l0: refused", count=2, timeout=10)
         self.assertTrue(str(cm.exception).startswith("QEMU exited ("),
@@ -97,7 +106,8 @@ class TestEsp32QemuWait(unittest.TestCase):
 
     # (d) a QEMU that never prints the line fails at the deadline
     def test_no_line_by_the_deadline_fails(self):
-        q = self.qemu("import time; time.sleep(30)")
+        # Blocks on a signal, not the clock; q.stop() ends it.
+        q = self.qemu("import signal; signal.pause()")
         try:
             with self.assertRaises(self.h.Failure) as cm:
                 q.wait_for(r"tfw-l0: refused", timeout=1)

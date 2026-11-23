@@ -566,6 +566,48 @@ static void test_a4_two_failed_deletes_answer_the_first_failure(void)
     TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
 }
 
+/* A close the enclave refuses or leaves unanswered (the key management,
+ * key store and session closes, sixth to eighth in wipe_seq) does not
+ * undo an acknowledged delete: the wipe is still done, and every close
+ * after it is still sent. */
+static void test_a4_a_refused_or_silent_close_keeps_an_acknowledged_wipe_done(void)
+{
+    uint32_t at;
+
+    for (at = 6u; at <= 8u; at++) {
+        setUp();
+        ele_fail_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+    }
+    for (at = 6u; at <= 8u; at++) {
+        setUp();
+        ele_silent_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+    }
+}
+
+/* A refused or unanswered close never masks a failed delete: the wipe
+ * answers the delete's failure. */
+static void test_a4_a_refused_close_does_not_mask_a_failed_delete(void)
+{
+    ele_silent_at = 4u;
+    ele_fail_at   = 6u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+
+    setUp();
+    ele_fail_at   = 4u;
+    ele_silent_at = 7u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+}
+
 static void test_a4_no_enclave_at_all_is_a_timeout(void)
 {
     m->ele.enclave = NULL;
@@ -919,6 +961,8 @@ int main(void)
     RUN_TEST(test_a4_a_refused_open_deletes_nothing_and_closes_what_opened);
     RUN_TEST(test_a4_no_answer_to_a_delete_is_a_timeout_not_done);
     RUN_TEST(test_a4_two_failed_deletes_answer_the_first_failure);
+    RUN_TEST(test_a4_a_refused_or_silent_close_keeps_an_acknowledged_wipe_done);
+    RUN_TEST(test_a4_a_refused_close_does_not_mask_a_failed_delete);
     RUN_TEST(test_a4_no_enclave_at_all_is_a_timeout);
     RUN_TEST(test_a4_no_mu_command_or_key_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a4_a_bad_layout_is_unsupported_and_deletes_nothing);

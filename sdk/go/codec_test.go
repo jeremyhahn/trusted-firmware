@@ -75,6 +75,9 @@ func TestTheEEPROMMapMatchesTheVector(t *testing.T) {
 	if EEPROMReservedEnd != vectors.EEPROMReservedEnd || NetConfigAddr != vectors.EEPROMReservedEnd {
 		t.Fatalf("EEPROMReservedEnd 0x%X, NetConfigAddr 0x%X, want 0x%X", EEPROMReservedEnd, NetConfigAddr, vectors.EEPROMReservedEnd)
 	}
+	if AppConfigBase != vectors.AppConfigBase {
+		t.Fatalf("AppConfigBase 0x%X, want 0x%X", AppConfigBase, vectors.AppConfigBase)
+	}
 }
 
 func TestOTAControlFramesMatchVectors(t *testing.T) {

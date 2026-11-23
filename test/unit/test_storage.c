@@ -13,6 +13,7 @@
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 #include "tfw/eth.h"
+#include "tfw/app.h"
 #include "vectors.h"
 
 static uint8_t     inbuf[TFW_MAX_PAYLOAD];
@@ -118,6 +119,7 @@ static void test_the_vector_writes_get_the_vector_statuses(void)
 
     TEST_ASSERT_EQUAL_HEX16(TFWV_EEPROM_RESERVED_END, TFW_BOOT_EE_LEN);
     TEST_ASSERT_EQUAL_HEX16(TFWV_EEPROM_RESERVED_END, TFW_NETCFG_ADDR);
+    TEST_ASSERT_EQUAL_HEX16(TFWV_APP_CONFIG_BASE, TFW_APP_CONFIG_BASE);
     TEST_ASSERT_EQUAL(refused[4], run(TFW_CMD_EEPROM_WRITE, &old_req[4], 6u));
     TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[0x0C0], 4u);
     TEST_ASSERT_EQUAL(ok[4], run(TFW_CMD_EEPROM_WRITE, &new_req[4], 6u));

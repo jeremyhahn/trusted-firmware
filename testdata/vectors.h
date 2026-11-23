@@ -263,6 +263,9 @@
  * block, then the ATmega2560's swap journal and signed confirm request. The
  * network block follows at 0x140; it sat at 0x0C0 before. */
 #define TFWV_EEPROM_RESERVED_END 0x0140u
+/* Application config starts at 0x160, above the 32-byte network block, on
+ * every image (#640, owner ruling 1234). */
+#define TFWV_APP_CONFIG_BASE 0x0160u
 
 /* TFW_CMD_EEPROM_WRITE (0x41), seq 0x07: "TFNC" at 0x0C0, where an older host
  * put the network block. */

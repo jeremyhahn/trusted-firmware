@@ -157,6 +157,9 @@ const (
 	// EEPROMReservedEnd is where the bootloader's EEPROM ends on every board,
 	// and the network block's address, since #125; both were 0x0C0 before.
 	EEPROMReservedEnd = 0x0140
+	// AppConfigBase is where application config starts on every image,
+	// above the 32-byte network block (#640, owner ruling 1234).
+	AppConfigBase = 0x0160
 	// FrameEEPROMWriteOldNetcfgReq is TFW_CMD_EEPROM_WRITE (0x41), seq 7:
 	// "TFNC" at 0x0C0, where an older host put the network block.
 	FrameEEPROMWriteOldNetcfgReq = "\xa5\x08\x07\x41\xc0\x00\x54\x46\x4e\x43\x8b\x6b"

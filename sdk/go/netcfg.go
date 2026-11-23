@@ -30,6 +30,12 @@ const (
 	NetConfigAddr = EEPROMReservedEnd // 0x140; 0x0C0 before #125
 	NetConfigLen  = 32
 
+	// AppConfigBase is the EEPROM address of an application's config
+	// offset 0: the first byte above the network block, on every image,
+	// Ethernet or not. Config an out-of-tree application stored at 0x140
+	// must be re-provisioned here.
+	AppConfigBase = NetConfigAddr + NetConfigLen // 0x160: application config, every image (#640, owner ruling 1234)
+
 	netcfgVersion = 1
 
 	// netcfgFlagDHCP is flags bit 0, TFW_NETCFG_DHCP: the device takes its

@@ -354,6 +354,20 @@ static void test_the_first_discover_waits_between_1_and_10_s(void)
     TEST_ASSERT_TRUE(now_ms - start <= 10000u + STEP_MS);
 }
 
+/* xorshift32 stays at 0 once there, so start() makes a seed that folds to 0
+ * a 1 (dhcp.c:538). This MAC and 0x10000005 fold to 0 (dhcp.c:534-537). */
+static void test_a_seed_that_folds_to_zero_still_draws_a_nonzero_xid(void)
+{
+    uint8_t buf[2u * MSG_LEN];
+
+    cfg.mac[0] = 0x22u;
+    now_ms = 0x10000005u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(11000u));
+    TEST_ASSERT_EQUAL_UINT16(MSG_LEN, w5x_model_peer_recv(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_UINT8(1u, buf[242]);                  /* DHCPDISCOVER */
+    TEST_ASSERT_FALSE(buf[4] == 0u && buf[5] == 0u && buf[6] == 0u && buf[7] == 0u);
+}
+
 static void test_the_other_chip_is_refused_and_no_address_is_taken(void)
 {
     w5x_model_reset(OTHER);
@@ -1060,6 +1074,7 @@ int main(void)
     RUN_TEST(test_a_static_block_is_used_as_it_is_and_the_chip_untouched);
     RUN_TEST(test_the_socket_opens_as_udp_on_port_68_with_no_address);
     RUN_TEST(test_the_first_discover_waits_between_1_and_10_s);
+    RUN_TEST(test_a_seed_that_folds_to_zero_still_draws_a_nonzero_xid);
     RUN_TEST(test_the_other_chip_is_refused_and_no_address_is_taken);
     RUN_TEST(test_an_offer_is_answered_with_a_request_naming_its_server_and_address);
     RUN_TEST(test_an_ack_hands_the_link_the_lease_and_gives_the_socket_back);

@@ -118,7 +118,8 @@ static void command(uint32_t v)
     } else {
         log_byte("", (uint8_t)v);
         if (rp_i2c.arb_lost_at != 0u && rp_i2c.wcount + 1u == rp_i2c.arb_lost_at) {
-            abort_txn(TFW_RP_IC_ABRT_ARB_LOST);
+            abort_txn(rp_i2c.arb_lost_src != 0u ? rp_i2c.arb_lost_src
+                                                : TFW_RP_IC_ABRT_ARB_LOST);
             return;
         }
         if (rp_i2c.wcount == rp_i2c.nack_data_at) {

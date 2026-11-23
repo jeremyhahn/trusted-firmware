@@ -824,6 +824,35 @@ static void test_s3_a_refused_or_silent_get_info_is_not_a_match(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_measure(&ele, info, 0x2000u, &set, &s3));
 }
 
+static void test_s3_measure_asks_get_info_at_the_buffers_full_address(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 3u, &info_image[TFW_ELE_INFO_SHA_FW_OFF], TFW_ELE_INFO_SHA_FW_LEN);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_measure(&ele, info, 0x0000000120002000ull, &set, &s3));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, ele_req[0][1]);   /* address high word */
+    TEST_ASSERT_EQUAL_HEX32(0x20002000u, ele_req[0][2]);   /* address low word */
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO_LEN, ele_req[0][3]);
+}
+
+static void test_s3_an_unanswered_get_info_is_a_timeout_and_sends_nothing_more(void)
+{
+    static const uint8_t zero[TFW_ELE_GET_INFO_LEN];
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 3u, &info_image[TFW_ELE_INFO_SHA_FW_OFF], TFW_ELE_INFO_SHA_FW_LEN);
+    memset(info, 0xA5, TFW_ELE_GET_INFO_LEN);
+    ele_silent_at = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_measure(&ele, info, 0x2000u, &set, &s3));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, info, TFW_ELE_GET_INFO_LEN);   /* nothing stale */
+}
+
 static void test_s3_no_mu_is_unsupported_and_sends_nothing(void)
 {
     tfw_hsm_set_t set;
@@ -1027,6 +1056,8 @@ int main(void)
     RUN_TEST(test_s3_a_field_ending_at_the_buffers_end_is_read_and_one_short_is_range);
     RUN_TEST(test_s3_measure_asks_get_info_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_get_info_is_not_a_match);
+    RUN_TEST(test_s3_measure_asks_get_info_at_the_buffers_full_address);
+    RUN_TEST(test_s3_an_unanswered_get_info_is_a_timeout_and_sends_nothing_more);
     RUN_TEST(test_s3_no_mu_is_unsupported_and_sends_nothing);
     RUN_TEST(test_the_boards_sense_takes_only_the_pin_and_sends_nothing);
     RUN_TEST(test_s3_attest_opens_attests_closes_and_compares);

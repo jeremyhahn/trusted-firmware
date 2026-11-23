@@ -45,6 +45,9 @@ static uint32_t mac_cr;
 static uint8_t  mac_running;
 static uint8_t  mac_seen[6];            /* the address the MAC was started with */
 static unsigned tx_frames;
+static uint8_t tx_last[TFW_ETH_BUF_SIZE];   /* the last frame the MAC took */
+static size_t tx_last_len;
+static unsigned tx_busy;                    /* ring-full answers left; UINT_MAX: forever */
 
 tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 
@@ -204,7 +207,15 @@ int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
     static const uint8_t zero[4];
 
     (void)m;
+    if (tx_busy != 0u) {
+        if (tx_busy != UINT_MAX) {
+            tx_busy--;
+        }
+        return -1;
+    }
     tx_frames++;
+    tx_last_len = len < sizeof tx_last ? len : sizeof tx_last;
+    memcpy(tx_last, f, tx_last_len);
     ka_tx(f, len);
     if (len >= 42u && f[12] == 0x08u && f[13] == 0x06u && f[21] == 1u &&
         memcmp(f + 28, zero, 4) == 0 && memcmp(f + 38, offered_ip, 4) == 0) {
@@ -350,6 +361,64 @@ static void static_block(void)
 static void test_a_static_block_sets_its_address_and_mac_and_no_dhcp(void)
 {
     TEST_ASSERT_EQUAL_INT(0, in_child(static_block));
+}
+
+/* A PBUF_RAM pbuf of len bytes: an Ethernet header with the local
+ * experimental ethertype 0x88B5 (so ka_tx and the ARP/DHCP decode ignore it),
+ * then bytes counting up from seed. */
+static struct pbuf *raw_pbuf(u16_t len, uint8_t seed)
+{
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+    uint8_t *b;
+
+    TEST_ASSERT_NOT_NULL(p);
+    b = p->payload;
+    for (u16_t i = 0u; i < len; i++) {
+        b[i] = (uint8_t)(seed + i);
+    }
+    if (len >= 14u) {
+        b[12] = 0x88u;
+        b[13] = 0xB5u;
+    }
+    return p;
+}
+
+static void linkoutput_cases(void)
+{
+    struct netif *n;
+    struct pbuf *head, *tail, *p;
+    uint8_t want[100];
+    unsigned before;
+
+    static_block();
+    n = netif_default;
+
+    /* (a) a chain of two pbufs goes out as one frame, both parts in order */
+    head = raw_pbuf(60u, 0x10u);
+    tail = raw_pbuf(40u, 0xA0u);
+    memcpy(want, head->payload, 60u);
+    memcpy(want + 60, tail->payload, 40u);
+    pbuf_cat(head, tail);
+    TEST_ASSERT_EQUAL_UINT(100u, head->tot_len);
+    tx_last_len = 0u;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, head));
+    TEST_ASSERT_EQUAL_UINT(before + 1u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(100u, tx_last_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, tx_last, 100);
+    pbuf_free(head);
+
+    /* (b) one byte over the frame buffer is refused and nothing is sent */
+    p = raw_pbuf((u16_t)(TFW_ETH_BUF_SIZE + 1u), 0x20u);
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_BUF, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(before, tx_frames);
+    pbuf_free(p);
+}
+
+static void test_the_netif_link_output_refuses_flattens_and_bounds_the_send(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(linkoutput_cases));
 }
 
 static void dhcp_block(void)
@@ -1093,6 +1162,7 @@ int main(void)
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
+    RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);
     RUN_TEST(test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down);
     RUN_TEST(test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);

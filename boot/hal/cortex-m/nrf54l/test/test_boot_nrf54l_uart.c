@@ -99,7 +99,19 @@ static void test_off_restores_reset_values(void)
 
     tfw_boot_uart_init(BAUD);
     tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u, NULL);
+    TFW_NRF_UARTE_RX_END = 1u;
+    TFW_NRF_UARTE_TX_END = 1u;
+    TFW_NRF_UARTE_TXDRDY = 1u;
+    TFW_NRF_UARTE_ERROR  = 1u;
+    TFW_NRF_UARTE_RXTO   = 1u;
     tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_END);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ERROR);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RXTO);
+    /* P1.4, the console TX pin, driven low. */
+    TEST_ASSERT_BITS_HIGH(1uL << 4, TFW_NRF_GPIO_OUTCLR(TFW_NRF_P1_BASE));
     got[0] = TFW_NRF_UARTE_ENABLE;
     got[1] = TFW_NRF_UARTE_INTEN;
     got[2] = TFW_NRF_UARTE_PSEL_TXD;
@@ -191,6 +203,61 @@ static void test_off_on_a_uarte_never_enabled_stops_nothing(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_UARTE_ENABLE);
 }
 
+/* A stale RX.END from before init is not handed out as a byte. */
+static void test_init_drops_a_stale_rx_end(void)
+{
+    uint8_t b;
+
+    TFW_NRF_UARTE_RX_END = 1u;
+    TFW_NRF_UARTE_ERROR  = 1u;
+    tfw_boot_uart_init(BAUD);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_END);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ERROR);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RXTO);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+}
+
+static void test_tx_waits_for_txdrdy_and_clears_its_events(void)
+{
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 0u, NULL);
+    TFW_NRF_UARTE_TX_END = 1u;
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);
+}
+
+static void test_tx_whose_txdrdy_never_comes_returns(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_TX_START);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+}
+
+static void test_after_off_rx_tx_and_a_second_off_do_nothing(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u, NULL);
+    tfw_cm_boot_uart_off();
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_MAXCNT);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -207,5 +274,9 @@ int main(void)
     RUN_TEST(test_init_programs_the_console_pins_rate_and_frame);
     RUN_TEST(test_tx_on_a_uarte_left_off_starts_nothing);
     RUN_TEST(test_off_on_a_uarte_never_enabled_stops_nothing);
+    RUN_TEST(test_init_drops_a_stale_rx_end);
+    RUN_TEST(test_tx_waits_for_txdrdy_and_clears_its_events);
+    RUN_TEST(test_tx_whose_txdrdy_never_comes_returns);
+    RUN_TEST(test_after_off_rx_tx_and_a_second_off_do_nothing);
     return UNITY_END();
 }

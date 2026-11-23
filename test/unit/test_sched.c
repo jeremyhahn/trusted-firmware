@@ -265,6 +265,38 @@ static void test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_ret
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
+/*
+ * A revert the HAL keeps refusing for longer than 2^31 ms must still be
+ * retried: with the deadline left at its original value the signed
+ * difference flips and the slot reads as not yet due.
+ */
+static void test_a_revert_refused_past_2_31_ms_is_still_retried(void)
+{
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(5000u);
+    tfw_mock_gpio_io_fails(TFW_ERR_TIMEOUT);
+    tfw_sched_poll();
+    tfw_mock_advance(0x40000000u);
+    tfw_sched_poll();
+    tfw_mock_advance(0x40000000u);
+    tfw_sched_poll();
+    tfw_mock_advance(1u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* still active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* still held high */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(0u, remaining);
+
+    tfw_mock_gpio_io_fails(TFW_OK);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
 /* api.md gives level as (0|1) and ms as [1, 0x7FFFFFFF]: level 2 would drive
  * the pin high and ms 0 would fire on the next sweep, a timer nobody asked
  * for. Kills sched.c's `level > 1u` and `ms == 0u ||` refusals. */
@@ -326,6 +358,7 @@ int main(void)
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);
     RUN_TEST(test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries);
+    RUN_TEST(test_a_revert_refused_past_2_31_ms_is_still_retried);
     RUN_TEST(test_timer_set_refuses_a_level_above_one_and_a_zero_duration);
     RUN_TEST(test_a_full_table_refuses_a_new_pin_with_no_slot);
     RUN_TEST(test_cancel_and_query_of_an_unarmed_pin);

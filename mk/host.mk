@@ -2329,7 +2329,9 @@ lint-test-sleep:
 # line numbers kept, so prose naming delay() is not a finding and code beside a
 # comment (/* wait */ _delay_ms(10); delay /* ms */ (10);) still is. A call
 # split across lines (delay, then blank or comment-only lines, then the open
-# parenthesis) is still a call: the finding names the line of the identifier. The gate
+# parenthesis) is still a call: the finding names the line of the identifier. A
+# string, character literal or // comment continued by a backslash-newline stays
+# open on the next line, with line numbers still physical. The gate
 # fails closed: a root it cannot enter or a file awk cannot read fails it,
 # never passes as no hits (scripts/test_lint_no_delay.py); boards/ and include/
 # are swept when present.
@@ -2337,15 +2339,17 @@ LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
 LINT_NO_DELAY_AWK := \
 	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
 	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
-	FNR == 1 { pend = ""; inc = 0 } \
-	{ out = ""; q = ""; n = length($$0); \
+	FNR == 1 { pend = ""; inc = 0; cq = ""; lc = 0 } \
+	{ out = ""; q = cq; cq = ""; n = length($$0); sp = (substr($$0, n, 1) == "\\"); \
+	  if (lc) { lc = sp; n = 0 } \
 	  for (i = 1; i <= n; i++) { c = substr($$0, i, 1); d = substr($$0, i, 2); \
 	    if (inc) { if (d == "*/") { inc = 0; i++; out = out " " } continue } \
 	    if (q != "") { if (c == "\\") { i++ } else if (c == q) { q = ""; out = out c } continue } \
 	    if (d == "/*") { inc = 1; i++; continue } \
-	    if (d == "//") { break } \
+	    if (d == "//") { lc = sp; break } \
 	    if (c == "\"" || c == "\047") { q = c } \
 	    out = out c } \
+	  if (q != "" && sp) { cq = q } \
 	  $$0 = out } \
 	pend != "" && /^[[:space:]]*[(]/ { print pend } \
 	!/^[[:space:]]*$$/ { pend = "" } \

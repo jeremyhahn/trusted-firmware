@@ -920,12 +920,11 @@ firmware-matrix:
 .PHONY: firmware-matrix
 
 ## firmware: build the firmware for BOARD (default atmega328p)
-# TZ=1 (#590): a TrustZone-M board's secure and non-secure images instead,
-# checked by their own size-check (mk/arch/cortex-m-targets.mk).
+# TZ=1 (#590) built the own TrustZone-M split; #608 retired it: TF-M with the
+# DICE partition is the secure world (make tfm-image).
 ifeq ($(TZ),1)
-firmware: tz-firmware
-size-check: tz-size-check
-else
+$(error TZ=1 is retired (#608): use make tfm-image)
+endif
 firmware: $(TARGET).hex size-check
 	@echo "built $(TARGET).hex"
 
@@ -944,7 +943,6 @@ size-check: $(TARGET).elf
 	 if [ "$$flash" -gt "$(FLASH_BUDGET)" ]; then echo "FLASH BUDGET EXCEEDED for $(BOARD)"; fail=1; fi; \
 	 if [ "$$ram"   -gt "$(RAM_BUDGET)"   ]; then echo "RAM BUDGET EXCEEDED for $(BOARD)";   fail=1; fi; \
 	 exit $$fail
-endif
 
 ## reproducible-check: build twice from clean copies of HEAD and diff the image
 # Without this the platform's attestation verdict can never be better than

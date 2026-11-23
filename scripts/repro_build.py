@@ -87,7 +87,7 @@ def main(argv):
                    help="an application directory (APP_DIR), passed to both builds")
     p.add_argument("args", nargs="*", help="make arguments, after --")
     a = p.parse_args(argv)
-    if len(a.dir) != 2 or os.path.abspath(a.dir[0]) == os.path.abspath(a.dir[1]):
+    if len(a.dir) != 2 or os.path.realpath(a.dir[0]) == os.path.realpath(a.dir[1]):
         p.error("--dir names two different directories")
     src_abs = os.path.realpath(a.src)
     for d in a.dir:

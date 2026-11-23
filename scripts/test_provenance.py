@@ -278,6 +278,10 @@ ITCM_SLOT_HEX = SLOT_8000_HEX
 ITCM_BOOT_REGION_HEX = ":01000000AA55\n:00000001FF\n"
 # The first byte past the 192 KiB slot, 0x00038000 (the platform block's side).
 ITCM_PAST_SLOT_HEX = ":020000040003F7\n:01800000AAD5\n:00000001FF\n"
+# IMX_BOOT=1's region, 192 KiB from ITCM 0: its last byte, 0x0002FFFF, and the
+# first byte past it, 0x00030000, which is inside the slot's region.
+ITCM_BOOT_LAST_HEX = ":020000040002F8\n:01FFFF00AA57\n:00000001FF\n"
+ITCM_BOOT_PAST_HEX = ":020000040003F7\n:01000000AA55\n:00000001FF\n"
 
 
 class ItcmSlotBoard(unittest.TestCase):
@@ -316,11 +320,27 @@ class ItcmSlotBoard(unittest.TestCase):
 
     def test_imx_boot_in_the_default_build_dir_is_refused_however_spelled(self):
         # The guard compares paths, not strings: a trailing slash is build/.
-        for d in ("build/", "./build", "build//"):
+        for d in ("build/", "./build", "build//", os.path.join(_ROOT, "build")):
             with self.subTest(build_dir=d):
                 with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
                     build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
                                    "IMX_BOOT=1", "BUILD_DIR=" + d)
+
+    def test_an_imx_boot_image_measures_to_the_end_of_its_region_and_no_further(self):
+        # FWHASH_SIZE is FLASH_BUDGET, the 192 KiB the image is linked into
+        # (__tfw_text_size): the region is [0, 0x30000) under IMX_BOOT=1.
+        with tempfile.TemporaryDirectory() as build_dir:
+            m, image = build_manifest(ITCM_BOOT_LAST_HEX, "frdm-imx95-m7",
+                                      "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+            self.assertEqual(m["image_len"], 196608)
+            self.assertEqual(m["fwhash_sha256"], hashlib.sha256(image).hexdigest())
+            with self.assertRaises(AssertionError):
+                build_manifest(ITCM_BOOT_PAST_HEX, "frdm-imx95-m7",
+                               "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+            # The same byte is inside the slot's region, so the refusal above
+            # is the ITCM-0 region's end.
+            m, _ = build_manifest(ITCM_BOOT_PAST_HEX, "frdm-imx95-m7")
+            self.assertEqual(m["image_len"], 0x28001)
 
     def test_imx_boot_other_than_0_or_1_is_refused(self):
         # A typo must not link the slot image silently.

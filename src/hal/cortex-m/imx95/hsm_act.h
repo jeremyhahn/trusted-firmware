@@ -54,7 +54,8 @@ struct tfw_imx95_wipe {
  * opened for it and closed after. TFW_OK only once the enclave has
  * acknowledged every delete: anything less is not a wipe, and the engine
  * locks down (R3). A refused open or delete is TFW_ERR_CRYPTO, no answer
- * TFW_ERR_TIMEOUT; the remaining keys are still tried. TFW_ERR_UNSUPPORTED,
+ * TFW_ERR_TIMEOUT; the remaining keys are still tried. When more than one
+ * delete fails, the first failure is the answer. TFW_ERR_UNSUPPORTED,
  * with nothing sent, while the MU or the delete's id is zero or no key id is
  * set. A delete layout the client refuses is TFW_ERR_UNSUPPORTED too, after
  * the session, key store and key management service are opened; they are

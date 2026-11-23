@@ -60,7 +60,7 @@
 
 #ifdef TFM_DEV_MODE
 #define TFM_OB_BOOT_LOCK OB_BOOT_LOCK_DISABLE /*!< BOOT Lock expected value  */
-#define TFM_ENABLE_SET_OB /*!< Option bytes are set by TFM_SBSFU_Boot when not correctly set  */
+/* No TFM_ENABLE_SET_OB: option bytes are the owner's to set (CA 583); BL2 here only checks them. */
 #define TFM_ERROR_HANDLER_NON_SECURE /*!< Error handler is in Non Secure , this allows regression without jumping   */
 #else
 #define TFM_WRP_LOCK_ENABLE /*!< Write Protection Lock */

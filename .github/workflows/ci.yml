@@ -1513,6 +1513,8 @@ jobs:
       # v1.52 (Tenant Agent order): a fork's head under pull_request, as under
       # pull_request_target (v1.51), gets no unset-variable exemption, and the
       # selection outputs read for it are the hosted default the step emits.
+      # runs-on expressions are read under CTX's events too (workflow_run,
+      # merge_group, release, create, issue_comment, repository_dispatch).
       # Its tests: scripts/test_ci_runner_expr.py.
       - name: Runner labels (ruling 633)
         run: |
@@ -1938,6 +1940,9 @@ jobs:
               # v1.51: the base-defined PR event code-review.yml and signatures.yml run on.
               ("pull_request_target", "refs/heads/main", "o/r"), ("pull_request_target", "refs/heads/main", "fork/r"),
           ]
+          # v1.52 fix-653a (Codex #653 round 2): every event the release guard knows
+          # is a github.com event a runs-on is read under, so CTX's events join too.
+          HOSTED_CTX += [(ev, ref, None) for ev, ref in CTX if ev not in PR and (ev, ref, None) not in HOSTED_CTX]
 
 
           def hosted_ctx(text):
@@ -2039,6 +2044,23 @@ jobs:
               return re.search(r"(?<![\w.-])['\"]?release['\"]?(?![\w-])", text) is not None
 
 
+          # v1.53 fix-653-runner-computed-ref (Codex #653 round 3): a value built by a
+          # function cannot be resolved from the literals hosted_ctx samples, so such a
+          # runs-on fails closed. The selection reads this step models are exempt.
+          COMPUTED = re.compile(r"(?<![\w.])(format|join|tojson|fromjson)\s*\(", re.I)
+          SEL_FROMJSON = re.compile(r"fromjson\s*\(\s*(?:%s)\s*(?:\|\|\s*'(?:[^']|'')*'\s*)?\)"
+                                    % "|".join(re.escape(k) for k in [*SEL_OUT, PRE_VAR]), re.I)
+          # v1.54 (DS-10252, code-review-template v5.12.12): fromJSON of exactly the
+          # bigdisk pool literal has a value this step knows, so it is no computed
+          # value; each event below still reads it, and only code-review.yml's
+          # same-repository head under a PR event may take it (v1.53).
+          POOL_FROMJSON = re.compile(r"""fromjson\s*\(\s*'\["self-hosted","linux","x64","bigdisk"\]'\s*\)""", re.I)
+
+
+          def computed(text):
+              return COMPUTED.search(POOL_FROMJSON.sub("", SEL_FROMJSON.sub("", text))) is not None
+
+
           def sels_of(path, job, ro):
               if path.replace("\\", "/").rsplit("/", 1)[-1] not in SEL_FILES:
                   return (None,)
@@ -2052,6 +2074,8 @@ jobs:
               # github.com event (`vars.CI_RUNNER || 'ubuntu-latest'`) may name any
               # runner, `release` too, though its text names none. Codex round 4 (#613): so
               # does one that evaluates to `release` (`format('{0}{1}', 're', 'lease')`).
+              if computed(ro):
+                  return True
               for ev, ref, head in hosted_ctx(ro):
                   for sel in sels_of(path, job, ro):
                       try:
@@ -2103,6 +2127,8 @@ jobs:
                                   # (round 4) evaluates to `release`, is checked as one below.
                               else:
                                   off = []
+                                  if computed(ro):
+                                      off.append("its value cannot be resolved from plain literals (format/join/toJSON/fromJSON)")
                                   for ev, ref, head in hosted_ctx(ro):
                                       # v1.51: under pull_request_target, a fork's head never
                                       # reaches a self-hosted runner, overflow or not.

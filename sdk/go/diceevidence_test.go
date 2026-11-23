@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"math/big"
 	"os"
@@ -233,6 +234,9 @@ func TestDICEAttestationBindsTheUEIDToItsRegisteredKey(t *testing.T) {
 			return &other.PublicKey, true
 		}, "the DeviceID key is not the one registered for the UEID")
 	})
+	t.Run("UEID registered with no key", func(t *testing.T) {
+		refused(t, func([]byte) (*ecdsa.PublicKey, bool) { return nil, true }, "the DeviceID key is not the one registered for the UEID")
+	})
 	t.Run("the lookup gets 0x01 and the device id, as a copy", func(t *testing.T) {
 		var got []byte
 		ev, err := VerifyDICEAttestation(obj, v.nonce, ca.roots, func(ueid []byte) (*ecdsa.PublicKey, bool) {
@@ -255,6 +259,14 @@ func TestDICEAttestationBindsTheUEIDToItsRegisteredKey(t *testing.T) {
 // selfDICEChain also returns a registry holding the chain's DeviceID key for
 // whatever UEID the alias claims: the claims tests vary the UEID itself.
 func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, roots *x509.CertPool, reg DICERegistry) {
+	t.Helper()
+	return selfDICEChainWith(t, uccs, aliasPub, nil)
+}
+
+// selfDICEChainWith is selfDICEChain with mutate, when non-nil, applied to
+// the alias template before it is signed, so a refusal reached after the
+// signature check still has a properly signed chain.
+func selfDICEChainWith(t *testing.T, uccs []byte, aliasPub any, mutate func(*x509.Certificate)) (obj, nonce []byte, roots *x509.CertPool, reg DICERegistry) {
 	t.Helper()
 	now := time.Now()
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -292,6 +304,9 @@ func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, 
 	}
 	if uccs != nil {
 		aliasTmpl.ExtraExtensions = []pkix.Extension{{Id: oidUCCSEvidenceLiteral, Critical: true, Value: uccsEvidence(t, uccs)}}
+	}
+	if mutate != nil {
+		mutate(aliasTmpl)
 	}
 	aliasDER, err := x509.CreateCertificate(rand.Reader, aliasTmpl, devID, aliasPub, devKey)
 	require.NoError(t, err)
@@ -394,6 +409,44 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			require.Equal(t, c.reason, ee.Reason)
 		})
 	}
+}
+
+func TestDICEAttestationRefusesAnAliasOutsideItsValidityOrWithAnUnknownCriticalExtension(t *testing.T) {
+	ex := []byte(vectors.AppEvExample)
+	unknownOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 55555, 1}
+	asn1Null := []byte{0x05, 0x00}
+	withExt := func(critical bool) func(*x509.Certificate) {
+		return func(c *x509.Certificate) {
+			c.ExtraExtensions = append(c.ExtraExtensions, pkix.Extension{Id: unknownOID, Critical: critical, Value: asn1Null})
+		}
+	}
+	for _, c := range []struct {
+		name   string
+		mutate func(*x509.Certificate)
+		reason string
+	}{
+		{"expired alias", func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(-time.Hour), time.Now().Add(-time.Minute)
+		}, "the alias certificate is not valid now"},
+		{"not yet valid alias", func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(time.Minute), time.Now().Add(time.Hour)
+		}, "the alias certificate is not valid now"},
+		{"unknown critical extension", withExt(true), "the alias certificate has an unhandled critical extension"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			obj, nonce, roots, reg := selfDICEChainWith(t, build(t, ex, nil), nil, c.mutate)
+			ev, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
+			require.Nil(t, ev)
+			var ee *EvidenceError
+			require.ErrorAs(t, err, &ee)
+			require.Equal(t, c.reason, ee.Reason)
+		})
+	}
+	t.Run("unknown non-critical extension verifies", func(t *testing.T) {
+		obj, nonce, roots, reg := selfDICEChainWith(t, build(t, ex, nil), nil, withExt(false))
+		_, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
+		require.NoError(t, err)
+	})
 }
 
 func TestDICEAttestationObjectRefusesBadInputs(t *testing.T) {

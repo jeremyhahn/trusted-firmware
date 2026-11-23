@@ -223,6 +223,47 @@ static void test_send_puts_each_reply_on_the_wire(void)
     TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
 }
 
+/* A SEND may not be issued over one still in flight: the driver polls Sn_IR
+ * until the previous SEND_OK before it issues the next. */
+static void test_a_send_waits_for_the_previous_one_to_finish(void)
+{
+    static const uint8_t a[2] = { 'h', 'i' };
+    static const uint8_t b[2] = { 'o', 'k' };
+    uint8_t wire[8];
+
+    connect();
+    w5x_model_send_lag(3u);
+    send_bytes(a, 2u);
+    tfw_eth_send();
+    send_bytes(b, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends_over_flight());
+    TEST_ASSERT_EQUAL_UINT16(4u, w5x_model_peer_recv(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(a, wire, 2);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(b, wire + 2, 2);
+}
+
+/* The wait is bounded: a SEND_OK that never comes within W5X_POLL_LIMIT reads
+ * is given up, and the next reply still goes out rather than hang. */
+static void test_a_send_still_in_flight_past_the_bound_is_sent_anyway(void)
+{
+    static const uint8_t a[2] = { 'h', 'i' };
+    static const uint8_t b[2] = { 'o', 'k' };
+    uint8_t wire[8];
+
+    connect();
+    w5x_model_send_lag(255u);
+    send_bytes(a, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT16(2u, w5x_model_peer_recv(wire, sizeof wire));
+    send_bytes(b, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(2u, w5x_model_peer_recv(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(b, wire, 2);
+}
+
 static void test_send_wraps_the_pointer_and_the_buffer(void)
 {
     static const uint8_t b[6] = { 0x20u, 0x21u, 0x22u, 0x23u, 0x24u, 0x25u };
@@ -489,6 +530,8 @@ int main(void)
     RUN_TEST(test_receive_reads_in_order_across_batches_and_returns_the_space);
     RUN_TEST(test_receive_wraps_the_pointer_and_the_buffer);
     RUN_TEST(test_send_puts_each_reply_on_the_wire);
+    RUN_TEST(test_a_send_waits_for_the_previous_one_to_finish);
+    RUN_TEST(test_a_send_still_in_flight_past_the_bound_is_sent_anyway);
     RUN_TEST(test_send_wraps_the_pointer_and_the_buffer);
     RUN_TEST(test_send_with_nothing_queued_issues_no_send);
     RUN_TEST(test_a_full_transmit_buffer_refuses_the_byte);

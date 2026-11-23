@@ -62,7 +62,7 @@ static tfw_status_t op_pub(int32_t op, const tfw_dice_msg_t *m)
     uint32_t cap = min_cap(m->out_size[0], sizeof(key));
     tfw_status_t st;
 
-    if (m->in_size[0] != 0u || m->in_size[1] != 0u) {
+    if (m->in_size[0] != 0u || m->in_size[1] != 0u || m->out_size[1] != 0u) {
         return TFW_ERR_BAD_ARGC;
     }
     st = op == TFW_DICE_OP_DEVICEID_PUB ? tfw_dice_deviceid_pub(key, cap)
@@ -105,7 +105,8 @@ static tfw_status_t op_sign(const tfw_dice_msg_t *m)
     uint8_t sig[TFW_DICE_SIG_LEN];
     tfw_status_t st;
 
-    if (!read_exact(m, 0u, digest, sizeof(digest)) || m->in_size[1] != 0u) {
+    if (!read_exact(m, 0u, digest, sizeof(digest)) || m->in_size[1] != 0u ||
+        m->out_size[1] != 0u) {
         return TFW_ERR_BAD_ARGC;
     }
     st = tfw_dice_alias_sign(digest, sizeof(digest), sig,
@@ -124,6 +125,11 @@ tfw_status_t tfw_dice_dispatch(int32_t op, const tfw_dice_msg_t *m)
     /* No operation reads a third or fourth in-vector: a client that passes
      * one is refused, not served with it unread. */
     if (m->in_size[2] != 0u || m->in_size[3] != 0u) {
+        return TFW_ERR_BAD_ARGC;
+    }
+    /* Nor writes a third or fourth out-vector: a client that passes one is
+     * refused, not answered TFW_OK with nothing in it. */
+    if (m->out_size[2] != 0u || m->out_size[3] != 0u) {
         return TFW_ERR_BAD_ARGC;
     }
 

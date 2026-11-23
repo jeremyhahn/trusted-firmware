@@ -35,7 +35,7 @@
 #define TFW_DICE_OP_ALIAS_SIGN   4
 
 /* The vectors of each kind a psa_call carries (PSA_MAX_IOVEC). No operation
- * takes more than two; a third or fourth in-vector is refused. */
+ * takes more than two; a third or fourth vector of either kind is refused. */
 #define TFW_DICE_IOVEC 4u
 
 /* The UEID is HMAC-SHA256(UDS, TFW_DICE_UEID_LABEL) cut to TFW_ATTEST_ID_LEN:
@@ -63,10 +63,10 @@ tfw_status_t tfw_dice_partition_start(const uint8_t uds[32],
                                       const uint8_t measurement[32],
                                       tfw_crypto_tier_t tier);
 
-/* One call. TFW_ERR_BAD_ARGC for a third or fourth in-vector, then
- * TFW_ERR_UNKNOWN_CMD for an operation not above, TFW_ERR_BAD_ARGC for an
- * input vector of the wrong size, else the service's answer. Nothing is
- * written unless it answers TFW_OK. */
+/* One call. TFW_ERR_BAD_ARGC for a third or fourth vector, then
+ * TFW_ERR_UNKNOWN_CMD for an operation not above, TFW_ERR_BAD_ARGC for a
+ * vector the operation does not take or an input of the wrong size, else the
+ * service's answer. Nothing is written unless it answers TFW_OK. */
 tfw_status_t tfw_dice_dispatch(int32_t op, const tfw_dice_msg_t *m);
 
 #endif

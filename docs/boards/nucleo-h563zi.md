@@ -76,6 +76,14 @@ this table and in the code comments that carry it.
   watermark over the secure image's 128 KiB: option bytes the owner sets
   (CA 583). Nothing in this tree writes an option byte.
 
+- **TF-M v2.3.1, built only (#608).** `make tfm-image TFM_BOARD=nucleo-h563zi`
+  (`mk/arch/tfm-targets.mk`, `scripts/tfm-build.sh`) builds BL2, the secure
+  image and the example non-secure image from the out-of-tree port
+  `src/tz/tfm/platform/nucleo_h563zi`, derived from TF-M's STM32H573I-DK
+  port. The crypto runs in software (CRYPTO_HW_ACCELERATOR off: the H563 has
+  no SAES or PKA), and the console is USART3, the ST-LINK virtual COM port.
+  The images are built and never flashed.
+
 ## What is not verified
 
 - Every value marked TO CONFIRM above.

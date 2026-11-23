@@ -999,6 +999,29 @@ static void test_a_nak_to_a_renewal_loses_the_lease(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
 }
 
+/* A renewal reply whose UDP header claims more than the controller holds
+ * (dhcp.c:396-398) gives the socket and the lease up (dhcp.c:640-642). */
+static void test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    r.mask  = 0u;
+    r.claim = 40u;
+    hand_up(&r);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));   /* UDP socket back */
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());              /* link untouched */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    memset(cfg.ip, 0xFF, 4u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));   /* INIT again */
+    TEST_ASSERT_EQUAL_UINT8(0u, cfg.ip[0]);                 /* no lease */
+}
+
 static void test_a_connection_lost_while_renewing_renews_again_once_up(void)
 {
     tfw_ms_t asked = bind();
@@ -1110,6 +1133,7 @@ int main(void)
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);
     RUN_TEST(test_a_nak_to_a_renewal_loses_the_lease);
+    RUN_TEST(test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up);
     RUN_TEST(test_a_connection_lost_while_renewing_renews_again_once_up);
     RUN_TEST(test_a_renewal_socket_the_chip_will_not_open_keeps_the_lease_and_tries_later);
     RUN_TEST(test_a_renewal_the_chip_has_no_room_for_keeps_the_lease_and_goes_next_time);

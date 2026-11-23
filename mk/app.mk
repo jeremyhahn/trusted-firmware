@@ -46,9 +46,11 @@ ifeq ($(strip $(APP_SRCS)),)
 $(error $(APP_DIR)/app.mk: APP_SRCS is empty -- name the application's .c files, relative to its directory)
 endif
 # Relative and inside the directory, or the object path would leave the build
-# directory with it.
-ifneq ($(filter /% ../% %/../%,$(APP_SRCS)),)
-$(error $(APP_DIR)/app.mk: APP_SRCS must be relative paths inside the application directory: $(filter /% ../% %/../%,$(APP_SRCS)))
+# directory with it. A filter pattern honours only its first %, so a ".."
+# component anywhere is found by searching each entry with a "/" in front.
+APP_SRCS_ESCAPE := $(strip $(filter /%,$(APP_SRCS)) $(foreach s,$(APP_SRCS),$(if $(findstring /../,/$(s)),$(s))))
+ifneq ($(APP_SRCS_ESCAPE),)
+$(error $(APP_DIR)/app.mk: APP_SRCS must be relative paths inside the application directory: $(APP_SRCS_ESCAPE))
 endif
 ifneq ($(filter-out %.c,$(APP_SRCS)),)
 $(error $(APP_DIR)/app.mk: APP_SRCS lists files that are not .c: $(filter-out %.c,$(APP_SRCS)))

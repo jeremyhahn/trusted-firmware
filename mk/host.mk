@@ -2232,7 +2232,14 @@ LINT_SOC_DEFS_rp2350 := -DTFW_CM_PERIPH=1
 lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
-lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
+# lint-actionlint: actionlint over every workflow (devops.md section 4).
+# shellcheck must be on PATH, or actionlint skips the run: scripts unchecked.
+ACTIONLINT ?= actionlint
+ACTIONLINT_WORKFLOWS ?= $(wildcard .github/workflows/*.yml)
+lint-actionlint:
+	@$(ACTIONLINT) -config-file .github/actionlint.yaml $(ACTIONLINT_WORKFLOWS)
+
+lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep lint-actionlint
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
@@ -2802,7 +2809,7 @@ host-dir:
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
 .PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
-        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
+        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest lint-actionlint
 
 # ---------------------------------------------------------------- board sweep
 #

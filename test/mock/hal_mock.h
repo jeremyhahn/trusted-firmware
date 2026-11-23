@@ -54,6 +54,10 @@ void tfw_mock_adc_read_fails(uint8_t on);
  * caller should have made itself shows as a call. */
 uint8_t  tfw_mock_adc_ref(void);
 unsigned tfw_mock_adc_ref_calls(void);
+/* adc: while st is not TFW_OK, tfw_hal_adc_set_ref answers st for an in-range
+ * reference and keeps the one it held, as the ESP32 HAL does for EXTERNAL;
+ * tfw_mock_reset turns it off again. */
+void tfw_mock_adc_ref_fails(tfw_status_t st);
 
 /* gpio: the next tfw_hal_gpio_mode answers st and leaves the pin as it was;
  * the one after behaves again. tfw_mock_reset disarms it. */

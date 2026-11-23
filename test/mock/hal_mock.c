@@ -35,6 +35,7 @@ static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
 static unsigned adc_ref_calls;           /* how often tfw_hal_adc_set_ref was called */
+static tfw_status_t adc_ref_fail;        /* tfw_hal_adc_set_ref's status; TFW_OK = none */
 static tfw_status_t gpio_mode_fail;      /* the next tfw_hal_gpio_mode's status; TFW_OK = none */
 static uint8_t  adc_read_fails;          /* every conversion refused */
 static uint16_t tone_hz;
@@ -151,6 +152,7 @@ void tfw_mock_reset(void)
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
     adc_ref_calls = 0u;
+    adc_ref_fail = TFW_OK;
     gpio_mode_fail = TFW_OK;
     adc_read_fails = 0u;
     tone_hz = 0u; tone_stop_fail = TFW_OK; pulse_in_us = 0u; capture_n = 0u;
@@ -208,6 +210,7 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw)
 void tfw_mock_adc_read_fails(uint8_t on) { adc_read_fails = on; }
 uint8_t  tfw_mock_adc_ref(void)       { return adc_ref; }
 unsigned tfw_mock_adc_ref_calls(void) { return adc_ref_calls; }
+void tfw_mock_adc_ref_fails(tfw_status_t st) { adc_ref_fail = st; }
 void tfw_mock_gpio_mode_fails_once(tfw_status_t st) { gpio_mode_fail = st; }
 
 uint8_t *tfw_mock_eeprom(void) { return eeprom; }
@@ -421,6 +424,7 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 {
     adc_ref_calls++;
     if ((uint8_t)ref > (uint8_t)TFW_ADC_REF_INTERNAL) { return TFW_ERR_RANGE; }
+    if (adc_ref_fail != TFW_OK) { return adc_ref_fail; }
     adc_ref = (uint8_t)ref;
     return TFW_OK;
 }

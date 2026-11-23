@@ -130,6 +130,22 @@ static void test_a_reference_past_internal_never_reaches_the_hal(void)
     TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
 }
 
+/* Kills: the HAL's set_ref status dropped (the ESP32 HAL refuses EXTERNAL, so
+ * the host would be told OK for a reference the board never took). */
+static void test_a_reference_the_hal_refuses_passes_back_with_no_reply(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_ADC_REF, (const uint8_t[]){ TFW_ADC_REF_INTERNAL }, 1u));
+    tfw_mock_adc_ref_fails(TFW_ERR_UNSUPPORTED);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+                      run(TFW_CMD_ADC_REF, (const uint8_t[]){ TFW_ADC_REF_EXTERNAL }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ADC_REF_INTERNAL, tfw_mock_adc_ref());
+    TEST_ASSERT_EQUAL_UINT(2u, tfw_mock_adc_ref_calls());
+    tfw_mock_adc_ref_fails(TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_ADC_REF, (const uint8_t[]){ TFW_ADC_REF_EXTERNAL }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ADC_REF_EXTERNAL, tfw_mock_adc_ref());
+}
+
 /* ---- pwm.c ------------------------------------------------------------- */
 
 /* Kills: a dropped IN_USE term (pin 1 has no compare unit, so the board would
@@ -323,6 +339,7 @@ int main(void)
     RUN_TEST(test_every_reference_up_to_internal_is_accepted);
     RUN_TEST(test_each_accepted_reference_reaches_the_hal);
     RUN_TEST(test_a_reference_past_internal_never_reaches_the_hal);
+    RUN_TEST(test_a_reference_the_hal_refuses_passes_back_with_no_reply);
     RUN_TEST(test_pwm_on_the_uart_pin_is_refused_as_reserved);
     RUN_TEST(test_pwm_on_the_tick_pin_is_unsupported_and_leaves_the_pin);
     RUN_TEST(test_duty_one_drives_and_duty_zero_disconnects);

@@ -541,6 +541,47 @@ static void test_r7_a_refused_envelope_leaves_the_previous_policy(void)
     TEST_ASSERT_EQUAL_UINT32(4u, h.refused);
 }
 
+/* R7, owner ruling 1234 ("every refusal counts"): each refusal tfw_hsm_load
+ * makes steps the counter by exactly one and leaves the policy as it was. */
+static void test_r7_every_load_refusal_counts_once(void)
+{
+    static tfw_hsm_t before;
+    uint16_t         n;
+
+    tfw_hsm_init(&h, 4u);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 5u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_select(&h, 1u));
+
+    /* The image key. */
+    memcpy(&before, &h, sizeof before);
+    n = envelope(policy_class, "#policy", SET_B, sizeof SET_B, 6u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_hsm_load(&h, buf, n, SUIT_PUB, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* Below the floor. */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, SET(SET_B, 4u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A set the reader refuses, above the floor. */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, SET(SET_BAD, 9u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A script the set does not name (ruling 1234). */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, script(SUIT_SCRIPT_BODY, sizeof SUIT_SCRIPT_BODY));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A load that succeeds leaves the count where the last refusal put it. */
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_B, 6u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+}
+
 /* --- the rest of the engine table -------------------------------------- */
 
 static void test_a_selection_out_of_range_is_refused_and_unchanged(void)
@@ -661,7 +702,8 @@ static void test_a_script_named_by_the_second_policy_alone_loads_and_is_kept(voi
 }
 
 /* load_script's TFW_ERR_NO_SLOT: a named, readable script past the last slot
- * is refused and counted, and the scripts held, the set and the floor stay. */
+ * is refused and counted (R7: the NO_SLOT refusal counts, owner ruling 1234),
+ * and the scripts held, the set and the floor stay. */
 static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
 {
     static uint8_t   set[NINE_LEN];
@@ -678,6 +720,27 @@ static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
     nth_body(TFW_HSM_SCRIPTS_MAX, body);
     TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, script(body, sizeof body));
     TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+}
+
+/* R7, owner ruling 1234: a script the set does not name counts once whatever
+ * the slots hold, and the scripts held stay. */
+static void test_r7_an_unnamed_script_counts_with_scripts_held(void)
+{
+    static uint8_t   set[NINE_LEN];
+    static tfw_hsm_t before;
+    uint8_t          body[3];
+
+    nine_named(set);
+    TEST_ASSERT_EQUAL(TFW_OK, set_at(set, sizeof set, 4u, 0u));
+    for (uint8_t i = 0u; i < 2u; i++) {
+        nth_body(i, body);
+        TEST_ASSERT_EQUAL(TFW_OK, script(body, sizeof body));
+    }
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, script(SUIT_SCRIPT_BODY, sizeof SUIT_SCRIPT_BODY));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    TEST_ASSERT_EQUAL_UINT8(2u, h.n_scripts);
     unchanged_since(&before);
 }
 
@@ -1100,6 +1163,8 @@ int main(void)
     RUN_TEST(test_r5_silence_past_the_heartbeat_period_locks_down);
     RUN_TEST(test_r6_lockdown_then_any_input_is_still_locked_down);
     RUN_TEST(test_r7_a_refused_envelope_leaves_the_previous_policy);
+    RUN_TEST(test_r7_every_load_refusal_counts_once);
+    RUN_TEST(test_r7_an_unnamed_script_counts_with_scripts_held);
     RUN_TEST(test_a_selection_out_of_range_is_refused_and_unchanged);
     RUN_TEST(test_a_script_the_engine_does_not_hold_locks_down);
     RUN_TEST(test_scripts_are_held_while_named_and_bounded);

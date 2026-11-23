@@ -275,11 +275,18 @@ therefore our application linked at ITCM 0:
 ```
 make BOARD=frdm-imx95-m7 APP_BASE=0x00000000 BOOT_SECTION=0 BUILD_DIR=build/imx95-imxboot/m7-at-0 firmware
 arm-none-eabi-objcopy -O binary build/imx95-imxboot/m7-at-0/frdm-imx95-m7/soft/trusted-firmware.elf m7-at-0.bin
-boards/frdm-imx95-m7/imx-boot-m7.py imx-boot-orig.bin m7-at-0.bin imx-boot-m7.bin
+./imx-boot-m7.py imx-boot-orig.bin m7-at-0.bin imx-boot-m7.bin
 ```
 
-11216 bytes, initial SP `0x2003FF80`, reset `0x00002245`. The script
-(`boards/frdm-imx95-m7/imx-boot-m7.py`) does what imx-mkimage's
+The container tool was a bench-only script, since removed from this
+repository: trusted-imx95 owns the boot container
+([imx95-design R12](../../multi-arch/imx95-design.md)). The same ITCM-0
+image is now built with
+`make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware`
+([board page](../../boards/frdm-imx95-m7.md)).
+
+11216 bytes, initial SP `0x2003FF80`, reset `0x00002245`. The bench script
+does what imx-mkimage's
 `-m7 <image> 0 0x303C0000` does without rebuilding the rest: it replaces
 entry 3's data (padded to 0x2C00), size and SHA-384 and zeroes the rest of
 its slot. Every other byte of the image set is the board's: the ELE

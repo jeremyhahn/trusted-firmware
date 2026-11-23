@@ -2258,7 +2258,7 @@ lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter
 
 lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
-	          -i src/third_party \
+	          -i src/third_party -i src/tz/tfm/platform \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
 	          src/ boards/ boot/
 	@echo "cppcheck avr:atmega328p clean"
@@ -2292,7 +2292,9 @@ LINT_GREP_ROOT ?= .
 # TA and its check, #253). Exempt:
 # the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
 # globs so a second architecture needs no edit here), commands.def, the
-# vendored src/third_party (cppcheck skips it for the same reason), and the
+# vendored src/third_party (cppcheck skips it for the same reason), the TF-M
+# board ports under src/tz/tfm/platform/ (TF-M and ST files, built only by
+# TF-M's CMake, #608), and the
 # include guard of a header -- an #ifndef of a NAME_H macro, which is not a
 # conditional on anything. config.h, progmem.h and the board profiles live
 # under include/ and boards/, which this sweep does not enter.
@@ -2300,7 +2302,7 @@ lint-conditionals:
 	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools optee \
 	     --include='*.c' --include='*.h' --exclude-dir=third_party \
 	     | grep -v 'commands.def' \
-	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' \
+	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' | grep -v '^src/tz/tfm/platform/' \
 	     | grep -v ':[[:space:]]*#[[:space:]]*ifndef[[:space:]]\+[A-Za-z0-9_]*_H[[:space:]]*$$' || true); \
 	if [ -n "$$hits" ]; then \
 	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: preprocessor-conditional"; done; \

@@ -27,7 +27,7 @@
 # docker/packages.txt), and network access to git.trustedfirmware.org and
 # PyPI. Logs go to $WORK/logs.
 #
-# Usage: scripts/tfm-build.sh an521|stm32h573i-dk [work-dir]
+# Usage: scripts/tfm-build.sh an521|stm32h573i-dk|nucleo-h563zi [work-dir]
 #        (default work-dir $HOME/.cache/trusted-firmware/tfm)
 #        A relative work-dir is taken from the invocation directory.
 set -euo pipefail
@@ -44,12 +44,14 @@ die() { echo "tfm-build: $*" >&2; exit 1; }
 step() { echo "tfm-build: $*" >&2; }
 
 # Our board name -> TF-M's platform. an521 is TF-M's own MPS2 M33 port, run on
-# QEMU's mps2-an521; the NUCLEO-H563ZI comes as a port derived from
-# stm32h573i_dk in slice 4.
+# QEMU's mps2-an521. TF-M has no NUCLEO-H563ZI port: ours (#608 slice 4),
+# derived from stm32h573i_dk with software crypto, is out of TF-M's tree, and
+# TF-M takes TFM_PLATFORM as an absolute path (config/tfm_platform.cmake).
 case $BOARD in
 an521) PLATFORM=arm/mps2/an521 ;;
 stm32h573i-dk) PLATFORM=stm/stm32h573i_dk ;;
-*) die "usage: tfm-build.sh an521|stm32h573i-dk [work-dir]" ;;
+nucleo-h563zi) PLATFORM=$REPO/src/tz/tfm/platform/nucleo_h563zi ;;
+*) die "usage: tfm-build.sh an521|stm32h573i-dk|nucleo-h563zi [work-dir]" ;;
 esac
 
 # CMake resolves a relative TFM_TOOLCHAIN_FILE or CONFIG_SPE_PATH against its

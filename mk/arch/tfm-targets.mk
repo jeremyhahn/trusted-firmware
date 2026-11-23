@@ -12,8 +12,9 @@
 
 # Our board name -> TF-M's platform. The QEMU target is TF-M's own an521 (an
 # M33 QEMU emulates as mps2-an521), not a port of ours for AN505; the
-# NUCLEO-H563ZI is a port derived from stm32h573i_dk in slice 4.
-TFM_BOARDS := an521 stm32h573i-dk
+# NUCLEO-H563ZI is our out-of-tree port (src/tz/tfm/platform/nucleo_h563zi,
+# slice 4), derived from stm32h573i_dk with software crypto (no SAES or PKA).
+TFM_BOARDS := an521 stm32h573i-dk nucleo-h563zi
 TFM_BOARD  ?= an521
 
 # Outside the checkout, as OPTEE_CACHE is: nothing TF-M builds enters the tree.
@@ -24,7 +25,7 @@ TFM_WORK ?= $(HOME)/.cache/trusted-firmware/tfm
 # 2ac90aff).
 TFM_QEMU_NS_MARKER ?= Non-Secure system starting...
 
-## tfm-image: build TF-M v2.3.1 (BL2, secure, example non-secure; signed) for TFM_BOARD=an521|stm32h573i-dk, out of tree in TFM_WORK
+## tfm-image: build TF-M v2.3.1 (BL2, secure, example non-secure; signed) for TFM_BOARD=an521|stm32h573i-dk|nucleo-h563zi, out of tree in TFM_WORK
 tfm-image:
 	@case " $(TFM_BOARDS) " in *" $(TFM_BOARD) "*) ;; *) \
 	   echo "$@: TFM_BOARD=$(TFM_BOARD) is not one of: $(TFM_BOARDS)"; exit 1;; esac

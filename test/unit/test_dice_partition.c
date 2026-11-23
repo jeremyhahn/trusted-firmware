@@ -204,6 +204,7 @@ static psa_outvec s_out[2];
 static uint8_t    s_out0[300], s_out1[8];
 static size_t   (*s_read)(void *, uint32_t, void *, size_t) = call_read;
 static int        s_extra_in = -1; /* >= 0: that in-vector's size is 1 */
+static int        s_extra_out = -1; /* >= 0: that out-vector's size is 1 */
 
 static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
                              const void *in1, size_t len1,
@@ -233,6 +234,9 @@ static tfw_status_t dispatch(int32_t op, const void *in0, size_t len0,
     }
     m.out_size[0] = out0;
     m.out_size[1] = out1;
+    if (s_extra_out >= 0) {
+        m.out_size[s_extra_out] = 1u;
+    }
     m.read = s_read;
     m.write = call_write;
     m.ctx = &s_call;
@@ -257,6 +261,7 @@ void setUp(void)
     s_lie_vec = -1;
     s_read = call_read;
     s_extra_in = -1;
+    s_extra_out = -1;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_partition_start(UDS, MEAS, TFW_CRYPTO_SOFTWARE));
 }
 
@@ -584,6 +589,32 @@ static void test_third_or_fourth_in_vector_is_bad_argc_untouched(void)
     }
 }
 
+/* An out-vector no operation writes is refused like an extra in-vector: a
+ * client that passes one would get TFW_OK and nothing in it. The key and
+ * signature operations write out-vector 0 only; none writes a third or a
+ * fourth. */
+static void test_out_vector_no_operation_writes_is_bad_argc_untouched(void)
+{
+    uint32_t off = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_DEVICEID_PUB, NULL, 0u, NULL, 0u, 64u, 4u));
+    assert_nothing_written();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_PUB, NULL, 0u, NULL, 0u, 64u, 4u));
+    assert_nothing_written();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_SIGN, DIGEST, 32u, NULL, 0u, 64u, 4u));
+    assert_nothing_written();
+    for (s_extra_out = 2; s_extra_out < (int)TFW_DICE_IOVEC; s_extra_out++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_DEVICEID_PUB, NULL, 0u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_PUB, NULL, 0u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_CERT, NONCE, 32u, &off, 4u, 255u, 4u));
+        assert_nothing_written();
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, dispatch(TFW_DICE_OP_ALIAS_SIGN, DIGEST, 32u, NULL, 0u, 64u, 0u));
+        assert_nothing_written();
+    }
+}
+
 /* ---- not started: every call answers NOT_PROVISIONED --------------------- */
 
 static void test_without_start_every_call_is_not_provisioned(void)
@@ -630,6 +661,7 @@ int main(void)
     RUN_TEST(test_missing_read_or_write_is_range_untouched);
     RUN_TEST(test_short_read_is_bad_argc_untouched);
     RUN_TEST(test_third_or_fourth_in_vector_is_bad_argc_untouched);
+    RUN_TEST(test_out_vector_no_operation_writes_is_bad_argc_untouched);
     RUN_TEST(test_without_start_every_call_is_not_provisioned);
     return UNITY_END();
 }

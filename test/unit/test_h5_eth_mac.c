@@ -119,6 +119,36 @@ static void test_start_and_stop(void)
     TEST_ASSERT_TRUE(R(TFW_ETH_DMACRCR) & TFW_ETH_DMA_PBL32);
 }
 
+/* start clears the DMA status and only adds its enable bits; stop only takes
+ * them away: init's speed, duplex, CRC strip and DMA burst setup survive. */
+static void check_start_stop_keep(uint32_t speed)
+{
+    uint32_t cr = R(TFW_ETH_MACCR);
+    uint32_t tcr = R(TFW_ETH_DMACTCR);
+    uint32_t rcr = R(TFW_ETH_DMACRCR);
+
+    TEST_ASSERT_EQUAL_HEX32(speed | TFW_ETH_MACCR_ACS | TFW_ETH_MACCR_CST, cr);
+    R(TFW_ETH_DMACSR) = 0u;
+    tfw_eth_mac_start(&m);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, R(TFW_ETH_DMACSR));
+    TEST_ASSERT_EQUAL_HEX32(cr | TFW_ETH_MACCR_TE | TFW_ETH_MACCR_RE, R(TFW_ETH_MACCR));
+    TEST_ASSERT_EQUAL_HEX32(tcr | TFW_ETH_DMA_ST_SR, R(TFW_ETH_DMACTCR));
+    TEST_ASSERT_EQUAL_HEX32(rcr | TFW_ETH_DMA_ST_SR, R(TFW_ETH_DMACRCR));
+    tfw_eth_mac_stop(&m);
+    TEST_ASSERT_EQUAL_HEX32(cr, R(TFW_ETH_MACCR));
+    TEST_ASSERT_EQUAL_HEX32(tcr, R(TFW_ETH_DMACTCR));
+    TEST_ASSERT_EQUAL_HEX32(rcr, R(TFW_ETH_DMACRCR));
+}
+
+static void test_start_clears_dma_status_and_start_stop_keep_inits_setup(void)
+{
+    /* setUp ran init at 100M full duplex. */
+    check_start_stop_keep(TFW_ETH_MACCR_FES | TFW_ETH_MACCR_DM);
+    /* 10M half duplex: start must not add FES or DM. */
+    tfw_eth_mac_init(&m, mac_addr, 0u);
+    check_start_stop_keep(0u);
+}
+
 static void test_reset_times_out_when_swr_sticks(void)
 {
     TEST_ASSERT_EQUAL_INT(-1, tfw_eth_mac_reset(&m, 10u));
@@ -280,6 +310,7 @@ int main(void)
     RUN_TEST(test_half_duplex_10m_clears_fes_and_dm);
     RUN_TEST(test_init_again_takes_back_a_used_tx_ring);
     RUN_TEST(test_start_and_stop);
+    RUN_TEST(test_start_clears_dma_status_and_start_stop_keep_inits_setup);
     RUN_TEST(test_reset_times_out_when_swr_sticks);
     RUN_TEST(test_tx_fills_the_descriptor_and_moves_the_tail);
     RUN_TEST(test_tx_waits_for_the_dma_and_wraps);

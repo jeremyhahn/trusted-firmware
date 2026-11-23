@@ -56,6 +56,19 @@ func loadDICEVectors(t *testing.T) diceVectors {
 type diceCA struct {
 	roots    *x509.CertPool
 	deviceID []byte
+	ueid     []byte // 0x01 || the vectors' 16-byte device id
+	devPub   *ecdsa.PublicKey
+}
+
+// registry is the provisioning record's view of the service device: its
+// UEID registered with its DeviceID key, and nothing else.
+func (ca diceCA) registry() DICERegistry {
+	return func(ueid []byte) (*ecdsa.PublicKey, bool) {
+		if !bytes.Equal(ueid, ca.ueid) {
+			return nil, false
+		}
+		return ca.devPub, true
+	}
 }
 
 func newDICECA(t *testing.T, v diceVectors) diceCA {
@@ -86,7 +99,7 @@ func newDICECA(t *testing.T, v diceVectors) diceCA {
 	require.NoError(t, err)
 	pool := x509.NewCertPool()
 	pool.AddCert(root)
-	return diceCA{roots: pool, deviceID: devDER}
+	return diceCA{roots: pool, deviceID: devDER, ueid: append([]byte{0x01}, v.ueid...), devPub: devPub}
 }
 
 func diceObject(t *testing.T, v diceVectors, ca diceCA) []byte {
@@ -99,7 +112,7 @@ func diceObject(t *testing.T, v diceVectors, ca diceCA) []byte {
 func TestDICEAttestationFromTheSecureServiceVerifies(t *testing.T) {
 	v := loadDICEVectors(t)
 	ca := newDICECA(t, v)
-	ev, err := VerifyDICEAttestation(diceObject(t, v, ca), v.nonce, ca.roots, v.fwHash)
+	ev, err := VerifyDICEAttestation(diceObject(t, v, ca), v.nonce, ca.roots, ca.registry(), v.fwHash)
 	require.NoError(t, err)
 	// RFC 9711 section 4.2.1.1: a leading type byte, 0x01 for a random identifier.
 	require.Equal(t, append([]byte{0x01}, v.ueid...), ev.UEID)
@@ -108,7 +121,7 @@ func TestDICEAttestationFromTheSecureServiceVerifies(t *testing.T) {
 	require.Equal(t, v.aliasCert, ev.Alias.Raw)
 
 	// No reference measurement: the measurement must still be present.
-	_, err = VerifyDICEAttestation(diceObject(t, v, ca), v.nonce, ca.roots, nil)
+	_, err = VerifyDICEAttestation(diceObject(t, v, ca), v.nonce, ca.roots, ca.registry(), nil)
 	require.NoError(t, err)
 }
 
@@ -174,7 +187,7 @@ func TestDICEAttestationRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := VerifyDICEAttestation(c.obj, c.nonce, c.roots, c.measurement)
+			_, err := VerifyDICEAttestation(c.obj, c.nonce, c.roots, ca.registry(), c.measurement)
 			require.Error(t, err)
 			var ee *EvidenceError
 			require.ErrorAs(t, err, &ee)
@@ -183,13 +196,65 @@ func TestDICEAttestationRefusals(t *testing.T) {
 	}
 }
 
+// TestDICEAttestationBindsTheUEIDToItsRegisteredKey: a DeviceID certified
+// under the roots proves only that some device was manufactured; the UEID the
+// alias claims is that device's only if the provisioning record registered
+// the UEID with x5c[1]'s key (device-attest-01's RegisteredDeviceVerifier).
+func TestDICEAttestationBindsTheUEIDToItsRegisteredKey(t *testing.T) {
+	v := loadDICEVectors(t)
+	ca := newDICECA(t, v)
+	obj := diceObject(t, v, ca)
+
+	refused := func(t *testing.T, reg DICERegistry, reason string) {
+		t.Helper()
+		ev, err := VerifyDICEAttestation(obj, v.nonce, ca.roots, reg, v.fwHash)
+		require.Nil(t, ev)
+		var ee *EvidenceError
+		require.ErrorAs(t, err, &ee)
+		require.Equal(t, reason, ee.Reason)
+	}
+
+	t.Run("nil registry", func(t *testing.T) {
+		refused(t, nil, "no registry for the device identity")
+	})
+	t.Run("UEID not registered", func(t *testing.T) {
+		refused(t, func([]byte) (*ecdsa.PublicKey, bool) { return nil, false }, "the UEID is not a registered device")
+	})
+	t.Run("UEID registered with another DeviceID key", func(t *testing.T) {
+		// The attack: the holder of another DeviceID key, certified under the
+		// same root, claims the target's UEID. The record names the target's
+		// key, so the evidence is not the target's.
+		other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		refused(t, func(ueid []byte) (*ecdsa.PublicKey, bool) {
+			if !bytes.Equal(ueid, ca.ueid) {
+				return nil, false
+			}
+			return &other.PublicKey, true
+		}, "the DeviceID key is not the one registered for the UEID")
+	})
+	t.Run("the lookup gets 0x01 and the device id, as a copy", func(t *testing.T) {
+		var got []byte
+		ev, err := VerifyDICEAttestation(obj, v.nonce, ca.roots, func(ueid []byte) (*ecdsa.PublicKey, bool) {
+			got = bytes.Clone(ueid)
+			ueid[0] ^= 0xff // a lookup that writes must not reach the evidence
+			return ca.devPub, true
+		}, v.fwHash)
+		require.NoError(t, err)
+		require.Equal(t, append([]byte{0x01}, v.ueid...), got)
+		require.Equal(t, append([]byte{0x01}, v.ueid...), ev.UEID)
+	})
+}
+
 // selfDICEChain plays both the manufacturer and the device: a root, a
 // DeviceID certificate under it, and an alias certificate the DeviceID key
 // signs over aliasPub (a fresh P-256 key when nil) carrying uccs as its
 // tcg-dice-UCCS-evidence extension (none when uccs is nil). The signature
 // over the nonce is by a P-256 alias key, so a chain built over a valid
 // UCCS gets past the alias signature to the claims checks.
-func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, roots *x509.CertPool) {
+// selfDICEChain also returns a registry holding the chain's DeviceID key for
+// whatever UEID the alias claims: the claims tests vary the UEID itself.
+func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, roots *x509.CertPool, reg DICERegistry) {
 	t.Helper()
 	now := time.Now()
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -240,7 +305,8 @@ func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, 
 	require.NoError(t, err)
 	pool := x509.NewCertPool()
 	pool.AddCert(root)
-	return obj, nonce, pool
+	reg = func([]byte) (*ecdsa.PublicKey, bool) { return &devKey.PublicKey, true }
+	return obj, nonce, pool, reg
 }
 
 // TestDICEAttestationClaimsRefusals reaches the checks after the alias
@@ -248,8 +314,8 @@ func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, 
 func TestDICEAttestationClaimsRefusals(t *testing.T) {
 	ex := []byte(vectors.AppEvExample)
 
-	obj, nonce, roots := selfDICEChain(t, build(t, ex, nil), nil)
-	ev, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+	obj, nonce, roots, reg := selfDICEChain(t, build(t, ex, nil), nil)
+	ev, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
 	require.NoError(t, err)
 	require.Equal(t, ex, ev.FWHash)
 
@@ -321,8 +387,8 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			obj, nonce, roots := selfDICEChain(t, c.uccs, c.aliasPub)
-			_, err := VerifyDICEAttestation(obj, nonce, roots, ex)
+			obj, nonce, roots, reg := selfDICEChain(t, c.uccs, c.aliasPub)
+			_, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
 			var ee *EvidenceError
 			require.ErrorAs(t, err, &ee)
 			require.Equal(t, c.reason, ee.Reason)

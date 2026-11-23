@@ -548,6 +548,24 @@ static void test_a4_no_answer_to_a_delete_is_a_timeout_not_done(void)
     TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
 }
 
+/* Two deletes failing differently: the wipe answers the first failure, either
+ * way round, and still tries every key and closes. */
+static void test_a4_two_failed_deletes_answer_the_first_failure(void)
+{
+    ele_silent_at = 4u;
+    ele_fail_at   = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+
+    setUp();
+    ele_fail_at   = 4u;
+    ele_silent_at = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+}
+
 static void test_a4_no_enclave_at_all_is_a_timeout(void)
 {
     m->ele.enclave = NULL;
@@ -900,6 +918,7 @@ int main(void)
     RUN_TEST(test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried);
     RUN_TEST(test_a4_a_refused_open_deletes_nothing_and_closes_what_opened);
     RUN_TEST(test_a4_no_answer_to_a_delete_is_a_timeout_not_done);
+    RUN_TEST(test_a4_two_failed_deletes_answer_the_first_failure);
     RUN_TEST(test_a4_no_enclave_at_all_is_a_timeout);
     RUN_TEST(test_a4_no_mu_command_or_key_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a4_a_bad_layout_is_unsupported_and_deletes_nothing);

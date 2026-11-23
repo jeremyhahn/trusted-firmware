@@ -213,6 +213,9 @@ func TestReadRecordRefusesWhatIsNotARecord(t *testing.T) {
 		"a capitalised cnf":               strings.Replace(jwk("EC", "P-256", gx, gy), `"cnf"`, `"Cnf"`, 1),
 		"an upper-case kty":               strings.Replace(jwk("EC", "P-256", gx, gy), `"kty"`, `"KTY"`, 1),
 		"a repeated kty":                  strings.Replace(jwk("EC", "P-256", gx, gy), `"kty":"EC"`, `"kty":"EC","kty":"EC"`, 1),
+		"a non-canonical ueid":            `{"ueid":"AQABAgMEBQYHCAkKCwwNDg9"}`,
+		"a non-canonical x":               jwk("EC", "P-256", gx[:42]+"Z", gy),
+		"a non-canonical y":               jwk("EC", "P-256", gx, gy[:42]+"V"),
 	} {
 		path := recordPath(t)
 		writeFile(t, path, body)
@@ -238,6 +241,24 @@ func TestRecordPointLeavesARecordWithAnUpperCaseMemberUnwritten(t *testing.T) {
 	wantRecordError(t, recordPoint(path, mustHex(t, p256GeneratorHex)), "an upper-case ueid")
 	if got := readFile(t, path); got != body {
 		t.Fatal("the refused join rewrote the file")
+	}
+}
+
+// The ueid's last character carries 2 pad bits; set, they decode to this
+// serial's bytes under a lenient decoder, and the string compare then called
+// the record another device's. The record is refused as not a record.
+func TestRecordSerialLeavesANonCanonicalUEIDUnwritten(t *testing.T) {
+	const body = "{\"ueid\":\"AQABAgMEBQYHCAkKCwwNDg9\"}\n"
+	path := recordPath(t)
+	writeFile(t, path, body)
+	err := recordSerial(path, testSerial(t, testSerialHex))
+	wantRecordError(t, err, "a non-canonical ueid")
+	if msg := err.Error(); strings.Contains(msg, "not of this serial") ||
+		!(strings.Contains(msg, "is not a provisioning record") || strings.Contains(msg, "ueid is not")) {
+		t.Fatalf("err = %q, want the record refused as not a record", msg)
+	}
+	if got := readFile(t, path); got != body {
+		t.Fatal("the refused record was rewritten")
 	}
 }
 

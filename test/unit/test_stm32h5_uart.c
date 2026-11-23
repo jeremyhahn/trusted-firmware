@@ -241,6 +241,36 @@ static void rx_push(uint8_t d)
     tfw_cm_irq58();
 }
 
+/* A retried bad baud on a running console must not stop it or drop what it
+ * holds: the refusal comes before CR1, BRR or the rings are touched. */
+static void test_a_refused_baud_leaves_a_running_console_as_it_was(void)
+{
+    uint8_t b = 0u;
+    uint32_t cr1;
+
+    init_115200();
+    rx_push(0x11u);
+    rx_push(0x22u);
+    TFW_H5_USART_ISR = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x42u));
+    cr1 = TFW_H5_USART_CR1;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(64000000u));
+
+    TEST_ASSERT_EQUAL_HEX32(cr1, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(BRR_115200_AT_64MHZ, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x11u, b);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x22u, b);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0x42u, TFW_H5_USART_TDR);
+}
+
 static void test_a_full_rx_ring_drops_the_new_byte_and_keeps_the_queued_ones(void)
 {
     uint8_t b = 0u;
@@ -312,6 +342,7 @@ int main(void)
     RUN_TEST(test_the_clock_is_64mhz);
     RUN_TEST(test_brr_for_115200_at_64mhz);
     RUN_TEST(test_a_baud_out_of_range_writes_nothing);
+    RUN_TEST(test_a_refused_baud_leaves_a_running_console_as_it_was);
     RUN_TEST(test_cr1_enables_the_usart_transmitter_and_receiver);
     RUN_TEST(test_init_clears_an_overrun_and_clocks_usart1);
     RUN_TEST(test_init_enables_usart1s_interrupt);

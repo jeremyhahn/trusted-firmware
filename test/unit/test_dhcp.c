@@ -970,6 +970,54 @@ static void test_at_t2_any_server_may_rebind_the_lease(void)
     TEST_ASSERT_EQUAL_UINT8(3u, sent_as(srv_b, 0x00u, offered));
 }
 
+static void test_a_nak_from_any_server_while_rebinding_loses_the_lease(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(6u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    now_ms = asked + T2_MS;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent_as(bcast, 0x00u, offered));
+    memcpy(xid, msg + 4, 4u);
+    r.server = srv_b;                                       /* any server, from T2 */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+}
+
+static void test_a_rebind_ack_for_another_address_keeps_the_lease(void)
+{
+    static const uint8_t other[4] = { 192u, 0u, 2u, 78u };
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    now_ms = asked + T2_MS;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent_as(bcast, 0x00u, offered));
+    memcpy(xid, msg + 4, 4u);
+    r.server = srv_b;
+    r.yi     = other;                                       /* not the bound address */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    r = reply(5u);
+    r.server = srv_b;
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, cfg.ip, 4u);
+}
+
 static void test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end(void)
 {
     tfw_ms_t asked;
@@ -1176,6 +1224,8 @@ int main(void)
     RUN_TEST(test_a_renewal_ack_that_shortens_the_lease_is_held_to_its_new_length);
     RUN_TEST(test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s);
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
+    RUN_TEST(test_a_nak_from_any_server_while_rebinding_loses_the_lease);
+    RUN_TEST(test_a_rebind_ack_for_another_address_keeps_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);
     RUN_TEST(test_a_nak_to_a_renewal_loses_the_lease);
     RUN_TEST(test_a_renewal_ack_for_another_address_keeps_the_lease);

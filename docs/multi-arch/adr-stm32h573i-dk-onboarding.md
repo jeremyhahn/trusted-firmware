@@ -178,9 +178,9 @@ AVR). On this part each element has more than one candidate:
 |---|---|---|
 | DICE engine (immutable) | the boot ROM's STiRoT path, or an OEMiRoT we write, installed in a hidden area | open questions 1, 2 |
 | UDS | a hardware unique key reachable only by secure code before HDP closes (whether the H573 has one usable this way is to confirm in RM0481), or a secret we provision through SFI | open question 3 |
-| Measurement of the next layer | taken by STiRoT, by the Secure Manager, or by our layer 0 | open question 2 |
+| Measurement of the next layer | taken by STiRoT, by the Secure Manager (not taken, ruling 935), or by our layer 0 | open question 2 |
 | Isolation of the CDI from later layers | HDP, the TrustZone boundary, or both | open question 3 |
-| DeviceID and alias | the Secure Manager's initial attestation key, or a key in our TF-M partition (ADR #15 (b1), accepted) | open questions 2, 4 |
+| DeviceID and alias | the Secure Manager's initial attestation key (not taken, ruling 935), or a key in our TF-M partition (ADR #15 (b1), accepted) | open questions 2, 4 |
 
 What does not change on any candidate: the device signs only the three fixed
 structures (`docs/dice-attestation/architecture.md`), the alias certificate
@@ -199,9 +199,11 @@ and decides nothing.
   machine.
 - **ADR #15** decides, for the M33, (b1): TF-M Profile Medium with our DICE
   attestation code as an Application RoT partition in the secure world, MCUboot
-  as BL2. It names this board as TF-M's upstream platform, and it leaves open
-  whether our partition sits on ST's Secure Manager or on upstream TF-M (its
-  open question 2, which is the `stm32h5` row's open decision). Our own secure
+  as BL2. It names this board as TF-M's upstream platform. Whether our
+  partition sits on ST's Secure Manager or on upstream TF-M was its open
+  question 2, the `stm32h5` row's open decision, and is closed: ruling 935
+  took no vendor secure world, and ruling 1024 took upstream TF-M Profile
+  Medium with our DICE partition. Our own secure
   world, ADR #15 (a), is held in reserve for M33 parts TF-M has no port for; it
   is not an option on this board.
 - **Ruling 935** (after both ADRs) names our own TrustZone-M firmware as the

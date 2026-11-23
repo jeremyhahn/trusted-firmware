@@ -1,0 +1,1 @@
+- The STM32H5 crypto provider returns a working PKA's accept and reject as they are and keeps the PKA after a rejection; a host test now pins it (Refs #599).

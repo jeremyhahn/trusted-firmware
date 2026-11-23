@@ -349,6 +349,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.Tone` | `func (d *Device) Tone(ctx context.Context, pin uint8, hz uint16) error` | Drives a square wave on a pin. |
 | `tfw.Device.WriteNetConfig` | `func (d *Device) WriteNetConfig(ctx context.Context, c NetConfig) error` | Writes the block in EEPROMChunk-sized EEPROM_WRITEs. |
 | `tfw.ElementInfo` | `type ElementInfo struct` | What a provisioning jig can learn about the part before it writes anything. |
+| `tfw.DICEEvidence` | `type DICEEvidence struct` | What VerifyDICEAttestation proved: the alias and DeviceID certificates, the UEID and the firmware measurement. |
 | `tfw.EvidenceError` | `type EvidenceError struct` | A certificate or claims set that is not the shape the device writes. |
 | `tfw.EvidenceError.Error` | `func (e *EvidenceError) Error() string` | Implements error. |
 | `tfw.EvidenceError.Is` | `func (e *EvidenceError) Is(target error) bool` | Reports whether target is ErrBadFormat. |
@@ -449,3 +450,6 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfwsim.StartElementWithOperator` | `func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...tfw.Option) *tfw.Device` | StartElement with operator baked into the platform block as the auth session's trust anchor. |
 | `tfwsim.StartProvisioningWith` | `func StartProvisioningWith(tb testing.TB, args []string, opts ...tfw.Option) *tfw.Device` | The element tier as the provisioning jig image, tfwsim-prov, with exactly the given command-line arguments. |
 | `tfwsim.TestDeviceIDPublicKey` | `func TestDeviceIDPublicKey() *ecdsa.PublicKey` | The public key the element-tier test identity signs with. |
+| `tfw.FormatDICE` | `const FormatDICE = "dice"` | The fmt of a device-attest-01 attestation object whose statement is a TCG DICE certificate chain. |
+| `tfw.DICEAttestationObject` | `func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, error)` | Assembles the device-attest-01 "dice" attestation object from the secure DICE service's alias certificate, a DeviceID certificate, the nonce and the alias key's r‖s over SHA-256(nonce). |
+| `tfw.VerifyDICEAttestation` | `func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error)` | Checks a "dice" attestation object as device-attest-01 does: the DeviceID certificate under roots, the alias certificate under the DeviceID key, the nonce, the alias signature and the TCB measurement. |

@@ -1371,12 +1371,15 @@ $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The secure-world DICE service (#590 slice b, docs/plans/590b.md) beside the
 # non-secure path it must match byte for byte: the soft P-256 identity and
-# alias.c's certificate. The suite is its own provider and CDI handoff.
+# alias.c's certificate. The suite is its own provider and CDI handoff. It
+# also holds sdk/go's dice evidence vectors (slice c, docs/plans/590c.md) to
+# the service's answers.
+DICE_VECTORS := sdk/go/testdata/dice_service_vectors.txt
 $(HOST_DIR)/test_dice_service: test/unit/test_dice_service.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
                                src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                                src/core/reader.c src/core/writer.c src/core/secure_zero.c \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_DICE_VECTORS='"$(abspath $(DICE_VECTORS))"' -o $@ $^ $(EXTRA_LDFLAGS)
 # The tenant-key verify an HSM image links in place of the soft provider's
 # refusal (mk/firmware.mk HSM_SRCS), on the literal policy signature.
 $(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verify_p256.c \

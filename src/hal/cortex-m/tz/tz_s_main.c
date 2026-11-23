@@ -77,6 +77,7 @@ void tz_s_reset(void)
     SCB_SHCSR |= SHCSR_FAULTS;
 
     tz_console_init();
+    tz_puts(tz_s_dice_start() ? "tz: s: dice ready\r\n" : "tz: s: dice failed\r\n");
     tz_puts("tz: s: sau on, entering ns\r\n");
 
     SCB_NS_VTOR = TZ_NS_CODE_BASE;

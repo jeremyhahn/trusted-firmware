@@ -2233,11 +2233,14 @@ lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
 # lint-actionlint: actionlint over every workflow (devops.md section 4).
-# shellcheck must be on PATH, or actionlint skips the run: scripts unchecked.
+# shellcheck must be on PATH (actionlint would skip its SC rules), so the
+# rule refuses without it; actionlint gets the binary by -shellcheck=.
 ACTIONLINT ?= actionlint
-ACTIONLINT_WORKFLOWS ?= $(wildcard .github/workflows/*.yml)
+SHELLCHECK ?= shellcheck
+ACTIONLINT_WORKFLOWS ?= $(wildcard .github/workflows/*.yml .github/workflows/*.yaml)
 lint-actionlint:
-	@$(ACTIONLINT) -config-file .github/actionlint.yaml $(ACTIONLINT_WORKFLOWS)
+	@command -v $(SHELLCHECK) >/dev/null 2>&1 || { echo "lint-actionlint: shellcheck ($(SHELLCHECK)) is not on PATH; actionlint would skip its shellcheck rules" >&2; exit 1; }
+	@$(ACTIONLINT) -shellcheck=$(SHELLCHECK) -config-file .github/actionlint.yaml $(ACTIONLINT_WORKFLOWS)
 
 lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep lint-actionlint
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \

@@ -31,6 +31,7 @@ void setUp(void)
     polls = 0u;
     issued = 0u;
     issued_dr = 0u;
+    captured = 0u;
     seen = 0u;
     reply = 0u;
 }
@@ -61,6 +62,27 @@ void test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb(void)
     TEST_ASSERT_EQUAL_HEX32(0x8000u, regfile_model_peek(MACMDIODR));
     TEST_ASSERT_EQUAL_UINT32(3u, seen);
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIOAR) & MB);
+}
+
+/* The model check behind the test above: a write that issues MACMDIOAR
+ * before it loads MACMDIODR is captured with the stale data, so a driver
+ * with its two stores reversed fails that test. The stores go through the
+ * model by hand, in the driver's order and then reversed. */
+void test_the_model_catches_a_write_issued_before_its_data(void)
+{
+    regfile_model_poke(MACMDIODR, 0x5A5A5A5Au); /* stale */
+    mdio_model_store(MACMDIODR, 0x8000u);
+    mdio_model_store(MACMDIOAR, GOC_WRITE | MB);
+    (void)mdio_model_load(MACMDIOAR);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+
+    setUp();
+    regfile_model_poke(MACMDIODR, 0x5A5A5A5Au); /* stale */
+    mdio_model_store(MACMDIOAR, GOC_WRITE | MB);
+    mdio_model_store(MACMDIODR, 0x8000u);
+    (void)mdio_model_load(MACMDIOAR);
+    TEST_ASSERT_EQUAL_HEX32(GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, issued_dr);
 }
 
 void test_a_phy_or_register_past_five_bits_is_masked(void)
@@ -161,6 +183,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_read_names_the_phy_and_register_and_waits_on_mb);
     RUN_TEST(test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb);
+    RUN_TEST(test_the_model_catches_a_write_issued_before_its_data);
     RUN_TEST(test_a_phy_or_register_past_five_bits_is_masked);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_read);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write);

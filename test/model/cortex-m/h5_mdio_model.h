@@ -27,35 +27,52 @@ static uint32_t issued;       /* MACMDIOAR as the last command wrote it */
 static uint32_t issued_dr;    /* MACMDIODR as the last command found it */
 static uint32_t seen;         /* MB-set reads in all */
 static uint32_t reply;        /* MACMDIODR a read's completion publishes */
+static uint32_t captured;     /* the command in flight has been captured */
 
 /*
  * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
  * A read's result reaches MACMDIODR only as MB clears, so a driver that
- * reads the data register before its wait gets the stale value. A write's
- * data is read as the command is first seen, so a driver that loads
- * MACMDIODR after issuing the command sends the stale value.
+ * reads the data register before its wait gets the stale value. A command
+ * and its data are captured at the first register access after MB is set,
+ * whatever register that access names, as the MAC starts the frame at once:
+ * a driver that loads MACMDIODR after issuing a write sends the stale value.
  */
 volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
 {
+    volatile uint32_t *ar = regfile_model_reg(MACMDIOAR);
     volatile uint32_t *r = regfile_model_reg(addr);
 
+    if ((*ar & MB) != 0u && captured == 0u) {
+        issued = *ar;
+        issued_dr = *regfile_model_reg(MACMDIODR);
+        captured = 1u;
+    }
     if (addr == MACMDIOAR && (*r & MB) != 0u) {
-        if (polls == 0u) {
-            issued = *r;
-            issued_dr = *regfile_model_reg(MACMDIODR);
-        }
         if (busy_polls != NEVER && polls >= busy_polls) {
             *r &= ~MB;
             if ((issued & (0x3u << 2)) == GOC_READ) {
                 *regfile_model_reg(MACMDIODR) = reply;
             }
             polls = 0u;
+            captured = 0u;
         } else {
             polls++;
             seen++;
         }
     }
     return r;
+}
+
+/* A store and a load as the driver makes them, through the model, so a test
+ * can play a driver's access order by hand. */
+static inline void mdio_model_store(uintptr_t addr, uint32_t v)
+{
+    *tfw_cm_model_reg(addr) = v;
+}
+
+static inline uint32_t mdio_model_load(uintptr_t addr)
+{
+    return *tfw_cm_model_reg(addr);
 }
 
 #endif /* TFW_TEST_H5_MDIO_MODEL_H */

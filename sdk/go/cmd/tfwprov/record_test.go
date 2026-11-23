@@ -254,7 +254,7 @@ func TestRecordSerialLeavesANonCanonicalUEIDUnwritten(t *testing.T) {
 	err := recordSerial(path, testSerial(t, testSerialHex))
 	wantRecordError(t, err, "a non-canonical ueid")
 	if msg := err.Error(); strings.Contains(msg, "not of this serial") ||
-		!(strings.Contains(msg, "is not a provisioning record") || strings.Contains(msg, "ueid is not")) {
+		!strings.Contains(msg, "is not a provisioning record") && !strings.Contains(msg, "ueid is not") {
 		t.Fatalf("err = %q, want the record refused as not a record", msg)
 	}
 	if got := readFile(t, path); got != body {

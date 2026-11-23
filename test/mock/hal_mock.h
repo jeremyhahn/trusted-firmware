@@ -75,6 +75,10 @@ void     tfw_mock_eeprom_stuck_at(uint16_t addr);
 /* Every tfw_hal_eeprom_read refused, as a bus that never answers. Off until
  * set; tfw_mock_reset turns it off again. */
 void     tfw_mock_eeprom_read_fails(uint8_t on);
+/* While st is not TFW_OK, every in-range tfw_hal_eeprom_write answers st and
+ * changes nothing: no byte stored, nothing counted in tfw_mock_eeprom_written.
+ * tfw_mock_reset turns it off again. */
+void     tfw_mock_eeprom_write_fails(tfw_status_t st);
 
 /* handoff: the raw TFW_BOOT_HANDOFF_LEN-byte block tfw_hal_handoff_block()
  * returns. Zeroed by tfw_mock_reset(), which reads as "no handoff" -- the same
@@ -121,6 +125,10 @@ uint8_t  tfw_mock_last_spi_lsb(void);
  * and fills nothing -- a bus that timed out or a device that never answered.
  * tfw_mock_reset turns it off again. */
 void tfw_mock_bus_fails(tfw_status_t st);
+/* While st is not TFW_OK, tfw_hal_i2c_init and tfw_hal_spi_init answer st and
+ * change nothing (the last clock and SPI setting stay as they were) -- a HAL
+ * that refuses the setting. tfw_mock_reset turns it off again. */
+void tfw_mock_bus_init_fails(tfw_status_t st);
 
 /* gpio: while st is not TFW_OK, every tfw_hal_gpio_write and tfw_hal_gpio_read
  * answers st and leaves the pin as it was. The AVR HAL cannot fail either; the

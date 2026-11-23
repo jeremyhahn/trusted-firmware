@@ -85,6 +85,28 @@ static void test_a_onewire_bus_error_reaches_the_host_with_no_bytes(void)
     TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
 }
 
+/* I2C_CONFIG's answer is the HAL's: a clock the HAL refuses (an i.MX95 LPI2C
+ * that cannot reach it) goes back to the host, and no clock is recorded. */
+static void test_an_i2c_clock_the_hal_refuses_reaches_the_host(void)
+{
+    tfw_mock_bus_init_fails(TFW_ERR_UNSUPPORTED);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x80u, 0x1Au, 0x06u, 0x00u }, 4u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFuL, tfw_mock_last_i2c_hz());
+}
+
+/* SPI_CONFIG's answer is the HAL's: a HAL with no SPI master (i.MX95,
+ * MCXN94x) refuses, and the host hears it. */
+static void test_an_spi_setting_the_hal_refuses_reaches_the_host(void)
+{
+    tfw_mock_bus_init_fails(TFW_ERR_UNSUPPORTED);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 3u, 2u, 1u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_last_spi_mode());
+}
+
 /* --- EEPROM ---------------------------------------------------------------- */
 
 static void test_an_eeprom_read_error_reaches_the_host_with_no_bytes(void)
@@ -93,6 +115,31 @@ static void test_an_eeprom_read_error_reaches_the_host_with_no_bytes(void)
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT,
         run(TFW_CMD_EEPROM_READ, (const uint8_t[]){ 0x00u, 0x01u, 4u }, 3u));
     TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+}
+
+/* EEPROM_WRITE's answer is the HAL's: a write the part refuses goes back to
+ * the host and stores nothing. The same write with the fault cleared lands,
+ * so the address is writable and the refusal was the HAL's, not a bound. */
+static void test_an_eeprom_write_the_hal_refuses_reaches_the_host_and_stores_nothing(void)
+{
+    const uint16_t addr = (uint16_t)(TFW_EEPROM_SIZE - 4u);
+    const uint8_t data[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
+    uint8_t p[2u + sizeof data];
+    uint16_t lo = 0u, hi = 0u;
+
+    p[0] = (uint8_t)(addr & 0xFFu);
+    p[1] = (uint8_t)(addr >> 8);
+    memcpy(&p[2], data, sizeof data);
+
+    tfw_mock_eeprom_write_fails(TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, run(TFW_CMD_EEPROM_WRITE, p, (uint8_t)sizeof p));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_mock_eeprom_written(&lo, &hi));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[addr], sizeof data);
+
+    tfw_mock_eeprom_write_fails(TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_EEPROM_WRITE, p, (uint8_t)sizeof p));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &tfw_mock_eeprom()[addr], sizeof data);
 }
 
 /* --- GPIO and the scheduler ------------------------------------------------ */
@@ -260,7 +307,10 @@ int main(void)
     RUN_TEST(test_an_i2c_bus_error_reaches_the_host_with_no_bytes);
     RUN_TEST(test_an_spi_bus_error_reaches_the_host_with_no_bytes);
     RUN_TEST(test_a_onewire_bus_error_reaches_the_host_with_no_bytes);
+    RUN_TEST(test_an_i2c_clock_the_hal_refuses_reaches_the_host);
+    RUN_TEST(test_an_spi_setting_the_hal_refuses_reaches_the_host);
     RUN_TEST(test_an_eeprom_read_error_reaches_the_host_with_no_bytes);
+    RUN_TEST(test_an_eeprom_write_the_hal_refuses_reaches_the_host_and_stores_nothing);
     RUN_TEST(test_a_pin_the_hal_cannot_read_or_drive_reports_it);
     RUN_TEST(test_a_pin_mode_the_hal_refuses_reports_it_and_leaves_the_pin);
     RUN_TEST(test_a_timer_on_a_pin_the_hal_cannot_drive_is_not_armed);

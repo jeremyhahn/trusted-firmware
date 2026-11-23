@@ -106,6 +106,7 @@ typedef struct {
     uint16_t       sport;
     uint8_t        bad_xid, bad_mac, bad_cookie;
     uint16_t       claim;            /* header length beyond what is sent */
+    const uint8_t *yi;               /* yiaddr, or offered when 0 */
 } reply_t;
 
 static reply_t reply(uint8_t type)
@@ -139,7 +140,7 @@ static void hand_up(const reply_t *r)
     m[2] = 6u;
     memcpy(m + 4, xid, 4u);
     m[4] = (uint8_t)(m[4] ^ r->bad_xid);
-    put4(m + 16, offered);
+    put4(m + 16, r->yi ? r->yi : offered);
     put4(m + 20, srv_a);
     memcpy(m + 28, mac, 6u);
     m[33] = (uint8_t)(m[33] ^ r->bad_mac);
@@ -672,6 +673,27 @@ static void test_an_ack_without_a_lease_or_a_mask_is_discarded(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
 }
 
+static void test_an_offer_or_ack_for_no_address_is_discarded(void)
+{
+    reply_t r = reply(2u);
+    uint8_t sends;
+
+    r.yi = none;                                            /* DHCPOFFER for 0.0.0.0 */
+    offer_ignored(&r);
+
+    setUp();
+    offer_and_request();
+    sends = w5x_model_sends();
+    r     = reply(5u);
+    r.yi  = none;                                           /* DHCPACK for 0.0.0.0 */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());      /* no probe */
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    r = reply(5u);
+    TEST_ASSERT_EQUAL(TFW_OK, acked(&r));
+}
+
 static void test_an_ack_without_a_router_leaves_no_gateway(void)
 {
     reply_t r = reply(5u);
@@ -999,6 +1021,28 @@ static void test_a_nak_to_a_renewal_loses_the_lease(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
 }
 
+static void test_a_renewal_ack_for_another_address_keeps_the_lease(void)
+{
+    static const uint8_t other[4] = { 192u, 0u, 2u, 78u };
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    r.yi = other;                                           /* not the bound address */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    r = reply(5u);
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, cfg.ip, 4u);
+}
+
 /* A renewal reply whose UDP header claims more than the controller holds
  * (dhcp.c:396-398) gives the socket and the lease up (dhcp.c:640-642). */
 static void test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up(void)
@@ -1118,6 +1162,7 @@ int main(void)
     RUN_TEST(test_a_nak_from_the_chosen_server_starts_again);
     RUN_TEST(test_another_servers_ack_or_nak_is_discarded);
     RUN_TEST(test_an_ack_without_a_lease_or_a_mask_is_discarded);
+    RUN_TEST(test_an_offer_or_ack_for_no_address_is_discarded);
     RUN_TEST(test_an_ack_without_a_router_leaves_no_gateway);
     RUN_TEST(test_a_datagram_shorter_than_its_header_gives_the_socket_back);
     RUN_TEST(test_an_ack_probes_the_address_from_no_address_before_taking_it);
@@ -1133,6 +1178,7 @@ int main(void)
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);
     RUN_TEST(test_a_nak_to_a_renewal_loses_the_lease);
+    RUN_TEST(test_a_renewal_ack_for_another_address_keeps_the_lease);
     RUN_TEST(test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up);
     RUN_TEST(test_a_connection_lost_while_renewing_renews_again_once_up);
     RUN_TEST(test_a_renewal_socket_the_chip_will_not_open_keeps_the_lease_and_tries_later);

@@ -124,9 +124,34 @@ cmake --build "$BUILD_S" -- install >"$LOGS/build-$BOARD-s.log" 2>&1 ||
 
 # The example application pulls in api_ns's own CMakeLists, whose default
 # image signing (BL2 on) signs both images in the non-secure build's `all`.
+#
+# The example application has no option for extra sources, so the DICE
+# check (src/tz/tfm/ns/tfw_dice_ns_check.c, with the NS client
+# src/tz/tz_s_client.c) joins its tfm_ns target through CMake's own
+# CMAKE_PROJECT_INCLUDE: a hook file written here in the work directory, not
+# in the tree, which defers to the end of the top-level CMakeLists (tfm_ns
+# exists by then) and wraps psa_framework_version, the application's first
+# PSA call after its "Non-Secure system starting..." line.
+NS_HOOK=$WORK/tfw_dice_ns_hook.cmake
+# shellcheck disable=SC2016 # the ${...} are CMake's, expanded by CMake
+printf '%s\n' \
+	'# Written by scripts/tfm-build.sh: the DICE check in the example NS app.' \
+	'include_guard(GLOBAL)' \
+	'function(tfw_dice_ns_hook)' \
+	'  target_sources(tfm_ns PRIVATE' \
+	'    "${TFW_REPO}/src/tz/tfm/ns/tfw_dice_ns_check.c"' \
+	'    "${TFW_REPO}/src/tz/tz_s_client.c")' \
+	'  target_include_directories(tfm_ns PRIVATE' \
+	'    "${TFW_REPO}/include" "${TFW_REPO}/src/tz")' \
+	'  target_link_options(tfm_ns PRIVATE "-Wl,--wrap=psa_framework_version")' \
+	'endfunction()' \
+	'cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL tfw_dice_ns_hook)' \
+	>"$NS_HOOK"
 step "building the non-secure application for $BOARD"
 cmake -S "$WORK/tf-m-extras/examples/tf-m-example-ns-app" -B "$BUILD_NS" \
 	-G Ninja \
+	-DCMAKE_PROJECT_INCLUDE="$NS_HOOK" \
+	-DTFW_REPO="$REPO" \
 	-DCONFIG_SPE_PATH="$BUILD_S/api_ns" \
 	-DTFM_TOOLCHAIN_FILE="$BUILD_S/api_ns/cmake/toolchain_ns_GNUARM.cmake" \
 	-DCMAKE_BUILD_TYPE="$BUILD_TYPE" >"$LOGS/configure-$BOARD-ns.log" 2>&1 ||

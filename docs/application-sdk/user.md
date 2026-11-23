@@ -200,6 +200,11 @@ The same happens without `init` being called when the image cannot run your
 application: a missing capability, too few update slots, or a configuration
 region larger than the board's EEPROM.
 
+On the trial boot of a newly installed image, a failed `init`, or an image
+that cannot run your application, ends the trial at once: the firmware resets
+and `tfw-boot` rolls back to the previous image. `tfw_app_after_update` is not
+asked. Recovery is another update.
+
 ## Check it on the simulator
 
 `build/host/tfwsim-app-heartbeat` keeps the mock HAL's clock and pins. A

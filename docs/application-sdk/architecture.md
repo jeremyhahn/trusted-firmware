@@ -62,9 +62,11 @@ application can never be called in a state the runner did not put it in.
 
 **Fail to firmware-only, never to a brick.** An application that is
 incompatible with the image, or whose `init` fails, is never called again
-until the next reset. The firmware keeps answering the wire, keeps attesting
-and keeps accepting an update. A broken application is replaced over the air,
-not with a programmer.
+until the next reset. On the trial boot of a newly installed image the
+firmware instead resets at once, and `tfw-boot` rolls back to the previous
+image (open question 1 of engineering.md, decided A). The firmware keeps
+answering the wire, keeps attesting and keeps accepting an update. A broken
+application is replaced over the air, not with a programmer.
 
 ## Rejected alternatives
 

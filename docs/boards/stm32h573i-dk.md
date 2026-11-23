@@ -247,7 +247,9 @@ CA 583 forbids: option bytes or provisioning).
   PKA/HASH not ported).
 - ST Secure Manager: not taken (ruling 935,
   [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
-  the secure world is our own TrustZone-M firmware.
+  the secure world is upstream TF-M Profile Medium with our DICE layer as an
+  Application RoT partition (ruling 1024, ADR #15 (b1)), not our own
+  TrustZone-M firmware.
 - Factory device certificate: not the identity root under ruling 935; whether
   the part carries one is a hardware fact, owner (provisioning writes; CA 583).
 - Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the

@@ -712,8 +712,10 @@ board of the port).
   vendor's PSA-compatible secure world if the licence allows; otherwise it
   targets upstream TF-M. This was open question 2 and the `stm32h5` row's
   open decision; ruling 935 closed it: on the STM32H5 and the nRF54L15 the
-  secure world is our own TrustZone-M firmware, the vendor secure worlds are
-  **not taken**, and the PSA token is not offered
+  vendor secure worlds are **not taken** (not ST's Secure Manager, not
+  Nordic's TF-M build) and the PSA token is not offered. Ruling 935's other
+  half, our own TrustZone-M firmware as the secure world, is *superseded by
+  ruling 1024*: TF-M Profile Medium with our DICE partition, (b1)
   ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Cortex-M7: (c), MPU-only** (decided 2026-11-14).
   - The template builders run privileged, behind an SVC gate.
@@ -772,8 +774,10 @@ extends without renumbering:
 Owner ruling 632 item 208 a (2026-11-14) closes question 1. It does not answer
 questions 2 to 13, which stay open:
 
-- 2, vendor secure worlds: closed by ruling 935, none (our own TrustZone-M
-  firmware on the STM32H5 and nRF54L15; not ST's Secure Manager).
+- 2, vendor secure worlds: closed by ruling 935, none on the STM32H5 and
+  nRF54L15 (not ST's Secure Manager, not Nordic's TF-M build); ruling 935's
+  own TrustZone-M firmware is *superseded by ruling 1024*: TF-M Profile Medium
+  with our DICE partition, (b1).
 - 3, the PSA interfaces: open; the ruling does not name them.
 - 4, the PSA token: closed by ruling 935, not offered, no PSA verifier.
 - 5, crypto tier values: open.

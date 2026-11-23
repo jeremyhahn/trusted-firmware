@@ -48,6 +48,12 @@ class AppMkGateTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("app-ok", out)
 
+    def test_nested_src_accepted(self):
+        rc, out = self._make(
+            "APP_NAME := ok\nAPP_SRCS := sub/a.c\n", ["sub/a.c"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("app-ok", out)
+
     def test_fifteen_character_name_accepted(self):
         rc, out = self._make(
             "APP_NAME := abcdefghijklmno\nAPP_SRCS := a.c\n", ["a.c"])
@@ -68,7 +74,8 @@ class AppMkGateTest(unittest.TestCase):
         self._refused("APP_NAME := ok\nAPP_SRCS :=\n", "APP_SRCS is empty")
 
     def test_escaping_srcs_refused(self):
-        for src in ("/a.c", "../a.c"):
+        # A ".." anywhere, not only at the start, lets an object path climb.
+        for src in ("/a.c", "../a.c", "sub/../../a.c", "sub/../a.c"):
             with self.subTest(src=src):
                 self._refused(
                     "APP_NAME := ok\nAPP_SRCS := %s\n" % src,

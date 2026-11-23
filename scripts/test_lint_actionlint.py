@@ -149,7 +149,7 @@ jobs:
   j:
     runs-on: [self-hosted, {label}]
     steps:
-      - run: echo ok
+      - run: {body}
 """
 
 
@@ -158,13 +158,17 @@ jobs:
     "actionlint and shellcheck are not on PATH (the toolchain image has both)",
 )
 class BehaviourTest(unittest.TestCase):
-    """`make lint-actionlint` fails on an unknown label and passes a known one."""
+    """`make lint-actionlint` fails on an unknown label and passes a known one.
 
-    def run_lint(self, label):
+    It also runs shellcheck: a run step with an unquoted variable (SC2086) fails,
+    and the quoted form passes, so the failure is the shellcheck finding.
+    """
+
+    def run_lint(self, label, body="echo ok"):
         with tempfile.TemporaryDirectory() as tmp:
             wf = os.path.join(tmp, "scratch.yml")
             with open(wf, "w", encoding="utf-8") as f:
-                f.write(WORKFLOW.format(label=label))
+                f.write(WORKFLOW.format(label=label, body=body))
             return subprocess.run(
                 ["make", "-s", "-f", str(REPO / "Makefile"), "-C", str(REPO),
                  "lint-actionlint", f"ACTIONLINT_WORKFLOWS={wf}"],
@@ -178,6 +182,15 @@ class BehaviourTest(unittest.TestCase):
 
     def test_allowed_label_passes(self):
         r = self.run_lint("ci-gate")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_shellcheck_finding_fails(self):
+        r = self.run_lint("ci-gate", "echo $UNQUOTED_VAR")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SC2086", r.stdout + r.stderr)
+
+    def test_clean_run_step_passes(self):
+        r = self.run_lint("ci-gate", 'echo "$UNQUOTED_VAR"')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 

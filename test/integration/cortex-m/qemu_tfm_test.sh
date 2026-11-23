@@ -99,4 +99,54 @@ case $dice_line in
 esac
 dice=$(at 'tfw-dice: ')
 [ "$dice" -gt "$ns" ] || fail "'tfw-dice: ' came before '$ns_marker'"
-echo "qemu_tfm_test: green (BL2, TF-M secure image, non-secure '$ns_marker', tfw-dice: deviceid ok)"
+
+# The alias evidence (Codex round 5 on #900): the same check goes on to the
+# alias key, the alias certificate over nonce 00..1f and an alias signature
+# over digest 20..3f, prints each as hex, and ends with "tfw-dice: alias ok"
+# or "tfw-dice: alias status <op> <n>". Waited for the same way; then the hex
+# is checked on the host with go-xkms (xkms/cmd/tfm-dice-check).
+while ! grep -qaE -- 'tfw-dice: alias (ok|status)' "$log" 2>/dev/null; do
+    kill -0 "$pid" 2>/dev/null || break
+    [ $SECONDS -lt $deadline ] || break
+    sleep 0.2
+done
+alias_status=$(grep -aF -- 'tfw-dice: alias status' "$log" 2>/dev/null | head -n 1 | tr -d '\r')
+[ -z "$alias_status" ] || fail "the DICE partition refused the alias evidence: $alias_status"
+grep -qaF -- 'tfw-dice: alias ok' "$log" || fail "no 'tfw-dice: alias ok' line: the alias evidence did not complete"
+
+# The value after "tfw-dice: <label> " on its first line, hex only.
+hexof() {
+    grep -aF -- "tfw-dice: $1 " "$log" 2>/dev/null | head -n 1 | tr -d '\r' |
+        sed -n "s/^.*tfw-dice: $1 \([0-9a-f]*\)\$/\1/p"
+}
+work=$(mktemp -d)
+trap 'kill "$pid" 2>/dev/null || true; rm -rf "$work"' EXIT
+deviceid_pub=$(hexof deviceid-pub)
+alias_pub=$(hexof alias-pub)
+alias_cert=$(hexof alias-cert)
+alias_sig=$(hexof alias-sig)
+[ ${#deviceid_pub} -eq 128 ] || fail "deviceid-pub is not 64 bytes of hex"
+[ ${#alias_pub} -eq 128 ] || fail "alias-pub is not 64 bytes of hex"
+[ ${#alias_sig} -eq 128 ] || fail "alias-sig is not 64 bytes of hex"
+[ -n "$alias_cert" ] && [ $((${#alias_cert} % 2)) -eq 0 ] || fail "alias-cert is not whole bytes of hex"
+if command -v xxd >/dev/null 2>&1; then
+    printf '%s' "$alias_cert" | xxd -r -p > "$work/alias.der"
+else
+    rest=$alias_cert
+    : > "$work/alias.der"
+    while [ -n "$rest" ]; do
+        # shellcheck disable=SC2059
+        printf "\\x${rest%"${rest#??}"}" >> "$work/alias.der"
+        rest=${rest#??}
+    done
+fi
+
+repo=$(cd "$(dirname "$0")/../../.." && pwd)
+nonce=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+digest=202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+(cd "$repo/xkms" && go run ./cmd/tfm-dice-check \
+    -deviceid-pub "$deviceid_pub" -alias-pub "$alias_pub" \
+    -cert "$work/alias.der" -nonce "$nonce" -digest "$digest" \
+    -sig "$alias_sig") || fail "go-xkms refused the alias evidence (xkms/cmd/tfm-dice-check)"
+
+echo "qemu_tfm_test: green (BL2, TF-M secure image, non-secure '$ns_marker', tfw-dice: deviceid ok, alias evidence checked by go-xkms)"

@@ -238,10 +238,13 @@ verified policy *P*, or none.
 - **R5.** Heartbeat loss (S6) locks down. No verdict arrives after it, so it
   never wipes on its own.
 - **R6.** Lockdown is latched until reset; nothing lowers it.
-- **R7.** An envelope that fails verification, or is below the floor, is
-  refused and counted; the previous policy stays. Only those are counted: a
-  load chunk out of sequence, or longer than is left, drops the pending
-  envelope with the same refusal status and is not counted.
+- **R7.** Every refusal from `tfw_hsm_load` is refused and counted, and the
+  previous policy stays (owner ruling 1234): an envelope that fails
+  verification, a set below the floor or one the reader refuses, a script the
+  current set does not name, a named script that does not read, and a script
+  past the last slot (`TFW_ERR_NO_SLOT`). A load chunk out of sequence, or
+  longer than is left, drops the pending envelope with the same refusal
+  status and is not counted.
 
 | Signal | *P* | *V* in *W* | *P* names | Response |
 |---|---|---|---|---|

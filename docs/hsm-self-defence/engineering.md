@@ -106,7 +106,7 @@ The sequence floor (the two rows above) is the engine's, in slice 2.
 | Case | Expect |
 |---|---|
 | Every row of architecture.md §5's table | That row's response. **Met:** `test_row_*`, one per row |
-| R1–R7, each on its own | The rule's response. **Met:** `test_r1_*` to `test_r7_*`, three for R3 |
+| R1–R7, each on its own | The rule's response. **Met:** `test_r1_*` to `test_r7_*`, three for R3; for R7, `test_r7_every_load_refusal_counts_once` and `test_r7_an_unnamed_script_counts_with_scripts_held` prove each `tfw_hsm_load` refusal steps the count by one |
 | An unknown map key, signal or action; a non-deterministic encoding | `TFW_ERR_UNSUPPORTED`, set unchanged. **Met:** `test/unit/test_hsm_payload.c`; through the engine, `test_r7_a_refused_envelope_leaves_the_previous_policy` |
 | Each bound (policies, rules, actions) at its limit and one past it | Accepted; `TFW_ERR_RANGE`. **Met:** `test_each_bound_at_its_limit_and_one_past`, with the expected values (8 keys, 64 bytes) and a period past 32 bits |
 | A selection out of range | Refused, selection unchanged. **Met** |
@@ -159,7 +159,7 @@ envelope buffer and verifies the whole envelope at the last.
 
 | Case | Expect |
 |---|---|
-| The envelope in chunks of every size, an empty first chunk, a chunk out of sequence, offset 0 again | Held once whole; a chunk out of sequence, or one longer than is left, drops the envelope, `TFW_ERR_RANGE`, and is not counted (only an envelope that fails verification, or is below the floor, counts: R7). **Met:** `test/unit/test_hsm_cmd.c` |
+| The envelope in chunks of every size, an empty first chunk, a chunk out of sequence, offset 0 again | Held once whole; a chunk out of sequence, or one longer than is left, drops the envelope, `TFW_ERR_RANGE`, and is not counted (R7 counts what tfw_hsm_load refuses, the unnamed-script and NO_SLOT refusals included, owner ruling 1234; a dropped chunk never reaches it). **Met:** `test/unit/test_hsm_cmd.c` |
 | A total of 0 or past the buffer; an envelope that fills it | `TFW_ERR_RANGE`, counted; read. **Met** |
 | One flipped signature byte | `TFW_ERR_CRYPTO`, counted, the held set kept. **Met** |
 | SELECT with no set, in the set, past it | `TFW_ERR_RANGE`; the state; `TFW_ERR_RANGE`. **Met** |

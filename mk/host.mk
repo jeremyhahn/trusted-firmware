@@ -198,7 +198,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
                             test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c test/unit/test_dice_service.c \
-                            test/unit/test_dice_partition.c test/unit/test_attest_root.c, \
+                            test/unit/test_dice_partition.c test/unit/test_attest_root.c \
                             test/unit/test_tfw_dice_glue.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))

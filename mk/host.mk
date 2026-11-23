@@ -537,7 +537,13 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 # src/hal/cortex-m/'s. Each suite that links them gives its bus as the model's
 # tfw_mps2_model_* hooks and links with MPS2_BUS_REGS_WRAP, which tells the
 # model whether an accessor reads or writes (mps2_bus_model.h).
-MPS2_BUS_REGS_DIR    := $(HOST_DIR)/mps2_bus_regs
+# The objects keep EXTRA_CFLAGS, so coverage and test-asan instrument the
+# image's sources, and they outlive one make, unlike the one-command binaries:
+# a plain link after test-asan or coverage would meet instrumented objects.
+# Their directory names a checksum of EXTRA_CFLAGS, as HOST_DIR does of the
+# defines, so each flag set builds its own and a plain build keeps
+# $(HOST_DIR)/mps2_bus_regs.
+MPS2_BUS_REGS_DIR    := $(HOST_DIR)/mps2_bus_regs$(if $(strip $(EXTRA_CFLAGS)),-f$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(EXTRA_CFLAGS)))' | cksum)))
 MPS2_BUS_REGS_CFLAGS  = -Itest/model/cortex-m/mps2 -Itest/model -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
                         -Iboards/mps2-an505 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
 MPS2_BUS_REGS_OBJS   := $(MPS2_BUS_REGS_DIR)/sbcon.o $(MPS2_BUS_REGS_DIR)/pl022.o $(MPS2_BUS_REGS_DIR)/mps2_bus_model.o

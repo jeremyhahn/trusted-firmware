@@ -88,7 +88,7 @@ line with no test has none on main. Nothing below has run on either board.
 | 13 | Enrols over Ethernet through the MCU's MAC (no W5x00) | not started | none: no Ethernet MAC driver under `src/hal/cortex-m/stm32h5/` | none |
 | 14 | Cortex-M33 TrustZone secure world: ADR #15 (b1), TF-M Profile Medium with our DICE partition, MCUboot as BL2 | not started (owner decision, open question 1) | none: the part runs with TrustZone off (`src/hal/cortex-m/stm32h5/soc_regs.h`) | none |
 | 15 | Hardware crypto on the STM32H573 (PKA, HASH, RNG) | not started | none: the board's one tier is `soft` (`BOARD_TIERS` in `profile.mk`) | none |
-| 16 | ST Secure Manager with its PSA attestation token verified on go-xkms's EAT path | not started (owner decision, open questions 1 and 5; go-xkms) | none | none |
+| 16 | ST Secure Manager with its PSA attestation token verified on go-xkms's EAT path | not taken (ruling 935: no Secure Manager, no PSA token verifier; open questions 1 and 5 closed) | none | none |
 | 17 | Factory device certificate as the DeviceID's endorsement | not started (open question 4; unconfirmed in any ST document; go-xkms) | none | none |
 | 18 | NUCLEO-H563ZI proves our own secure world and software crypto on a part without ST's services | not started (the SPEC text predates ADR #15 (b1); see Follow-ups) | none | none |
 | 19 | DICE layer 0 and UDS on the part (open questions 2, 3) | not started (owner decision) | none | none |
@@ -290,7 +290,9 @@ no longer offered for this board.
 - The `stm32h5` row in `docs/SPEC.md` still reads "our own TrustZone secure
   world"; aligning it with ADR #15 (b1) is a SPEC change for the CA, not this
   ADR's.
-- When the owner answers open question 1, update this ADR and ADR #15 follow-up
-  F3 in one change.
+- Open question 1 is closed by rulings 935 and 1024 (TF-M Profile Medium with
+  our DICE partition, ADR #15 (b1)). ADR #15 follow-up F3 (`architecture.md`
+  §6 and the `cortex-m` and `stm32h5` SPEC rows) is the CA's SPEC change, not
+  this ADR's.
 - The first slice of the port reads the ST documents above at their current
   revisions and replaces every "to confirm" with a cited section.

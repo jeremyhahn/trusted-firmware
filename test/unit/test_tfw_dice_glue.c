@@ -20,7 +20,53 @@
 #include "tfm_builtin_key_ids.h"
 #include "measured_boot_api.h"
 #include "tfw/status.h"
+#include "tfw/crypto.h"
+#include "sha256.h"
+#include "handoff.h"
+#include "../../src/caps/attest.h"
 #include "../../src/tz/dice_partition.h"
+
+/* src/caps/alias.c and the soft DeviceID provider link the device path's
+ * providers; the partition's service never reaches them (its inputs come
+ * from tfw_dice_partition_start), so each fails loudly if it is called. */
+static int device_path_calls;
+uint8_t tfw_boot_handoff_device_seed(uint8_t out[32])
+{
+    device_path_calls++;
+    memset(out, 0, 32u);
+    return 0u;
+}
+tfw_status_t tfw_crypto_pubkey(uint8_t out[64])
+{
+    device_path_calls++;
+    memset(out, 0, 64u);
+    return TFW_ERR_NOT_PROVISIONED;
+}
+tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg)
+{
+    (void)digest;
+    (void)alg;
+    device_path_calls++;
+    memset(sig, 0, 64u);
+    return TFW_ERR_NOT_PROVISIONED;
+}
+tfw_crypto_tier_t tfw_crypto_tier(void)
+{
+    device_path_calls++;
+    return TFW_CRYPTO_SOFTWARE;
+}
+void tfw_attest_measurement(uint8_t out[TFW_SHA256_LEN])
+{
+    device_path_calls++;
+    memset(out, 0, TFW_SHA256_LEN);
+}
+const uint8_t *tfw_attest_device_id(void)
+{
+    static const uint8_t none[32];
+
+    device_path_calls++;
+    return none;
+}
 
 psa_status_t tfw_dice_partition_init(void);
 psa_status_t tfw_dice_service_sfn(const psa_msg_t *msg);
@@ -221,10 +267,12 @@ void setUp(void)
 
 void tearDown(void)
 {
+    TEST_ASSERT_EQUAL(0, device_path_calls);
 }
 
 static void start_good(void)
 {
+    setUp();
     TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
     TEST_ASSERT_EQUAL(TFW_OK, deviceid_pub());
 }

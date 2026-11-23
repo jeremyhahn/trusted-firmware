@@ -902,9 +902,33 @@ static void test_s3_a_refused_or_silent_enclave_is_not_a_match(void)
     ele_fail_at = 0u;
     ele_silent_at = 2u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);   /* an unanswered attestation still closes */
+    TEST_ASSERT_EQUAL_HEX32(ATT_ID, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[2][1]);   /* the session that opened */
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);
     m->ele.enclave = NULL;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+}
+
+static void test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_more(void)
+{
+    static const uint8_t zero[ATT_LEN];
+    tfw_hsm_set_t set;
+    uint32_t i;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 1u, report_image, 32u);
+    memset(report, 0xA5, sizeof report);   /* a stale report from before */
+    ele_silent_at = 1u;                    /* the session open goes unanswered */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    for (i = 0u; i < ele_n; i++) {
+        TEST_ASSERT_NOT_EQUAL(ATT_ID, ele_cmd[i]);
+        TEST_ASSERT_NOT_EQUAL(TFW_ELE_SESSION_CLOSE, ele_cmd[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);   /* nothing stale */
 }
 
 static void test_s3_a_report_too_short_for_a_field_is_range(void)
@@ -1007,6 +1031,7 @@ int main(void)
     RUN_TEST(test_the_boards_sense_takes_only_the_pin_and_sends_nothing);
     RUN_TEST(test_s3_attest_opens_attests_closes_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_enclave_is_not_a_match);
+    RUN_TEST(test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_more);
     RUN_TEST(test_s3_a_report_too_short_for_a_field_is_range);
     RUN_TEST(test_s3_a_buffer_too_small_sends_no_attestation);
     RUN_TEST(test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing);

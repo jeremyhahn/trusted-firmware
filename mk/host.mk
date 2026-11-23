@@ -199,6 +199,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_esp_hal_eeprom.c \
                             test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c test/unit/test_dice_service.c \
                             test/unit/test_dice_partition.c test/unit/test_attest_root.c, \
+                            test/unit/test_tfw_dice_glue.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 # The crypto tiers' mutation suites (#163) have their own links below.
@@ -1390,6 +1391,15 @@ $(HOST_DIR)/test_dice_partition: test/unit/test_dice_partition.c src/tz/dice_par
                                  src/core/reader.c src/core/writer.c src/core/secure_zero.c \
                                  src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/unit/tz_s_client -o $@ $^ $(EXTRA_LDFLAGS)
+# The partition's TF-M side (src/tz/tfm/tfw_dice_partition.c, #608 slice 3)
+# over stand-ins for TF-M's psa/service.h, psa/crypto.h, the builtin key ids
+# and tf-m-extras' measured_boot_api.h in test/unit/tfw_dice_glue.
+$(HOST_DIR)/test_tfw_dice_glue: test/unit/test_tfw_dice_glue.c src/tz/tfm/tfw_dice_partition.c \
+                                src/tz/dice_partition.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
+                                src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                                src/core/reader.c src/core/writer.c src/core/secure_zero.c \
+                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/unit/tfw_dice_glue -o $@ $^ $(EXTRA_LDFLAGS)
 # The tenant-key verify an HSM image links in place of the soft provider's
 # refusal (mk/firmware.mk HSM_SRCS), on the literal policy signature.
 $(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verify_p256.c \
@@ -1681,7 +1691,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small $(HOST_DIR)/test_sha256_small_mutate \
                     $(HOST_DIR)/test_board_lookup_mutate \
                     $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence $(HOST_DIR)/test_dice_service \
-                    $(HOST_DIR)/test_dice_partition \
+                    $(HOST_DIR)/test_dice_partition $(HOST_DIR)/test_tfw_dice_glue \
                     $(HOST_DIR)/test_ota_trial_block_mutate $(HOST_DIR)/test_provision_atecc_mutate \
                     $(HOST_DIR)/test_suit_integrated \
                     $(HOST_DIR)/test_suit_integrated_mutate \

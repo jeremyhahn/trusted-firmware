@@ -69,26 +69,13 @@
 // bytes riding in the evidence frame — is runtime freshness and is a different
 // value of a different width.
 //
-// # Why AttestKey does not call dice.Verify
+// # How AttestKey verifies
 //
-// It cannot, on any device shipping today. dice.Verify reads the leaf's
-// tcg-dice-TcbInfo extension unconditionally and refuses a certificate that
-// carries none, and the AVR alias profile emits exactly one extension:
-// tcg-dice-UCCS-evidence, critical. The ueid and the firmware measurement
-// travel as CWT claims 256 and 273 inside that extension's claims set rather
-// than as X.509 extensions of their own, because the certificate is assembled
-// on an 8-bit part from a 230-byte PROGMEM template and every extension costs
-// flash it does not have.
-//
-// So this package composes the same code one level down — dice.ClaimsSet via
-// dice.UccsFromCertificate, which reads precisely the extension the device
-// emits — and does its own anchoring with crypto/x509. Attestation.Claims
-// carries the decoded claims set, so a caller reads the ueid and the
-// measurement as the raw CBOR the device encoded. Nothing about the DICE
-// formats is re-implemented here.
-//
-// This is a real disagreement between the verifier and the profile, filed
-// upstream rather than papered over. When the profile gains a DiceTcbInfo, or
-// dice.Verify makes it optional, this path should collapse into a single
-// dice.Verify call.
+// AttestKey parses the alias certificate and makes one dice.Verify call with
+// the issued nonce, the configured roots and RequireDeviceSignedLeaf. The
+// decoded dice.ClaimsSet and UEID it returns are handed to the caller in
+// Attestation, the UEID and the firmware measurement being CWT claims 256 and
+// 273 inside the tcg-dice-UCCS-evidence extension. Nothing about the DICE
+// formats is re-implemented here. An earlier open-coded path was removed once
+// go-xkms's dice accepted UCCS in place of DiceTcbInfo.
 package avr

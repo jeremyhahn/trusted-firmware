@@ -39,7 +39,7 @@ const (
 type Config struct {
 	// KeyCN is the common name the device's identity key is addressed by.
 	// Defaults to DefaultKeyCN. An AVR device holds exactly one key, so this
-	// is the only name GetKey and Signer will answer to.
+	// is the only name GetKey and AttestKey will answer to.
 	KeyCN string `yaml:"key_cn" json:"key_cn"`
 
 	// Slot is the element slot holding the identity keypair. It defaults to

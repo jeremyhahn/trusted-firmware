@@ -253,6 +253,24 @@ func TestHSMRecordReadAllStopsAtTheEndOfTheRecord(t *testing.T) {
 	assert.Equal(t, uint32(7), got[0].At)
 	assert.Equal(t, uint32(8), got[1].At)
 	assert.Equal(t, uint8(8), got[1].What)
+	require.Len(t, link.sent, 2)
+	assert.Equal(t, []byte{0}, link.sent[0].Payload)
+	assert.Equal(t, []byte{1}, link.sent[1].Payload)
+}
+
+func TestHSMRecordReadAllOfAFullRecordSendsOneReadPerEntry(t *testing.T) {
+	// full is TFW_HSM_RECORD_MAX, src/core/hsm_record.h line 26.
+	const full = 32
+	var entries [][]byte
+	for i := 0; i <= full; i++ {
+		entries = append(entries, []byte{full, 0, 0, byte(i), 0, 0, 0, 1, byte(i), 0})
+	}
+	link := &recordLink{entries: entries}
+	got, err := New(link).HSMRecordReadAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, full)
+	assert.Len(t, link.sent, full)
+	assert.Equal(t, uint32(full-1), got[full-1].At)
 }
 
 func TestHSMRecordReadAllReturnsAnotherRefusalWithTheEntriesBeforeIt(t *testing.T) {

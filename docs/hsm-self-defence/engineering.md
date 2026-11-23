@@ -1,7 +1,7 @@
 # HSM self-defence: engineering
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Scope:
-> trusted-firmware · Last verified: 2026-11-16
+> trusted-firmware · Last verified: 2026-11-21
 >
 > The implementation contract and the test plan. Slices 1, 2 and 4 are built
 > and their tables met (marked **Met**); nothing here names an identifier that
@@ -231,7 +231,7 @@ Signals S1–S6 and actions A1–A6 are architecture.md §2 and §3.
 | 8 | Input S6, loss of the A55 detector's heartbeat | **Met** (host, QEMU) | `src/core/hsm_engine.c`, `src/core/hsm_loop.c` | `test_row_heartbeat_loss_locks_down_and_never_wipes` (`test_hsm_engine.c`); `TestSimHSMHeartbeatAnswersTheEngineState`; the `hsm-*` cases of `make integration-test-cortex-m` |
 | 9 | Action through the System Manager: power domains (A2) | **Partial: host.** Power-domain off and LMM_SHUTDOWN are coded; the ids and channel are zero in `board_profile.h` (imx95 Q21, architecture Q7) | `src/hal/cortex-m/imx95/hsm_port.c`, `scmi.c`, `boards/frdm-imx95-m7/board_profile.h` | `test_a2_switches_the_a55_domain_off` (`test_imx95_hsm_port.c`); `test/unit/test_imx95_scmi.c` |
 | 10 | Action: PHYs (A1) | **Partial: host.** Reset then power-off; which domain holds the PHYs is open (architecture Q10, Q7) | `src/hal/cortex-m/imx95/hsm_port.c` | `test_a1_resets_then_powers_off_on_the_next_token` (`test_imx95_hsm_port.c`) |
-| 11 | Action through the enclave: key zeroisation (A4) | **Partial: host.** Per-key strict delete, done only on acknowledgement; key-group delete and whole-store wipe open (Q5); whether the M7 reaches go-xkms's store open (Q4); A3 is A2 (O5) | `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c` | `test_a4_acknowledged_deletes_every_key_strictly_and_closes` (`test_imx95_hsm_port.c`); `test_a_good_delete_is_strict_and_acknowledged` (`test/unit/test_imx95_ele_mu.c`) |
+| 11 | Action through the enclave: key zeroisation (A4) | **Partial: host.** Per-key strict delete, done only on acknowledgement; key-group delete and whole-store wipe open (Q5); whether the M7 reaches go-xkms's store open (Q4). A3 (`TFW_HSM_ACT_KEYS_LOCK`) is not built: the port answers `TFW_ERR_UNSUPPORTED` and sends nothing (`test_every_other_action_is_unsupported_and_sends_nothing`), so a policy naming A3 alone does not power the A55 off; lockdown reaches A2 (`TFW_HSM_ACT_POWER_OFF`) only as its own action in its sequence (`src/core/hsm_engine.c`); O5's fallback of A3 to A2 (m7-design.md §8) is proposed, not built | `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c` | `test_a4_acknowledged_deletes_every_key_strictly_and_closes` (`test_imx95_hsm_port.c`); `test_a_good_delete_is_strict_and_acknowledged` (`test/unit/test_imx95_ele_mu.c`) |
 | 12 | Action: shutdown (A5) | **Partial: host.** SYSTEM_POWER_STATE_SET forceful; permission open (Q7), id zero | `src/hal/cortex-m/imx95/hsm_port.c`, `scmi.c` | `test_a5_asks_a_forceful_shutdown` (`test_imx95_hsm_port.c`) |
 | 13 | A tenant-signed response policy decides which action follows which signal | **Met** (host): integrated SUIT payload under the tenant key; the payload reader; the floor | `src/core/suit_integrated.c`, `src/core/hsm_payload.c`, `src/core/hsm_engine.c` | `test/unit/test_suit_integrated.c`, `test/unit/test_hsm_payload.c`; `test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection` (`test_hsm_engine.c`) |
 | 14 | A custom response script is a signed artefact too | **Met** (host): its own class id and kind, held under its SHA-256 | `src/core/hsm_payload.c`, `src/core/hsm_engine.c`, `include/tfw/config.h` (`TFW_SUIT_SCRIPT_CLASS_ID`) | `test_scripts_are_held_while_named_and_bounded`, `test_a_script_the_engine_does_not_hold_locks_down` (`test_hsm_engine.c`) |
@@ -260,7 +260,10 @@ Numbered for this audit; the m7-design.md §7 slice each continues is named.
    Test: `test/unit/test_imx95_hsm_port.c` with the ids set. Needs **another
    project** (trusted-imx95's System Manager configuration; imx95 Q21,
    architecture Q7, Q10) and then the **board**.
-3. **A4's key-group delete and whole-store wipe; A3** (slice 8). Files:
+3. **A4's key-group delete and whole-store wipe; A3** (slice 8). A3 is
+   not implemented: its implementation and its test (a case in
+   `test/unit/test_imx95_hsm_port.c` that A3 alone powers the A55 off, or
+   whatever O5 settles) are outstanding. Files:
    `src/hal/cortex-m/imx95/ele_mu.c`, `hsm_port.c`. Test:
    `test/unit/test_imx95_ele_mu.c`, `test_imx95_hsm_port.c`. Needs an
    **owner decision** with **go-xkms** (architecture Q4, Q5: whether the M7's

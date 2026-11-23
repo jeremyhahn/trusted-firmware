@@ -54,7 +54,7 @@ runs one board.
 
 `integration-test-cortex-m` builds the base row, provisions tfw-boot with a
 fresh P-256 key and a fresh device secret, signs the application, and boots
-three QEMU machines, each with the console on a local socket
+four QEMU machines, each with the console on a local socket
 (`test/integration/cortex-m/qemu_test.sh`):
 
 | Run | Image | Passes when |
@@ -63,6 +63,12 @@ three QEMU machines, each with the console on a local socket
 | tampered | one bit flipped after signing | it stays silent for the whole window (10 s) and QEMU is still running |
 | otherkey | signed with a key tfw-boot does not hold | the same |
 | unprovisioned | the genuine image, no platform block loaded | it answers no `PING`, its EVENT names `TFW_ERR_NOT_PROVISIONED`, and QEMU is still running (#542) |
+
+On an image that links the tamper-response engine (`HSM=1` on the soft tier,
+`mk/arch/cortex-m-targets.mk`), the run also boots one machine per case
+`noset`, `forged`, `replay`, `silence`, `wipe` and `noverdict`, each on a fresh
+image and each driven by `wirecheck -hsm`
+(`test/integration/cortex-m/qemu_test.sh`).
 
 `integration-test-cortex-m-wire` boots the same signed image with its UART on
 a pty and runs the tfwctl wire suite (`make hw-test`) against it, resetting

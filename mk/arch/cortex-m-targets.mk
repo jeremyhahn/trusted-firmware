@@ -17,7 +17,9 @@
 #
 # Every Cortex-M board QEMU models, so every change to the core boots on both
 # cores: the ARMv8-M Cortex-M33 (mps2-an505, #161) and the ARMv7-M Cortex-M7
-# (mps2-an500). Each runs the same three cases.
+# (mps2-an500). Each runs the same four cases (genuine, tampered, otherkey,
+# unprovisioned; test/integration/cortex-m/qemu_test.sh), plus the hsm-* cases
+# on an HSM=1 image.
 CM_QEMU_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_TIER  := soft
 CM_QEMU_ROW   := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
@@ -206,7 +208,7 @@ cortex-m-qemu-spi-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) SPI=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_SPI_BUILD) CM_QEMU_SPI=1
 
-# The tone row's run, beside the SPI row's: the base row's tfw-boot and the
+# The tone row's run, after the I2C row's: the base row's tfw-boot and the
 # TONE=1 application, every path under CM_QEMU_TONE_BUILD.
 cortex-m-qemu-tone-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -233,7 +235,7 @@ cortex-m-qemu-i2c-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) I2C=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD) CM_QEMU_I2C=1
 
-# The PULSE row's run, after the I2C row's: the base row's tfw-boot and the
+# The PULSE row's run, after the tone row's: the base row's tfw-boot and the
 # PULSE=1 application, every path under CM_QEMU_PULSE_BUILD.
 cortex-m-qemu-pulse-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -242,7 +244,7 @@ cortex-m-qemu-pulse-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) PULSE=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_PULSE_BUILD) CM_QEMU_PULSE=1
 
-# The 1-Wire row's run, after the I2C row's: the base row's tfw-boot and the
+# The 1-Wire row's run, after the PULSE row's: the base row's tfw-boot and the
 # ONEWIRE=1 application, every path under CM_QEMU_ONEWIRE_BUILD.
 cortex-m-qemu-onewire-wire:
 	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
@@ -257,9 +259,15 @@ cortex-m-qemu-onewire-wire:
 # CYCLE_TEST names the test: the store row's TestQEMUOTACycle
 # (sdk/go/cmd/tfwctl/ota_cycle_qemu_test.go), or one of the A/B row's
 # TestQEMUAB* (ota_ab_qemu_test.go), or the SPI row's TestQEMUSPIXfer
-# (spi_qemu_test.go), or the I2C row's TestQEMUI2CXfer (i2c_qemu_test.go), or
-# the base row's TestQEMUResetCause (reset_qemu_test.go) or TestQEMUFaultPanic
-# (fault_qemu_test.go), which reads the fault record at TFW_QEMU_FAULTFRAME.
+# (spi_qemu_test.go), or the PWM row's TestQEMUPWMWrite (pwm_qemu_test.go), or
+# the I2C row's TestQEMUI2CXfer (i2c_qemu_test.go), or the tone row's
+# TestQEMUTone (tone_qemu_test.go), or the 1-Wire row's TestQEMUOneWire
+# (onewire_qemu_test.go), or the PULSE row's TestQEMUPulseTimeout
+# (pulse_qemu_test.go), or the base row's TestQEMUResetCause (reset_qemu_test.go)
+# or TestQEMUFaultPanic (fault_qemu_test.go), which reads the fault record at
+# TFW_QEMU_FAULTFRAME, or, on mps2-an500, TestQEMUMPUNullRead,
+# TestQEMUMPUBootRead or TestQEMUMPUStackGuard (mpu_qemu_test.go). The list
+# qemu_wire_test.sh runs is the reference.
 CYCLE_TEST ?= TestQEMUOTACycle
 cortex-m-qemu-cycle:
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_RESET='$(HW_RESET)' \

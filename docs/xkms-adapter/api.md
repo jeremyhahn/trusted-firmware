@@ -129,9 +129,14 @@ exchange such as `AttestKey` stays contiguous.
 
 `backend.PossessionSigner(att)` returns the `crypto.Signer` that proves possession
 of the attested key. It asks the device for `Device.AttestCSR` and returns a
-signature only when it verifies over the digest it was asked to sign; any other
-digest returns `ErrPossessionMismatch`, and an `att` this backend did not produce
-returns `ErrInvalidAttestation`.
+signature only when it verifies over the digest it was asked to sign. A hash
+other than SHA-256 or a digest that is not 32 bytes returns
+`ErrSigningUnsupported` before the device is asked; any other digest returns
+`ErrPossessionMismatch`. `PossessionSigner` returns `ErrInvalidAttestation` for
+a nil `att` or one without a certificate, a key that is not P-256, or a nonce
+that is not `tfw.AliasNonceLen` bytes; a well-formed attestation this backend
+did not produce is accepted there and fails at `Sign` with
+`ErrPossessionMismatch`.
 
 ### Through package `xkms`
 

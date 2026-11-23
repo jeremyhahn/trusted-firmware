@@ -59,8 +59,9 @@ ATmega328P and ATmega2560, 16 MHz, `CRYPTO=soft`, avr-gcc as pinned in
 the devcontainer (`build/docker/devcontainer/Dockerfile`, `scripts/tool-pins.sh`).
 The 328P column is a dated record, measured before owner ruling 2026-10-17
 (m522), which made the 328P element-only and refuses `CRYPTO=soft` on it.
-`make bench-check` builds each board's default tier, so it now times the 328P's
-`CRYPTO=atecc608a` image.
+`make bench-check` builds each board's default tier and the serial image
+(`ETH=0`), since the 2560's default is its Ethernet image, so it now times the
+328P's `CRYPTO=atecc608a` image.
 
 | | plan's target | 328P | 2560 | verdict |
 |---|---|---|---|---|
@@ -159,7 +160,8 @@ size.
 
 ### Two images
 
-`build/<board>/soft/trusted-firmware.elf` — the firmware that ships. The tick ISR,
+`build/<board>/<row>/trusted-firmware.elf` (`<row>` the board's default tier,
+`atecc608a` on the 328P and `auto` on the 2560) — the firmware that ships. The tick ISR,
 the command latency and the sustained rate are measured on it, in situ, because
 all three are properties of the whole running system: an ISR is entered by
 hardware, and a round trip goes through the USART, the ring, the framer, the

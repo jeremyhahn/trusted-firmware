@@ -28,7 +28,8 @@ typedef char blob_info_is_45_bytes[(TFW_BLOB_INFO_LEN == 28u + 1u + TFW_BLOB_UUI
 
 /*
  * HMAC-SHA-256 of first ‖ second under the 32-byte key. HKDF's PRK and OKM are
- * both one SHA-256 block, so this is all of RFC 5869 §2 needs.
+ * both one SHA-256 output (HashLen, 32 bytes), so this is all of RFC 5869 §2
+ * needs.
  */
 static TEE_Result hmac_sha256(const uint8_t key[SHA256_LEN], const uint8_t *first,
                               size_t first_len, const uint8_t *second, size_t second_len,

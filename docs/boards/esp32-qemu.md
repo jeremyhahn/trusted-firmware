@@ -1,7 +1,7 @@
 # esp32-qemu (Espressif's QEMU)
 
 > **Status: INFORMATIVE** · SPEC rows: `esp32`, `esp32-p4` (stand-in) · Scope:
-> `boards/esp32-qemu/` · Last verified: 2026-10-21
+> `boards/esp32-qemu/` · Last verified: 2026-11-21
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -29,8 +29,9 @@ naming the two machines and their tiers is `profile.mk:6`–`14`. The image's
 | Machines | `esp32c3` (RISC-V, like the P4; emulates the HMAC peripheral; tier `hmac-p256`, the default) and `esp32` (the original Xtensa ESP32; no HMAC; tier `none`, no identity) | `profile.mk:8`–`10`, `:11`–`13`, `:28`–`29` |
 | Ethernet | the OpenCores MAC QEMU emulates, `CONFIG_ETH_USE_OPENETH=y` | `sdkconfig.defaults:4`, `:9` |
 | Flash | 4 MB, the flash the emulator is given | `partitions.csv:4`; `sdkconfig.defaults:4`–`5`, `:11` |
-| Flash geometry | `TFW_FLASH_TOTAL` 16 MiB, the trailer parser's bound, past any slot | `board_profile.h:55`–`61`, `:62` |
-| EEPROM | 4 096 bytes, the `tfw_eeprom` partition | `board_profile.h:33`; `partitions.csv:10` |
+| Flash geometry | `TFW_FLASH_TOTAL` 16 MiB, the trailer parser's bound, past any slot | `board_profile.h:61`–`69`, `:70` |
+| EEPROM | 4 096 bytes, the `tfw_eeprom` partition | `board_profile.h:41`; `partitions.csv:10` |
+| OTA slots | 2, ESP-IDF's `ota_0` and `ota_1`; an A/B application passes its static check here | `board_profile.h:80`–`83`; `partitions.csv:13`–`14` |
 | Anti-rollback | on the C3 machine only, where the test's eFuse is a file QEMU writes: OTA_CONFIRM raises its secure-version floor; the P4 board never sets it | `profile.mk:35`–`40` |
 
 Layer 0 verifies the ES256 trailer with the AVR rows' p256-soft over ESP-IDF's
@@ -42,7 +43,7 @@ which secure boot v2 needs, and the test's eFuses state it
 (`sdkconfig.defaults.esp32:4`–`6`).
 
 The OTA trial deadline is 60 s, as each AVR board with a boot section
-(`board_profile.h:67`–`70`).
+(`board_profile.h:75`–`78`).
 
 ## The partitions
 
@@ -57,18 +58,20 @@ this firmware's, `tfw_plat`, `tfw_id`, `tfw_eeprom` and `tfw_auth`
 
 `0x81` (`board_profile.h:22`), in the ESP32 range of the
 [board-id registry](board-id-registry.md). The SUIT class id is
-UUIDv5 `1023e2f4-fdd0-5f12-9902-c62181fa5681` (`board_profile.h:24`–`27`).
+UUIDv5 `1023e2f4-fdd0-5f12-9902-c62181fa5681` (`board_profile.h:24`–`27`). The policy-set and script class ids are UUIDv5
+`d14d34cc-9f71-50f4-8f9b-8b0ad4b37715` and `45074df9-7e44-5aa0-ace4-2222abc5f7c3`,
+of `esp32-qemu/policy` and `esp32-qemu/script` (`board_profile.h:28`–`35`).
 
 ## Pins in summary
 
 | | Value | Source |
 |---|---|---|
-| Pins | 5: logical 0–4 on GPIO 2, 4, 5, 18 and 19 — the GPIOs both machines have and neither spends on its flash or its console | `board_profile.h:13`–`14`, `:29`; `board.c:14`–`22` |
-| Ports | 1: GPIO 0–31; the bit is the GPIO number | `board_profile.h:30`; `board.c:9`–`12` |
-| PWM | 4 units, LEDC channels 0–3 on timer 0; the tone generator takes the last timer and channel | `board_profile.h:31`; `board.c:24`–`33` |
-| ADC | none: neither machine models an ADC this port uses | `board_profile.h:15`–`16`, `:32` |
-| Tone | GPIO19, the one pin with no PWM channel, through LEDC | `board_profile.h:41`–`43` |
-| Buses | I2C on GPIO 4/5, SPI on GPIO 18/19/2; neither machine models the peripherals, so the pins are never driven in QEMU | `board_profile.h:45`–`51` |
+| Pins | 5: logical 0–4 on GPIO 2, 4, 5, 18 and 19 — the GPIOs both machines have and neither spends on its flash or its console | `board_profile.h:13`–`14`, `:37`; `board.c:14`–`22` |
+| Ports | 1: GPIO 0–31; the bit is the GPIO number | `board_profile.h:38`; `board.c:9`–`12` |
+| PWM | 4 units, LEDC channels 0–3 on timer 0; the tone generator takes the last timer and channel | `board_profile.h:39`; `board.c:24`–`33` |
+| ADC | none: neither machine models an ADC this port uses | `board_profile.h:15`–`16`, `:40` |
+| Tone | GPIO19, the one pin with no PWM channel, through LEDC | `board_profile.h:49`–`51` |
+| Buses | I2C on GPIO 4/5, SPI on GPIO 18/19/2; neither machine models the peripherals, so the pins are never driven in QEMU | `board_profile.h:53`–`59` |
 
 QEMU models GPIO levels and little else, so the table exists to keep the board
 honest, not to drive loads (`board_profile.h:14`–`15`).
@@ -76,23 +79,23 @@ honest, not to drive loads (`board_profile.h:14`–`15`).
 ## What is tested, and how
 
 Not a `make firmware` image, and never in `make ci`, whose image has no
-ESP-IDF (`profile.mk:15`–`17`). The build is
+ESP-IDF (`profile.mk:16`–`18`). The build is
 `make esp32-build BOARD=esp32-qemu [ESP_TARGET=esp32]`
-(`mk/arch/esp32-targets.mk:42`–`100`), and the test is
-`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:102`–`127`), which needs the
+(`mk/arch/esp32-targets.mk:61`–`134`), and the test is
+`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:136`–`161`), which needs the
 pinned QEMU, `esp_develop_9.2.2_20260417` (`mk/arch/esp32.mk:21`). It builds
 the C3 row, a `PROVISION=1` C3 row and the original-ESP32 row
-(`mk/arch/esp32-targets.mk:114`–`116`), then runs the two machines side by side
+(`mk/arch/esp32-targets.mk:148`–`150`), then runs the two machines side by side
 in QEMU. The C3 run carries the identity — the CDI and the P-256 DeviceID
 checked against the literal point of a fixed UDS, its ATTEST verified as ES256
 — and the esp32 run, with no HMAC peripheral, checks secure boot, layer 0's
 ES256 gate, the wire over Ethernet, and the ATTEST refusal. Both check layer 0's
 gate and refuse tampered and mis-sealed images and manifests; the C3 run also
 boots the `PROVISION=1` image on a part with no UDS
-(`mk/arch/esp32-targets.mk:102`–`110`). `ATTEST` signs with the P-256 DeviceID
+(`mk/arch/esp32-targets.mk:136`–`144`). `ATTEST` signs with the P-256 DeviceID
 the `hmac-p256` tier derives from the eFuse UDS; a tier with no UDS answers it
 NOT_PROVISIONED or UNSUPPORTED, as an AVR board without an element does
-(`board_profile.h:35`–`39`).
+(`board_profile.h:43`–`47`).
 
 ## Not met yet
 

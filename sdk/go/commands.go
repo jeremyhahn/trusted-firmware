@@ -257,8 +257,9 @@ const (
 	// update frame is accepted within about ten seconds. On the element tier
 	// it requires an authenticated session (AuthChallenge/AuthResponse) and
 	// fails with an AUTH_REQUIRED status without one. A board with no boot
-	// section (the ATtiny85) refuses it with an UNSUPPORTED status and does
-	// not reset.
+	// section (the ATtiny85), and an image whose update path is the external
+	// store (the A/B ATmega2560 built with the stager, BOOT_AB with
+	// OTA_STAGE), refuse it with an UNSUPPORTED status and do not reset.
 	ResetBootloader ResetMode = 1
 )
 
@@ -455,12 +456,14 @@ const EEPROMReservedEnd = 0x140
 // A read is read-gated when it starts below EEPROMReservedEnd. The gate
 // is enforced only by an image built with CRYPTO=atecc608a (the element tier,
 // `make firmware-attested`) for a board whose profile leaves the auth session
-// on: the ATmega2560 and the ATmega32U4. There a gated read without an
-// authenticated session (see AuthChallenge/AuthResponse) returns
-// StatusErrAuthRequired. Every other build links the permissive gate and the
-// read is permitted exactly as it always was: the soft tier (the default on
-// every AVR board), CRYPTO=none (the ATtiny85's only tier), the ESP32 hmac-p256
-// tier, and the ATmega328P even on the element tier, whose profile turns the
+// on: the ATmega2560 and the ATmega32U4. The ESP32-P4's hmac-p256 build
+// enforces it too, since its profile turns the auth session on. There a gated
+// read without an authenticated session (see AuthChallenge/AuthResponse)
+// returns StatusErrAuthRequired. Every other build links the permissive gate
+// and the read is permitted exactly as it always was: the soft tier (the
+// default on every AVR board), CRYPTO=none (the ATtiny85's only tier), the
+// ESP32 hmac-p256 tier on a board that leaves AUTH_SESSION off (the QEMU C3),
+// and the ATmega328P even on the element tier, whose profile turns the
 // session off for want of flash. See docs/security/threat-model.md for why
 // that gap is accepted rather than hidden.
 func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, error) {
@@ -479,7 +482,10 @@ func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, 
 }
 
 // EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd,
-// outside any range the board's bootloader keeps there.
+// outside any range the board's bootloader keeps there. A write overlapping
+// the network block (NetConfigAddr, NetConfigLen) needs an authenticated
+// session where the gate is enforced, and returns StatusErrAuthRequired
+// without one.
 func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) error {
 	if len(data) == 0 || len(data) > EEPROMChunk {
 		return &ArgRangeError{

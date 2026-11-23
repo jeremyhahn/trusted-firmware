@@ -29,9 +29,8 @@ import (
 	"github.com/jeremyhahn/go-xkms/pkg/types"
 )
 
-// Compile-time interface satisfaction check. Backend is a KeyProvider and
-// deliberately not a types.AttestingKeyProvider; see the package
-// documentation.
+// Compile-time interface satisfaction check. Backend is a KeyProvider here
+// and a types.AttestingKeyProvider in attestation.go.
 var _ types.KeyProvider = (*Backend)(nil)
 
 // Backend is one attached AVR device, presented as an xkms key provider.

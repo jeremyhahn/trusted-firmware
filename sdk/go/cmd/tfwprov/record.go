@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -78,8 +79,8 @@ func jwkOf(xy []byte) (*ecJWK, error) {
 }
 
 // readRecord reads a record and refuses anything that is not one: an unknown
-// member would be dropped by the rewrite, and a UEID of another shape is not
-// a device this tool baked.
+// member, or bytes after the record's object, would be dropped by the
+// rewrite, and a UEID of another shape is not a device this tool baked.
 func readRecord(path string) (*provRecord, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- the operator names the record
 	if err != nil {
@@ -90,6 +91,9 @@ func readRecord(path string) (*provRecord, error) {
 	var r provRecord
 	if err := dec.Decode(&r); err != nil {
 		return nil, &recordError{fmt.Sprintf("%s is not a provisioning record: %v", path, err)}
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, &recordError{path + " is not a provisioning record: bytes after its object"}
 	}
 	id, err := base64.RawURLEncoding.DecodeString(r.UEID)
 	if err != nil || len(id) != 1+tfw.SerialLen || id[0] != ueidTypeRAND {

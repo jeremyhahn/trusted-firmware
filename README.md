@@ -79,14 +79,15 @@ the wrong LED.
 ## Layout
 
 ```
-include/tfw/      the contracts: status, protocol, config, HAL, board
+include/tfw/     the contracts: status, protocol, config, HAL, board
 src/proto/       CRC, framing, transport
 src/core/        bounded cursors, command dispatch
 src/caps/        capability modules — one per command group
-src/hal/avr/     the only code that touches a register
+src/hal/<arch>/  the firmware's HAL, the only firmware code that touches a register (avr, cortex-m, esp32; HAL_DIR in mk/firmware.mk)
+boot/            tfw-boot, the bootloader; its own HAL in boot/hal/<arch>/
 boards/          per-board descriptors: data, not code
 sdk/go/          the host SDK and tfwctl
-tools/tfwsim/     the firmware, built for the host
+tools/tfwsim/    the firmware, built for the host
 testdata/        the wire vectors, shared with sdk/go
 ```
 

@@ -15,7 +15,7 @@
  * (TFW_CM_PERIPH, PERIPH ?= 1 in profile.mk) and I2C0 (TFW_CM_I2C, I2C ?= 1).
  * PERIPH=0 and I2C=0 build the image without them, GPIO only with both.
  *
- * The board id is PROVISIONAL (boards/rp2350-pico2w/profile.mk).
+ * The board id 0x44 is allocated in docs/boards/board-id-registry.md.
  */
 #ifndef TFW_BOARD_RP2350_PICO2W_H
 #define TFW_BOARD_RP2350_PICO2W_H

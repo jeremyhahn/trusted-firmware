@@ -25,6 +25,7 @@
 # directory. Takes about 15 minutes; logs go to $WORK/logs.
 #
 # Usage: scripts/tfm-measure.sh [work-dir]   (default /tmp/tfm-measure)
+# A relative work-dir is taken from the invocation directory.
 set -euo pipefail
 
 # The pins, shared with scripts/tfm-build.sh.
@@ -33,8 +34,10 @@ set -euo pipefail
 PLATFORM=stm/stm32h573i_dk
 
 WORK=${1:-/tmp/tfm-measure}
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd -P)
 LOGS=$WORK/logs
-mkdir -p "$WORK" "$LOGS"
+mkdir -p "$LOGS"
 
 die() { echo "tfm-measure: $*" >&2; exit 1; }
 step() { echo "tfm-measure: $*" >&2; }

@@ -225,7 +225,8 @@ path:
 
 | Status | Source | Meaning |
 |---|---|---|
-| `TFW_ERR_UNSUPPORTED` | `tfw_boot_trailer_parse` | no trailer magic, or a trailer/EEPROM layout version this build does not know |
+| `TFW_ERR_UNSUPPORTED` | `tfw_boot_trailer_parse` | no trailer magic, a trailer version this build does not know, or a non-zero byte in the reserved range (offsets 112-127, outside the signed span) |
+| `TFW_ERR_UNSUPPORTED` | `tfw_boot_platform_parse` | the EEPROM platform block's layout version is not this build's `TFW_BOOT_EE_VERSION` |
 | `TFW_ERR_UNSUPPORTED` | `tfw_boot_binding_permit` | the trailer's `board_id` is 0 or not this build's `TFW_BOARD_ID`, or `image_flags` sets a reserved bit — checked before the floor, so nothing is written |
 | `TFW_ERR_RANGE` | `tfw_boot_trailer_parse` | `image_len` is zero or reaches into the trailer |
 | `TFW_ERR_PROTECTED_REGION` | `tfw_boot_rollback_permit` | `image_version` is below the floor — a downgrade |

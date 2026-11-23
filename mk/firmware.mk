@@ -277,8 +277,9 @@ CRYPTO ?= soft
 
 # A tier a board's profile refuses (BOARD_REFUSED_TIERS) is not built, not even
 # on request: the ATmega328P is supported only with a secure element (owner
-# ruling 2026-10-17, m522, item 79), so CRYPTO=soft there is an image nobody
-# supports. Asked for anyway, it fails here, as an unknown tier does below.
+# ruling 2026-10-17, m522, item 79), so CRYPTO=soft there, or CRYPTO=auto with
+# the soft root linked beside the element, is an image nobody supports. Asked
+# for anyway, it fails here, as an unknown tier does below.
 ifneq ($(filter $(CRYPTO),$(BOARD_REFUSED_TIERS)),)
 $(error CRYPTO=$(CRYPTO) is refused on $(BOARD) -- the board is supported only with its $(BOARD_TIERS) tier (owner ruling 2026-10-17, m522))
 endif
@@ -431,12 +432,20 @@ else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
 # architecture's own key hardware -- the ESP32's HMAC peripheral, say.
 # mk/arch/$(ARCH).mk names the tier and its sources, which live in the HAL
 # directory and are listed in ARCH_HAL_OPTIONAL so no other tier links them.
-# No alias certificate and no auth session: both are the element tier's.
+# No alias certificate. The auth session only where the board turns it on
+# (BOARD_FEATURES_ON += AUTH_SESSION): the ESP32-P4, whose hmac-p256 provider
+# verifies the operator key bound to its eFuse UDS (row #606,
+# docs/multi-arch/esp32-p4-design.md 2.5). The QEMU C3 keeps the open gate.
 CRYPTO_SRCS := $(ARCH_CRYPTO_SRCS_$(CRYPTO))
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
+ifneq ($(filter AUTH_SESSION,$(BOARD_FEATURES_ON)),)
+AUTH_SRCS   := src/core/auth_session.c
+AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
+else
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
+endif
 else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft, atecc608a, auto or optiga$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif

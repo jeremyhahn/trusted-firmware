@@ -147,7 +147,7 @@ void tfw_transport_poll(tfw_transport_t *t)
              * got far enough to have one -- so nothing is sent. The counters
              * in SYS_INFO are how a host sees this happening.
              *
-             * Returns, matching READY and BAD_CRC below, rather than looping
+             * Returns, matching READY and BAD_CRC above, rather than looping
              * straight on to whatever the ring holds next. Without that, a
              * BAD_FORMAT byte immediately followed in the same buffered burst
              * by a valid SYS_INFO request would dispatch and encode that

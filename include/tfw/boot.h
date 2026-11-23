@@ -186,7 +186,13 @@ typedef struct {
  *                              this field (AUTH_CHALLENGE/AUTH_RESPONSE are
  *                              not compiled into either -- see
  *                              docs/security/threat-model.md).
- *   132    58  reserved
+ *   132    32  operator_bind   ESP32 hmac-p256 tier only (#606): HMAC-SHA256
+ *                              of "tfw-opsess-v1" || operator_pubkey under
+ *                              the eFuse UDS, from the HMAC peripheral, so a
+ *                              key rewritten in flash is not the operator's
+ *                              (docs/multi-arch/esp32-p4-design.md 2.5).
+ *                              Zero, and never read, on every other tier.
+ *   164    26  reserved
  *   190     2  crc16           over bytes [0, 190)
  *
  * VERSION 2 GROWS THE BLOCK RATHER THAN REPURPOSING BYTES, unlike the CDI
@@ -244,10 +250,12 @@ typedef struct {
 #define TFW_BOOT_EE_O_FAIL_COUNT      50u
 #define TFW_BOOT_EE_O_SERIAL          52u
 #define TFW_BOOT_EE_O_OPERATOR_PUBKEY 68u
+#define TFW_BOOT_EE_O_OPERATOR_BIND   132u
 #define TFW_BOOT_EE_O_CRC             190u
 
 #define TFW_BOOT_SERIAL_LEN          16u
 #define TFW_BOOT_OPERATOR_PUBKEY_LEN 64u
+#define TFW_BOOT_OPERATOR_BIND_LEN   32u
 
 /* boot_state: what the last attempt to run an application achieved.
  *

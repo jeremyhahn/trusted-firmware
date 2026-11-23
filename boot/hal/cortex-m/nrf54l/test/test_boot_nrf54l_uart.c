@@ -154,6 +154,43 @@ static void test_rx_clears_an_error(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_ERRORSRC_ALL, TFW_NRF_UARTE_ERRORSRC);
 }
 
+/* The values are written out, not derived through tfw_nrf54l_psel() or the
+ * vendor's rate table, so a wrong pin, rate or frame in init fails here. */
+static void test_init_programs_the_console_pins_rate_and_frame(void)
+{
+    tfw_boot_uart_init(BAUD);
+    TEST_ASSERT_BITS_HIGH(1uL << 4, TFW_NRF_GPIO_OUTSET(TFW_NRF_P1_BASE));
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, TFW_NRF_GPIO_PIN_CNF(TFW_NRF_P1_BASE, 4));
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_INPUT | TFW_NRF_PIN_CNF_PULLUP,
+                            TFW_NRF_GPIO_PIN_CNF(TFW_NRF_P1_BASE, 5));
+    TEST_ASSERT_EQUAL_HEX32(0x24u, TFW_NRF_UARTE_PSEL_TXD);   /* P1.4, CONNECT */
+    TEST_ASSERT_EQUAL_HEX32(0x25u, TFW_NRF_UARTE_PSEL_RXD);   /* P1.5, CONNECT */
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF54L_PSEL_DISCONNECTED, TFW_NRF_UARTE_PSEL_CTS);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF54L_PSEL_DISCONNECTED, TFW_NRF_UARTE_PSEL_RTS);
+    TEST_ASSERT_EQUAL_HEX32(0x01D60000u, TFW_NRF_UARTE_BAUDRATE);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_CONFIG_8N1, TFW_NRF_UARTE_CONFIG);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_ENABLE_ON, TFW_NRF_UARTE_ENABLE);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_START);
+}
+
+/* No late task is armed: a send that waited for TXDRDY would hang here. */
+static void test_tx_on_a_uarte_left_off_starts_nothing(void)
+{
+    tfw_boot_uart_init(1234u);
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_MAXCNT);
+}
+
+/* No late task is armed: an off that waited for RXTO would hang here. */
+static void test_off_on_a_uarte_never_enabled_stops_nothing(void)
+{
+    tfw_boot_uart_init(1234u);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_UARTE_ENABLE);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -167,5 +204,8 @@ int main(void)
     RUN_TEST(test_rx_takes_a_byte_once);
     RUN_TEST(test_unlisted_baud_leaves_the_uarte_off);
     RUN_TEST(test_rx_clears_an_error);
+    RUN_TEST(test_init_programs_the_console_pins_rate_and_frame);
+    RUN_TEST(test_tx_on_a_uarte_left_off_starts_nothing);
+    RUN_TEST(test_off_on_a_uarte_never_enabled_stops_nothing);
     return UNITY_END();
 }

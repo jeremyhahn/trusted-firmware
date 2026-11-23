@@ -336,6 +336,73 @@ static void test_no_answer_carries_a_secret(void)
     TEST_ASSERT_FALSE(contains(out, n, UDS));
 }
 
+/* dice_service.c:47-48: a refused init clears the service first, so the last good one is gone. */
+static void test_an_init_without_a_uds_is_refused_and_forgets_the_last_one(void)
+{
+    uint8_t           buf[64];
+    tfw_dice_inputs_t in = { NULL, CDI, UEID, FW_HASH, TFW_CRYPTO_SOFTWARE };
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_service_init(&in));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_dice_deviceid_pub(buf, 64u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
+}
+
+/* dice_service.c:48: the in->ueid == NULL clause. */
+static void test_an_init_without_a_ueid_is_refused(void)
+{
+    uint8_t           buf[64];
+    tfw_dice_inputs_t in = { UDS, CDI, NULL, FW_HASH, TFW_CRYPTO_SOFTWARE };
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_service_init(&in));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_dice_alias_pub(buf, 64u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
+}
+
+/* dice_service.c:49: the in->fw_hash == NULL clause. */
+static void test_an_init_without_a_fw_hash_is_refused(void)
+{
+    uint8_t           buf[255];
+    tfw_dice_inputs_t in = { UDS, CDI, UEID, NULL, TFW_CRYPTO_SOFTWARE };
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_service_init(&in));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, cert_page(buf, 255u, 0u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
+    TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.total);
+    TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.got);
+}
+
+/* dice_service.c:121: TFW_NS_CHECK(sig, cap) with cap 0. */
+static void test_alias_sign_into_a_zero_cap_is_refused(void)
+{
+    uint8_t buf[64];
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_alias_sign(DIGEST, 32u, buf, 0u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
+}
+
+/* dice_service.c:90, 120-121 and 156: the wrap clause of the host TFW_NS_CHECK; never dereferenced. */
+static void test_a_buffer_that_wraps_the_address_space_is_refused(void)
+{
+    uint8_t        buf[64];
+    uint8_t       *hi_out  = (uint8_t *)(UINTPTR_MAX - 31u);
+    const uint8_t *hi_in   = (const uint8_t *)(UINTPTR_MAX - 15u);
+    uint8_t       *hi_page = (uint8_t *)(UINTPTR_MAX - 99u);
+
+    memset(buf, 0xEE, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_deviceid_pub(hi_out, 64u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_alias_pub(hi_out, 64u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_alias_sign(hi_in, 32u, buf, 64u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_dice_alias_sign(DIGEST, 32u, hi_out, 64u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, cert_page(hi_page, 255u, 0u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf, sizeof buf);
+    TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.total);
+    TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.got);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -351,5 +418,10 @@ int main(void)
     RUN_TEST(test_null_and_short_buffers_are_refused_untouched);
     RUN_TEST(test_before_init_is_not_provisioned_untouched);
     RUN_TEST(test_no_answer_carries_a_secret);
+    RUN_TEST(test_an_init_without_a_uds_is_refused_and_forgets_the_last_one);
+    RUN_TEST(test_an_init_without_a_ueid_is_refused);
+    RUN_TEST(test_an_init_without_a_fw_hash_is_refused);
+    RUN_TEST(test_alias_sign_into_a_zero_cap_is_refused);
+    RUN_TEST(test_a_buffer_that_wraps_the_address_space_is_refused);
     return UNITY_END();
 }

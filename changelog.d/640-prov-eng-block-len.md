@@ -1,0 +1,6 @@
+### Fixed
+
+- **`docs/device-provisioning/engineering.md` names the platform block's length as `TFW_BOOT_EE_BLOCK_LEN`** (192), not `TFW_BOOT_EE_LEN` (0x140, 320, the end of the bootloader's EEPROM including the swap journal and the confirm request), in both places it gives the length.
+- **`docs/device-provisioning/engineering.md` gives `EEPROMReservedEnd` as `0x140`** (not `0xC0`), names the production image's reply `StatusErrUnknownCmd` (not the nonexistent `ErrUnknownCommand`), credits the wake, range, `block < 2`, zero-CRC and config-unlocked checks to the ATECC backend (`tfw_prov_*` in `src/caps/provision_atecc.c`) rather than the `tfw_prov_cmd_*` handlers, and says the UDS crosses the I2C bus three times through MCU SRAM (never the serial link) instead of staying entirely inside the element.
+- **The Go provisioning comments match the firmware**: `sdk/go/provision.go` names `StatusErrUnknownCmd` and says `ProvSeedUDS`'s secret crosses only the I2C bus, three times; `sdk/go/cmd/tfwprov/steps.go` says `ProvInfo` reads the serial from block 0 and the two lock bytes separately.
+- **`scripts/prov-absent-check.py`'s docstring lists `0x7B`** (`TFW_CMD_PROV_WRITE_PUBKEY`) with the 0x70-0x75 entries `src/core/commands.def` emits only under `TFW_FEATURE_PROVISION`.

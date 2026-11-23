@@ -12,7 +12,7 @@
 # src/hal/cortex-m/ and boot/hal/cortex-m/ that holds the part's peripherals:
 # mps2 on QEMU's mps2-an505 and mps2-an500, which read their addresses from the
 # board profile, stm32h5 on ST's STM32H573I-DK, nrf54l on the nRF54L15 DK,
-# mcxn94x on the FRDM-MCXN947, which has no tfw-boot SoC directory yet). The
+# mcxn94x on the FRDM-MCXN947). The
 # core's code is
 # src/hal/cortex-m/; mk/firmware.mk's HAL_SOC_DIR and mk/boot.mk's
 # BOOT_SOC_SRCS add the SoC's. The contract every name below fills is the one

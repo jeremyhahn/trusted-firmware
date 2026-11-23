@@ -32,8 +32,8 @@ MCU            := stm32h573iik3q
 #                               the handoff block at the top (RAM_END)
 #
 # Unlike mps2-an505's, the code regions are flash: a store to them is not a
-# write. tfw-boot's writes to the slot and the platform block need the flash
-# controller, which this slice does not drive (docs/boards/stm32h573i-dk.md).
+# write. tfw-boot's writes to the slot and the platform block go through the
+# flash driver, boot/hal/cortex-m/stm32h5/h5_flash.c (mk/boot.mk).
 FLASH_BUDGET   := 131072
 # ETH_MAC=1 (#581) adds the MAC's rings (12 KiB of 1536-byte buffers) and
 # lwIP's heap and pbuf pool: 64 KiB of the 256 KiB bank.

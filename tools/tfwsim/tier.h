@@ -5,8 +5,9 @@
  * linked with.
  *
  * Exactly one implementation is linked, chosen by the Makefile the way the
- * firmware's own crypto provider is: tier_soft.c for `tfwsim`, tier_atecc608a.c
- * for `tfwsim-atecc608a`. There is no #if here and no runtime switch -- a
+ * firmware's own crypto provider is: tier_soft.c for `tfwsim` and
+ * `tfwsim-otaboot`, tier_atecc608a.c for `tfwsim-atecc608a`, `tfwsim-manifest`,
+ * `tfwsim-prov` and `tfwsim-auto` (mk/host.mk). There is no #if here and no runtime switch -- a
  * binary cannot be talked into a tier it was not built for.
  */
 #ifndef TFWSIM_TIER_H

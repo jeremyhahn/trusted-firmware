@@ -6,8 +6,8 @@
  * Chosen over CRC-32 because a table-driven CRC-32 costs 1 KB of PROGMEM, which
  * is an eighth of an ATtiny85's entire flash, and buys nothing at our frame
  * length. Chosen over CRC-8 because CRC-8 drops to Hamming distance 2 above
- * about fifteen bytes, and our frames reach 132; at that length this polynomial
- * still holds HD=4, so every one-, two- and three-bit error is detected, as is
+ * about fifteen bytes, and our frames reach 71 (TFW_MAX_FRAME at the 64-byte
+ * TFW_MAX_PAYLOAD); at that length this polynomial still holds HD=4, so every one-, two- and three-bit error is detected, as is
  * every error of odd weight and every burst up to sixteen bits.
  *
  * tfw_crc16_update() has two definitions and exactly one is ever linked:
@@ -22,8 +22,9 @@
  *
  *   src/hal/avr/hal_crc16.c  -- avr-libc's _crc_xmodem_update, fourteen
  *     single-cycle instructions, branch-free. Linked ONLY into the firmware
- *     and the bench image (mk/avr.mk, mk/bench.mk's BENCH_SRCS), the same
- *     link-time substitution the rest of the HAL uses: the object list picks
+ *     and the bench image (mk/firmware.mk's FW_SRCS, by its wildcard over
+ *     $(HAL_DIR)'s .c files, and mk/bench.mk's BENCH_SRCS, which is FW_SRCS less main.c),
+ *     the same link-time substitution the rest of the HAL uses: the object list picks
  *     the definition, not a conditional inside this file.
  *
  * This used to be one function with a comment promising exactly this split

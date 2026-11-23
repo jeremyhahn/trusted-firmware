@@ -2,10 +2,11 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The no-handoff stub, linked instead of handoff.c on a board with no boot
- * section at all -- its profile.mk defines no RAM_END, see mk/avr.mk. There
- * being no bootloader means there is nothing to hand off and no fixed SRAM
- * address for one to have used in the first place; boards/attiny85/
- * profile.mk states the reason (no BOOTRST, no boot lock bits, no room).
+ * section at all -- its profile.mk defines no RAM_END, see mk/firmware.mk's
+ * IDENTITY_SRCS. There being no bootloader means there is nothing to hand off
+ * and no fixed SRAM address for one to have used in the first place;
+ * boards/attiny85/profile.mk states the reason (no BOOTRST, no boot lock
+ * bits, no room).
  *
  * main.c calls tfw_boot_handoff_init and src/hal/avr/hal_sys.c calls
  * tfw_boot_handoff_reset_cause on EVERY board, so both stay real symbols here

@@ -41,7 +41,7 @@ Symmetric Identity Based Device Attestation*.
 
 | Symbol | Signature | Note |
 |---|---|---|
-| `tfw_crypto_init` | `tfw_status_t(void)` | derives the CDI if a UDS is present; never errors on an unprovisioned device |
+| `tfw_crypto_init` | `tfw_status_t(void)` | takes the CDI tfw-boot handed off (soft tier; derives locally only with no valid handoff) or learns whether the element holds a UDS; never errors on an unprovisioned device |
 | `tfw_crypto_tier` | `tfw_crypto_tier_t(void)` | `TFW_CRYPTO_NONE`\|`SOFTWARE`\|`SECURE_ELEMENT`\|`TPM2` = 0/1/2/3 |
 | `tfw_crypto_algorithms` | `uint16_t(void)` | bitmap: `TFW_ALGBIT_ECDSA_P256_SHA256`\|`ED25519`\|`HMAC_SHA256` |
 | `tfw_crypto_random` | `tfw_status_t(uint8_t *out, uint8_t len)` | `TFW_ERR_CRYPTO` on a tier with no entropy source |
@@ -50,6 +50,8 @@ Symmetric Identity Based Device Attestation*.
 | `tfw_crypto_sign` | `tfw_status_t(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg_id)` | writes the algorithm actually used |
 | `tfw_crypto_pubkey` | `tfw_status_t(uint8_t out[64])` | `TFW_ERR_NOT_PROVISIONED` or `TFW_ERR_UNSUPPORTED` (symmetric tier) |
 | `tfw_crypto_counter` | `tfw_status_t(uint8_t idx, uint32_t *out)` | monotonic; backs `BootCount` and rollback |
+| `tfw_crypto_verify_operator` | `tfw_status_t(const uint8_t digest[32], const uint8_t sig[64], const uint8_t pubkey[64])` | `TFW_ERR_UNSUPPORTED` on every tier but the secure element; `TFW_ERR_CRYPTO` on a bad signature |
+| `tfw_crypto_verify_image` | `tfw_status_t(const uint8_t digest[32], const uint8_t sig[64])` | `TFW_ERR_UNSUPPORTED` on every tier but the secure element; `TFW_ERR_CRYPTO` on a bad signature |
 
 ### `src/caps/attest.h` / `src/caps/alias.h` / `src/caps/csr.h` / `src/caps/tmpl.h` / `src/caps/uccs.h`
 
@@ -57,11 +59,13 @@ Symmetric Identity Based Device Attestation*.
 |---|---|
 | `tfw_attest_cmd(tfw_reader_t *, tfw_writer_t *)` | dispatch handler for `ATTEST` |
 | `tfw_attest_device_id()` / `tfw_attest_fw_hash()` | pointers into the evidence buffer, `TFW_ATTEST_ID_LEN`/`TFW_SHA256_LEN` bytes; zero until the bootloader handoff lands (`architecture.md`) |
+| `tfw_attest_measurement(uint8_t out[32])` | claim 273's value: the application's evidence, else the firmware hash |
 | `tfw_attest_reset_state(void)` | test seam |
-| `tfw_alias_parts_t` | `{nonce, ueid, fw_hash, pubkey, sig}` — lets the DER vectors be pinned with no crypto provider linked at all |
+| `tfw_alias_parts_t` | `{nonce, ueid, fw_hash, pubkey, sig, tier}`; `fw_hash` is claim 273's value (`tfw_attest_measurement`), `tier` picks the software root's template — lets the DER vectors be pinned with no crypto provider linked at all |
 | `tfw_alias_tbs_digest(const tfw_alias_parts_t *, uint8_t out[32])` | SHA-256 over the TBSCertificate |
 | `tfw_alias_cert(const tfw_alias_parts_t *, uint16_t off, uint8_t *out, uint8_t cap, uint16_t *total, uint8_t *got)` | emits one window of the certificate |
 | `tfw_alias_cmd` / `tfw_alias_reset_state` | dispatch handler for `ATTEST_CERT`; test seam |
+| `tfw_alias_measurement_for(const uint8_t *b, uint8_t out[32])` | the claim 273 bytes of the certificate last minted for nonce `b`, else `TFW_ERR_BAD_ARGC` |
 | `tfw_alias_sources(const tfw_alias_parts_t *, const uint8_t *own, uint8_t uccs[151], const uint8_t *src[])` | encodes the claims set and fills the source slots (`TFW_ALIAS_SRC_*`) both templates' steps read from |
 | `tfw_csr_cri_digest(const tfw_alias_parts_t *, uint8_t out[32])` | SHA-256 over the CertificationRequestInfo; `p->nonce` is `b`, `p->sig` unread |
 | `tfw_csr_cri(const tfw_alias_parts_t *, uint16_t off, uint8_t *out, uint8_t cap, uint16_t *total, uint8_t *got)` | emits one window of the CRI, with `tfw_alias_cert`'s contract; the command never sends it, so this is the seam the vectors pin |
@@ -115,9 +119,9 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
 - **A page at or past the end is `TFW_ERR_RANGE`, never an empty success.** An
   empty success is indistinguishable from "the document ended here" to a
   host that has lost count.
-- **The TBS template is size-asserted, not trusted.** `_Static_assert
-  (TBS_PREFIX_LEN == 232)`, `_Static_assert(TBS_LEN == 383)` in
-  `src/caps/alias.c`. `TFW_UCCS_LEN` (151) is asserted equal to the envelope
+- **The TBS template is size-asserted, not trusted.** `_Static_assert(TBS_PREFIX_LEN == 249u)`,
+  `_Static_assert(TBS_LEN == 400u)` and, for the software root's certificate,
+  `_Static_assert(SOFT_TBS_LEN == 401u)` in `src/caps/alias.c`. `TFW_UCCS_LEN` (151) is asserted equal to the envelope
   (67) plus the CoSWID (84) in `src/caps/uccs.c`. A claims set of any other
   length would produce DER length fields that disagree with the bytes that
   follow them.
@@ -178,9 +182,9 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
 |---|---|---|
 | `TFW_ERR_BAD_ARGC` | dispatcher arity check; page fetch with no prior mint; `ATTEST_CSR` with any `b` but 32 bytes | payload length wrong, or a page asked for before a nonce |
 | `TFW_ERR_RANGE` | page past the end; `tfw_uccs_encode`'s nonce-width check | value outside the permitted interval |
-| `TFW_ERR_NOT_PROVISIONED` | `tfw_crypto_sign`/`pubkey` on a present-but-unseeded element | identity has not been provisioned yet |
-| `TFW_ERR_CRYPTO` | any provider op on `TFW_CRYPTO_NONE`, or an element that will not wake | the crypto provider failed the operation |
-| `TFW_ERR_UNSUPPORTED` | `ATTEST_CERT`/`ATTEST_CSR` compiled in under a provider with no asymmetric key (a host test build; no shipped soft or none image carries them); an algorithm mismatch in `mint()` or `tfw_csr_cmd` | this root of trust cannot do it |
+| `TFW_ERR_NOT_PROVISIONED` | `tfw_crypto_sign`/`pubkey` on a present-but-unseeded element, or the soft tier with no CDI (a refused or empty handoff) | identity has not been provisioned yet |
+| `TFW_ERR_CRYPTO` | `tfw_crypto_random` on `TFW_CRYPTO_NONE`, or an element that will not wake | the crypto provider failed the operation |
+| `TFW_ERR_UNSUPPORTED` | every other provider op on `TFW_CRYPTO_NONE` (sha256, hmac, sign, pubkey, counter, both verifies); `ATTEST_CERT`/`ATTEST_CSR` compiled in under a provider with no asymmetric key (a host test build; no shipped soft or none image carries them); an algorithm mismatch in `mint()` or `tfw_csr_cmd` | this root of trust cannot do it |
 | `TFW_ERR_UNKNOWN_CMD` | `ATTEST`/`ATTEST_CERT`/`ATTEST_CSR` on a build with the feature off | no table entry for this command id |
 | `TFW_ERR_INTERNAL` | `tfw_alias_sources` if the claims set did not encode to `TFW_UCCS_LEN` | a condition the firmware believes impossible |
 | `TFW_ERR_TOO_LONG` | `tfw_uccs_encode` overflow | request/response exceeded a bound |
@@ -197,8 +201,8 @@ it; the second says the command does not exist in this build at all.
 | `TFW_FEATURE_ALIAS_CERT` | 0 | gates `ATTEST_CERT`; on only where the linked provider has an asymmetric key |
 | `TFW_FEATURE_ATTEST_CSR` | 0 | gates `ATTEST_CSR` and `src/caps/csr.c`; selected only beside `ALIAS_CERT`, and a board profile can turn it off alone. CAPS bit 15 |
 | `TFW_FEATURE_PROVISION` | 0 | gates `PROV_GENKEY`/`PROV_SEED_UDS`/`PROV_LOCK`/etc.; a jig-only image |
-| `CONFIG_DICE_STRICT_DEVICEID` | off | A2: DeviceID derived from the CDI at provisioning instead of random (A1, default) — see `docs/device-provisioning/user.md` |
-| `CRYPTO=` | `soft` (AVR) | link-time provider selection: `soft`, `atecc608a`, or `none` (`mk/firmware.mk`) |
+| `CONFIG_DICE_STRICT_DEVICEID` | off | not implemented: no source or make file reads it; A1 (random DeviceID) is the only behaviour. A2 (DeviceID derived from the CDI at provisioning) is the planned alternative — see `docs/device-provisioning/user.md` |
+| `CRYPTO=` | the board profile's tier; `soft` only when the profile names none (the 328P's is `atecc608a`) | link-time provider selection: `none`, `soft`, `atecc608a`, `auto` or `optiga`, plus the arch's `ARCH_CRYPTO_TIERS` (`mk/firmware.mk`) |
 
 `TFW_FEATURE_ALIAS_CERT` is off on `boards/attiny85` and
 `boards/atmega32u4` (`board_profile.h` in each) — the ATtiny85 has no

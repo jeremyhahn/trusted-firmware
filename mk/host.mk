@@ -156,6 +156,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
                             test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
+                            test/unit/test_mps2_bus_regs.c test/unit/test_mps2_adc.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -549,6 +550,24 @@ $(HOST_DIR)/test_mps2_soc: test/unit/test_mps2_soc.c test/model/cortex-m/mps2_so
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
 	   -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
 	   -o $@ $(filter-out %.h %/hal_soc.c,$^) $(EXTRA_LDFLAGS)
+
+# The MPS2 bus registers (row cortex-m, #628): sbcon.c and pl022.c, the image's,
+# unchanged, on the register file (test/model/cortex-m/regfile_model.c), so
+# their offsets from mps2-an505's bases are checked. Include order as
+# test_mps2_soc: the board ahead of HOST_CFLAGS, then test/model/cortex-m.
+$(HOST_DIR)/test_mps2_bus_regs: test/unit/test_mps2_bus_regs.c src/hal/cortex-m/mps2/sbcon.c \
+                                src/hal/cortex-m/mps2/pl022.c test/model/cortex-m/regfile_model.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_CM_MODEL_REGFILE \
+	   -Itest/model/cortex-m -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 ADC HAL (#628): src/hal/cortex-m/mps2/hal_adc.c, unchanged, on
+# mps2-an505's profile (TFW_ADC_COUNT 0), in the mock HAL's place.
+$(HOST_DIR)/test_mps2_adc: test/unit/test_mps2_adc.c src/hal/cortex-m/mps2/hal_adc.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
 # TFW_CM_SPI, as its profile.mk's SPI=1 builds them, and SPI_XFER from
@@ -1606,6 +1625,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
+                    $(HOST_DIR)/test_mps2_bus_regs $(HOST_DIR)/test_mps2_adc \
                     $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
@@ -2016,10 +2036,23 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 # test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
 # verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
 # bootloader-check builds, as a string; host-test runs it as boot-test does.
+#
+# The string is compiled in, so the binary depends on BOOT_SUPPORTED's value
+# through a stamp holding it (#640). The stamp is rewritten on every run, as
+# mk/platform-bake.mk's block is, and replaced only when its bytes differ: an
+# edited or overridden matrix rebuilds the binary, an unchanged one rebuilds
+# nothing (`make -q` still answers not up to date, the stamp being forced).
+# BOOT_SUPPORTED is set in mk/boot.mk, read after this file, so it is compared
+# in the recipe and never at parse time.
+BOOT_ROWS_STAMP := $(HOST_DIR)/boot/boot-supported.txt
+$(BOOT_ROWS_STAMP): FORCE | $(HOST_DIR)/boot
+	@printf '%s\n' '$(strip $(BOOT_SUPPORTED))' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 $(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
-                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+                                      $(HOST_DIR)/unity.o $(BOOT_ROWS_STAMP) | $(HOST_DIR)/boot
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
 
 # The response engine's port on mps2-an505 (row cortex-m, #628): hsm_port.c,

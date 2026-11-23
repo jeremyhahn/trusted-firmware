@@ -9,9 +9,9 @@
  * an attacker who can raise signals cannot push the first ones out, and the
  * count says how much went unrecorded.
  *
- * Which store survives reset is architecture.md question 12; who reads the
- * record, and by which command id, is m7-design.md question O9. Neither is
- * decided here: no command reads the record yet.
+ * Which store survives reset is architecture.md question 12, not decided
+ * here. HSM_RECORD_READ (0x7C, hsm_cmd.c) reads the record over the channel;
+ * no command writes or erases it (O9).
  */
 
 #ifndef TFW_CORE_HSM_RECORD_H

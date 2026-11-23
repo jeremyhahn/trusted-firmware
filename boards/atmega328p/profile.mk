@@ -49,13 +49,14 @@ ETH_CHIP       ?= w5100
 
 # The ATmega328P is supported only with a secure element (owner ruling
 # 2026-10-17, m522, item 79): its one tier and its default are the element's,
-# and CRYPTO=soft is refused here (mk/firmware.mk, BOARD_REFUSED_TIERS) rather
-# than built. That withdraws the soft-crypto Ethernet node the profile once
+# and CRYPTO=soft and CRYPTO=auto (which links the soft root beside the
+# element) are refused here (mk/firmware.mk, BOARD_REFUSED_TIERS) rather than
+# built. That withdraws the soft-crypto Ethernet node the profile once
 # carried as BOARD_ROWS (issue #55 item 48). Without an element answering at
 # init the image still runs, and ATTEST answers TFW_ERR_NOT_PROVISIONED.
 CRYPTO         ?= atecc608a
 BOARD_TIERS    := atecc608a
-BOARD_REFUSED_TIERS := soft
+BOARD_REFUSED_TIERS := soft auto
 
 # The external store the OTA stager writes into (issue #75, docs/ota/): its
 # driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.

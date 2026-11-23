@@ -135,9 +135,9 @@ static void test_the_claim_keys_are_the_registered_ones(void)
 
 /*
  * A buffer one byte short. The refusal must be TFW_ERR_TOO_LONG and not a
- * truncated claims set reported as success -- a decoder handed 134 of 135 bytes
- * reads a well-formed map whose last value ran out, which is a parse failure
- * attributed to the wrong side of the link.
+ * truncated claims set reported as success -- a decoder handed 150 of 151
+ * bytes (TFW_UCCS_LEN - 1) reads a well-formed map whose last value ran out,
+ * which is a parse failure attributed to the wrong side of the link.
  */
 static void test_a_buffer_one_byte_short_is_refused(void)
 {

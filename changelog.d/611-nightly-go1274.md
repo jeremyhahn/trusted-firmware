@@ -1,0 +1,1 @@
+- nightly.yml's GO_VERSION is 1.27.4, matching go.mod and tool-pins.sh, so the FIPS job's setup-go installs the fixed toolchain (#611).

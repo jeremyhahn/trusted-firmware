@@ -5,7 +5,8 @@
  * nRF54L register model (test/model/nrf54l_model.h): mk/boot.mk puts
  * test/model/cortex-m/nrf54l/ ahead of src/hal/cortex-m/, so its cm_regs.h
  * sends every TFW_CM_REG to the model. A task the UARTE answers (TX.START with
- * TXDRDY, RX.STOP with RXTO) is the model's late task.
+ * TXDRDY, RX.STOP with RXTO) is the model's late task. The test includes
+ * boot_uart.c itself, so it can see the EasyDMA bytes rx_dma and tx_dma.
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -16,6 +17,8 @@
 #include "nrf54l/soc_regs.h"
 #include "nrf54l/soc_tables.h"
 #include "nrf54l_model.h"
+
+#include "../boot_uart.c"
 
 #define BAUD 115200u
 
@@ -258,6 +261,55 @@ static void test_after_off_rx_tx_and_a_second_off_do_nothing(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
 }
 
+/* The byte rx hands out is the one EasyDMA wrote into the armed buffer, and
+ * each byte received is the new one. */
+static void test_rx_hands_out_the_received_byte(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)(uintptr_t)&rx_dma, TFW_NRF_UARTE_RX_PTR);
+    rx_dma = 0xA7u;
+    TFW_NRF_UARTE_RX_END = 1u;
+    b = 0x00u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0xA7u, b);
+    rx_dma = 0x3Cu;
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+}
+
+/* With no byte received, or after off, rx leaves the caller's byte alone. */
+static void test_rx_with_nothing_received_leaves_out_alone(void)
+{
+    uint8_t b;
+
+    tfw_boot_uart_init(BAUD);
+    b = 0x5Eu;
+    rx_dma = 0xA7u;
+    TFW_NRF_UARTE_RX_END = 0u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Eu, b);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u, NULL);
+    tfw_cm_boot_uart_off();
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Eu, b);
+}
+
+/* A send puts its byte in the transmit buffer and points TX.PTR at it. */
+static void test_tx_sends_the_byte_from_its_buffer(void)
+{
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 0u, NULL);
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tx_dma);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)(uintptr_t)&tx_dma, TFW_NRF_UARTE_TX_PTR);
+    tfw_boot_uart_tx(0xC3u);
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, tx_dma);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -278,5 +330,8 @@ int main(void)
     RUN_TEST(test_tx_waits_for_txdrdy_and_clears_its_events);
     RUN_TEST(test_tx_whose_txdrdy_never_comes_returns);
     RUN_TEST(test_after_off_rx_tx_and_a_second_off_do_nothing);
+    RUN_TEST(test_rx_hands_out_the_received_byte);
+    RUN_TEST(test_rx_with_nothing_received_leaves_out_alone);
+    RUN_TEST(test_tx_sends_the_byte_from_its_buffer);
     return UNITY_END();
 }

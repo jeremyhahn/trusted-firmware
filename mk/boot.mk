@@ -807,7 +807,8 @@ $(BOOT_TEST_DIR)/test_boot_mps2_uart: $(MPS2_BOOT_TEST_DIR)/test_boot_mps2_uart.
 # tfw-boot's nRF54L15 UART and RRAM write (#512), the RP2350's way, under the
 # DK's profile, over the nRF54L register model (test/model/nrf54l_model.c):
 # test/model/cortex-m/nrf54l/ comes ahead of src/hal/cortex-m/ so its cm_regs.h
-# sends every TFW_CM_REG to the model. The RRAM test includes boot_rram.c
+# sends every TFW_CM_REG to the model. The UART test includes boot_uart.c
+# itself, to see its EasyDMA bytes; the RRAM test includes boot_rram.c
 # itself, after naming the RRAM stores.
 BOOT_TEST_NRF54L_CFLAGS = -Itest/model/cortex-m/nrf54l -Itest/model -Isrc/hal/cortex-m \
                           $(subst -Iboards/$(HOST_BOARD),-Iboards/nrf54l15-dk,\
@@ -817,7 +818,8 @@ BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_nrf54l_uart
 $(BOOT_TEST_DIR)/test_boot_nrf54l_uart: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l_uart.c \
         boot/hal/cortex-m/nrf54l/boot_uart.c src/hal/cortex-m/nrf54l/soc_tables.c \
         test/model/nrf54l_model.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	  $(filter-out %/boot_uart.c,$^) $(EXTRA_LDFLAGS)
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
 $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l_rram.c \
         boot/hal/cortex-m/nrf54l/boot_rram.c src/hal/cortex-m/nrf54l/rram_write.h \

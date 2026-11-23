@@ -208,6 +208,19 @@ static void test_no_tone_silences(void)
     TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
 }
 
+/* Kills: the HAL's stop status dropped. */
+static void test_a_stop_the_hal_refuses_passes_back_with_no_reply(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tone(TFW_TONE_PIN, 2000u));
+    tfw_mock_tone_stop_fails(TFW_ERR_INTERNAL);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, run(TFW_CMD_NO_TONE, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+    TEST_ASSERT_EQUAL_UINT16(2000u, tfw_mock_tone_hz());
+    tfw_mock_tone_stop_fails(TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_NO_TONE, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
+}
+
 /* ---- pulse.c ----------------------------------------------------------- */
 
 /* Kills: level bound moved (> 0, > 2) and a dropped level check. */
@@ -317,6 +330,7 @@ int main(void)
     RUN_TEST(test_tone_only_on_its_one_pin);
     RUN_TEST(test_tone_frequency_is_little_endian_and_refusal_passes_back);
     RUN_TEST(test_no_tone_silences);
+    RUN_TEST(test_a_stop_the_hal_refuses_passes_back_with_no_reply);
     RUN_TEST(test_pulse_level_is_zero_or_one);
     RUN_TEST(test_pulse_timeout_bounds_and_reply);
     RUN_TEST(test_pulse_bad_pin_and_timeout_leave_no_reply);

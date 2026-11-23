@@ -84,6 +84,11 @@ uint8_t tfw_mock_pwm_duty(uint16_t duty_key);
 uint8_t tfw_mock_pwm_connected(uint16_t ctl_key, uint8_t bit);
 uint16_t tfw_mock_tone_hz(void);
 
+/* tone: while st is not TFW_OK, tfw_hal_tone_stop answers st and leaves the
+ * tone sounding. The AVR HAL cannot fail; the ESP32's ledc_stop and an i.MX95
+ * with no GPT can. tfw_mock_reset turns it off again. */
+void tfw_mock_tone_stop_fails(tfw_status_t st);
+
 /* pulse: the intervals the next capture will report */
 void tfw_mock_set_pulse_in(uint32_t us);
 void tfw_mock_set_capture(const uint16_t *us, uint8_t n);

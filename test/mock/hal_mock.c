@@ -38,6 +38,7 @@ static unsigned adc_ref_calls;           /* how often tfw_hal_adc_set_ref was ca
 static tfw_status_t gpio_mode_fail;      /* the next tfw_hal_gpio_mode's status; TFW_OK = none */
 static uint8_t  adc_read_fails;          /* every conversion refused */
 static uint16_t tone_hz;
+static tfw_status_t tone_stop_fail;      /* tfw_hal_tone_stop's status; TFW_OK = none */
 static uint32_t pulse_in_us;
 static uint16_t capture_us[32];
 static uint8_t  capture_n;
@@ -152,7 +153,7 @@ void tfw_mock_reset(void)
     adc_ref_calls = 0u;
     gpio_mode_fail = TFW_OK;
     adc_read_fails = 0u;
-    tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
+    tone_hz = 0u; tone_stop_fail = TFW_OK; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
     bus_fail = TFW_OK; gpio_io_fail = TFW_OK; pwm_fail = TFW_OK;
@@ -188,6 +189,7 @@ uint8_t tfw_mock_pwm_connected(uint16_t ctl_key, uint8_t bit)
 }
 
 uint16_t tfw_mock_tone_hz(void) { return tone_hz; }
+void tfw_mock_tone_stop_fails(tfw_status_t st) { tone_stop_fail = st; }
 
 void tfw_mock_set_pulse_in(uint32_t us) { pulse_in_us = us; }
 
@@ -508,7 +510,12 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     return TFW_OK;
 }
 
-tfw_status_t tfw_hal_tone_stop(void) { tone_hz = 0u; return TFW_OK; }
+tfw_status_t tfw_hal_tone_stop(void)
+{
+    if (tone_stop_fail != TFW_OK) { return tone_stop_fail; }
+    tone_hz = 0u;
+    return TFW_OK;
+}
 
 tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
                             uint32_t timeout_us, uint32_t *out_us)

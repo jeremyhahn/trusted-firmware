@@ -223,10 +223,7 @@ The descriptor check fails, in this order, when:
    (`tfw_update_slots()`): `TFW_OTA_SLOTS` where tfw-boot serves one, 2 on
    ESP32 (ESP-IDF's ota_0 and ota_1, answered by `src/hal/esp32/hal_ota.c`),
    0 on a board with neither;
-6. `TFW_APP_CONFIG_BASE + config_len` exceeds `TFW_EEPROM_SIZE`;
-7. `config_len` is not 0 on an image that links the Ethernet network block
-   (ETH=1 or ETH_MAC=1), which starts at the same EEPROM byte; where the
-   configuration lives there is a TA layout decision.
+6. `TFW_APP_CONFIG_BASE + config_len` exceeds `TFW_EEPROM_SIZE`.
 
 FAILED and UNSUPPORTED both mean firmware-only mode. The firmware answers
 every command, attests and accepts an update as if no application were
@@ -234,11 +231,12 @@ linked. The pins the application configured before failing stay as it left
 them; an `init` that fails puts its outputs back to safe first.
 
 `tfw_app_config_read` and `tfw_app_config_write` return `TFW_ERR_RANGE` when
-`off + len` exceeds `config_len`, and otherwise whatever the HAL's EEPROM call
-returned. They work in any state, so a FAILED application's configuration is
-still readable by a later image. On an image that links the Ethernet network
-block they return `TFW_ERR_PROTECTED_REGION` for any span within `config_len`,
-and touch no EEPROM byte.
+`off + len` exceeds `config_len` or `TFW_APP_CONFIG_BASE + off + len` passes
+the end of the EEPROM; `TFW_OK` for `len == 0`, with no EEPROM access; and
+otherwise whatever the HAL's EEPROM call returned. They work in any state, so
+a FAILED application's configuration is still readable by a later image. They
+behave the same on an image that links the Ethernet network block: the region
+starts above it, so no span within `config_len` reaches it.
 
 `TFW_APP_STATIC_CHECK` turns checks 4 and 5 into compile errors where the
 application uses it. The runtime check still runs. It is the one that holds
@@ -278,14 +276,18 @@ override them.
 
 **Run time** is a region of EEPROM:
 `[TFW_APP_CONFIG_BASE, TFW_APP_CONFIG_BASE + config_len)`.
-`TFW_APP_CONFIG_BASE` is `TFW_BOOT_EE_LEN` (`0x140`, 320), the first byte above
-the refused region that `EEPROM_WRITE` already refuses to touch. A host writes the
+`TFW_APP_CONFIG_BASE` is `TFW_NETCFG_ADDR + TFW_NETCFG_LEN` (`0x160`, 352), the
+first byte above the network block. `[0x000, 0x140)` is the bootloader's, which
+`EEPROM_WRITE` refuses to touch, and `[0x140, 0x160)` is the network block,
+reserved on every image, Ethernet or not, so there is one map (#640, owner
+ruling 1234). A host writes the
 region with `EEPROM_WRITE`, at the absolute addresses, so no command is new.
 The region is the application's by declaration only. A host that keeps other
 data in EEPROM keeps it outside the region.
 
-The space is the board's EEPROM less 192 bytes: 320 on the ATtiny85, 832 on
-the ATmega328P and ATmega32U4, 3 904 on the ATmega2560.
+The space is the board's EEPROM less 352 bytes: 160 on the ATtiny85, 672 on
+the 1 KiB boards (ATmega328P, ATmega32U4), 3 744 on the 4 KiB boards
+(ATmega2560). A board with no EEPROM (`TFW_EEPROM_SIZE` 0) has none.
 
 ## Persistence
 
@@ -369,7 +371,7 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Hook `shutdown`, before a commanded reset, once | done | `tfw_app_runner_stop` at `src/core/app_runner.c:92`, from `tfw_sys_poll()` at `src/caps/sys.c:239` | `test_app.c`: `test_reset_stops_the_application_and_resets_the_device`, `test_a_stopped_application_is_not_run_or_stopped_again` |
 | Hook `before_update`: `RESET` mode 1, `OTA_ACTIVATE` mode 1, `RESET` mode 0 after `OTA_ACTIVATE` mode 0 | done | `src/core/app_runner.c:92`; `tfw_sys_reset_soon()` at `src/caps/sys.c:61`, from `src/core/ota_activate.c:98`; `tfw_stage_install_pending()` at `src/core/ota_stage.c:281`, asked at `src/caps/sys.c:239` | `test_app.c`: `test_reset_to_bootloader_calls_before_update_then_shutdown`, `test_an_install_reset_calls_before_update_then_shutdown`; `test_ota_stage.c`: `test_activate_tells_the_application_of_the_update_it_resets_into`, `test_a_reset_after_activate_mode_0_is_an_update`, `test_a_reset_with_nothing_marked_only_shuts_down`, `test_a_failed_activate_clears_the_install`; `test_none_variants.c`: `test_stage_install_pending_is_zero` |
 | Hook `after_update`, once on a trial boot after `init`; a refusal ends the trial, `TFW_OK` confirms nothing | done | declared at `include/tfw/app.h:106`; `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:27`; `tfw_app_runner_after_update()` at `src/core/app_runner.c:129`; the reset at `src/core/ota_trial.c:42`; the trial is linked on the ATmega2560 only, elsewhere `src/core/ota_trial_none.c` | `test_ota_trial.c`: `test_an_accepted_after_update_leaves_the_trial_running`, `test_a_refused_after_update_ends_the_trial_at_once`, `test_outside_a_trial_after_update_is_not_asked`; `test_app.c`: `test_a_running_application_answers_the_trial`, `test_a_running_application_can_refuse_the_trial`, `test_an_application_that_is_not_running_is_not_asked_by_the_trial`; `test_app_none.c`: `test_the_empty_runner_never_refuses_a_trial`; `test_none_standins.c`: `test_ota_trial_after_init_returns` |
-| Configuration: the EEPROM region from `TFW_APP_CONFIG_BASE`, bounded by `config_len` | done | `include/tfw/app.h:50`; `tfw_app_config_read` and `tfw_app_config_write` at `src/core/app_runner.c:186` and `:196` | `test_app.c`: `test_configuration_lands_after_the_boot_block`, `test_configuration_past_the_declared_length_is_out_of_range`, `test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not` |
+| Configuration: the EEPROM region from `TFW_APP_CONFIG_BASE`, bounded by `config_len` | done | `include/tfw/app.h:54`; `tfw_app_config_read` and `tfw_app_config_write` at `src/core/app_runner.c:186` and `:196` | `test_app.c`: `test_configuration_lands_after_the_boot_block`, `test_a_config_write_never_touches_the_network_block`, `test_configuration_past_the_declared_length_is_out_of_range`, `test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not` |
 | Evidence claims: 32 bytes in claim 273 of the alias certificate and `ATTEST_CSR`, the firmware hash without an application | done | `src/core/app_runner.c:115`; `src/caps/attest.c:76`; `src/caps/uccs.c:76`; `src/caps/csr.c:232`; `ApplicationEvidence` at `sdk/go/appevidence.go:71`; vectors at `testdata/vectors.h:381` and `:382` | `test_uccs.c`: `test_application_evidence_is_the_bytes_the_with_vector_pins`, `test_no_application_evidence_is_the_bytes_the_without_vector_pins`; `test_alias.c`: `test_a_running_applications_evidence_is_the_claim_every_page_carries`; `test_csr.c`: `test_a_running_applications_evidence_is_what_the_request_signs`; `test_app.c`: `test_a_failed_application_is_not_asked_for_evidence`; `sdk/go/appevidence_test.go`: `TestApplicationEvidenceWithTheClaim`, `TestApplicationEvidenceWithoutTheClaim`; `sdk/go/cmd/tfwctl/e2e_dice_test.go`: `TestE2EAttestCertCarriesTheApplicationsEvidence` |
 | OTA slots the images use | done | `TFW_APP_OTA_*` at `include/tfw/app.h:41`; checked at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:131`) | `test_app.c`: `test_more_update_slots_than_the_board_has_are_refused`, `test_the_slots_the_board_has_are_accepted` |
 | APP_INFO (0x06) reports the descriptor and the runner state | done | `tfw_app_cmd_info` at `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`, `test_app_info_reports_a_refused_descriptor_as_written`, `test_app_info_takes_no_payload`; `test_app_example.c`: `test_app_info_reports_the_example`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppReportsItsApplication` |

@@ -240,7 +240,9 @@ typedef struct {
  * confirm request (0x0EA-0x134), all below it (#125, owner item 149 (a)).
  * EEPROM_WRITE refuses [TFW_BOOT_EE_BASE, TFW_BOOT_EE_LEN) on every board.
  * Grew from 0x0C0, the block's own end, when the confirm request took its
- * signature (#231). */
+ * signature (#231). After it: network block [0x140,0x160) on every image;
+ * application config from 0x160 (include/tfw/eth.h, include/tfw/app.h, #640,
+ * owner ruling 1234). */
 #define TFW_BOOT_EE_LEN       0x140u
 
 #define TFW_BOOT_EE_O_MAGIC           0u

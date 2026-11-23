@@ -9,7 +9,7 @@ misspelled self-hosted label would reach main through a green gate. These tests
 read the allowlist and every `runs-on:` key, bare or quoted (scalar, list, or
 group/labels mapping, a flow list or mapping on one line or across several,
 and a scalar or flow value on the line after an empty `runs-on:` or `labels:`
-key; a flow `labels:` or next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`) of
+key; a flow `labels:` or next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped) of
 .github/workflows/*.yml and *.yaml with the standard library alone (no actionlint binary, no PyYAML) and fail naming
 file:line and label for any plain-text label the allowlist and actionlint's
 built-in labels do not accept. The built-in labels, the self-hosted ones
@@ -73,6 +73,7 @@ RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?\s*:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
 ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?\s*:(\s.*)?$")
 FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
+PROPS = re.compile(r"^(?:[&!]\S*(?:\s+|$))+")
 
 
 def _value(text):
@@ -81,6 +82,13 @@ def _value(text):
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
         text = text[1:-1]
     return text
+
+
+def _node(text):
+    """Return a value as _value returns it, its leading anchor and tag
+    removed; None for an alias, whose labels are read where its anchor is."""
+    text = PROPS.sub("", _value(text), count=1)
+    return None if text.startswith("*") else _value(text)
 
 
 def allowlist(path):
@@ -108,7 +116,7 @@ def _labels(value):
     if value.startswith("[") and value.endswith("]"):
         items = value[1:-1].split(",")
     for label in items:
-        label = _value(label)
+        label = _node(label) or ""
         if label and not 0 <= label.find("${{") < label.find("}}"):
             yield label
 
@@ -155,14 +163,19 @@ def plain_labels(text):
     following lines until it closes (an unclosed one yields nothing); its
     labels carry the line it opens on. A value that starts with `${{` is an
     expression and yields nothing, and a label with a `${{ ... }}` expression
-    anywhere in it (`runner-${{ matrix.n }}`) is skipped.
+    anywhere in it (`runner-${{ matrix.n }}`) is skipped. A value's leading
+    anchor (`&r`) and tag (`!!str`) are dropped, and an alias (`*r`) yields
+    nothing, its labels read at its anchor (an anchor outside a `runs-on:`
+    key is not read).
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
         key = RUNS_ON.match(line)
         if not key:
             continue
-        value, _ = _flow(lines, i, _value(key.group(2)))
+        value = _node(key.group(2))
+        if value is not None:
+            value, _ = _flow(lines, i, value)
         if value is None:
             continue
         if value:
@@ -190,7 +203,9 @@ def plain_labels(text):
                 depth = len(lines[j]) - len(lines[j].lstrip())
                 if listed and not item and not entry and depth > list_indent:
                     # The value of the empty key, on the next line.
-                    value, last = _flow(lines, j, _value(lines[j]))
+                    value = _node(lines[j])
+                    if value is not None:
+                        value, last = _flow(lines, j, value)
                     for label in _value_labels(value or ""):
                         yield j + 1, label
                     list_indent = None
@@ -199,7 +214,9 @@ def plain_labels(text):
                     break
                 list_indent = None
                 if entry.group(2) == "labels":
-                    value, last = _flow(lines, j, _value(entry.group(3) or ""))
+                    value = _node(entry.group(3) or "")
+                    if value is not None:
+                        value, last = _flow(lines, j, value)
                     if value is None:
                         break
                     if value:

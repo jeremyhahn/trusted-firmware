@@ -197,6 +197,56 @@ static void test_tx_rejects_empty_and_oversize(void)
     TEST_ASSERT_EQUAL_HEX32(0u, tx[0].des3);
 }
 
+/*
+ * hal_eth_mac.c tfw_eth_mac_tx refuses a send before it touches the ring:
+ * -1 while the next descriptor is still the DMA's, -2 on a zero or
+ * oversized length. A refused send must leave the frame the DMA is still
+ * sending, its descriptor, the ring index and the tail pointer as they were.
+ */
+static void test_a_refused_tx_leaves_the_ring_alone(void)
+{
+    static uint8_t big[TFW_ETH_BUF_SIZE + 1u];
+    uint8_t frame[64];
+    uint8_t keep_buf[TFW_ETH_BUF_SIZE];
+    tfw_eth_desc_t keep_desc;
+    uint32_t keep_ix;
+    uint32_t keep_tail;
+
+    for (uint32_t i = 0u; i < TFW_ETH_DESC_COUNT; i++) {
+        memset(frame, (int)(0x10u + i), sizeof frame);
+        TEST_ASSERT_EQUAL_INT(0, tfw_eth_mac_tx(&m, frame, sizeof frame));
+    }
+    memcpy(keep_buf, txbuf[0], sizeof keep_buf);
+    keep_desc = tx[0];
+    keep_ix = m.tx_ix;
+    keep_tail = R(TFW_ETH_DMACTDTPR);
+
+    /* tx[0] is still the DMA's: the send waits and writes nothing. */
+    memset(frame, 0x5A, sizeof frame);
+    TEST_ASSERT_EQUAL_INT(-1, tfw_eth_mac_tx(&m, frame, 42u));
+    TEST_ASSERT_EQUAL_MEMORY(keep_buf, txbuf[0], sizeof keep_buf);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des0, tx[0].des0);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des1, tx[0].des1);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des2, tx[0].des2);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des3, tx[0].des3);
+    TEST_ASSERT_EQUAL_UINT32(keep_ix, m.tx_ix);
+    TEST_ASSERT_EQUAL_HEX32(keep_tail, R(TFW_ETH_DMACTDTPR));
+
+    /* The DMA is done with tx[0], but a bad length is still refused whole. */
+    tx[0].des3 &= ~TFW_ETH_DES3_OWN;
+    keep_desc = tx[0];
+    memset(big, 0xC3, sizeof big);
+    TEST_ASSERT_EQUAL_INT(-2, tfw_eth_mac_tx(&m, big, 0u));
+    TEST_ASSERT_EQUAL_INT(-2, tfw_eth_mac_tx(&m, big, sizeof big));
+    TEST_ASSERT_EQUAL_MEMORY(keep_buf, txbuf[0], sizeof keep_buf);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des0, tx[0].des0);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des1, tx[0].des1);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des2, tx[0].des2);
+    TEST_ASSERT_EQUAL_HEX32(keep_desc.des3, tx[0].des3);
+    TEST_ASSERT_EQUAL_UINT32(keep_ix, m.tx_ix);
+    TEST_ASSERT_EQUAL_HEX32(keep_tail, R(TFW_ETH_DMACTDTPR));
+}
+
 static void test_rx_nothing_while_the_dma_owns_it(void)
 {
     uint8_t out[TFW_ETH_BUF_SIZE];
@@ -315,6 +365,7 @@ int main(void)
     RUN_TEST(test_tx_fills_the_descriptor_and_moves_the_tail);
     RUN_TEST(test_tx_waits_for_the_dma_and_wraps);
     RUN_TEST(test_tx_rejects_empty_and_oversize);
+    RUN_TEST(test_a_refused_tx_leaves_the_ring_alone);
     RUN_TEST(test_rx_nothing_while_the_dma_owns_it);
     RUN_TEST(test_rx_copies_rearms_and_wraps);
     RUN_TEST(test_rx_drops_errors_splits_and_overlong);

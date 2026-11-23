@@ -226,6 +226,20 @@ static void test_an_empty_envelope_is_refused(void)
     state_is(0u, 0u, 1u);
 }
 
+/* The channel's own refusal of a first chunk (ADR D7 step 1) counts (R7) and,
+ * like every refusal, leaves the set it found: an oversized total, then an
+ * empty one, with the floor's set held. */
+static void test_a_counted_channel_refusal_keeps_the_held_set(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+                      chunk((uint16_t)(TFW_SUIT_INTEGRATED_MAX + 1u), 0u, SUIT_POLICY_ENVELOPE, 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(0u, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(SET, 0u, 2u);
+    NO_ACTS();
+}
+
 /* Out of sequence: a gap, a step back, a changed total, a chunk past the
  * total, a continuation with nothing begun. Each drops what was pending. */
 static void test_a_chunk_out_of_sequence_drops_the_envelope(void)
@@ -448,8 +462,23 @@ static void test_a_refused_message_with_no_set_is_not_counted(void)
     state_is(0u, 0u, 0u);
 }
 
-/* A chunk past the next offset drops the envelope; the chunk that would have
- * followed is refused, and a whole envelope after it is held. */
+/* A dropped chunk leaves the channel ready for the next envelope: a chunk past
+ * the next offset drops the pending one, and a whole envelope sent after it
+ * is buffered from offset 0 and held. Only the held set is asserted; whether
+ * the dropped chunk counts is not pinned here. */
+static void test_a_whole_envelope_after_a_dropped_chunk_is_held(void)
+{
+    const uint16_t total = sizeof SUIT_POLICY_ENVELOPE;
+    const uint8_t *e     = SUIT_POLICY_ENVELOPE;
+
+    TEST_ASSERT_EQUAL(TFW_OK, chunk(total, 0u, e, 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 61u, &e[61], 59u));
+    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT8(SET, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, out[1]);
+}
+
 /* HSM_RECORD_READ: [count:1][dropped:2 LE][at:4 LE][kind:1][what:1][result:1].
  * Written out byte by byte here, not built from the handler's own constants. */
 static void entry_is(uint8_t count, uint16_t dropped, uint32_t at, uint8_t kind, uint8_t what,
@@ -602,9 +631,11 @@ int main(void)
     RUN_TEST(test_an_envelope_larger_than_the_buffer_is_refused);
     RUN_TEST(test_an_envelope_that_fills_the_buffer_is_read);
     RUN_TEST(test_an_empty_envelope_is_refused);
+    RUN_TEST(test_a_counted_channel_refusal_keeps_the_held_set);
     RUN_TEST(test_a_chunk_out_of_sequence_drops_the_envelope);
     RUN_TEST(test_the_chunk_after_an_out_of_sequence_one_is_refused);
     RUN_TEST(test_offset_zero_begins_again);
+    RUN_TEST(test_a_whole_envelope_after_a_dropped_chunk_is_held);
     RUN_TEST(test_a_bad_signature_is_refused_and_counted);
     RUN_TEST(test_the_same_set_again_is_taken);
     RUN_TEST(test_select_names_a_policy_of_the_set);

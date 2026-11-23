@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -377,6 +378,43 @@ func TestFlagVerbsRefuseMutatedFlags(t *testing.T) {
 		{"auth", nonce16, "/nonexistent/key.pem"},
 	} {
 		expectRefused(t, args)
+	}
+}
+
+// TestResetSendsTheModeItNames pins the RESET payload byte each reset form
+// sends: no word and soft ask for a soft reset, boot for the bootloader.
+func TestResetSendsTheModeItNames(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want tfw.ResetMode
+	}{
+		{[]string{"reset"}, tfw.ResetSoft},
+		{[]string{"reset", "soft"}, tfw.ResetSoft},
+		{[]string{"reset", "boot"}, tfw.ResetBootloader},
+	} {
+		var mu sync.Mutex
+		var payloads [][]byte
+		c := &countingDevice{reply: func(f tfw.Frame, st tfw.Status, p []byte) (tfw.Status, []byte) {
+			if f.Cmd() == tfw.CmdReset {
+				mu.Lock()
+				payloads = append(payloads, append([]byte{}, f.Payload...))
+				mu.Unlock()
+				return tfw.StatusOK, nil
+			}
+			return st, p
+		}}
+		if _, err := runCounted(t, c, false, tc.args...); err != nil {
+			t.Fatalf("%q: %v", tc.args, err)
+		}
+		mu.Lock()
+		got := payloads
+		mu.Unlock()
+		if len(got) != 1 {
+			t.Fatalf("%q: sent %d RESET frames, want 1", tc.args, len(got))
+		}
+		if !bytes.Equal(got[0], []byte{byte(tc.want)}) {
+			t.Errorf("%q: RESET payload %x, want %x", tc.args, got[0], []byte{byte(tc.want)})
+		}
 	}
 }
 

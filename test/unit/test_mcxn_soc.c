@@ -230,11 +230,11 @@ void test_reset_cause_is_cmc0_srs_decoded(void)
 
     for (i = 0u; i < sizeof marks / sizeof marks[0]; i++) {
         seed_srs(SRS_POR);
-        TEST_ASSERT_EQUAL_INT(TFW_RESET_POWER_ON, tfw_cm_soc_reset_cause(marks[i]));
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_POWER_ON, model_soc_reset_cause(marks[i]));
         seed_srs(SRS_PIN | SRS_WARM);
-        TEST_ASSERT_EQUAL_INT(TFW_RESET_EXTERNAL, tfw_cm_soc_reset_cause(marks[i]));
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_EXTERNAL, model_soc_reset_cause(marks[i]));
         seed_srs(SRS_WWDT0);
-        TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, tfw_cm_soc_reset_cause(marks[i]));
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, model_soc_reset_cause(marks[i]));
     }
 }
 
@@ -244,16 +244,16 @@ void test_a_reset_request_is_software_only_after_the_firmwares_marker(void)
     unsigned i;
 
     seed_srs(SRS_SW);
-    TEST_ASSERT_EQUAL_INT(TFW_RESET_SOFTWARE, tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_SOFTWARE, model_soc_reset_cause(TFW_CM_MARK_RESETREQ));
     for (i = 0u; i < sizeof others / sizeof others[0]; i++) {
-        TEST_ASSERT_EQUAL_INT(TFW_RESET_UNKNOWN, tfw_cm_soc_reset_cause(others[i]));
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_UNKNOWN, model_soc_reset_cause(others[i]));
     }
 }
 
 void test_reset_cause_writes_nothing(void)
 {
     seed_srs(SRS_SW);
-    (void)tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ);
+    (void)model_soc_reset_cause(TFW_CM_MARK_RESETREQ);
     TEST_ASSERT_EQUAL_UINT(0u, model_wlog_n);
     TEST_ASSERT_EQUAL_HEX32(0u, model_reset_mark);
     TEST_ASSERT_EQUAL_HEX32(SRS_SW, regfile_model_peek(CMC_SRS));

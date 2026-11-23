@@ -26,7 +26,6 @@
 #include "unity.h"
 #include "tfw/hal.h"
 #include "soc_regs.h"
-#include <cm_regs.h>
 #include "mps2_fpgaio_model.h"
 
 #define UNTOUCHED 0xA5A5A5A4u   /* LED0 clear, LED1 clear, bits 2-31 a pattern */
@@ -150,7 +149,7 @@ void test_write_restores_an_unmasked_caller(void)
 /* The write restores the state it saved, not "unmasked". */
 void test_write_keeps_a_masked_caller_masked(void)
 {
-    (void)tfw_cm_irq_save();
+    tfw_mps2_model_irq_mask();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED1, 1u));
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_mps2_model_irq_masked());
 }

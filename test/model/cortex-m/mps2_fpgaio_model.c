@@ -42,6 +42,11 @@ uint32_t tfw_mps2_model_irq_masked(void)
     return irq_masked;
 }
 
+void tfw_mps2_model_irq_mask(void)
+{
+    (void)tfw_cm_irq_save();
+}
+
 volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
 {
     if (addr == tfw_mps2_model_led_addr()) {

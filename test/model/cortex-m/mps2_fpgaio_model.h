@@ -22,6 +22,9 @@ extern unsigned tfw_mps2_model_led_unmasked;
 /* The stand-in PRIMASK: 1 while tfw_cm_irq_save has interrupts masked. */
 uint32_t tfw_mps2_model_irq_masked(void);
 
+/* Mask interrupts as a caller would before it writes (tfw_cm_irq_save). */
+void tfw_mps2_model_irq_mask(void);
+
 /* The LED register's address on the profile the model is compiled with. */
 uint32_t tfw_mps2_model_led_addr(void);
 

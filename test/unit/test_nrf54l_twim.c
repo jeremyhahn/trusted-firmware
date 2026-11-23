@@ -575,6 +575,39 @@ static void test_twim_reinit_configures_with_the_twim_disabled(void)
     TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
 }
 
+/* STOPPED on the transfer wait's last poll is taken, no STOP sent; one poll
+ * later is a timeout (hal_bus.c lines 24, 81, 84). */
+static void test_twim_stopped_on_the_waits_last_poll_is_taken(void)
+{
+    s_twim.stop_lag = 100000u - 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
+
+    setUp();
+    s_twim.stop_lag = 100000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+}
+
+/* STOPPED on the STOP wait's last poll keeps the TWIM enabled and its counts;
+ * one poll later it is disabled and RX.MAXCNT cleared (hal_bus.c lines 25,
+ * 86-98). */
+static void test_twim_stopped_on_the_stops_last_poll_keeps_the_twim(void)
+{
+    s_twim.stop_lag = 100000u + 1000u - 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(2u, s_twim.rxd_maxcnt);
+
+    setUp();
+    s_twim.stop_lag = 100000u + 1000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.rxd_maxcnt);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -600,5 +633,7 @@ int main(void)
     RUN_TEST(test_twim_data_nack_resumes_before_the_stop);
     RUN_TEST(test_twim_write_never_stopped_clears_the_tx_count);
     RUN_TEST(test_twim_reinit_configures_with_the_twim_disabled);
+    RUN_TEST(test_twim_stopped_on_the_waits_last_poll_is_taken);
+    RUN_TEST(test_twim_stopped_on_the_stops_last_poll_keeps_the_twim);
     return UNITY_END();
 }

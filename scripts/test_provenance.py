@@ -361,6 +361,18 @@ class ItcmSlotBoard(unittest.TestCase):
                     self.assertIn("--defsym=__tfw_text_base=" + base + " ", flags)
                     self.assertIn("--defsym=__tfw_text_size=196608 ", flags)
 
+    def test_imx_boot_and_the_slot_image_never_share_a_directory(self):
+        # make tracks no flag: in one BUILD_DIR the ELF linked for the other
+        # mode would be reused, so IMX_BOOT=1 names its own FW_DIR.
+        with tempfile.TemporaryDirectory() as d:
+            slot = make_value("frdm-imx95-m7", "FW_DIR", "BUILD_DIR=" + d).strip()
+            imx = make_value("frdm-imx95-m7", "FW_DIR", "IMX_BOOT=1", "BUILD_DIR=" + d).strip()
+            off = make_value("frdm-imx95-m7", "FW_DIR", "IMX_BOOT=0", "BUILD_DIR=" + d).strip()
+        self.assertNotEqual(slot, imx)
+        self.assertTrue(imx.endswith("-imxboot"), imx)
+        self.assertEqual(slot, d + "/frdm-imx95-m7/soft")
+        self.assertEqual(off, slot)
+
 
 if __name__ == "__main__":
     unittest.main()

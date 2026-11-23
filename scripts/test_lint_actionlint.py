@@ -100,6 +100,48 @@ class StructureTest(unittest.TestCase):
         text = "self-hosted-runner:\n  labels:\n    - a  # x\n    - b\nconfig-variables: null\n"
         self.assertEqual(allowlist_labels(text), ["a", "b"])
 
+    def lint_actionlint_recipe(self):
+        lines = self.mk.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("lint-actionlint:"))
+        recipe = []
+        for line in lines[start + 1:]:
+            if not line.startswith("\t"):
+                break
+            recipe.append(line)
+        return "\n".join(recipe)
+
+    def test_recipe_names_the_shellcheck_binary(self):
+        self.assertIn("-shellcheck=$(SHELLCHECK)", self.lint_actionlint_recipe())
+
+    def test_workflows_glob_includes_yaml(self):
+        line = next(
+            (l for l in self.mk.splitlines() if l.startswith("ACTIONLINT_WORKFLOWS")),
+            None,
+        )
+        self.assertIsNotNone(line, "mk/host.mk does not set ACTIONLINT_WORKFLOWS")
+        self.assertIn(".github/workflows/*.yml", line)
+        self.assertIn(".github/workflows/*.yaml", line)
+
+
+class MissingShellcheckTest(unittest.TestCase):
+    """`make lint-actionlint` refuses to run without shellcheck on PATH.
+
+    ACTIONLINT=false would fail too, so the message must be the shellcheck
+    one: the refusal comes before actionlint runs.
+    """
+
+    def test_refuses_without_shellcheck(self):
+        r = subprocess.run(
+            ["make", "-s", "-f", str(REPO / "Makefile"), "-C", str(REPO),
+             "lint-actionlint", "SHELLCHECK=/nonexistent/shellcheck",
+             "ACTIONLINT=false"],
+            capture_output=True, text=True, check=False, timeout=300,
+        )
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(
+            "shellcheck (/nonexistent/shellcheck) is not on PATH", r.stderr,
+        )
+
 
 WORKFLOW = """name: scratch
 on: push
@@ -120,7 +162,6 @@ class BehaviourTest(unittest.TestCase):
 
     def run_lint(self, label):
         with tempfile.TemporaryDirectory() as tmp:
-            shutil.copy(ALLOWLIST, os.path.join(tmp, "actionlint.yaml"))
             wf = os.path.join(tmp, "scratch.yml")
             with open(wf, "w", encoding="utf-8") as f:
                 f.write(WORKFLOW.format(label=label))

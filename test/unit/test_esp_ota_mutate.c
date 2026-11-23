@@ -16,6 +16,9 @@
  *     byte only;
  *   - the trailer outside the uploaded stream: a session that sent no
  *     trailer, with an earlier session's left on the slot past its digest;
+ *   - the uploaded stream's bound on each side: a session one byte short of
+ *     the whole trailer, and one stopped before the digest over an earlier
+ *     session's whole image;
  *   - a repeated ACTIVATE with no new OTA_AUTH: the mode the install was
  *     activated with is OK, another mode is BAD_STATE, and neither writes;
  *   - activate and install_pending with a session still receiving;
@@ -311,6 +314,44 @@ static void test_a_trailer_past_the_uploaded_stream_is_range(void)
     expect_nothing_activated();
 }
 
+/* An earlier session's whole trailer is on the slot past the image; this
+ * session sent the image and all of the trailer but its last byte. */
+static void test_a_trailer_uploaded_one_byte_short_is_range(void)
+{
+    signed_image(APP_LEN, 2u, 2u);
+    memcpy(&mock_esp.flash[1][APP_LEN], &img[APP_LEN], TFW_BOOT_TRAILER_LEN);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(APP_LEN + TFW_BOOT_TRAILER_LEN - 1u));
+    stream(0u, APP_LEN + TFW_BOOT_TRAILER_LEN - 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+}
+
+/* This session stopped before the digest's end of the image ESP-IDF's
+ * metadata reports: the uploaded length is less than that image's, and
+ * total - image_len must not wrap past the trailer's bound. */
+static void test_an_upload_that_stops_before_the_digest_is_range(void)
+{
+    const uint32_t sent = APP_LEN - TFW_BOOT_MEASURE_LEN;
+
+    /* esp_ota_end refuses an image that ends past the bytes written, so
+     * this session's stream is a whole ESP-IDF image of its own. */
+    mock_esp_image(img, sent, 2u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(sent));
+    stream(0u, sent);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    /* Past it, an earlier session's image tail and whole trailer; ESP-IDF's
+     * image end, poked after the end as above, is that image's. */
+    signed_image(APP_LEN, 2u, 2u);
+    memcpy(&mock_esp.flash[1][sent], &img[sent], APP_LEN + TFW_BOOT_TRAILER_LEN - sent);
+    put32(&mock_esp.flash[1][MOCK_ESP_O_END], APP_LEN);
+    /* ESP-IDF's partition digest reads the flash, not the session's count;
+     * the mock's written length stands in for it, so it spans that image. */
+    mock_esp.len[1] = APP_LEN + TFW_BOOT_TRAILER_LEN;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+}
+
 static void test_an_unreadable_digest_is_internal(void)
 {
     stage_signed(2u);
@@ -421,6 +462,8 @@ int main(void)
     RUN_TEST(test_an_image_whose_trailer_fills_the_slot_activates);
     RUN_TEST(test_the_activate_record_reserved_bytes_are_zero);
     RUN_TEST(test_a_trailer_past_the_uploaded_stream_is_range);
+    RUN_TEST(test_a_trailer_uploaded_one_byte_short_is_range);
+    RUN_TEST(test_an_upload_that_stops_before_the_digest_is_range);
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);
     RUN_TEST(test_a_measurement_wrong_in_its_last_byte_is_crypto);

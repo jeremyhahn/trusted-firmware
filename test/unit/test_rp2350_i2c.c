@@ -203,6 +203,18 @@ static void test_two_transfers_to_two_addresses(void)
     TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
 }
 
+static void test_an_address_above_7_bits_is_masked_to_7(void)
+{
+    const uint8_t wr[] = { 0x55u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0xE0u, wr, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0x60u, rp_i2c.tar);
+    TEST_ASSERT_EQUAL_STRING(" S C0 55 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(1u, rp_i2c.dev_rx_n);
+    TEST_ASSERT_EQUAL_HEX8(0x55u, rp_i2c.dev_rx[0]);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
+}
+
 static void test_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, NULL, 0u, NULL, 0u));
@@ -223,10 +235,12 @@ static void test_address_nack_on_write(void)
 
 static void test_address_nack_on_read(void)
 {
-    uint8_t rd[2] = { 0 };
+    uint8_t rd[2] = { 0xEEu, 0xEEu };
 
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x22u, NULL, 0u, rd, 2u));
     TEST_ASSERT_EQUAL_STRING(" S 45 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, rd[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, rd[1]);
 }
 
 static void test_data_nack_stops_the_write(void)
@@ -388,6 +402,7 @@ int main(void)
     RUN_TEST(test_read);
     RUN_TEST(test_write_then_read_with_restart);
     RUN_TEST(test_two_transfers_to_two_addresses);
+    RUN_TEST(test_an_address_above_7_bits_is_masked_to_7);
     RUN_TEST(test_empty_transfer_touches_nothing);
     RUN_TEST(test_address_nack_on_write);
     RUN_TEST(test_address_nack_on_read);

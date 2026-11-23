@@ -7,8 +7,8 @@
  * against the board profile's bases, and the access goes on to the suite's
  * bus as one of the hooks below.
  *
- *   TFW_MPS2_I2C_BASE + 0x0    read: sb_lines      write: sb_release (CONTROLS)
- *   TFW_MPS2_I2C_BASE + 0x4                        write: sb_drive_low (CONTROLC)
+ *   TFW_MPS2_I2C_BASE + 0x0    read: sb_lines      write: sb_release (SB_CONTROLS)
+ *   TFW_MPS2_I2C_BASE + 0x4                        write: sb_drive_low (SB_CONTROLC)
  *   TFW_MPS2_SPI_BASE + off    read: ssp_read(off) write: ssp_write(off, v),
  *                              off CR0 to CPSR, the registers pl022.h names
  *   TFW_MPS2_FPGAIO_BASE + 0x4C read: misc_read    write: misc_write

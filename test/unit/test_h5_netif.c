@@ -41,6 +41,8 @@ static uint8_t  link_up_flag;
 /* PSCSR: speed field bits 4:2, 0x6 = 100 Mbit/s full duplex; or a failed read. */
 static uint16_t pscsr_val = 0x0018u;
 static uint8_t  pscsr_fail;
+static uint8_t  phy_absent;     /* every MDIO address reads 0xFFFF: no PHY */
+static uint8_t  mac_reset_fail; /* the MAC never leaves its software reset */
 static uint32_t mac_cr;
 static uint8_t  mac_running;
 static uint8_t  mac_seen[6];            /* the address the MAC was started with */
@@ -55,7 +57,7 @@ tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 void tfw_h5_eth_mdio_init(void) { }
 int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
-    if (addr != 0u) {
+    if (addr != 0u || phy_absent) {
         *val = 0xFFFFu;
         return 0;
     }
@@ -91,7 +93,7 @@ static unsigned arp_probes;             /* ARP probes for offered_ip */
 static uint8_t  rx_frame[400];
 static size_t   rx_len;
 
-int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return 0; }
+int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return mac_reset_fail ? -1 : 0; }
 void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; memcpy(mac_seen, mac, 6); mac_cr = sp; }
 void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
 void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
@@ -262,8 +264,15 @@ void tfw_h5_wire_dial_poll(void)
 }
 static unsigned bound_says;
 static char bound_line[48];
+static unsigned phy_none_says, mac_reset_says;
 void tfw_h5_wire_say(const char *s)
 {
+    if (strcmp(s, "eth: phy none\r\n") == 0) {
+        phy_none_says++;
+    }
+    if (strcmp(s, "eth: mac reset timeout\r\n") == 0) {
+        mac_reset_says++;
+    }
     if (strncmp(s, "eth: dhcp bound", 15u) == 0) {
         bound_says++;
         strncpy(bound_line, s, sizeof bound_line - 1u);
@@ -824,6 +833,57 @@ static void test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_dow
     TEST_ASSERT_EQUAL_INT(0, in_child(hsi48_never_ready));
 }
 
+/* A missing PHY or a MAC stuck in reset is terminal for the boot: unlike an
+ * RNG or netcfg refusal, bring-up is not retried, lwIP is never brought up
+ * and never polled, and nothing is sent or dialled. */
+static void bringup_fails_for_the_boot(uint8_t *flag, const unsigned *says)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    *flag = 1u;
+    run_for(1000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, *says);
+
+    tfw_h5_eth_service_deadlines();       /* lwIP untouched while failed */
+    TEST_ASSERT_NULL(netif_default);
+
+    *flag = 0u;                           /* the fault clears: still no retry */
+    run_for(2000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, *says);
+}
+
+static void phy_absent_fails_for_the_boot(void)
+{
+    bringup_fails_for_the_boot(&phy_absent, &phy_none_says);
+    TEST_ASSERT_EQUAL_UINT(0u, mac_reset_says);
+}
+
+static void mac_reset_timeout_fails_for_the_boot(void)
+{
+    bringup_fails_for_the_boot(&mac_reset_fail, &mac_reset_says);
+    TEST_ASSERT_EQUAL_UINT(0u, phy_none_says);
+}
+
+static void test_no_phy_keeps_the_netif_down_for_the_boot(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(phy_absent_fails_for_the_boot));
+}
+
+static void test_a_mac_reset_timeout_keeps_the_netif_down_for_the_boot(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(mac_reset_timeout_fails_for_the_boot));
+}
+
 /* The driver alone, on its own fake registers (hal_rng.c lines 33-105): an
  * error that does not clear fails init and read, a clock error with no latch
  * is still an error, no DRDY is no word, and a refused read leaves *out. */
@@ -1188,6 +1248,8 @@ int main(void)
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);
     RUN_TEST(test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down);
+    RUN_TEST(test_no_phy_keeps_the_netif_down_for_the_boot);
+    RUN_TEST(test_a_mac_reset_timeout_keeps_the_netif_down_for_the_boot);
     RUN_TEST(test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);

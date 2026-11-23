@@ -6,7 +6,8 @@
  * regfile_model.c): the MACMDIOAR command a read or a write issues, the wait
  * on MACMDIOAR.MB, the spin limit, and init's SBS_PMCR, RCC and pin values.
  * The register file is built with its tfw_cm_model_reg renamed
- * regfile_model_reg (mk/host.mk), so the one here can stand in for the MAC:
+ * regfile_model_reg (mk/host.mk), so the one in test/model/cortex-m/
+ * h5_mdio_model.h can stand in for the MAC:
  * it clears MB once the driver has polled it busy_polls times. The
  * addresses are the driver's, not confirmed against RM0481. A board has not
  * run them.
@@ -42,7 +43,7 @@ void test_a_read_names_the_phy_and_register_and_waits_on_mb(void)
 {
     uint16_t v = 0u;
 
-    TFW_CM_REG(MACMDIODR) = 0x5A5A5A5Au;   /* stale until MB clears */
+    regfile_model_poke(MACMDIODR, 0x5A5A5A5Au);   /* stale until MB clears */
     reply = 0xABCD1234u;
     TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
     TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x02u << 16) | GOC_READ | MB, issued);
@@ -53,7 +54,7 @@ void test_a_read_names_the_phy_and_register_and_waits_on_mb(void)
 
 void test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb(void)
 {
-    TFW_CM_REG(MACMDIODR) = 0x5A5A5A5Au; /* stale */
+    regfile_model_poke(MACMDIODR, 0x5A5A5A5Au); /* stale */
     TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x1Fu, 0x00u, 0x8000u));
     TEST_ASSERT_EQUAL_HEX32((0x1Fu << 21) | GOC_WRITE | MB, issued);
     TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
@@ -75,8 +76,8 @@ void test_mb_held_past_the_spin_limit_fails_a_read(void)
     uint16_t v = 0xA5A5u;
 
     busy_polls = NEVER;
-    TFW_CM_REG(MACMDIOAR) = MB;             /* a command that never ends */
-    TFW_CM_REG(MACMDIODR) = 0x1234u;
+    regfile_model_poke(MACMDIOAR, MB);             /* a command that never ends */
+    regfile_model_poke(MACMDIODR, 0x1234u);
     TEST_ASSERT_EQUAL_INT(-1, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
     TEST_ASSERT_EQUAL_HEX16(0xA5A5u, v);
     TEST_ASSERT_EQUAL_HEX32(MB, regfile_model_peek(MACMDIOAR));   /* nothing issued */
@@ -86,7 +87,7 @@ void test_mb_held_past_the_spin_limit_fails_a_read(void)
 void test_mb_held_past_the_spin_limit_fails_a_write(void)
 {
     busy_polls = NEVER;
-    TFW_CM_REG(MACMDIOAR) = MB;
+    regfile_model_poke(MACMDIOAR, MB);
     TEST_ASSERT_EQUAL_INT(-1, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
     TEST_ASSERT_EQUAL_HEX32(MB, regfile_model_peek(MACMDIOAR));
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIODR));
@@ -111,7 +112,7 @@ void test_a_command_that_never_ends_fails_the_write(void)
 
 void test_init_selects_rmii_and_keeps_the_rest_of_pmcr(void)
 {
-    TFW_CM_REG(SBS_PMCR) = 0x00E00001u;   /* ETH_SEL_PHY 7, one other bit */
+    regfile_model_poke(SBS_PMCR, 0x00E00001u);   /* ETH_SEL_PHY 7, one other bit */
     tfw_h5_eth_mdio_init();
     TEST_ASSERT_EQUAL_HEX32((0x4u << 21) | 0x1u, regfile_model_peek(SBS_PMCR));
     TEST_ASSERT_EQUAL_HEX32(0x1u << 1, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u) & (0x1u << 1));
@@ -119,7 +120,7 @@ void test_init_selects_rmii_and_keeps_the_rest_of_pmcr(void)
 
 void test_init_enables_the_mac_clocks_and_keeps_the_others(void)
 {
-    TFW_CM_REG(AHB1ENR) = 0x1u;
+    regfile_model_poke(AHB1ENR, 0x1u);
     tfw_h5_eth_mdio_init();
     TEST_ASSERT_EQUAL_HEX32(0x1u | (0x1u << 19) | (0x1u << 20) | (0x1u << 21),
                             regfile_model_peek(AHB1ENR));
@@ -135,9 +136,9 @@ void test_init_puts_the_rmii_pins_on_af11(void)
 {
     size_t i;
 
-    TFW_CM_REG(TFW_H5_GPIO_STRIDE * 0u + TFW_H5_GPIOA_BASE) = 0xFFFFFFFFu;
-    TFW_CM_REG(TFW_H5_GPIO_STRIDE * 2u + TFW_H5_GPIOA_BASE) = 0xFFFFFFFFu;
-    TFW_CM_REG(TFW_H5_GPIO_STRIDE * 6u + TFW_H5_GPIOA_BASE) = 0xFFFFFFFFu;
+    regfile_model_poke(TFW_H5_GPIO_STRIDE * 0u + TFW_H5_GPIOA_BASE, 0xFFFFFFFFu);
+    regfile_model_poke(TFW_H5_GPIO_STRIDE * 2u + TFW_H5_GPIOA_BASE, 0xFFFFFFFFu);
+    regfile_model_poke(TFW_H5_GPIO_STRIDE * 6u + TFW_H5_GPIOA_BASE, 0xFFFFFFFFu);
     tfw_h5_eth_mdio_init();
     for (i = 0u; i < sizeof rmii_pins / sizeof rmii_pins[0]; i++) {
         uint32_t b = TFW_H5_GPIOA_BASE + TFW_H5_GPIO_STRIDE * rmii_pins[i][0];

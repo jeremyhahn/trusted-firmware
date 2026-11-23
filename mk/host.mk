@@ -2324,8 +2324,10 @@ lint-test-sleep:
 # arch-leak gate lets src/hal/esp32 name vTaskDelay, this one does not.
 # _delay_us stays allowed: it is the bus-timing primitive behind
 # tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
-# one transaction, not a wait. A line whose first non-blank is *, /* or // is
-# a comment and is skipped, so prose naming delay() is not a finding. A call
+# one transaction, not a wait. Comments (/* */ across lines, and //) and the
+# contents of string and character literals are blanked before matching, with
+# line numbers kept, so prose naming delay() is not a finding and code beside a
+# comment (/* wait */ _delay_ms(10); delay /* ms */ (10);) still is. A call
 # split across lines (delay, then blank or comment-only lines, then the open
 # parenthesis) is still a call: the finding names the line of the identifier. The gate
 # fails closed: a root it cannot enter or a file awk cannot read fails it,
@@ -2335,8 +2337,16 @@ LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
 LINT_NO_DELAY_AWK := \
 	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
 	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
-	FNR == 1 { pend = "" } \
-	/^[[:space:]]*([*]|[/][*]|[/][/])/ { next } \
+	FNR == 1 { pend = ""; inc = 0 } \
+	{ out = ""; q = ""; n = length($$0); \
+	  for (i = 1; i <= n; i++) { c = substr($$0, i, 1); d = substr($$0, i, 2); \
+	    if (inc) { if (d == "*/") { inc = 0; i++; out = out " " } continue } \
+	    if (q != "") { if (c == "\\") { i++ } else if (c == q) { q = ""; out = out c } continue } \
+	    if (d == "/*") { inc = 1; i++; continue } \
+	    if (d == "//") { break } \
+	    if (c == "\"" || c == "\047") { q = c } \
+	    out = out c } \
+	  $$0 = out } \
 	pend != "" && /^[[:space:]]*[(]/ { print pend } \
 	!/^[[:space:]]*$$/ { pend = "" } \
 	$$0 ~ call { print FILENAME ":" FNR ": delay-call"; next } \
@@ -2368,8 +2378,8 @@ lint-grep-selftest:
 	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
 	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
-	printf '/*\n * delay() is banned\n */\n// vTaskDelay(1) too\n' > $$t/src/core/comment.c && \
-	printf '_delay_us(1);\ntfw_hal_delay_us(1);\n/* there is no delay() */\n * nor _delay_ms(), vTaskDelay()\n// nor delayMicroseconds()\n' > $$t/src/core/ok.c && \
+	printf '/*\n * delay() is banned\n */\n// vTaskDelay(1) too\n/*\n  prose with no asterisks: delay(10)\n  and _delay_ms(5) too\n*/\n' > $$t/src/core/comment.c && \
+	printf '_delay_us(1);\ntfw_hal_delay_us(1);\n/* there is no delay() */\n/* nor _delay_ms(), vTaskDelay() */\n// nor delayMicroseconds()\nputs("delay(1)"); x = f(); /* delay(2) */ y = 1;\n' > $$t/src/core/ok.c && \
 	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep lint-no-delay LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
@@ -2380,6 +2390,9 @@ lint-grep-selftest:
 	             'no-delay:src/core/plant.c:void f(void){ delay(10); } /* TFW_PLANTED_TEXT */' \
 	             'no-delay:src/core/plant.c:    delay(100); /* TFW_PLANTED_TEXT */' \
 	             'no-delay:boot/plant.c:_delay_ms(5); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:/* wait */ _delay_ms(10); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:delay /* milliseconds */ (10); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:s = "/*"; delay(1); /* TFW_PLANTED_TEXT */' \
 	             'no-delay:boards/plant.h:{ delayMicroseconds (10); } /* TFW_PLANTED_TEXT */' \
 	             'no-delay:include/plant.h:if (x) vTaskDelay(1); /* TFW_PLANTED_TEXT */'; do \
 	  gate=$${plant%%:*}; rest=$${plant#*:}; f=$${rest%%:*}; printf '%s\n' "$${rest#*:}" > $$t/$$f; \

@@ -72,10 +72,43 @@ class LintNoDelayTest(unittest.TestCase):
     def test_comment_and_bus_timing_pass(self):
         self.write("src/core/prose.c",
                    "// a poll, never delay()\n"
-                   " * nor delay\n"
+                   "/*\n * nor delay\n */\n"
                    "void g(void) { _delay_us\n(5); }\n")
         r = lint(self.root)
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_call_after_a_comment_on_its_line_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  /* wait */ _delay_ms(10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_call_with_a_comment_before_its_paren_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  delay /* milliseconds */ (10);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_call_after_a_string_holding_a_comment_opener_fails(self):
+        self.write("boot/plant.c", "void f(void) {\n  s = \"/*\"; delay(1);\n}\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_block_comment_prose_without_asterisks_passes(self):
+        self.write("src/core/prose.c",
+                   "/*\n  a poll, never delay(10)\n  nor _delay_ms(5)\n*/\n"
+                   "int x; /* delay(1) */ int y;\n"
+                   "const char *m = \"delay(2)\";\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_line_numbers_survive_a_multi_line_comment(self):
+        self.write("boot/plant.c", "/*\n delay(1)\n*/\nint x;\nvoid f(void) { delay(5); }\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:5: delay-call", r.stdout)
+        self.assertNotIn("boot/plant.c:2:", r.stdout)
 
     def test_missing_root_fails(self):
         r = lint(os.path.join(self.root, "no-such-dir"))

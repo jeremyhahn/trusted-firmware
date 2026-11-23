@@ -110,6 +110,28 @@ class LintNoDelayTest(unittest.TestCase):
         self.assertIn("boot/plant.c:5: delay-call", r.stdout)
         self.assertNotIn("boot/plant.c:2:", r.stdout)
 
+    def test_call_after_a_string_spliced_across_lines_fails(self):
+        self.write("boot/plant.c", 'const char *s = "a\\\nb"; _delay_ms(10);\n')
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_call_after_a_char_literal_spliced_across_lines_fails(self):
+        self.write("boot/plant.c", "c = '\\\n'; delay(1);\n")
+        r = lint(self.root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("boot/plant.c:2: delay-call", r.stdout)
+
+    def test_a_line_comment_continued_by_a_splice_passes(self):
+        self.write("boot/plant.c", "// note \\\n delay(1)\nint x;\n")
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_spliced_string_holding_delay_passes(self):
+        self.write("boot/plant.c", 'const char *s = "a\\\n delay(1) b";\n')
+        r = lint(self.root)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_missing_root_fails(self):
         r = lint(os.path.join(self.root, "no-such-dir"))
         self.assertNotEqual(r.returncode, 0, r.stdout)

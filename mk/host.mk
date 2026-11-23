@@ -2331,7 +2331,10 @@ lint-test-sleep:
 # split across lines (delay, then blank or comment-only lines, then the open
 # parenthesis) is still a call: the finding names the line of the identifier. A
 # string, character literal or // comment continued by a backslash-newline stays
-# open on the next line, with line numbers still physical. The gate
+# open on the next line, with line numbers still physical. A backslash-newline
+# outside a literal or comment is deleted before matching, as C does, so the
+# lines it joins are matched as one (delay\ then (10); or _delay\ then _ms(10);)
+# and the finding names the first physical line of the join. The gate
 # fails closed: a root it cannot enter or a file awk cannot read fails it,
 # never passes as no hits (scripts/test_lint_no_delay.py); boards/ and include/
 # are swept when present.
@@ -2339,7 +2342,8 @@ LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
 LINT_NO_DELAY_AWK := \
 	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
 	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
-	FNR == 1 { pend = ""; inc = 0; cq = ""; lc = 0 } \
+	FNR == 1 && jn && jb ~ call { print jf ":" jl ": delay-call" } \
+	FNR == 1 { pend = ""; inc = 0; cq = ""; lc = 0; jn = 0; jb = "" } \
 	{ out = ""; q = cq; cq = ""; n = length($$0); sp = (substr($$0, n, 1) == "\\"); \
 	  if (lc) { lc = sp; n = 0 } \
 	  for (i = 1; i <= n; i++) { c = substr($$0, i, 1); d = substr($$0, i, 2); \
@@ -2350,11 +2354,16 @@ LINT_NO_DELAY_AWK := \
 	    if (c == "\"" || c == "\047") { q = c } \
 	    out = out c } \
 	  if (q != "" && sp) { cq = q } \
-	  $$0 = out } \
+	  js = (sp && q == "" && !lc); \
+	  if (js && !inc) { out = substr(out, 1, length(out) - 1) } \
+	  if (jn) { out = jb out; ln = jl } else { ln = FNR } \
+	  if (js) { jb = out; jn = 1; jl = ln; jf = FILENAME; next } \
+	  jn = 0; jb = ""; $$0 = out } \
 	pend != "" && /^[[:space:]]*[(]/ { print pend } \
 	!/^[[:space:]]*$$/ { pend = "" } \
-	$$0 ~ call { print FILENAME ":" FNR ": delay-call"; next } \
-	$$0 ~ tail { pend = FILENAME ":" FNR ": delay-call" }
+	$$0 ~ call { print FILENAME ":" ln ": delay-call"; next } \
+	$$0 ~ tail { pend = FILENAME ":" ln ": delay-call" } \
+	END { if (jn && jb ~ call) print jf ":" jl ": delay-call" }
 lint-no-delay:
 	@cd $(LINT_GREP_ROOT) || exit 1; \
 	hits=$$(find src boot $$(for d in boards include; do [ -d $$d ] && echo $$d; done) -name third_party -prune -o -type f \

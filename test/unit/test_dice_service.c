@@ -11,6 +11,8 @@
  * certificate signed with it: the alias key is never the DeviceID key.
  */
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "unity.h"
 #include "uECC.h"
@@ -218,6 +220,28 @@ static void test_alias_cert_subject_is_the_alias_pub(void)
     TEST_ASSERT_FALSE(contains(got, n, dev + 32));
 }
 
+/* dice_service.c:187 clamps the caller's cap to TFW_DICE_PAGE_MAX; a cap
+ * cut to its low byte would give 256 an empty page and 300 a 44-byte one. */
+static void test_a_cap_past_page_max_returns_one_full_page(void)
+{
+    static const uint32_t caps[] = { 256u, 300u, 1024u };
+    static uint8_t        ref[1024], buf[1024];
+    uint8_t               digest[32], sig[64];
+    uint16_t              n = reference_cert(ref, sizeof ref, digest, sig);
+    size_t                i;
+
+    TEST_ASSERT_TRUE(n > TFW_DICE_PAGE_MAX);
+    for (i = 0u; i < sizeof caps / sizeof caps[0]; i++) {
+        memset(buf, 0xEE, sizeof buf);
+        TEST_ASSERT_EQUAL(TFW_OK, cert_page(buf, caps[i], 0u));
+        TEST_ASSERT_EQUAL_UINT32(n, s_page.total);
+        TEST_ASSERT_EQUAL_UINT32(TFW_DICE_PAGE_MAX, s_page.got);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(ref, buf, TFW_DICE_PAGE_MAX);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0xEE, buf + TFW_DICE_PAGE_MAX,
+                                    sizeof buf - TFW_DICE_PAGE_MAX);
+    }
+}
+
 static void test_alias_sign_is_the_alias_key_signature(void)
 {
     uint8_t got[64], ref[64], seed[32];
@@ -403,6 +427,56 @@ static void test_a_buffer_that_wraps_the_address_space_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.got);
 }
 
+/* ---- the vectors sdk/go's dice evidence test reads (docs/plans/590c.md) --- */
+
+static size_t vec_line(char *out, size_t at, const char *name, const uint8_t *b, size_t n)
+{
+    at += (size_t)sprintf(out + at, "%s ", name);
+    for (size_t i = 0u; i < n; i++) {
+        at += (size_t)sprintf(out + at, "%02x", b[i]);
+    }
+    out[at++] = '\n';
+    return at;
+}
+
+/* The service's answers for NONCE, as sdk/go/testdata/dice_service_vectors.txt
+ * holds them: the file must be what the service answers today, so a change to
+ * the service shows here and not as a stale Go test. TFW_DICE_VECTORS_WRITE=1
+ * rewrites it. */
+static void test_vectors_file_is_the_services_answers(void)
+{
+    static uint8_t cert[1024];
+    static char    want[4096], have[4096 + 1];
+    uint8_t        pub[64], sig[64], digest[32];
+    uint32_t       n = service_cert(cert, sizeof cert, 255u);
+    size_t         at = 0u, got;
+    FILE          *f;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_deviceid_pub(pub, sizeof pub));
+    tfw_sha256(NONCE, sizeof NONCE, digest);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_alias_sign(digest, 32u, sig, sizeof sig));
+    at += (size_t)sprintf(want, "# test/unit/test_dice_service.c; TFW_DICE_VECTORS_WRITE=1 rewrites it\n");
+    at = vec_line(want, at, "nonce", NONCE, sizeof NONCE);
+    at = vec_line(want, at, "ueid", UEID, sizeof UEID);
+    at = vec_line(want, at, "fw_hash", FW_HASH, sizeof FW_HASH);
+    at = vec_line(want, at, "deviceid_pub", pub, sizeof pub);
+    at = vec_line(want, at, "alias_cert", cert, n);
+    at = vec_line(want, at, "alias_sig", sig, sizeof sig);
+
+    if (getenv("TFW_DICE_VECTORS_WRITE") != NULL) {
+        f = fopen(TFW_DICE_VECTORS, "wb");
+        TEST_ASSERT_NOT_NULL(f);
+        TEST_ASSERT_EQUAL_size_t(at, fwrite(want, 1u, at, f));
+        TEST_ASSERT_EQUAL(0, fclose(f));
+    }
+    f = fopen(TFW_DICE_VECTORS, "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, TFW_DICE_VECTORS);
+    got = fread(have, 1u, sizeof have, f);
+    (void)fclose(f);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(at, got, "stale vectors: TFW_DICE_VECTORS_WRITE=1 rewrites them");
+    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(want, have, at, "stale vectors: TFW_DICE_VECTORS_WRITE=1 rewrites them");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -411,6 +485,7 @@ int main(void)
     RUN_TEST(test_alias_cert_is_the_reference_chain);
     RUN_TEST(test_alias_cert_verifies_under_the_deviceid_pub_only);
     RUN_TEST(test_alias_cert_subject_is_the_alias_pub);
+    RUN_TEST(test_a_cap_past_page_max_returns_one_full_page);
     RUN_TEST(test_alias_sign_is_the_alias_key_signature);
     RUN_TEST(test_alias_sign_verifies_under_the_alias_pub);
     RUN_TEST(test_alias_sign_does_not_verify_under_the_deviceid_pub);
@@ -423,5 +498,6 @@ int main(void)
     RUN_TEST(test_an_init_without_a_fw_hash_is_refused);
     RUN_TEST(test_alias_sign_into_a_zero_cap_is_refused);
     RUN_TEST(test_a_buffer_that_wraps_the_address_space_is_refused);
+    RUN_TEST(test_vectors_file_is_the_services_answers);
     return UNITY_END();
 }

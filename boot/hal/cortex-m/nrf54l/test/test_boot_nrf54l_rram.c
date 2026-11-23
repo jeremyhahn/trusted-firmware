@@ -14,12 +14,20 @@
 #include "nrf54l/soc_regs.h"
 
 static unsigned stores, stores_with_wen;
+/* store() clears READYNEXT / READY once stores reaches these (0 = never) */
+static unsigned drop_readynext_after, drop_ready_after;
 
 static void store(void)
 {
     stores++;
     if (TFW_NRF_RRAMC_CONFIG == TFW_NRF_RRAMC_CONFIG_WEN) {
         stores_with_wen++;
+    }
+    if (drop_readynext_after != 0u && stores == drop_readynext_after) {
+        TFW_NRF_RRAMC_READYNEXT = 0u;
+    }
+    if (drop_ready_after != 0u && stores == drop_ready_after) {
+        TFW_NRF_RRAMC_READY = 0u;
     }
 }
 
@@ -53,6 +61,7 @@ void setUp(void)
 {
     tfw_nrf54l_model_reset();
     stores = stores_with_wen = 0u;
+    drop_readynext_after = drop_ready_after = 0u;
     logged = 0u;
 }
 
@@ -208,6 +217,53 @@ static void test_a_write_at_the_region_end_is_accepted(void)
     TEST_ASSERT_EQUAL_UINT(0u, logged);
 }
 
+static void test_a_readynext_that_drops_partway_stops_the_write(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    TFW_NRF_RRAMC_CONFIG = 0x00000100u;
+    controller_ready();
+    drop_readynext_after = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_cm_boot_flash_write(base, data, 8u));
+    TEST_ASSERT_EQUAL_UINT(1u, logged);    /* the second word is never stored */
+    assert_store(0u, base, 0x04030201u, 4u);
+    TEST_ASSERT_EQUAL_HEX32(0x00000100u, TFW_NRF_RRAMC_CONFIG);
+}
+
+static void test_a_closing_ready_that_never_comes_fails_the_write(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    controller_ready();
+    drop_ready_after = 2u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_cm_boot_flash_write(base, data, 8u));
+    TEST_ASSERT_EQUAL_UINT(2u, logged);    /* both words stored */
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_RRAMC_CONFIG);
+}
+
+static void test_a_tail_after_a_word_is_bytes_at_their_addresses(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(base, data, 7u));
+    TEST_ASSERT_EQUAL_UINT(4u, logged);
+    assert_store(0u, base, 0x04030201u, 4u);
+    assert_store(1u, base + 4u, 0x05u, 1u);
+    assert_store(2u, base + 5u, 0x06u, 1u);
+    assert_store(3u, base + 6u, 0x07u, 1u);
+}
+
+static void test_an_empty_write_stores_nothing(void)
+{
+    const uint32_t base = (uint32_t)TFW_CM_PLATFORM_BASE;
+
+    controller_ready();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(base, data, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_RRAMC_CONFIG);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -223,5 +279,9 @@ int main(void)
     RUN_TEST(test_each_byte_lands_at_its_address);
     RUN_TEST(test_an_unaligned_source_is_stored_whole);
     RUN_TEST(test_a_write_at_the_region_end_is_accepted);
+    RUN_TEST(test_a_readynext_that_drops_partway_stops_the_write);
+    RUN_TEST(test_a_closing_ready_that_never_comes_fails_the_write);
+    RUN_TEST(test_a_tail_after_a_word_is_bytes_at_their_addresses);
+    RUN_TEST(test_an_empty_write_stores_nothing);
     return UNITY_END();
 }

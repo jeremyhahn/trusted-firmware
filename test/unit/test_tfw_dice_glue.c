@@ -160,6 +160,7 @@ psa_status_t psa_key_derivation_abort(psa_key_derivation_operation_t *operation)
 /* The PSA RNG stand-in: a counter pattern, so blinding is never constant. */
 static psa_status_t rng_status;
 static int rng_calls;
+static int rng_fail_next;   /* calls to fail before rng_status applies again */
 psa_status_t psa_generate_random(uint8_t *output, size_t output_size)
 {
     static uint8_t ctr;
@@ -167,6 +168,10 @@ psa_status_t psa_generate_random(uint8_t *output, size_t output_size)
     rng_calls++;
     for (size_t i = 0u; i < output_size; i++) {
         output[i] = ++ctr;
+    }
+    if (rng_fail_next > 0) {
+        rng_fail_next--;
+        return PSA_ERROR_GENERIC_ERROR;
     }
     return rng_status;
 }
@@ -353,6 +358,7 @@ void setUp(void)
     bad_handle = 0;
     rng_status = PSA_SUCCESS;
     rng_calls = 0;
+    rng_fail_next = 0;
     /* The host's POSIX default RNG must not hide a missing install. */
     uECC_set_rng(0);
 }
@@ -585,6 +591,35 @@ static void test_a_failing_psa_rng_refuses_alias_sign(void)
     TEST_ASSERT_EQUAL(0, bad_handle);
 }
 
+/* #608: one PSA RNG failure refuses the DeviceID request; it never moves the
+ * derivation to another key, so the next request gives the same bytes. */
+static void test_a_psa_rng_that_fails_once_keeps_the_deviceid_key(void)
+{
+    static const uint8_t zero[64];
+    uint8_t first[64];
+
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, deviceid_pub());
+    TEST_ASSERT_EQUAL(64u, out_len[0]);
+    memcpy(first, out_vec[0], sizeof(first));
+    TEST_ASSERT_FALSE(memcmp(first, zero, sizeof(zero)) == 0);
+
+    memset(out_vec, 0, sizeof(out_vec));
+    memset(out_len, 0, sizeof(out_len));
+    rng_fail_next = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, deviceid_pub());
+    TEST_ASSERT_TRUE(out_len[0] == 0u ||
+                     memcmp(out_vec[0], zero, sizeof(zero)) == 0);
+    TEST_ASSERT_EQUAL(0, rng_fail_next);
+
+    memset(out_vec, 0, sizeof(out_vec));
+    memset(out_len, 0, sizeof(out_len));
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, deviceid_pub());
+    TEST_ASSERT_EQUAL(64u, out_len[0]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(first, out_vec[0], 64);
+    TEST_ASSERT_EQUAL(0, bad_handle);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -600,5 +635,6 @@ int main(void)
     RUN_TEST(test_sfn_null_msg_is_refused);
     RUN_TEST(test_init_installs_a_psa_blinding_rng);
     RUN_TEST(test_a_failing_psa_rng_refuses_alias_sign);
+    RUN_TEST(test_a_psa_rng_that_fails_once_keeps_the_deviceid_key);
     return UNITY_END();
 }

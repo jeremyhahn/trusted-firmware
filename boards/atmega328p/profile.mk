@@ -7,7 +7,11 @@ AVRDUDE_PART   := m328p
 AVRDUDE_PROG   := arduino
 AVRDUDE_PORT   ?= /dev/ttyUSB0
 AVRDUDE_BAUD   := 115200
-FLASH_BUDGET   := 16384
+# The application region, 32 KB less the 4 KB boot section at BOOT_BASE: owner
+# ruling 1243 (issue #53) applies option (a) of
+# docs/ethernet-transport/adr-wire-protocol-over-w5x00.md, "The 328P budget", so
+# the element image carries ATTEST_CSR (board_profile.h TFW_FLASH_BUDGET).
+FLASH_BUDGET   := 28672
 RAM_BUDGET     := 1024
 FLASH_TOTAL    := 32768
 RAM_TOTAL      := 2048

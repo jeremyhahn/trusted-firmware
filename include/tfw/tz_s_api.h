@@ -3,11 +3,6 @@
 /*
  * The secure world's API for the non-secure side.
  *
- * tfw_s_version is the #590 monitor's NSC veneer
- * (src/hal/cortex-m/tz/tz_veneer.c), linked through the import library the
- * secure link writes (--cmse-implib); it goes with the mps2-an505 monitor in
- * #608 slice 4.
- *
  * The tfw_s_dice_* calls are the client of the TF-M DICE partition (#608
  * slice 3, ruling 1024 (a); src/tz/dice_partition.h has the call types),
  * implemented in src/tz/tz_s_client.c over TF-M's psa_call to the stateless
@@ -22,11 +17,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "tfw/status.h"
-
-/* The secure API's version, major in the high half. */
-#define TFW_S_VERSION 0x00010000u
-
-uint32_t tfw_s_version(void);
 
 /* The DeviceID and alias public keys, X||Y. */
 tfw_status_t tfw_s_dice_deviceid_pub(uint8_t pub[64]);

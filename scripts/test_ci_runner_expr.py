@@ -204,8 +204,8 @@ class ReleaseGuardBranches(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
-PRE_RO = (OPEN + " github.server_url == 'https://github.com' && (!startsWith(github.event_name, 'pull_request')"
-          " || github.event.pull_request.head.repo.full_name == github.repository)"
+PRE_RO = (OPEN + " github.server_url == 'https://github.com' && ((github.event_name == 'push' && github.ref == 'refs/heads/main')"
+          " || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))"
           " && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
 # v1.51's runs-on: no fork clause, so a fork's pull request took the Dells.
@@ -249,6 +249,21 @@ class PreflightRunsOn(unittest.TestCase):
         r = run_policy(job(ro, name="preflight"), "ci.yml")
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn('CI_PREFLIGHT_RUNS_ON set to "ubuntu-latest"', r.stdout)
+
+    def test_preflight_takes_the_dells_only_where_their_hook_runs_a_job(self):
+        # With the variable unset: a push to main and a same-repository pull
+        # request reach bigdisk; a schedule, a dispatch or another branch is hosted.
+        ns = {}
+        exec(policy_script().split("\nfiles = sorted(", 1)[0], ns)
+        ro = PRE_RO
+        dells = ["self-hosted", "linux", "x64", "bigdisk"]
+        for event, ref, head, want in (("push", "refs/heads/main", "", dells),
+                                       ("pull_request", "refs/pull/1/merge", "o/r", dells),
+                                       ("schedule", "refs/heads/main", "", ["ubuntu-latest"]),
+                                       ("workflow_dispatch", "refs/heads/main", "", ["ubuntu-latest"]),
+                                       ("push", "refs/heads/feature", "", ["ubuntu-latest"])):
+            with self.subTest(event=event, ref=ref):
+                self.assertEqual(ns["runs_on_labels"](ro, event, ref, head, "unset"), want)
 
     def test_repository_preflight_reads_the_variable(self):
         jobs = load(CI)["jobs"]

@@ -177,7 +177,7 @@
 
 /* APP_CMD (0x07), #635: a request is the payload after the command id (the
  * app_op byte, then its arguments). BLINK is test/app/example's op 0x00, the
- * blink count, asked after 3 toggles (polls at t=0, 500 and 1000 ms): the u16
+ * blink count, asked after 3 toggles (three due polls 500 ms apart): the u16
  * count 3, low byte first. TRAILING is op 0x00 with a stray argument byte
  * (TFW_ERR_BAD_ARGC 5); UNKNOWN is op 0x01, which the example does not define
  * (TFW_ERR_UNSUPPORTED 7). STOPPED is the BLINK request to an application that

@@ -193,13 +193,16 @@ static tfw_status_t app_cmd(const char *req, uint8_t req_len, uint8_t *out, uint
     return st;
 }
 
-/* Three toggles (t=0, 500, 1000 ms), then op 0x00 answers the count. */
+/* Three toggles 500 ms apart, then op 0x00 answers the count. */
 static void test_the_blink_count_answers_the_toggles_so_far(void)
 {
     uint8_t out[TFW_MAX_PAYLOAD];
     uint8_t len = 0u;
 
+    /* The schedule outlives the mock's reset between cases (see the wrap case),
+     * so jump well past any beat a prior case left due: the first poll beats. */
     tfw_app_runner_start();
+    tfw_mock_set_millis(0x00100000u);
     for (uint8_t i = 0u; i < 3u; i++) {
         if (i != 0u) {
             tfw_mock_advance(500u);

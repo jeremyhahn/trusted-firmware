@@ -12,6 +12,8 @@ asked of make itself, and holds every one of them to that:
     firmware-matrix-list; as the board defaults it and, where the board names
     a controller, with ETH=0 and ETH=1; and the example application on each
     board;
+  - a board for which make prints no tier is an error, not a board with
+    nothing to check;
   - a production image (PROVISION=0) links no provisioning translation unit
     and compiles with no TFW_FEATURE_PROVISION define;
   - a jig image (PROVISION=1) of the same row links src/caps/provision.c and
@@ -201,6 +203,8 @@ def sweep(root=ROOT):
         if not os.path.isfile(os.path.join(root, "boards", board, "profile.mk")):
             continue
         tiers = make(["board-tiers", f"BOARD={board}"], root).split()
+        if not tiers:
+            raise RuntimeError(f"BOARD={board}: make board-tiers printed no tier -- none of its images would be asked")
         chip = make(["board-eth-chip", f"BOARD={board}"], root).strip()
         boards[board] = (tiers, chip)
     rows = [line.split() for line in make(["firmware-matrix-list"], root).splitlines() if line.strip()]

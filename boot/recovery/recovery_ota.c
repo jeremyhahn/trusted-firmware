@@ -22,6 +22,7 @@
 #include "../boot_session.h"
 #include "../boot_swap.h"
 #include "../boot_trial.h"
+#include "boot_tick.h"
 #include "frame.h"
 
 static tfw_framer_t framer;
@@ -229,11 +230,12 @@ static next_t answer(tfw_boot_platform_t *plat,
  * refusal (#640) it moved into registers, the 2560 OTA image's empty pass
  * fell from 77 to about 64 cycles, and the session idled out near 8.3 s, not
  * 10 s, before the simavr drip case's frame at 8 s arrived. volatile pins it
- * to SRAM, so the pass costs what boot_tick.h says whatever serve grows. It
- * is volatile on every architecture (a per-arch qualifier would be a
- * conditional outside config.h): Cortex-M's TFW_BOOT_POLL_CYCLES is not
- * measured yet (boot/hal/cortex-m/boot_tick.h), and a row that measures it
- * measures this loop, the counter in memory, as it is.
+ * to SRAM, so the pass costs what boot_tick.h says whatever serve grows.
+ * The qualifier is per architecture, through TFW_BOOT_POLL_COUNTER_T in
+ * each boot/hal/<arch>/boot_tick.h: volatile on AVR and on the host, which
+ * mirrors the 328P's figures; plain on Cortex-M, the loop main compiles,
+ * since its TFW_BOOT_POLL_CYCLES is not measured yet
+ * (boot/hal/cortex-m/boot_tick.h).
  */
 
 static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
@@ -241,7 +243,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
 {
     uint32_t idle        = 0u;
     uint32_t bytes       = 0u;
-    volatile uint32_t total_polls = 0u;
+    TFW_BOOT_POLL_COUNTER_T total_polls = 0u;
     uint32_t total_bytes = 0u;
 
     cur = plat;

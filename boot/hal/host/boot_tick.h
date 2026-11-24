@@ -14,4 +14,8 @@
 #define TFW_BOOT_POLL_CYCLES 77uL
 #define TFW_BOOT_TICK_HZ     ((uint32_t)16000000uL / TFW_BOOT_POLL_CYCLES)
 
+/* serve's pass counter, as on the 328P whose figures this mirrors
+ * (boot/hal/avr/boot_tick.h, #640). */
+#define TFW_BOOT_POLL_COUNTER_T volatile uint32_t
+
 #endif /* TFW_BOOT_TICK_H */

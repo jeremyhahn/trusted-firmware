@@ -373,6 +373,24 @@ class ItcmSlotBoard(unittest.TestCase):
         self.assertEqual(slot, d + "/frdm-imx95-m7/soft")
         self.assertEqual(off, slot)
 
+    def test_imx_boot_with_a_row_feature_keeps_its_own_directory(self):
+        # A row feature names the directory too: with one on, IMX_BOOT=1
+        # still links into a directory of its own.
+        with tempfile.TemporaryDirectory() as d:
+            row = make_value("frdm-imx95-m7", "FW_DIR", "PWM=1", "BUILD_DIR=" + d).strip()
+            imx = make_value("frdm-imx95-m7", "FW_DIR", "PWM=1", "IMX_BOOT=1",
+                             "BUILD_DIR=" + d).strip()
+        self.assertNotEqual(row, imx)
+        self.assertIn("-imxboot", imx)
+
+    def test_imx_boot_adds_no_shared_build_setting(self):
+        # The -imxboot directory comes from the board's own BOARD_FEATURES_ON,
+        # so no setting outside the board names it.
+        with tempfile.TemporaryDirectory() as d:
+            extra = make_value("frdm-imx95-m7", "BOARD_DIR_SUFFIX", "IMX_BOOT=1",
+                               "BUILD_DIR=" + d).strip()
+        self.assertEqual(extra, "")
+
 
 if __name__ == "__main__":
     unittest.main()

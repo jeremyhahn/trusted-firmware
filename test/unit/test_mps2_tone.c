@@ -289,6 +289,38 @@ static void test_tone_bad_pin_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0u, M_CTRL);
 }
 
+/* A refused start returns before the timer stops: a playing tone keeps
+ * its timer, its interrupt, its pin and its phase. Port 0 bit 2 is the
+ * first bit past the LEDs. */
+static void test_tone_refusals_leave_a_playing_tone_untouched(void)
+{
+    static const tfw_pinref_t bad[] = {
+        TFW_PB(0u, (uint8_t)TFW_MPS2_LED_COUNT),
+        TFW_PB(0u, 0xFFu),
+        TFW_PB(1u, 0u),
+    };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
+    mps2_tone_model_edge();
+    TEST_ASSERT_EQUAL_UINT32(0x2u, m_led);   /* LED1 high */
+    m_icer = 0u;   /* the start's own ICER write */
+
+    for (unsigned i = 0; i <= sizeof bad / sizeof bad[0]; i++) {
+        if (i < sizeof bad / sizeof bad[0])
+            TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&bad[i], 1000u));
+        else
+            TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&PIN, 20001u));
+        TEST_ASSERT_EQUAL_UINT32(TFW_MPS2_TIMER_CTRL_EN | TFW_MPS2_TIMER_CTRL_INTEN, M_CTRL);
+        TEST_ASSERT_EQUAL_UINT32(9999u, M_RELOAD);
+        TEST_ASSERT_EQUAL_UINT32(0u, m_icer);
+        TEST_ASSERT_EQUAL_UINT8(1u, m_irq_en);
+        TEST_ASSERT_EQUAL_UINT32(0x2u, tone_mask);
+        TEST_ASSERT_EQUAL_UINT32(0x2u, m_led);
+    }
+    mps2_tone_model_edge();
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x0u, m_led, "LED1 still toggles");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -303,5 +335,6 @@ int main(void)
     RUN_TEST(test_tone_zero_hz_stops);
     RUN_TEST(test_tone_range_refused);
     RUN_TEST(test_tone_bad_pin_refused);
+    RUN_TEST(test_tone_refusals_leave_a_playing_tone_untouched);
     return UNITY_END();
 }

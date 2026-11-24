@@ -743,16 +743,14 @@ static void test_the_reset_cause_of_each_targets_reasons(void)
     };
     static const soc_reset_reason_t c3[] = {
         RESET_REASON_CORE_MWDT0, RESET_REASON_CORE_RTC_WDT, RESET_REASON_CPU0_MWDT0,
-        RESET_REASON_CPU0_RTC_WDT, RESET_REASON_SYS_RTC_WDT,
+        RESET_REASON_CPU0_RTC_WDT, RESET_REASON_SYS_RTC_WDT, RESET_REASON_CORE_MWDT1,
     };
-    const soc_reset_reason_t *mine  = CONFIG_IDF_TARGET_ESP32P4 ? p4 : c3;
-    const soc_reset_reason_t *other = CONFIG_IDF_TARGET_ESP32P4 ? c3 : p4;
     size_t i;
 
-    for (i = 0; i < 5u; i++) {
-        TEST_ASSERT_EQUAL(TFW_RESET_WATCHDOG, cause_of(mine[i]));
-        TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, cause_of(other[i]));
-    }
+    for (i = 0; i < sizeof p4 / sizeof p4[0]; i++)
+        TEST_ASSERT_EQUAL(CONFIG_IDF_TARGET_ESP32P4 ? TFW_RESET_WATCHDOG : TFW_RESET_UNKNOWN, cause_of(p4[i]));
+    for (i = 0; i < sizeof c3 / sizeof c3[0]; i++)
+        TEST_ASSERT_EQUAL(CONFIG_IDF_TARGET_ESP32P4 ? TFW_RESET_UNKNOWN : TFW_RESET_WATCHDOG, cause_of(c3[i]));
     TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, cause_of(CONFIG_IDF_TARGET_ESP32P4 ? RESET_REASON_CPU_SW : RESET_REASON_CPU0_SW));
     TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, cause_of(CONFIG_IDF_TARGET_ESP32P4 ? RESET_REASON_CPU0_SW : RESET_REASON_CPU_SW));
 }

@@ -80,6 +80,23 @@ static void test_divider_refuses_out_of_range(void)
     TEST_ASSERT_EQUAL_UINT32(1u, mr_for(4u, 1u));
 }
 
+static void test_divider_rounds_a_tie_up_and_never_overflows(void)
+{
+    uint32_t mr = 0xDEADBEEFu;
+
+    /* 12/8: half 1, rem 4 >= 8-4, a tie rounds up to two counts */
+    TEST_ASSERT_EQUAL_UINT32(1u, mr_for(12u, 4u));
+    /* 13/8: half 1, rem 5 >= 3, just over the tie: two counts */
+    TEST_ASSERT_EQUAL_UINT32(1u, mr_for(13u, 4u));
+    /* 11/8: half 1, rem 3 < 5, just under the tie: one count, refused */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_tone_match(11u, 4u, &mr));
+    TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, mr);
+    /* 6000/2: exact, half 3000 */
+    TEST_ASSERT_EQUAL_UINT32(2999u, mr_for(6000u, 1u));
+    /* 0xFFFFFFFF/2: half 0x7FFFFFFF, rem 1 >= 1, half 0x80000000; clk + hz wraps to 0 */
+    TEST_ASSERT_EQUAL_HEX32(0x7FFFFFFFu, mr_for(0xFFFFFFFFu, 1u));
+}
+
 static void test_first_start_clocks_then_programs_held_in_reset(void)
 {
     size_t i, clk_last = 0, ct_first, cen;
@@ -218,6 +235,7 @@ int main(void)
     RUN_TEST(test_first_start_clocks_then_programs_held_in_reset);
     RUN_TEST(test_divider_at_fro12m);
     RUN_TEST(test_divider_refuses_out_of_range);
+    RUN_TEST(test_divider_rounds_a_tie_up_and_never_overflows);
     RUN_TEST(test_a_later_start_leaves_the_clock_alone);
     RUN_TEST(test_hz_0_stops);
     RUN_TEST(test_retarget_frequency_keeps_the_pin);

@@ -204,11 +204,21 @@ void tfw_sched_poll(void)
          * of them ever again -- a bug that reproduces twice a year.
          */
         if ((int32_t)(now - g_slots[i].deadline) >= 0) {
+            tfw_status_t st = TFW_OK;
+
             if (tfw_board_pin(g_slots[i].pin, &ref) == TFW_OK) {
-                (void)tfw_hal_gpio_write(&ref,
+                /* A revert the HAL refused stays armed so the next sweep drives
+                 * it: dropping it would leave the pin held for good. The
+                 * deadline restarts at now so the signed difference stays
+                 * below 2^31 ms however long the HAL refuses. */
+                st = tfw_hal_gpio_write(&ref,
                     (uint8_t)((g_slots[i].flags & SLOT_FINAL_LEVEL) ? 1u : 0u));
             }
-            g_slots[i].flags = 0u;
+            if (st == TFW_OK) {
+                g_slots[i].flags = 0u;
+            } else {
+                g_slots[i].deadline = now;
+            }
         }
     }
 }

@@ -367,13 +367,6 @@ func trustflexTemplate() *template {
 
 var lockedPart = &tfw.ElementInfo{ConfigLocked: true, DataLocked: true}
 
-// withUDSLockCRC stands in for the slot-6 CRC the wire does not yet carry.
-func withUDSLockCRC(t *testing.T, crc uint16, err error) {
-	t.Helper()
-	trustflexUDSLockCRC = func(context.Context, *tfw.Device) (uint16, error) { return crc, err }
-	t.Cleanup(func() { trustflexUDSLockCRC = nil })
-}
-
 func countCmd(cmds []tfw.Cmd, c tfw.Cmd) int {
 	n := 0
 	for _, x := range cmds {
@@ -401,7 +394,6 @@ func TestSlot15ImageIsTheElementsPublicKeyFormat(t *testing.T) {
 }
 
 func TestTrustFLEXCommitRunsEveryStepInOrder(t *testing.T) {
-	withUDSLockCRC(t, 0x1234, nil)
 	e := trustflexElement()
 	tm := trustflexTemplate()
 	pub, err := runCommitTrustFLEX(context.Background(), startElement(t, e), tm, lockedPart, nil)
@@ -414,8 +406,10 @@ func TestTrustFLEXCommitRunsEveryStepInOrder(t *testing.T) {
 	if got := e.commands(); !equalCmds(got, want) {
 		t.Fatalf("commands = %v, want %v", got, want)
 	}
+	// Slot 6's CRC is the firmware's (zero on the wire); slot 15's is the
+	// host's, of the key it wrote.
 	kc := atCRC16(slot15Image(tm.ImageKey))
-	if len(e.slotLocks) != 2 || !bytes.Equal(e.slotLocks[0], []byte{6, 0x34, 0x12}) ||
+	if len(e.slotLocks) != 2 || !bytes.Equal(e.slotLocks[0], []byte{6, 0, 0}) ||
 		!bytes.Equal(e.slotLocks[1], []byte{15, byte(kc), byte(kc >> 8)}) {
 		t.Fatalf("slot locks = %x", e.slotLocks)
 	}
@@ -425,7 +419,6 @@ func TestTrustFLEXCommitRunsEveryStepInOrder(t *testing.T) {
 }
 
 func TestRunCommitDispatchesATrustFLEXTemplate(t *testing.T) {
-	withUDSLockCRC(t, 0x1234, nil)
 	e := trustflexElement()
 	if _, err := runCommit(context.Background(), startElement(t, e), trustflexTemplate(), lockedPart); err != nil {
 		t.Fatal(err)
@@ -435,26 +428,47 @@ func TestRunCommitDispatchesATrustFLEXTemplate(t *testing.T) {
 	}
 }
 
+// --commit on the shipped TrustFLEX template reaches the writes: the host no
+// longer refuses the part for want of slot 6's CRC, which the firmware now
+// supplies.
+func TestTrustFLEXCommitOfTheShippedTemplateWrites(t *testing.T) {
+	tm, err := loadTemplate(filepath.Join("..", "..", "templates", "atecc608a-trustflex.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm.ImageKey = bytes.Repeat([]byte{0x22}, 64)
+	e := trustflexElement()
+	if err := provision(context.Background(), startElement(t, e), tm, "--commit", ""); err != nil {
+		if strings.Contains(err.Error(), "has no way for the firmware to supply it") {
+			t.Fatalf("--commit still refuses a TrustFLEX part: %v", err)
+		}
+		t.Fatal(err)
+	}
+	for _, c := range []tfw.Cmd{tfw.CmdProvSeedUDS, tfw.CmdProvWritePubKey} {
+		if countCmd(e.commands(), c) == 0 {
+			t.Fatalf("commands = %v, want %v sent", e.commands(), c)
+		}
+	}
+	if len(e.slotLocks) != 2 || !bytes.Equal(e.slotLocks[0], []byte{6, 0, 0}) {
+		t.Fatalf("slot locks = %x", e.slotLocks)
+	}
+}
+
 func TestTrustFLEXCommitStopsBeforeWritingAnything(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		info  *tfw.ElementInfo
-		edit  func(c *[128]byte, tm *template)
-		noCRC bool
+		name string
+		info *tfw.ElementInfo
+		edit func(c *[128]byte, tm *template)
 	}{
-		{"slot 6 permanent", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+12] = 0 }, false},
-		{"slot 15 permanent", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+30] = 0 }, false},
-		{"slot 0 latched", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+1] = keyConfigPersistentDisable >> 8 }, false},
-		{"slot 6 slot-locked", lockedPart, func(c *[128]byte, _ *template) { c[88] &^= 1 << 6 }, false},
-		{"slot 15 slot-locked", lockedPart, func(c *[128]byte, _ *template) { c[89] &^= 1 << 7 }, false},
-		{"zones not locked", &tfw.ElementInfo{}, func(*[128]byte, *template) {}, false},
-		{"no image key", lockedPart, func(_ *[128]byte, tm *template) { tm.ImageKey = nil }, false},
-		{"no slot-6 CRC", lockedPart, func(*[128]byte, *template) {}, true},
+		{"slot 6 permanent", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+12] = 0 }},
+		{"slot 15 permanent", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+30] = 0 }},
+		{"slot 0 latched", lockedPart, func(c *[128]byte, _ *template) { c[cfgKeyConfig+1] = keyConfigPersistentDisable >> 8 }},
+		{"slot 6 slot-locked", lockedPart, func(c *[128]byte, _ *template) { c[88] &^= 1 << 6 }},
+		{"slot 15 slot-locked", lockedPart, func(c *[128]byte, _ *template) { c[89] &^= 1 << 7 }},
+		{"zones not locked", &tfw.ElementInfo{}, func(*[128]byte, *template) {}},
+		{"no image key", lockedPart, func(_ *[128]byte, tm *template) { tm.ImageKey = nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if !tc.noCRC {
-				withUDSLockCRC(t, 0x1234, nil)
-			}
 			e := trustflexElement()
 			tm := trustflexTemplate()
 			tc.edit(&e.config, tm)
@@ -485,7 +499,6 @@ func TestTrustFLEXCommitStopsAtTheStepThatFails(t *testing.T) {
 		{"slot-15 lock", tfw.CmdProvSlotLock, 2, 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			withUDSLockCRC(t, 0x1234, nil)
 			e := trustflexElement()
 			e.refuseCmd, e.refuseNth, e.refuseStatus = tc.cmd, tc.nth, tfw.StatusErrUnknownCmd
 			_, err := runCommitTrustFLEX(context.Background(), startElement(t, e), trustflexTemplate(), lockedPart, nil)
@@ -498,18 +511,21 @@ func TestTrustFLEXCommitStopsAtTheStepThatFails(t *testing.T) {
 			}
 		})
 	}
-	t.Run("slot-6 CRC", func(t *testing.T) {
-		withUDSLockCRC(t, 0, errors.New("no CRC"))
+	// No seed this boot: the firmware has no slot-6 CRC to lock against and
+	// answers BAD_STATE. Slot 15 is not locked after it.
+	t.Run("slot-6 lock without a seed", func(t *testing.T) {
 		e := trustflexElement()
-		if _, err := runCommitTrustFLEX(context.Background(), startElement(t, e), trustflexTemplate(), lockedPart, nil); err == nil {
-			t.Fatal("committed")
+		e.refuseCmd, e.refuseNth, e.refuseStatus = tfw.CmdProvSlotLock, 1, tfw.StatusErrBadState
+		_, err := runCommitTrustFLEX(context.Background(), startElement(t, e), trustflexTemplate(), lockedPart, nil)
+		var st tfw.Status
+		if !errors.As(err, &st) || st != tfw.StatusErrBadState {
+			t.Fatalf("err = %v, want BAD_STATE wrapped", err)
 		}
-		if countCmd(e.commands(), tfw.CmdProvSlotLock) != 0 {
-			t.Fatalf("commands = %v, want no slot lock", e.commands())
+		if countCmd(e.commands(), tfw.CmdProvSlotLock) != 1 || len(e.slotLocks) != 0 {
+			t.Fatalf("commands = %v, slot locks %x, want the slot-15 lock never sent", e.commands(), e.slotLocks)
 		}
 	})
 	t.Run("record", func(t *testing.T) {
-		withUDSLockCRC(t, 0x1234, nil)
 		e := trustflexElement()
 		refuse := func([]byte, []byte) error { return errors.New("another device's record") }
 		if _, err := runCommitTrustFLEX(context.Background(), startElement(t, e), trustflexTemplate(), lockedPart, refuse); err == nil {

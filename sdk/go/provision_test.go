@@ -110,9 +110,19 @@ func TestProvWriteConfigRefusesAWrongSizedBlock(t *testing.T) {
 
 func TestProvSlotLockSendsTheSlotAndItsCRC(t *testing.T) {
 	link := &recordingLink{}
-	require.NoError(t, New(link).ProvSlotLock(context.Background(), SlotTrustFLEXUDS, 0xBEEF))
+	require.NoError(t, New(link).ProvSlotLock(context.Background(), SlotSecureBootKey, 0xBEEF))
 	assert.Equal(t, CmdProvSlotLock, link.cmd)
-	assert.Equal(t, []byte{SlotTrustFLEXUDS, 0xEF, 0xBE}, link.payload)
+	assert.Equal(t, []byte{15, 0xEF, 0xBE}, link.payload)
+}
+
+// The UDS slot's CRC is the firmware's: the host never holds the UDS, so the
+// request carries a zero CRC and the firmware uses the one this boot's
+// PROV_SEED_UDS took. Slot 6 is the UDS slot of every board's map.
+func TestProvSlotLockUDSSendsTheSlotAndAZeroCRC(t *testing.T) {
+	link := &recordingLink{}
+	require.NoError(t, New(link).ProvSlotLockUDS(context.Background(), SlotUDS))
+	assert.Equal(t, CmdProvSlotLock, link.cmd)
+	assert.Equal(t, []byte{6, 0, 0}, link.payload)
 }
 
 func TestProvSlotLockRefusesAZeroCRCBeforeSending(t *testing.T) {

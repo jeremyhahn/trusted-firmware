@@ -15,6 +15,10 @@ void     tfw_model_reset(void);
  * the DeviceID key is real P-256, so evidence signed with it verifies, and
  * anyone can compute its private half. It must never be trusted. */
 void     tfw_model_provision(void);
+/* A pre-locked ATECC608C-TFLXTLS for the TrustFLEX plan (#53): both zones
+ * locked, the TEST DeviceID key in slot 0, slots 6 and 15 slot-lockable and not
+ * slot-locked, slot 6 secret and writable once from TempKey. */
+void     tfw_model_trustflex(void);
 /* NACK the next n reads, as the real part does while a command executes. */
 void     tfw_model_set_busy(uint8_t reads);
 /* Make the part busy for this many milliseconds every time this opcode

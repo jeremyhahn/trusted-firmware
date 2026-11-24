@@ -242,6 +242,33 @@ static void test_s1_and_s5_in_one_pass_raise_both(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
 }
 
+/* Each signal defers only on its own bit: an S5 pin that arrives while S1 is
+ * high (and an S1 while S5 is high) is raised on the very pass it arrives,
+ * not one pass later. */
+static void test_one_signal_held_high_does_not_delay_the_other(void)
+{
+    no_s2();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[0]);
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
+
+    setUp();
+    no_s2();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+}
+
 static void test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes(void)
 {
     no_s2();
@@ -388,6 +415,7 @@ int main(void)
     RUN_TEST(test_s5_pin_raises_the_hotplug_signal_once);
     RUN_TEST(test_s5_back_to_back_pins_raise_two_signals);
     RUN_TEST(test_s1_and_s5_in_one_pass_raise_both);
+    RUN_TEST(test_one_signal_held_high_does_not_delay_the_other);
     RUN_TEST(test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes);
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
     RUN_TEST(test_s2_other_events_raise_nothing);

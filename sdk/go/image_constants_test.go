@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,14 +40,11 @@ func imageConstantDrift(header string, src []byte) ([]string, error) {
 		if c.header != header {
 			continue
 		}
-		re := regexp.MustCompile(`(?m)^#define\s+` + c.macro + `\s+(0x[0-9A-Fa-f]+|\d+)u?L?\b`)
-		m := re.FindSubmatch(src)
-		if m == nil {
-			return nil, fmt.Errorf("%s defines no %s", header, c.macro)
-		}
-		v, err := strconv.ParseUint(string(m[1]), 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %s: %w", header, c.macro, err)
+		// The one strict parser: a value that is not a whole literal (an
+		// expression such as `320u + 1u`) is an error, not its first number.
+		v, ok := protoHeaderDefine(src, c.macro)
+		if !ok {
+			return nil, fmt.Errorf("%s defines no literal %s", header, c.macro)
 		}
 		if v != c.sdk {
 			drift = append(drift, fmt.Sprintf("%s: %s is %d, %s copies %d", header, c.macro, v, c.name, c.sdk))
@@ -81,4 +77,9 @@ func TestTheImageConstantsCheckSeesADrift(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, drift, 1)
 	assert.Contains(t, drift[0], fmt.Sprintf("TFW_SUIT_ENVELOPE_MAX is 321, ImageEnvelopeMax copies %d", ImageEnvelopeMax))
+
+	// An expression is not read as its first number.
+	expr := re.ReplaceAll(src, []byte("${1}320u + 1u"))
+	_, err = imageConstantDrift(suitH, expr)
+	require.Error(t, err)
 }

@@ -18,6 +18,19 @@
 #include "nrf54l/soc_tables.h"
 #include "nrf54l_model.h"
 
+/* TXDRDY as it stood each time TX.START was reached, ORed: the model hands
+ * out the register word on every access, so this is the only place a test
+ * sees what TXDRDY held when the driver started a transmit. */
+static uint32_t txdrdy_at_tx_start;
+
+static volatile uint32_t *tx_start_reg(void)
+{
+    txdrdy_at_tx_start |= TFW_NRF_UARTE_TXDRDY;
+    return &TFW_NRF_UARTE_TX_START;
+}
+#undef TFW_NRF_UARTE_TX_START
+#define TFW_NRF_UARTE_TX_START (*tx_start_reg())
+
 #include "../boot_uart.c"
 
 #define BAUD 115200u
@@ -148,9 +161,13 @@ static void test_unlisted_baud_leaves_the_uarte_off(void)
 {
     uint8_t b;
 
+    /* Left live by whatever ran before: the refusal must still turn it off. */
+    TFW_NRF_UARTE_ENABLE = TFW_NRF_UARTE_ENABLE_ON;
+    TFW_NRF_UARTE_INTEN  = 0xFFFFFFFFu;
     TFW_NRF_UARTE_RX_END = 1u;
     tfw_boot_uart_init(1234u);
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_UARTE_ENABLE);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_UARTE_INTEN);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_START);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
 }
@@ -231,6 +248,36 @@ static void test_tx_waits_for_txdrdy_and_clears_its_events(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);
+}
+
+/* A TXDRDY left over from an earlier byte is cleared before TX.START: the
+ * wait after it ends on this byte's TXDRDY, not on the stale one, which would
+ * let the next byte's write land while this one is still on the line. */
+static void test_tx_waits_past_a_stale_txdrdy(void)
+{
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 0u, NULL);
+    TFW_NRF_UARTE_TXDRDY = 1u;
+    txdrdy_at_tx_start   = 0u;
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(0u, txdrdy_at_tx_start);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
+}
+
+/* An RXTO left over from before init is cleared: off waits on RXTO after
+ * RX.STOP without clearing it, so a stale one would end that wait at once
+ * and turn the UARTE off while the receive still owns rx_dma. */
+static void test_init_drops_a_stale_rxto(void)
+{
+    TFW_NRF_UARTE_RXTO = 1u;
+    tfw_boot_uart_init(BAUD);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RXTO);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u,
+                               &TFW_NRF_UARTE_ENABLE);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
 }
 
 static void test_tx_whose_txdrdy_never_comes_returns(void)
@@ -410,5 +457,7 @@ int main(void)
     RUN_TEST(test_rx_hands_out_a_byte_that_came_with_an_error);
     RUN_TEST(test_off_whose_rxto_never_comes_still_turns_the_uarte_off);
     RUN_TEST(test_a_second_init_after_off_runs_again);
+    RUN_TEST(test_tx_waits_past_a_stale_txdrdy);
+    RUN_TEST(test_init_drops_a_stale_rxto);
     return UNITY_END();
 }

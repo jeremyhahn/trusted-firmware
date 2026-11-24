@@ -104,6 +104,33 @@ printf 'clean\nhost build.example.internal\n' > "$t/doc.md"     # lab-string-ok:
 run_gate
 case "$out" in *"doc.md:2: lab-host"*) ;; *) fail "second-line hit not reported as doc.md:2: $out" ;; esac
 
+# The match ignores case.
+expect_hit lab-host 'HOST BUILD.EXAMPLE.INTERNAL'   # lab-string-ok: plant
+
+# A waiver reaches one line above, no further: two lines above does not waive.
+checks=$((checks + 1)); fresh
+printf '<!-- lab-string-ok: an example path -->\nclean\nbuilt in /home/example/src\n' > "$t/doc.md"   # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a waiver two lines above waived (exit $rc): $out"
+else case "$out" in *"doc.md:3: owner-path"*) ;; *) fail "a waiver two lines above: no doc.md:3: owner-path in: $out" ;; esac
+fi
+
+# Nor does a waiver on the line below.
+checks=$((checks + 1)); fresh
+printf 'built in /home/example/src\n<!-- lab-string-ok: an example path -->\n' > "$t/doc.md"   # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a waiver on the line below waived (exit $rc): $out"
+else case "$out" in *"doc.md:1: owner-path"*) ;; *) fail "a waiver on the line below: no doc.md:1: owner-path in: $out" ;; esac
+fi
+
+# A path holding a colon is reported whole.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/a:b.md"                 # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a path with a colon exited $rc, want 1: $out"
+else case "$out" in *"a:b.md:1: lab-host"*) ;; *) fail "a path with a colon: no a:b.md:1: lab-host in: $out" ;; esac
+fi
+
 # ---------------------------------------------------------- what must pass
 
 expect_clean 'documentation addresses 198.51.100.7 and 203.0.113.9'
@@ -125,6 +152,22 @@ checks=$((checks + 1)); fresh
 printf 'build.example.internal\0\001\002' > "$t/blob.bin"           # lab-string-ok: plant
 run_gate
 if [ "$rc" -ne 0 ]; then fail "binary file was scanned: $out"; fi
+
+# A tracked symlink is published as its target text, so the target is scanned.
+checks=$((checks + 1)); fresh
+printf 'clean\n' > "$t/doc.md"
+ln -s /home/example/src "$t/link"                                    # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a symlink to an owner path exited $rc, want 1: $out"
+else case "$out" in *"link: owner-path (symlink target)"*) ;; *) fail "a symlink to an owner path: no 'link: owner-path (symlink target)' in: $out" ;; esac
+fi
+
+# A symlink to a clean target passes.
+checks=$((checks + 1)); fresh
+printf 'clean\n' > "$t/doc.md"
+ln -s doc.md "$t/link"
+run_gate
+if [ "$rc" -ne 0 ]; then fail "a symlink to a clean target exited $rc, want 0: $out"; fi
 
 # ------------------------------------------------- export-ignored, not scanned
 

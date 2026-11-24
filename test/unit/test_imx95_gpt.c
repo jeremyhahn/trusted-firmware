@@ -216,6 +216,26 @@ void test_tone_bad_pin_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0u, gpt[TFW_IMX95_GPT_CR / 4u]);
 }
 
+void test_tone_retarget_drives_the_old_pin_low_and_starts_the_new_one_fresh(void)
+{
+    const tfw_pinref_t other = { .port = 1u, .bit = 2u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0x2u, M->gpio[1].pdor & 0x2u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 440u));
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x2u);
+    TEST_ASSERT_EQUAL_HEX32(0x4u, M->gpio[1].pddr & 0x4u);
+    /* The new pin's first match drives it high, as a fresh start does. */
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0x4u, M->gpio[1].pdor & 0x4u);
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x2u);
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x4u);
+    (void)tfw_hal_tone_stop();
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x4u);
+}
+
 /* test_imx95_gpt_nobase: the board's base, zero until question 17 is answered.
  * Every call answers TFW_ERR_UNSUPPORTED and touches no register: no GPT
  * word, no pin direction, no NVIC enable. A stray compare interrupt does not
@@ -246,6 +266,7 @@ int main(void)
         RUN_TEST(test_tone_retune_restarts_the_counter);
         RUN_TEST(test_tone_stop_drives_the_pin_low);
         RUN_TEST(test_tone_bad_pin_is_refused);
+        RUN_TEST(test_tone_retarget_drives_the_old_pin_low_and_starts_the_new_one_fresh);
     }
     RUN_TEST(test_gpt_tone_440_compare);
     RUN_TEST(test_gpt_tone_31_hz_floor);

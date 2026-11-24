@@ -15,8 +15,9 @@
  *   - each of the three waits bounded by one deadline, an edge on the
  *     deadline seen and one past it a timeout, the result left alone;
  *   - a capture as the interval between successive edges after the start
- *     level, ending at max_edges or when the line goes quiet, each interval
- *     clamped to 16 bits, one edge a capture, nothing captured a timeout
+ *     level, ending at max_edges or when the line goes quiet, the timeout
+ *     bounding the start-level wait and then each interval, so a quiet line
+ *     of timeout_us ends the capture, each interval clamped to 16 bits, one edge a capture, nothing captured a timeout
  *     with a count of 0;
  *   - every read on the caller's pin.
  */
@@ -250,7 +251,8 @@ static void test_a_capture_of_no_edges_is_a_timeout_of_0(void)
     wave(0, NULL, 0u);
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_pulse_capture(&pin, 0u, us, 2u, 100u, &n));
     TEST_ASSERT_EQUAL_UINT8(0u, n);
-    TEST_ASSERT_EQUAL_UINT(101u, nreads);
+    /* the read that saw the start level, then timeout_us + 1 polling reads */
+    TEST_ASSERT_EQUAL_UINT(102u, nreads);
     /* the start level never comes */
     n = 0xAAu;
     wave(1, NULL, 0u);
@@ -260,21 +262,35 @@ static void test_a_capture_of_no_edges_is_a_timeout_of_0(void)
     TEST_ASSERT_EQUAL_HEX16(0xAAAAu, us[0]);
 }
 
-static void test_a_capture_ends_at_the_deadline(void)
+static void test_the_timeout_bounds_each_interval_not_the_capture(void)
 {
-    static const int64_t e[] = { 10, 20, 30, 40 };
+    static const int64_t e[] = { 10, 20, 30, 40, 50, 60 };
+    uint16_t us[8];
+    uint8_t  n = 0u;
+    unsigned i;
+
+    wave(0, e, 6u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 8u, 15u, &n));
+    TEST_ASSERT_EQUAL_UINT8(6u, n);
+    for (i = 0u; i < 6u; i++) {
+        TEST_ASSERT_EQUAL_UINT16(10u, us[i]);
+    }
+}
+
+static void test_an_interval_past_the_timeout_ends_the_capture(void)
+{
+    static const int64_t e[] = { 10, 20, 31, 40 };
     uint16_t us[4];
     uint8_t  n = 0u;
 
     wave(0, e, 4u);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 4u, 30u, &n));
-    TEST_ASSERT_EQUAL_UINT8(3u, n);
-    wave(0, e, 4u);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 4u, 29u, &n));
-    TEST_ASSERT_EQUAL_UINT8(2u, n);
-    wave(0, e, 4u);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 4u, 0xFFFFFFFFu, &n));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 4u, 10u, &n));
     TEST_ASSERT_EQUAL_UINT8(4u, n);
+    wave(0, e, 4u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, us, 4u, 9u, &n));
+    TEST_ASSERT_EQUAL_UINT8(2u, n);
+    TEST_ASSERT_EQUAL_UINT16(10u, us[0]);
+    TEST_ASSERT_EQUAL_UINT16(10u, us[1]);
 }
 
 static void test_an_interval_is_clamped_to_16_bits(void)
@@ -308,7 +324,8 @@ int main(void)
     RUN_TEST(test_a_capture_waits_for_its_start_level);
     RUN_TEST(test_a_capture_stops_at_max_edges);
     RUN_TEST(test_a_capture_of_no_edges_is_a_timeout_of_0);
-    RUN_TEST(test_a_capture_ends_at_the_deadline);
+    RUN_TEST(test_the_timeout_bounds_each_interval_not_the_capture);
+    RUN_TEST(test_an_interval_past_the_timeout_ends_the_capture);
     RUN_TEST(test_an_interval_is_clamped_to_16_bits);
     return UNITY_END();
 }

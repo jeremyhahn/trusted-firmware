@@ -203,6 +203,18 @@ static void test_two_transfers_to_two_addresses(void)
     TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
 }
 
+static void test_an_address_above_7_bits_is_masked_to_7(void)
+{
+    const uint8_t wr[] = { 0x55u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0xE0u, wr, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0x60u, rp_i2c.tar);
+    TEST_ASSERT_EQUAL_STRING(" S C0 55 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(1u, rp_i2c.dev_rx_n);
+    TEST_ASSERT_EQUAL_HEX8(0x55u, rp_i2c.dev_rx[0]);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
+}
+
 static void test_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, NULL, 0u, NULL, 0u));
@@ -223,10 +235,12 @@ static void test_address_nack_on_write(void)
 
 static void test_address_nack_on_read(void)
 {
-    uint8_t rd[2] = { 0 };
+    uint8_t rd[2] = { 0xEEu, 0xEEu };
 
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x22u, NULL, 0u, rd, 2u));
     TEST_ASSERT_EQUAL_STRING(" S 45 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, rd[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, rd[1]);
 }
 
 static void test_data_nack_stops_the_write(void)
@@ -239,6 +253,47 @@ static void test_data_nack_stops_the_write(void)
     TEST_ASSERT_EQUAL_STRING(" S C0 01 02 P", rp_i2c_log());
     TEST_ASSERT_EQUAL_UINT8(1u, rp_i2c.dev_rx_n);
     TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
+}
+
+/* Another master wins the bus during the second data byte: IC_TX_ABRT_SOURCE
+ * bit 12 is the only abort source, and the HAL reports TFW_ERR_BUSY, not the
+ * NACK of a refused byte or the TIMEOUT of a stuck bus. */
+static void test_arbitration_lost_is_busy(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    rp_i2c.arb_lost_at = 2u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, xfer(0x60u, wr, 3u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING(" S C0 01 02 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(1u, rp_i2c.dev_rx_n);
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.raw);       /* TX_ABRT and STOP_DET cleared */
+}
+
+/* An abort whose source is neither a NOACK nor ARB_LOST, here ABRT_MASTER_DIS
+ * (bit 11, [RP-DS] table 1138), is a timeout: never success, NACK or BUSY. */
+static void test_an_abort_of_another_source_is_timeout(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+    const uint32_t abrt_master_dis = 1u << 11;
+
+    rp_i2c.arb_lost_at = 2u;
+    rp_i2c.arb_lost_src = abrt_master_dis;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x60u, wr, 3u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING(" S C0 01 02 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.raw);       /* TX_ABRT and STOP_DET cleared */
+}
+
+/* A NOACK and ARB_LOST in one abort read as the NACK. */
+static void test_a_noack_with_arbitration_lost_is_nack(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    rp_i2c.arb_lost_at = 2u;
+    rp_i2c.arb_lost_src = TFW_RP_IC_ABRT_TXDATA_NOACK | TFW_RP_IC_ABRT_ARB_LOST;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.raw);
 }
 
 /* Another master's STOP while the last byte still waits is not the end of
@@ -347,10 +402,14 @@ int main(void)
     RUN_TEST(test_read);
     RUN_TEST(test_write_then_read_with_restart);
     RUN_TEST(test_two_transfers_to_two_addresses);
+    RUN_TEST(test_an_address_above_7_bits_is_masked_to_7);
     RUN_TEST(test_empty_transfer_touches_nothing);
     RUN_TEST(test_address_nack_on_write);
     RUN_TEST(test_address_nack_on_read);
     RUN_TEST(test_data_nack_stops_the_write);
+    RUN_TEST(test_arbitration_lost_is_busy);
+    RUN_TEST(test_an_abort_of_another_source_is_timeout);
+    RUN_TEST(test_a_noack_with_arbitration_lost_is_nack);
     RUN_TEST(test_another_masters_stop_does_not_end_the_write);
     RUN_TEST(test_after_another_masters_stop_the_write_ends_on_its_own);
     RUN_TEST(test_abort_without_a_stop_is_ended_by_abort);

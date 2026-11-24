@@ -141,6 +141,28 @@ static void test_a_baud_out_of_reach_leaves_the_uart_in_reset(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
 }
 
+/* A second init with a baud out of reach puts a running UART0 back in
+ * reset; tx and rx must not touch its FIFO afterwards. */
+static void test_a_reinit_out_of_reach_silences_a_running_uart(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, reg(0x40070000u));
+
+    *tfw_cm_model_reg(0x40022000u) = 0u;
+    tfw_boot_uart_init(1000000u);
+    *tfw_cm_model_reg(0x40070000u) = 0x3Cu;
+    *tfw_cm_model_reg(0x40070018u) = 1u << 7; /* TXFE, RXFE clear */
+    tfw_boot_uart_tx(0x5Au);
+
+    TEST_ASSERT_EQUAL_HEX32(0x3Cu, reg(0x40070000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0u, b);
+    TEST_ASSERT_EQUAL_HEX32(1u << 26, reg(0x40022000u)); /* back in reset */
+}
+
 static void test_off_returns_the_pins_and_resets_uart0(void)
 {
     tfw_boot_uart_init(115200u);
@@ -152,6 +174,22 @@ static void test_off_returns_the_pins_and_resets_uart0(void)
     TEST_ASSERT_EQUAL_HEX32(1u << 26, reg(0x40022000u));
 }
 
+/* After hand-over UART0 is in reset: a stray tx or rx must not touch it. */
+static void test_off_silences_tx_and_rx(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    tfw_cm_boot_uart_off();
+    *tfw_cm_model_reg(0x40070000u) = 0x3Cu;
+    *tfw_cm_model_reg(0x40070018u) = 1u << 7; /* TXFE, RXFE clear */
+    tfw_boot_uart_tx(0x5Au);
+
+    TEST_ASSERT_EQUAL_HEX32(0x3Cu, reg(0x40070000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0u, b);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -160,6 +198,8 @@ int main(void)
     RUN_TEST(test_tx_writes_the_byte_to_uartdr);
     RUN_TEST(test_rx_reads_uartdr_unless_the_fifo_is_empty);
     RUN_TEST(test_a_baud_out_of_reach_leaves_the_uart_in_reset);
+    RUN_TEST(test_a_reinit_out_of_reach_silences_a_running_uart);
     RUN_TEST(test_off_returns_the_pins_and_resets_uart0);
+    RUN_TEST(test_off_silences_tx_and_rx);
     return UNITY_END();
 }

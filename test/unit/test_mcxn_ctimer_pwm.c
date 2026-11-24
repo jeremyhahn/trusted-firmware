@@ -123,6 +123,29 @@ static void test_halt_stops_the_counter_with_the_last_channel(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CRST, ct[TFW_MCXN_CT_TCR]);
 }
 
+/* Match 3 is the period, not a channel: halting it keeps MR3 and channel 0. */
+static void test_halting_match_3_leaves_the_period_and_the_running_channel(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, mcxn_ctimer_pwm_start(ct, FRO12M));
+    TEST_ASSERT_EQUAL(TFW_OK, mcxn_ctimer_pwm_duty(ct, 0u, 100u));
+
+    TEST_ASSERT_EQUAL_UINT8(0u, mcxn_ctimer_pwm_halt(ct, 3u));
+    TEST_ASSERT_EQUAL_UINT32(254u, ct[TFW_MCXN_CT_MR(3u)]);
+    TEST_ASSERT_EQUAL_HEX32(0x1u, ct[TFW_MCXN_CT_PWMC]);
+    TEST_ASSERT_EQUAL_UINT32(155u, ct[TFW_MCXN_CT_MR(0u)]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, ct[TFW_MCXN_CT_TCR]);
+}
+
+/* With no channel running, halting match 3 still stops the counter. */
+static void test_halting_match_3_with_no_channel_running_stops_the_timer(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, mcxn_ctimer_pwm_start(ct, FRO12M));
+
+    TEST_ASSERT_EQUAL_UINT8(1u, mcxn_ctimer_pwm_halt(ct, 3u));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CRST, ct[TFW_MCXN_CT_TCR]);
+    TEST_ASSERT_EQUAL_UINT32(254u, ct[TFW_MCXN_CT_MR(3u)]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -134,5 +157,7 @@ int main(void)
     RUN_TEST(test_duty_0_128_255_on_each_channel);
     RUN_TEST(test_match_3_is_not_a_duty_channel);
     RUN_TEST(test_halt_stops_the_counter_with_the_last_channel);
+    RUN_TEST(test_halting_match_3_leaves_the_period_and_the_running_channel);
+    RUN_TEST(test_halting_match_3_with_no_channel_running_stops_the_timer);
     return UNITY_END();
 }

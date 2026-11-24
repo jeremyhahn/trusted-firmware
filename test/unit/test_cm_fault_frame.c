@@ -103,6 +103,18 @@ static void test_a_misaligned_stack_pointer_is_not_read(void)
     assert_no_frame();
 }
 
+static void test_a_stack_pointer_one_or_three_bytes_off_is_not_read(void)
+{
+    frame_at(4u, 0x77777777uL, 0x88888888uL, 0x99999999uL);
+    /* sp & 3 is 1: a mask of bit 1 alone would read this frame. */
+    cm_model_fault_keep(rec, at(4u) + 1u, at(0u), at(16u));
+    assert_no_frame();
+    rec[0] = rec[1] = rec[2] = 0u;
+    /* sp & 3 is 3: refused with either bit of the mask. */
+    cm_model_fault_keep(rec, at(4u) + 3u, at(0u), at(16u));
+    assert_no_frame();
+}
+
 static void test_an_unused_process_stack_is_not_read(void)
 {
     /* PSP is 0 until something sets it, and neither image does. */
@@ -121,6 +133,7 @@ int main(void)
     RUN_TEST(test_a_stack_pointer_above_the_stack_top_is_not_read);
     RUN_TEST(test_a_stack_pointer_below_the_sram_is_not_read);
     RUN_TEST(test_a_misaligned_stack_pointer_is_not_read);
+    RUN_TEST(test_a_stack_pointer_one_or_three_bytes_off_is_not_read);
     RUN_TEST(test_an_unused_process_stack_is_not_read);
     return UNITY_END();
 }

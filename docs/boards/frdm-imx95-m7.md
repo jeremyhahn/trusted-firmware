@@ -40,7 +40,7 @@ and on the i.MX 95 that world is the BSP's.
 | SoC | i.MX 95, MIMX9596AVZXNAC; its silicon revision is open | UM12527 §1.2 Table 1; the design, question 16 |
 | Cores | up to six Cortex-A55, one Cortex-M33, one Cortex-M7; the M7 and M33 are two independent real-time domains | the design, section 2.1 (UM12527 §1.2 Table 1, §2.1) |
 | The M7 | up to 800 MHz; 512 kB of TCM with ECC; 32 kB + 32 kB I/D cache, FPU, MPU and NVIC | the design, section 2.1 (IMX95CEC Table 1, Figure 3) |
-| Console | LPUART3, interrupt 64, on one of the CH9114F channels on J22, whose core mapping is not fixed | the design, sections 3 and 9.4, question 13; **to confirm against IMX95RM** |
+| Console | the board's M7 console port is LPUART7 on GPIO_IO36/37 at ALT2 (PR #449 bench record, sections 14 and 15; owner ruling 1243, #474, option (a): "LPUART7 for the imx95 M7 console."); the image is still on LPUART3, interrupt 64, until #474's firmware change | the design, sections 3 and 9.4, question 13; interrupt line **to confirm against IMX95RM** |
 | Watchdog | WDOG5, WDOG32 on the 32 kHz LPO | the design, section 9.4, question 17; **to confirm against IMX95RM** |
 | Ethernet | two RGMII Gigabit ports and a 10 GbE SlimSAS, every PHY on ENET2's MDIO; which the M7 may own is open | the design, section 3 (UM12527 §2.18), question 14 |
 

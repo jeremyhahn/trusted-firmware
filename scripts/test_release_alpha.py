@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "release_alpha.py")
@@ -190,6 +191,52 @@ class ReleaseAlpha(unittest.TestCase):
         write(signer, FAKE_SIGNER)
         _, out = self.run_main("--dry-run")
         self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
+
+    def wrap_git(self, before_sign):
+        """Patch release_alpha.git so that before_sign(n) runs ahead of the n-th
+        (1-based) `git tag --sign`, as another run in the same checkout would."""
+        real = release_alpha.git
+        calls = []
+
+        def side_effect(repo, *args):
+            if args[:2] == ("tag", "--sign"):
+                calls.append(args)
+                before_sign(len(calls))
+            return real(repo, *args)
+
+        return unittest.mock.patch.object(release_alpha, "git", side_effect=side_effect), calls
+
+    def test_a_competing_run_that_cut_the_version_first_keeps_its_tags(self):
+        theirs = {}
+
+        def compete(n):
+            if n == 1:
+                for t in ("v0.4.2-alpha", "sdk/go/v0.4.2-alpha"):
+                    git(self.repo, "tag", t)
+                    theirs[t] = git(self.repo, "rev-parse", f"refs/tags/{t}")
+
+        patch, calls = self.wrap_git(compete)
+        with patch:
+            self.assertIn("tag", self.refused())
+        self.assertEqual(len(calls), 1)
+        for t, oid in theirs.items():
+            with self.subTest(t):
+                self.assertEqual(git(self.repo, "rev-parse", f"refs/tags/{t}"), oid)
+                self.assertNotIn(t, self.tags(self.dev))
+
+    def test_a_tag_replaced_after_this_run_cut_it_is_not_deleted(self):
+        def replace(n):
+            if n == 2:
+                git(self.repo, "tag", "-f", "v0.4.2-alpha", "HEAD~1")
+                git(self.repo, "tag", "sdk/go/v0.4.2-alpha")
+
+        patch, calls = self.wrap_git(replace)
+        with patch:
+            self.assertIn("tag", self.refused())
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(git(self.repo, "rev-parse", "refs/tags/v0.4.2-alpha"),
+                         git(self.repo, "rev-parse", "HEAD~1"))
+        self.assertNotIn("v0.4.2-alpha", self.tags(self.dev))
 
 
 class Precedence(unittest.TestCase):

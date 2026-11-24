@@ -1,0 +1,1 @@
+- The RP2350 boot flash host suite's read-only byte arrays are const, so make lint's cppcheck run passes on the suite's new path.

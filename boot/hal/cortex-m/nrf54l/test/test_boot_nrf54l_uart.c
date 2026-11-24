@@ -310,6 +310,80 @@ static void test_tx_sends_the_byte_from_its_buffer(void)
     TEST_ASSERT_EQUAL_HEX8(0xC3u, tx_dma);
 }
 
+/* A byte that comes with a line error is still handed out (the framer's
+ * check drops it) and the one-byte receive is armed again. */
+static void test_rx_hands_out_a_byte_that_came_with_an_error(void)
+{
+    uint8_t b = 0x00u;
+
+    tfw_boot_uart_init(BAUD);
+    TFW_NRF_UARTE_RX_MAXCNT = 0u;
+    TFW_NRF_UARTE_RX_START  = 0u;
+    rx_dma                  = 0x6Bu;
+    TFW_NRF_UARTE_ERROR     = 1u;
+    TFW_NRF_UARTE_ERRORSRC  = 0u;
+    TFW_NRF_UARTE_RX_END    = 1u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x6Bu, b);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ERROR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_ERRORSRC_ALL, TFW_NRF_UARTE_ERRORSRC);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_END);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_MAXCNT);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_START);
+}
+
+/* An off whose RXTO never comes still turns the UARTE off and leaves
+ * rx and tx doing nothing. */
+static void test_off_whose_rxto_never_comes_still_turns_the_uarte_off(void)
+{
+    uint8_t b = 0x00u;
+
+    tfw_boot_uart_init(BAUD);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_STOP);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ENABLE);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_INTEN);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF54L_PSEL_DISCONNECTED, TFW_NRF_UARTE_PSEL_TXD);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF54L_PSEL_DISCONNECTED, TFW_NRF_UARTE_PSEL_RXD);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_BAUDRATE_RESET, TFW_NRF_UARTE_BAUDRATE);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_CONFIG_RESET, TFW_NRF_UARTE_CONFIG);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_RESET,
+                            TFW_NRF_GPIO_PIN_CNF(TFW_NRF_P1_BASE, TFW_NRF_CONSOLE_TX_BIT));
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_RESET,
+                            TFW_NRF_GPIO_PIN_CNF(TFW_NRF_P1_BASE, TFW_NRF_CONSOLE_RX_BIT));
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
+}
+
+/* A second init after off enables the UARTE, arms the receive and lets
+ * rx and tx run again. */
+static void test_a_second_init_after_off_runs_again(void)
+{
+    uint8_t b = 0x00u;
+
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u, NULL);
+    tfw_cm_boot_uart_off();
+    TFW_NRF_UARTE_RX_START  = 0u;
+    TFW_NRF_UARTE_RX_MAXCNT = 0u;
+    tfw_boot_uart_init(BAUD);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_UARTE_ENABLE_ON, TFW_NRF_UARTE_ENABLE);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_MAXCNT);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_START);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)(uintptr_t)&rx_dma, TFW_NRF_UARTE_RX_PTR);
+    rx_dma = 0x42u;
+    TFW_NRF_UARTE_RX_END = 1u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x42u, b);
+    /* No late task: TX.START stays readable, and tx's bounded wait for
+     * TXDRDY returns. */
+    tfw_boot_uart_tx(0x24u);
+    TEST_ASSERT_EQUAL_HEX8(0x24u, tx_dma);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_TX_START);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -333,5 +407,8 @@ int main(void)
     RUN_TEST(test_rx_hands_out_the_received_byte);
     RUN_TEST(test_rx_with_nothing_received_leaves_out_alone);
     RUN_TEST(test_tx_sends_the_byte_from_its_buffer);
+    RUN_TEST(test_rx_hands_out_a_byte_that_came_with_an_error);
+    RUN_TEST(test_off_whose_rxto_never_comes_still_turns_the_uarte_off);
+    RUN_TEST(test_a_second_init_after_off_runs_again);
     return UNITY_END();
 }

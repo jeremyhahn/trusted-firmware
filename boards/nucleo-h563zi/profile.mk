@@ -17,7 +17,7 @@ MCU            := stm32h563zit6
 # No QEMU_MACHINE: QEMU models no STM32H5. CI builds it (the firmware matrix)
 # and the host tests check its tables.
 
-# TZ=1 (#590, docs/plans/590.md): the TrustZone-M split's secure and
+# TZ=1 (#590): the TrustZone-M split's secure and
 # non-secure images (mk/arch/cortex-m-targets.mk tz-firmware), built and
 # size-checked only. Running them needs TZEN=1 and the bank 1 secure
 # watermark over the secure image's 128 KiB: option bytes the owner sets

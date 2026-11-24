@@ -10,7 +10,8 @@ toolchain image. The tests read the allowlist and every `runs-on:` key, bare or 
 list, or group/labels mapping, a flow list or mapping on one line or across several, and a scalar
 or flow value on the line after an empty `runs-on:` or `labels:` key; a flow `labels:` or
 next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a
-value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped) of
+value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped, while a quoted label is
+read as written, so `"*r"`, `"&a b"` and `"a # b"` are labels) of
 .github/workflows/*.yml and *.yaml, and fail naming file:line and label for any plain-text label
 the allowlist and actionlint's built-in labels do not accept. The built-in labels, the self-hosted
 ones (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`), match in any case
@@ -20,6 +21,8 @@ escapes and `[^...]`, none of which a runner label uses. A label with a `${{ }}`
 anywhere in it is skipped, as actionlint skips it: its value is known only when the workflow runs.
 A comma or bracket inside a quoted label or a `${{ }}` expression neither splits nor closes a flow
 list or mapping, so `"${{ format('runner-{0}', matrix.arch) }}"` is one (skipped) label.
+A job written as a flow mapping (`jobs: {build: {runs-on: x}}`) is not parsed: its `runs-on` key
+fails the test as the label `<runs-on in a flow mapping>`.
 """
 
 import fnmatch
@@ -155,10 +158,21 @@ def _unquote(text):
 
 
 def _node(text):
-    """Return a value as _value returns it, its leading anchor and tag
-    removed; None for an alias, whose labels are read where its anchor is."""
-    text = PROPS.sub("", _value(text), count=1)
-    return None if text.startswith("*") else _unquote(text)
+    """Return a raw value stripped of its trailing ` # comment`, its blanks and
+    a leading anchor (`&r`) and tag (`!!str`); None for an unquoted alias
+    (`*r`), whose labels are read where its anchor is. Quotes are kept, so a
+    quoted scalar stays one scalar (`"*r"`, `"[a]"`, `"&a b"` are text, not
+    an alias, flow or anchor) and _node is idempotent: _label unquotes it
+    once, at the end."""
+    text = PROPS.sub("", _strip_comment(text).strip(), count=1)
+    return None if text.startswith("*") else text
+
+
+def _label(text):
+    """Return the label a raw flow item or scalar names: its node unquoted
+    once, as written between the quotes; None for an alias."""
+    text = _node(text)
+    return None if text is None else _unquote(text)
 
 
 def allowlist(path):
@@ -196,12 +210,16 @@ def _split_flow(inner):
 
 def _labels(value):
     """Yield the labels of a scalar or flow-list value, skipping any label with
-    a `${{ ... }}` expression anywhere in it."""
+    a `${{ ... }}` expression anywhere in it. The value and its items are raw
+    text (see _node): a quoted scalar is one label, read as written."""
+    value = _node(value)
+    if value is None:
+        return
     items = [value]
     if value.startswith("[") and value.endswith("]"):
         items = _split_flow(value[1:-1])
     for label in items:
-        label = _node(label) or ""
+        label = _label(label) or ""
         if label and not 0 <= label.find("${{") < label.find("}}"):
             yield label
 
@@ -212,7 +230,7 @@ def _value_labels(value):
     if value.startswith("{") and value.endswith("}"):
         entries = (FLOW_ENTRY.match(e) for e in _split_flow(value[1:-1]))
         values = [e.group(1) for e in entries if e]
-        value = (_node(values[0]) or "") if values else ""
+        value = values[0] if values else ""
     yield from _labels(value)
 
 
@@ -243,6 +261,28 @@ def _flow(lines, i, value):
     return None, len(lines)
 
 
+FLOW_RUNS_ON = "<runs-on in a flow mapping>"
+FLOW_KEY = re.compile(r"""["']?runs-on["']?\s*:""")
+
+
+def _flow_runs_on(line):
+    """Return whether a line has a `runs-on` key, bare or quoted, inside a
+    flow mapping: after a `{` or `,` (blanks between) and before `\\s*:`, all
+    outside quoted scalars, `${{ }}` expressions and ` # comments`."""
+    scanner, before, quote, expr = _Scanner(), None, None, 0
+    for i, c, top in scanner.feed(line):
+        # quote and expr are the scanner's state before this character.
+        outside = quote is None and not expr
+        if outside and before in ("{", ",") and FLOW_KEY.match(line, i):
+            return True
+        if _is_comment(scanner, c, top):
+            return False
+        if outside and c not in " \t":
+            before = c
+        quote, expr = scanner.quote, scanner.expr
+    return False
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
@@ -264,12 +304,22 @@ def plain_labels(text):
     anywhere in it (`runner-${{ matrix.n }}`) is skipped. A value's leading
     anchor (`&r`) and tag (`!!str`) are dropped, and an alias (`*r`) yields
     nothing, its labels read at its anchor (an anchor outside a `runs-on:`
-    key is not read).
+    key is not read). A quoted label is read as written, unquoted once:
+    `"*r"`, `"&a linux"`, `"!!str linux"`, `"linux # x"` and `"'linux'"` are
+    labels, not an alias, anchor, tag, comment or second quote.
+
+    A job written as a flow mapping is not parsed: a `runs-on` key, bare or
+    quoted, after a `{` or `,` on a line, outside quoted scalars, `${{ }}`
+    expressions and comments (`jobs: {build: {runs-on: x}}`), yields the
+    label `<runs-on in a flow mapping>`, which no allowlist accepts, so the
+    test fails closed on it.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
         key = RUNS_ON.match(line)
         if not key:
+            if _flow_runs_on(line):
+                yield i + 1, FLOW_RUNS_ON
             continue
         value = _node(key.group(2))
         if value is not None:
@@ -294,7 +344,7 @@ def plain_labels(text):
                 item = ITEM.match(lines[j])
                 listed = list_indent is not None
                 if item and listed and len(item.group(1)) >= list_indent:
-                    for label in _labels(_value(item.group(2))):
+                    for label in _labels(item.group(2)):
                         yield j + 1, label
                     continue
                 entry = ENTRY.match(lines[j])

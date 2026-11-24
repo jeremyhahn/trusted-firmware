@@ -220,6 +220,23 @@ static next_t answer(tfw_boot_platform_t *plat,
     return next;
 }
 
+/*
+ * One received byte into the framer. Kept out of line for the same reason as
+ * answer() above: an empty pass never reaches it, so it must not shape the
+ * pass. tfw_framer_push has one caller in tfw-boot, here, so under -flto GCC
+ * may inline it into serve, and whether it does follows the size of its body.
+ * When the framer gained the oversize-request refusal (#640) the 2560 OTA
+ * image's empty pass drifted from 77 to about 62 cycles, and the session idled
+ * out near 8 s, not 10 s. Out of line, serve's empty pass is the loop
+ * boot_tick.h's TFW_BOOT_POLL_CYCLES describes, whatever the framer grows.
+ */
+static tfw_frame_event_t push(uint8_t byte) __attribute__((noinline));
+
+static tfw_frame_event_t push(uint8_t byte)
+{
+    return tfw_framer_push(&framer, byte);
+}
+
 static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
                   const tfw_boot_session_limits_t *lim)
 {
@@ -260,7 +277,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
         if (lim && lim->max_bytes != 0u && ++total_bytes >= lim->max_bytes) {
             return;
         }
-        if (tfw_framer_push(&framer, byte) != TFW_FRAME_READY) {
+        if (push(byte) != TFW_FRAME_READY) {
             continue;
         }
 

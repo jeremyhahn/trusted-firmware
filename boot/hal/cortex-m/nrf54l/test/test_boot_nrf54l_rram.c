@@ -161,6 +161,20 @@ static void test_a_span_past_the_rram_end_is_refused(void)
     TEST_ASSERT_EQUAL_UINT(1u, logged);
 }
 
+/* The span check compares against what is left above addr, so a length whose end wraps past 2^32 is refused, not taken as a short write. */
+static void test_a_length_that_wraps_past_4_gib_is_refused(void)
+{
+    controller_ready();
+    drop_readynext_after = 1u;    /* a wrongly accepted span stops after one store */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_cm_boot_flash_write(BOOT_REGION_END, data, 0u - BOOT_REGION_END + 4u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_cm_boot_flash_write((uint32_t)TFW_NRF54L_RRAM_SIZE - 4u, data, 0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL_UINT(0u, logged);
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_RRAMC_CONFIG);
+}
+
 /* ...with WEN put back on that path too. */
 static void test_a_failed_wait_puts_wen_back(void)
 {
@@ -276,6 +290,7 @@ int main(void)
     RUN_TEST(test_a_controller_never_ready_at_the_start_stores_nothing);
     RUN_TEST(test_config_gets_back_its_earlier_value);
     RUN_TEST(test_a_span_past_the_rram_end_is_refused);
+    RUN_TEST(test_a_length_that_wraps_past_4_gib_is_refused);
     RUN_TEST(test_each_byte_lands_at_its_address);
     RUN_TEST(test_an_unaligned_source_is_stored_whole);
     RUN_TEST(test_a_write_at_the_region_end_is_accepted);

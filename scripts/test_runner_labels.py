@@ -18,6 +18,8 @@ ones (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`), m
 matched case-sensitively with fnmatch; actionlint's Go path.Match differs only for `/`, `\\`
 escapes and `[^...]`, none of which a runner label uses. A label with a `${{ }}` expression
 anywhere in it is skipped, as actionlint skips it: its value is known only when the workflow runs.
+A comma or bracket inside a quoted label or a `${{ }}` expression neither splits nor closes a flow
+list or mapping, so `"${{ format('runner-{0}', matrix.arch) }}"` is one (skipped) label.
 """
 
 import fnmatch
@@ -71,7 +73,7 @@ GITHUB_HOSTED = {
 RUNS_ON = re.compile(r"""^(\s*)(?:-\s+)?["']?runs-on["']?\s*:(.*)$""")
 ITEM = re.compile(r"^(\s*)-\s+(.*)$")
 ENTRY = re.compile(r"^(\s*)[\"']?([\w-]+)[\"']?\s*:(\s.*)?$")
-FLOW_LABELS = re.compile(r"[{,]\s*[\"']?labels[\"']?\s*:\s*(\[[^\]]*\]|[^,}]*)")
+FLOW_ENTRY = re.compile(r"""^\s*["']?labels["']?\s*:(.*)$""", re.DOTALL)
 PROPS = re.compile(r"^(?:[&!]\S*(?:\s+|$))+")
 
 
@@ -108,12 +110,56 @@ def allowlist(path):
     return labels
 
 
+def _split_flow(inner):
+    """Split the body of a flow list or mapping (the text between its outer
+    brackets) on its top-level commas. A comma inside a quoted scalar
+    (`"a,b"`, `'a,b'`), a `${{ ... }}` expression or a nested `[...]` or
+    `{...}` flow does not split it, nor does a bracket inside any of those
+    close it. A single-quoted scalar escapes its quote as `''`, a
+    double-quoted one with a backslash; an expression's own string literals
+    are single-quoted."""
+    parts, start, i = [], 0, 0
+    quote, expr, nest = None, 0, 0
+    while i < len(inner):
+        c = inner[i]
+        if quote == "'":
+            if inner.startswith("''", i):
+                i += 1
+            elif c == "'":
+                quote = None
+        elif quote == '"':
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quote = None
+        elif inner.startswith("${{", i):
+            expr += 1
+            i += 2
+        elif expr and inner.startswith("}}", i):
+            expr -= 1
+            i += 1
+        elif c in "'\"" and (expr or not inner[start:i].strip() or inner[i - 1] in " \t:[{"):
+            quote = c
+        elif expr:
+            pass
+        elif c in "[{":
+            nest += 1
+        elif c in "]}":
+            nest -= 1
+        elif c == "," and not nest:
+            parts.append(inner[start:i])
+            start = i + 1
+        i += 1
+    parts.append(inner[start:])
+    return parts
+
+
 def _labels(value):
     """Yield the labels of a scalar or flow-list value, skipping any label with
     a `${{ ... }}` expression anywhere in it."""
     items = [value]
     if value.startswith("[") and value.endswith("]"):
-        items = value[1:-1].split(",")
+        items = _split_flow(value[1:-1])
     for label in items:
         label = _node(label) or ""
         if label and not 0 <= label.find("${{") < label.find("}}"):
@@ -124,8 +170,9 @@ def _value_labels(value):
     """Yield the labels of a scalar, flow-list or flow-mapping value; of a
     flow mapping only its `labels:` entry counts."""
     if value.startswith("{") and value.endswith("}"):
-        entry = FLOW_LABELS.search(value)
-        value = _value(entry.group(1)) if entry else ""
+        entries = (FLOW_ENTRY.match(e) for e in _split_flow(value[1:-1]))
+        values = [e.group(1) for e in entries if e]
+        value = (_node(values[0]) or "") if values else ""
     yield from _labels(value)
 
 

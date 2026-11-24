@@ -181,7 +181,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
-                            test/unit/test_app_none.c test/unit/test_app_cmd.c test/unit/test_app_cmd_none.c test/unit/test_app_cmd_gate.c \
+                            test/unit/test_app_none.c test/unit/test_app_cmd_none.c test/unit/test_app_cmd_gate.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
@@ -1705,6 +1705,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_tfwsim_main_mutate \
                     $(HOST_DIR)/test_suit_emit_main_mutate $(HOST_DIR)/test_suit_emit_main_unbound \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
+                    $(HOST_DIR)/test_app_cmd_none $(HOST_DIR)/test_app_cmd_gate \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_dhcp_w5100 $(HOST_DIR)/test_dhcp_w5500 $(HOST_DIR)/test_link_dhcp \

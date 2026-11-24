@@ -113,7 +113,7 @@ static esp_err_t use_static_address(esp_netif_t *netif)
 }
 #endif
 
-tfw_status_t tfw_esp_eth_start(void)
+static tfw_status_t bring_up(void)
 {
     esp_netif_config_t      netif_cfg = ESP_NETIF_DEFAULT_ETH();
     eth_mac_config_t        mac_cfg   = ETH_MAC_DEFAULT_CONFIG();
@@ -122,9 +122,6 @@ tfw_status_t tfw_esp_eth_start(void)
     esp_eth_mac_t          *mac;
     esp_eth_phy_t          *phy;
 
-    if (started) {
-        return TFW_OK;
-    }
     if (esp_netif_init() != ESP_OK) {
         return TFW_ERR_INTERNAL;
     }
@@ -157,8 +154,25 @@ tfw_status_t tfw_esp_eth_start(void)
         esp_eth_start(eth) != ESP_OK) {
         return TFW_ERR_INTERNAL;
     }
-    started = 1u;
     return TFW_OK;
+}
+
+tfw_status_t tfw_esp_eth_start(void)
+{
+    tfw_status_t st;
+
+    if (started) {
+        return TFW_OK;
+    }
+    st = bring_up();
+    if (st != TFW_OK) {
+        /* The caller drops it; this is the console's one trace of it. */
+        ESP_LOGW(TAG, "no link: Ethernet did not start, no wire on tcp/%u",
+                 (unsigned)TFW_ESP_WIRE_PORT);
+    } else {
+        started = 1u;
+    }
+    return st;
 }
 
 /* ESP32 Ethernet runs under esp-netif's own task: the superloop's pass is empty. */

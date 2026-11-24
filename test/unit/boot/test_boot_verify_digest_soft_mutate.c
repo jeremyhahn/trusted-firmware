@@ -4,7 +4,8 @@
  * Layer 0's digest verify on the p256-soft row (boot/hal/esp32/verify_digest_soft.c)
  * under seeded mutation (#163): every key byte reaches the check, a digest is
  * taken whole, only micro-ecc's 1 is a pass, and an erased slot is a refusal
- * with TFW_ERR_CRYPTO, never a pass and never another status.
+ * with TFW_ERR_CRYPTO, never a pass and never another status. A real key whose
+ * last byte is 0xFF is not taken for an erased slot.
  *
  * The key is the image key test_boot_l0_esp32.c already carries; its public
  * half is computed here, so no key pair is stored.
@@ -120,6 +121,21 @@ static void test_an_erased_slot_is_refused_with_crypto(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_crypto_verify_image(digest, sig));
 }
 
+/* Erased is all 64 bytes 0xFF, not the last one. 333 is the first scalar
+ * whose public Y ends in 0xFF, so a check that read one byte of the slot
+ * would refuse this provisioned key. */
+static void test_a_key_ending_in_ff_is_not_an_erased_slot(void)
+{
+    uint8_t d[32] = { 0u };
+
+    d[30] = 0x01u;
+    d[31] = 0x4Du;
+    TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(d, tfw_boot_p256_key, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_boot_p256_key[63]);
+    sign(d, digest, sig);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_crypto_verify_image(digest, sig));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -129,5 +145,6 @@ int main(void)
     RUN_TEST(test_the_last_key_byte_is_verified);
     RUN_TEST(test_another_key_refuses);
     RUN_TEST(test_an_erased_slot_is_refused_with_crypto);
+    RUN_TEST(test_a_key_ending_in_ff_is_not_an_erased_slot);
     return UNITY_END();
 }

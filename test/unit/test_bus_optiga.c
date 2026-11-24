@@ -7,7 +7,8 @@
  * bus_held_none.c and sees 0x30 reach the bus; this binary links
  * src/crypto/optiga/optiga_i2c.c in its place, and 0x30 is the element's.
  *
- * The I2C HAL here records the address it was asked for. SPI's and 1-Wire's
+ * The I2C HAL here records the address, the write bytes and both lengths it
+ * was asked for, so a host's write reaching the bus is checked. SPI's and 1-Wire's
  * HAL functions resolve bus.c's other handlers, which this suite never
  * issues: reaching one is a wiring mistake, as in test_bus_element.c.
  */
@@ -18,12 +19,16 @@
 #include "unity.h"
 #include "bus.h"
 #include "optiga_i2c.h"
+#include "tfw/config.h"
 #include "tfw/crypto.h"
 #include "tfw/hal.h"
 #include "tfw/status.h"
 
 static unsigned xfers;
 static uint8_t  last_addr;
+static uint8_t  last_wr[TFW_MAX_PAYLOAD];
+static uint8_t  last_wlen;
+static uint8_t  last_rlen;
 
 tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
@@ -34,7 +39,11 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                               uint8_t *rd, uint8_t rlen)
 {
-    (void)wr; (void)wlen;
+    last_wlen = wlen;
+    last_rlen = rlen;
+    if (wlen) {
+        memcpy(last_wr, wr, wlen);
+    }
     xfers++;
     last_addr = addr7;
     if (rlen) {
@@ -101,6 +110,9 @@ void setUp(void)
 {
     xfers     = 0u;
     last_addr = 0xFFu;
+    last_wlen = 0xFFu;
+    last_rlen = 0xFFu;
+    memset(last_wr, 0, sizeof last_wr);
 }
 
 void tearDown(void) {}
@@ -156,6 +168,42 @@ static void test_the_transport_holds_its_address_and_no_other(void)
     }
 }
 
+/* [addr][read_len][write blob]: the blob is the rest of the request, and
+ * bus.c hands every byte of it, and its length, to the HAL (api.md). */
+static void test_the_host_write_bytes_reach_the_bus_unchanged(void)
+{
+    static const uint8_t want[5] = { 0x01u, 0x02u, 0x7Fu, 0x80u, 0xFFu };
+    uint8_t      req[7] = { 0x48u, 3u, 0x01u, 0x02u, 0x7Fu, 0x80u, 0xFFu };
+    tfw_reader_t rq;
+
+    tfw_reader_init(&rq, req, (uint8_t)sizeof req);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_i2c_cmd_xfer(&rq, &w));
+    TEST_ASSERT_EQUAL_UINT(1u, xfers);
+    TEST_ASSERT_EQUAL_HEX8(0x48u, last_addr);
+    TEST_ASSERT_EQUAL_UINT8(5u, last_wlen);
+    TEST_ASSERT_EQUAL_UINT8(3u, last_rlen);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, last_wr, 5u);
+    TEST_ASSERT_EQUAL_UINT8(3u, w.pos);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, outbuf[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, outbuf[1]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, outbuf[2]);
+}
+
+static void test_a_write_only_transfer_answers_nothing(void)
+{
+    uint8_t      req[3] = { 0x48u, 0u, 0xAAu };
+    tfw_reader_t rq;
+
+    tfw_reader_init(&rq, req, (uint8_t)sizeof req);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_i2c_cmd_xfer(&rq, &w));
+    TEST_ASSERT_EQUAL_UINT8(1u, last_wlen);
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, last_wr[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, last_rlen);
+    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -164,5 +212,7 @@ int main(void)
     RUN_TEST(test_its_neighbours_reach_the_bus);
     RUN_TEST(test_the_element_and_reserved_addresses_stay_refused);
     RUN_TEST(test_the_transport_holds_its_address_and_no_other);
+    RUN_TEST(test_the_host_write_bytes_reach_the_bus_unchanged);
+    RUN_TEST(test_a_write_only_transfer_answers_nothing);
     return UNITY_END();
 }

@@ -723,11 +723,14 @@ $(BOOT_TEST_DIR)/test_h5_hal_soc: src/hal/cortex-m/stm32h5/test/test_h5_hal_soc.
 	   -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The RP2350's sector read-modify-write (row rp2350): the arithmetic every
 # tfw-boot flash write goes through, over a RAM flash the test supplies in
-# place of rp_flash_rom.c's boot ROM calls.
-$(BOOT_TEST_DIR)/test_boot_rp2350_flash: test/unit/boot/test_boot_rp2350_flash.c \
-        boot/hal/cortex-m/rp2350/rp_flash.c src/core/secure_zero.c \
-        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# place of rp_flash_rom.c's boot ROM calls. boot_flash.c, the entry tfw-boot
+# calls, is linked too, under the Pico 2 W's profile
+# (BOOT_TEST_RP2350_CFLAGS, below), so its bound is the board's flash end.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_flash
+$(BOOT_TEST_DIR)/test_boot_rp2350_flash: boot/hal/cortex-m/rp2350/test/test_boot_rp2350_flash.c \
+        boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/boot_flash.c \
+        src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The MCXN947's flash writes (row mcxn947), boot/hal/cortex-m/mcxn94x/
 # mcxn_flash.c, over a model of the boot ROM's flash driver in place of the
 # ROM's: the test is the driver, so boot_flash.c, which finds the ROM's, is
@@ -1198,6 +1201,34 @@ $(BOOT_TEST_DIR)/test_cm_boot_factory: boot/hal/cortex-m/test/test_cm_boot_facto
         boot/hal/cortex-m/boot_factory.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) -I$(RP2350_BOOT_TEST_DIR) $(call BOOT_TEST_MPS2_CFLAGS,mps2-an505) $(EXTRA_CFLAGS) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The SoC file both MPS2 images link, src/hal/cortex-m/mps2/hal_soc.c, the
+# RP2350 UART's way: its test's cm_regs.h comes ahead of src/hal/cortex-m, so
+# every TFW_CM_REG lands in the test's access log. Once per profile, since the
+# watchdog's base is the image's; the rule states it by literal (TEST_WDOG_BASE).
+# The test lives in a subdirectory, which the SoC's *.c wildcard does not reach.
+MPS2_SOC_TEST_DIR := src/hal/cortex-m/mps2/test
+BOOT_TEST_MPS2_SOC_BINS := $(BOOT_TEST_DIR)/test_mps2_soc_wdog-an505 $(BOOT_TEST_DIR)/test_mps2_soc_wdog-an500
+BOOT_TEST_BINS += $(BOOT_TEST_MPS2_SOC_BINS)
+MPS2_WDOG_BASE_an505 := 0x50081000u
+MPS2_WDOG_BASE_an500 := 0x40008000u
+# The real SSP and SBCon accessors ride the same binaries, their bases by
+# literal too (shield 0's PL022 and SBCon, the FPGA I/O block).
+MPS2_SPI_BASE_an505 := 0x4020A000u
+MPS2_SPI_BASE_an500 := 0x40026000u
+MPS2_I2C_BASE_an505 := 0x4020C000u
+MPS2_I2C_BASE_an500 := 0x40029000u
+MPS2_FPGAIO_BASE_an505 := 0x40302000u
+MPS2_FPGAIO_BASE_an500 := 0x40028000u
+BOOT_TEST_MPS2_SOC_CFLAGS = -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+                            $(subst -Iboards/$(HOST_BOARD),-Iboards/mps2-$(1),\
+                              $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) \
+                            -DTEST_WDOG_BASE=$(MPS2_WDOG_BASE_$(1)) -DTEST_SPI_BASE=$(MPS2_SPI_BASE_$(1)) \
+                            -DTEST_I2C_BASE=$(MPS2_I2C_BASE_$(1)) -DTEST_FPGAIO_BASE=$(MPS2_FPGAIO_BASE_$(1))
+$(BOOT_TEST_MPS2_SOC_BINS): $(BOOT_TEST_DIR)/test_mps2_soc_wdog-%: $(MPS2_SOC_TEST_DIR)/test_mps2_soc_wdog.c \
+        src/hal/cortex-m/mps2/hal_soc.c src/hal/cortex-m/mps2/pl022.c src/hal/cortex-m/mps2/sbcon.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(call BOOT_TEST_MPS2_SOC_CFLAGS,$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \

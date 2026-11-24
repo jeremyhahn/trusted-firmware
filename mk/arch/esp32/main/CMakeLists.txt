@@ -42,18 +42,18 @@ endif()
 
 # A static address (mk/arch/esp32/main/Kconfig.projbuild) is three dotted quads.
 # Checked here, at configure time, so a typo is a build error and not a board
-# that boots with no address.
+# that boots with no address or with another address. Each octet is decimal
+# 0-255 with no leading zero: lwIP's ip4addr_aton
+# (third_party/lwip/src/core/ipv4/ip4_addr.c) reads an octet that starts with
+# 0 as octal, so an octet written 010 would come up as 8 and one written 08
+# would not parse at all.
 if(CONFIG_TFW_ETH_STATIC_IP)
+    set(octet "(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])")
     foreach(knob TFW_ETH_IP_ADDR TFW_ETH_NETMASK TFW_ETH_GATEWAY)
         set(quad "${CONFIG_${knob}}")
-        if(NOT quad MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
-            message(FATAL_ERROR "CONFIG_${knob}=\"${quad}\" is not a dotted-quad IPv4 address")
+        if(NOT quad MATCHES "^${octet}\\.${octet}\\.${octet}\\.${octet}$")
+            message(FATAL_ERROR "CONFIG_${knob}=\"${quad}\" is not a dotted-quad IPv4 address of decimal octets 0-255 with no leading zero (lwIP reads a leading zero as octal)")
         endif()
-        foreach(octet ${CMAKE_MATCH_1} ${CMAKE_MATCH_2} ${CMAKE_MATCH_3} ${CMAKE_MATCH_4})
-            if(octet GREATER 255)
-                message(FATAL_ERROR "CONFIG_${knob}=\"${quad}\" has an octet above 255")
-            endif()
-        endforeach()
     endforeach()
 endif()
 

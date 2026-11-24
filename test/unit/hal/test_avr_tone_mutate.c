@@ -21,14 +21,23 @@
 
 static uint8_t mem[MEM], before[MEM];
 static uint8_t regs[TFW_AVR_REGS];
+static uint8_t ocr2a_buf;   /* OCR2A's buffer; regs[] holds the compare unit's value */
 static int     atomic_depth, atomic_blocks, outside_atomic;
 
 volatile uint8_t *tfw_avr_reg(unsigned id)
 {
-    TEST_ASSERT_TRUE_MESSAGE(id == TFW_AVR_TCCR2A || id == TFW_AVR_TCCR2B || id == TFW_AVR_OCR2A,
+    TEST_ASSERT_TRUE_MESSAGE(id == TFW_AVR_TCCR2A || id == TFW_AVR_TCCR2B || id == TFW_AVR_OCR2A ||
+                             id == TFW_AVR_TCNT2,
                              "hal_tone.c touched a register outside Timer2");
     if (atomic_depth == 0) {
         outside_atomic++;
+    }
+    /* With WGM20 set (a PWM mode, as hal_pwm.c leaves Timer2) OCR2A is double
+     * buffered: a write lands in the buffer and reaches the compare unit only
+     * at TOP on a running clock. hal_tone.c writes with the clock stopped, so
+     * a write made in PWM mode never reaches the compare unit at all. */
+    if (id == TFW_AVR_OCR2A && (regs[TFW_AVR_TCCR2A] & 0x01u) != 0u) {
+        return &ocr2a_buf;
     }
     return &regs[id];
 }
@@ -69,6 +78,8 @@ static const tfw_pinref_t oc2a_2560 = { 0x23u, 4u };
 #define TCCR2A_SEED 0xB5u   /* COM2A0 set, other bits a pattern to keep */
 #define TCCR2B_SEED 0x5Au
 #define OCR2A_SEED  0xC3u
+#define TCNT2_SEED  0xF0u   /* above every top the fast tones use */
+#define OCR2A_BUF_SEED 0x3Cu
 
 static void fill(void)
 {
@@ -83,6 +94,8 @@ static void fill(void)
     regs[TFW_AVR_TCCR2A] = TCCR2A_SEED;
     regs[TFW_AVR_TCCR2B] = TCCR2B_SEED;
     regs[TFW_AVR_OCR2A]  = OCR2A_SEED;
+    regs[TFW_AVR_TCNT2]  = TCNT2_SEED;
+    ocr2a_buf            = OCR2A_BUF_SEED;
     atomic_depth = atomic_blocks = outside_atomic = 0;
 }
 
@@ -157,6 +170,7 @@ static void check_stopped(void)
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(TCCR2A_SEED & ~0x40u), regs[TFW_AVR_TCCR2A]);
     TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCCR2B]);
     TEST_ASSERT_EQUAL_HEX8(OCR2A_SEED, regs[TFW_AVR_OCR2A]);  /* left alone */
+    TEST_ASSERT_EQUAL_HEX8(TCNT2_SEED, regs[TFW_AVR_TCNT2]);  /* left alone */
     only_changed(MEM);                                        /* pin left as it was */
     TEST_ASSERT_EQUAL_INT(1, atomic_blocks);
     TEST_ASSERT_EQUAL_INT(0, outside_atomic);
@@ -189,6 +203,55 @@ static void test_start_then_stop(void)
     TEST_ASSERT_EQUAL_INT(0, outside_atomic);
 }
 
+/* CTC misses a compare value below the running count: the counter runs on to
+ * 0xFF and wraps first. Start must leave the count at zero, below any top. */
+static void test_start_clears_the_count_so_a_lower_top_is_not_missed(void)
+{
+    fill();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 4400u));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCNT2]);
+    TEST_ASSERT_EQUAL_UINT8(27u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_HEX8(0x04u, regs[TFW_AVR_TCCR2B]);     /* CS22: clock on */
+    TEST_ASSERT_EQUAL_INT(1, atomic_blocks);
+    TEST_ASSERT_EQUAL_INT(0, outside_atomic);
+    TEST_ASSERT_EQUAL_INT(0, atomic_depth);
+}
+
+/* Retune up in pitch while a lower tone sounds: the count is mid-period of
+ * the old top 124, above the new top 27. */
+static void test_retune_down_to_a_lower_top_clears_the_count(void)
+{
+    fill();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 1000u));
+    regs[TFW_AVR_TCNT2] = 100u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 4400u));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, regs[TFW_AVR_TCNT2]);
+    TEST_ASSERT_EQUAL_UINT8(27u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_INT(0, outside_atomic);
+}
+
+/* After PWM_WRITE on a Timer2 pin, and after its stop, WGM20 stays set: the
+ * compare value is double buffered. Start must select CTC (unbuffered) before
+ * it writes the top, or the tone keeps the PWM duty as its compare value. */
+static void test_a_tone_after_pwm_on_timer2_takes_its_own_top(void)
+{
+    fill();
+    regs[TFW_AVR_TCCR2A] = 0x83u;   /* COM2A1 | WGM21 | WGM20: fast PWM, driving */
+    regs[TFW_AVR_OCR2A]  = 200u;    /* the duty in the compare unit */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 4400u));
+    TEST_ASSERT_EQUAL_UINT8(27u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_HEX8(OCR2A_BUF_SEED, ocr2a_buf);       /* nothing went to the buffer */
+    TEST_ASSERT_EQUAL_HEX8(0x42u, regs[TFW_AVR_TCCR2A]);     /* COM2A0 | WGM21: CTC */
+    TEST_ASSERT_EQUAL_HEX8(0x04u, regs[TFW_AVR_TCCR2B]);
+
+    fill();
+    regs[TFW_AVR_TCCR2A] = 0x03u;   /* PWM stopped: COM2A cleared, WGM20 kept */
+    regs[TFW_AVR_OCR2A]  = 200u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&oc2a_328p, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(124u, regs[TFW_AVR_OCR2A]);
+    TEST_ASSERT_EQUAL_HEX8(OCR2A_BUF_SEED, ocr2a_buf);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -197,5 +260,8 @@ int main(void)
     RUN_TEST(test_stop_disconnects_pin_and_stops_clock);
     RUN_TEST(test_start_zero_hz_is_stop);
     RUN_TEST(test_start_then_stop);
+    RUN_TEST(test_start_clears_the_count_so_a_lower_top_is_not_missed);
+    RUN_TEST(test_retune_down_to_a_lower_top_clears_the_count);
+    RUN_TEST(test_a_tone_after_pwm_on_timer2_takes_its_own_top);
     return UNITY_END();
 }

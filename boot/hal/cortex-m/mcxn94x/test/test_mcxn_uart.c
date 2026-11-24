@@ -6,11 +6,16 @@
  * 4 KiB of registers in RAM. The suite checks the registers start writes and
  * their values, that a rate the clock cannot divide to writes none, that a
  * byte is read only when one has arrived and an error flag is cleared on the
- * way, and that stop leaves the unit in its reset.
+ * way, that putc waits for TDRE and stop for TC (a timer signal sets each
+ * flag while the call spins), and that stop leaves the unit in its reset.
  *
  * The offsets and bits are pinned as literals: they are the SDK device
  * header's, and a value computed from soc_regs.h would move with it.
  */
+/* sigaction and setitimer. */
+#define _GNU_SOURCE
+#include <signal.h>
+#include <sys/time.h>
 #include <stdint.h>
 #include "unity.h"
 #include "mcxn_uart.h"
@@ -36,6 +41,50 @@
 
 static volatile uint32_t fc[0x1000u / 4u];
 
+/* The flags a spinning call waits on can only change from outside it: a 2 ms
+ * timer signal records DATA and CTRL, then sets TDRE at tick 1 and TC at
+ * tick 2; from tick 10 every flag is set so a broken wait cannot hang. */
+static volatile sig_atomic_t ticks;
+static volatile uint32_t seen_data[3], seen_ctrl[3];
+static struct sigaction old_action;
+
+static void on_tick(int sig)
+{
+    (void)sig;
+    ticks++;
+    if (ticks <= 2) {
+        seen_data[ticks] = fc[DATA];
+        seen_ctrl[ticks] = fc[CTRL];
+    }
+    if (ticks == 1) {
+        fc[STAT] |= STAT_TDRE;
+    } else if (ticks == 2) {
+        fc[STAT] |= STAT_TC;
+    } else if (ticks >= 10) {
+        fc[STAT] = 0xFFFFFFFFu;
+    }
+}
+
+static void arm(void)
+{
+    struct sigaction sa;
+    struct itimerval it = {{0, 2000}, {0, 2000}};
+
+    sa.sa_handler = on_tick;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    TEST_ASSERT_EQUAL_INT(0, sigaction(SIGALRM, &sa, &old_action));
+    TEST_ASSERT_EQUAL_INT(0, setitimer(ITIMER_REAL, &it, NULL));
+}
+
+static void disarm(void)
+{
+    struct itimerval it = {{0, 0}, {0, 0}};
+
+    TEST_ASSERT_EQUAL_INT(0, setitimer(ITIMER_REAL, &it, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sigaction(SIGALRM, &old_action, NULL));
+}
+
 void setUp(void)
 {
     uint32_t i;
@@ -43,6 +92,7 @@ void setUp(void)
     for (i = 0u; i < sizeof fc / sizeof fc[0]; i++) {
         fc[i] = 0u;
     }
+    ticks = 0;
 }
 
 void tearDown(void) {}
@@ -126,6 +176,35 @@ static void test_stop_leaves_the_unit_in_reset(void)
     TEST_ASSERT_EQUAL_HEX32(0u, fc[PSELID]);
 }
 
+/* No room yet: putc spins until TDRE and only then writes, so DATA still
+ * holds the byte before it when the flag is set. */
+static void test_putc_waits_for_room_before_it_writes(void)
+{
+    fc[DATA] = 0x11u;
+    arm();
+    tfw_mcxn_uart_putc(fc, 0x7Eu);
+    disarm();
+    TEST_ASSERT_TRUE(ticks >= 1);
+    TEST_ASSERT_EQUAL_HEX32(0x11u, seen_data[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x7Eu, fc[DATA]);
+}
+
+/* An empty buffer is not an empty shifter: stop keeps the unit running
+ * through TDRE and resets it only on TC, so the last byte goes out whole. */
+static void test_stop_waits_for_the_shifter_not_the_buffer(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_mcxn_uart_start(fc, CLK, 115200u));
+    fc[STAT] = 0u;
+    arm();
+    tfw_mcxn_uart_stop(fc);
+    disarm();
+    TEST_ASSERT_TRUE(ticks >= 2);
+    TEST_ASSERT_EQUAL_HEX32(CTRL_RE | CTRL_TE, seen_ctrl[2]);
+    TEST_ASSERT_EQUAL_HEX32(0u, fc[CTRL]);
+    TEST_ASSERT_EQUAL_HEX32(GLOBAL_RST, fc[GLOBAL]);
+    TEST_ASSERT_EQUAL_HEX32(0u, fc[PSELID]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -135,5 +214,7 @@ int main(void)
     RUN_TEST(test_getc_clears_an_error_flag);
     RUN_TEST(test_putc_writes_data);
     RUN_TEST(test_stop_leaves_the_unit_in_reset);
+    RUN_TEST(test_putc_waits_for_room_before_it_writes);
+    RUN_TEST(test_stop_waits_for_the_shifter_not_the_buffer);
     return UNITY_END();
 }

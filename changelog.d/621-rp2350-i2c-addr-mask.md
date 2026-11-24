@@ -1,0 +1,1 @@
+- The RP2350 I2C transfer's host test now pins that IC_TAR takes only the low 7 address bits, and that an address NACK on a read leaves the caller's buffer untouched.

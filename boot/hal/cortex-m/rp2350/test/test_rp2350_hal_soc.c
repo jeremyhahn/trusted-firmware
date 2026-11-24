@@ -77,6 +77,7 @@ static uint32_t model_used;
 static uint32_t trace_addr[MODEL_TRACE];
 static uint32_t trace_val[MODEL_TRACE];
 static volatile uint32_t *trace_reg[MODEL_TRACE];
+static uint32_t trace_mark[MODEL_TRACE];  /* tfw_cm_reset_mark at each access */
 static uint32_t trace_used;
 
 /* A status register reads idle until its ready_at-th access. */
@@ -123,6 +124,7 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
     }
     trace_addr[trace_used] = addr;
     trace_reg[trace_used] = r;
+    trace_mark[trace_used] = tfw_cm_reset_mark;
     trace_used++;
 
     for (i = 0u; i < MODEL_POLLS; i++) {
@@ -332,6 +334,22 @@ static void test_watchdog_arm_marks_and_arms_for_8_s(void)
     TEST_ASSERT_TRUE(last(WDOG_LOAD) < first(WDOG_CTRL));
 }
 
+/* Once CTRL enables the watchdog it can fire: a reset in that window must
+ * find the mark set and WDSEL written, or it is misreported or resets wrong. */
+static void test_watchdog_arm_sets_up_before_it_enables(void)
+{
+    tfw_cm_soc_watchdog_arm();
+    trace_close();
+
+    /* WDSEL, LOAD, CTRL: three writes, CTRL not read back. */
+    TEST_ASSERT_EQUAL_UINT32(3u, trace_used);
+    TEST_ASSERT_EQUAL_UINT32(1u, accesses(WDOG_CTRL));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(WDOG_CTRL_CLR));
+    TEST_ASSERT_TRUE(last(PSM_WDSEL) < first(WDOG_CTRL));
+    TEST_ASSERT_TRUE(last(WDOG_LOAD) < first(WDOG_CTRL));
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, trace_mark[first(WDOG_CTRL)]);
+}
+
 static void test_watchdog_pet_reloads_load_only(void)
 {
     tfw_cm_soc_watchdog_arm();
@@ -370,6 +388,7 @@ int main(void)
     RUN_TEST(test_early_moves_clk_sys_off_before_clk_ref_onto_the_crystal);
     RUN_TEST(test_a_second_early_writes_the_same_values);
     RUN_TEST(test_watchdog_arm_marks_and_arms_for_8_s);
+    RUN_TEST(test_watchdog_arm_sets_up_before_it_enables);
     RUN_TEST(test_watchdog_pet_reloads_load_only);
     RUN_TEST(test_reset_cause_hands_the_registers_and_the_request_on);
     return UNITY_END();

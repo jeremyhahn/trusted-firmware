@@ -1,0 +1,3 @@
+### Added
+
+- **`test_timer_set_refuses_a_level_above_one_and_a_zero_duration`, `test_a_full_table_refuses_a_new_pin_with_no_slot` and `test_cancel_and_query_of_an_unarmed_pin` in `test/unit/test_sched.c`** (#627): TIMER_SET with level 2 or 0xFF, or with ms 0, returns `TFW_ERR_RANGE` with no timer armed and the pin low; with all `TFW_SCHED_SLOTS` slots held a new pin gets `TFW_ERR_NO_SLOT` while a held pin still re-arms in place; TIMER_CANCEL of a pin with no timer returns `TFW_ERR_NO_SLOT` and TIMER_QUERY of it answers active 0, held 0, remaining 0, so dropping any of these refusals in `tfw_sched_cmd_set`, `tfw_sched_cmd_cancel` or `tfw_sched_cmd_query` in `src/caps/sched.c` now fails the host suite.

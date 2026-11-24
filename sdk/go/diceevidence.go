@@ -99,6 +99,9 @@ type DICERegistry func(ueid []byte) (*ecdsa.PublicKey, bool)
 //   - the alias certificate is valid now (NotBefore to NotAfter);
 //   - the alias certificate has no critical extension but
 //     tcg-dice-UCCS-evidence, the one DICE extension read here;
+//   - the alias certificate is path-validated as the leaf of a chain
+//     through x5c[1] to roots, so the DeviceID's and the root's name and
+//     path-length constraints apply to it;
 //   - the alias certificate's eat_nonce and authData are nonce;
 //   - sig verifies under the alias key, a P-256 key (ES256), over
 //     SHA-256(authData);
@@ -147,6 +150,21 @@ func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, registered D
 		if !oid.Equal(oidUCCSEvidence) {
 			return nil, evidenceErr("the alias certificate has an unhandled critical extension")
 		}
+	}
+	// Path-validate the alias as the leaf of root -> DeviceID -> alias, on a
+	// copy whose tcg-dice-UCCS-evidence (checked above, read by aliasClaims)
+	// is marked handled, so the DeviceID's and root's constraints apply to it.
+	leaf := *alias
+	leaf.UnhandledCriticalExtensions = nil
+	for _, oid := range alias.UnhandledCriticalExtensions {
+		if !oid.Equal(oidUCCSEvidence) {
+			leaf.UnhandledCriticalExtensions = append(leaf.UnhandledCriticalExtensions, oid)
+		}
+	}
+	inter := x509.NewCertPool()
+	inter.AddCert(devID)
+	if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
+		return nil, errors.Join(evidenceErr("the alias certificate does not chain through the DeviceID to a root"), err)
 	}
 	ev := &DICEEvidence{Alias: alias, DeviceID: devID}
 	var gotNonce []byte

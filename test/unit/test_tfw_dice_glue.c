@@ -27,6 +27,7 @@
 #include "handoff.h"
 #include "../../src/caps/attest.h"
 #include "../../src/tz/dice_partition.h"
+#include "../../src/third_party/micro-ecc/uECC.h"
 
 /* src/caps/alias.c and the soft DeviceID provider link the device path's
  * providers; the partition's service never reaches them (its inputs come
@@ -154,6 +155,20 @@ psa_status_t psa_key_derivation_abort(psa_key_derivation_operation_t *operation)
     (void)operation;
     abort_calls++;
     return PSA_SUCCESS;
+}
+
+/* The PSA RNG stand-in: a counter pattern, so blinding is never constant. */
+static psa_status_t rng_status;
+static int rng_calls;
+psa_status_t psa_generate_random(uint8_t *output, size_t output_size)
+{
+    static uint8_t ctr;
+
+    rng_calls++;
+    for (size_t i = 0u; i < output_size; i++) {
+        output[i] = ++ctr;
+    }
+    return rng_status;
 }
 
 psa_status_t tfm_measured_boot_read_measurement(uint8_t index,
@@ -336,6 +351,10 @@ void setUp(void)
     memset(out_vec, 0, sizeof(out_vec));
     memset(out_len, 0, sizeof(out_len));
     bad_handle = 0;
+    rng_status = PSA_SUCCESS;
+    rng_calls = 0;
+    /* The host's POSIX default RNG must not hide a missing install. */
+    uECC_set_rng(0);
 }
 
 void tearDown(void)
@@ -530,6 +549,42 @@ static void test_sfn_null_msg_is_refused(void)
     TEST_ASSERT_NOT_EQUAL(PSA_SUCCESS, tfw_dice_service_sfn(NULL));
 }
 
+static psa_status_t alias_sign(void)
+{
+    psa_msg_t m = call(TFW_DICE_OP_ALIAS_SIGN);
+
+    memset(in_vec[0], 0x77, 32u);
+    m.in_size[0] = 32u;
+    m.out_size[0] = 64u;
+    return tfw_dice_service_sfn(&m);
+}
+
+/* Codex P1 (#900, round 4): on Arm micro-ecc has no default RNG, so without
+ * an install the sign skips blinding and runs a variable-time inverse on the
+ * nonce. The partition installs a PSA-backed one before it starts. */
+static void test_init_installs_a_psa_blinding_rng(void)
+{
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
+    TEST_ASSERT_NOT_NULL(uECC_get_rng());
+    TEST_ASSERT_EQUAL(TFW_OK, alias_sign());
+    TEST_ASSERT_EQUAL(64u, out_len[0]);
+    TEST_ASSERT_TRUE(rng_calls > 0);
+    TEST_ASSERT_EQUAL(0, bad_handle);
+}
+
+static void test_a_failing_psa_rng_refuses_alias_sign(void)
+{
+    static const uint8_t zero[64];
+
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
+    rng_status = PSA_ERROR_GENERIC_ERROR;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, alias_sign());
+    TEST_ASSERT_TRUE(out_len[0] == 0u ||
+                     memcmp(out_vec[0], zero, sizeof(zero)) == 0);
+    TEST_ASSERT_TRUE(rng_calls > 0);
+    TEST_ASSERT_EQUAL(0, bad_handle);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -543,5 +598,7 @@ int main(void)
     RUN_TEST(test_sfn_passes_sizes_through);
     RUN_TEST(test_sfn_unknown_type_is_unknown_cmd);
     RUN_TEST(test_sfn_null_msg_is_refused);
+    RUN_TEST(test_init_installs_a_psa_blinding_rng);
+    RUN_TEST(test_a_failing_psa_rng_refuses_alias_sign);
     return UNITY_END();
 }

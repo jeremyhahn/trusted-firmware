@@ -52,5 +52,6 @@ psa_status_t psa_key_derivation_output_bytes(psa_key_derivation_operation_t *ope
                                              uint8_t *output,
                                              size_t output_length);
 psa_status_t psa_key_derivation_abort(psa_key_derivation_operation_t *operation);
+psa_status_t psa_generate_random(uint8_t *output, size_t output_size);
 
 #endif

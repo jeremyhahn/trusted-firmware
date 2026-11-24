@@ -23,6 +23,7 @@
  * channel_status bit 0 channel free, bit 1 channel error; channel_flags bit 0
  * the completion interrupt (Table 26); length is the header's 4 bytes plus the payload. */
 #define TFW_SCMI_SHM_STATUS  0x04u
+#define TFW_SCMI_SHM_CRC     0x0Cu   /* imx-sm's impCrc, a reserved word in SMT */
 #define TFW_SCMI_SHM_FLAGS   0x10u
 #define TFW_SCMI_SHM_LENGTH  0x14u
 #define TFW_SCMI_SHM_HEADER  0x18u
@@ -50,6 +51,7 @@ struct tfw_scmi_chan {
     uint32_t  shm_len;   /* its length in bytes */
     uint32_t  doorbell;  /* the GCR bit, 0 to 3 */
     uint32_t  token;     /* the next token */
+    uint32_t  crc;       /* 1: the channel checks CRC-32 (imx-sm check=crc32) */
 };
 
 /* The next token, ten bits, wrapping. */
@@ -63,5 +65,13 @@ uint32_t tfw_scmi_token(struct tfw_scmi_chan *c);
  * channel error. */
 int32_t tfw_scmi_xfer(const struct tfw_scmi_chan *c, const struct tfw_scmi_msg *cmd,
                       struct tfw_scmi_msg *rsp);
+
+/* CRC-32 (IEEE 802.3, reflected, polynomial 0xEDB88320, initial and final
+ * value all ones) over `n` bytes, as `seed` continues it: pass 0 to start.
+ * With c->crc set, tfw_scmi_xfer writes it over the header and payload to
+ * TFW_SCMI_SHM_CRC and checks the response's the same way, else
+ * TFW_SCMI_E_CRC. The SM's polynomial is TO CONFIRM on the bench (the
+ * standard one is assumed). */
+uint32_t tfw_scmi_crc32(uint32_t seed, const uint8_t *p, uint32_t n);
 
 #endif /* TFW_CM_IMX95_SCMI_MU_H */

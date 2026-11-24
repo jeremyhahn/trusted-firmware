@@ -22,6 +22,7 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "soc_regs.h"
+#include "console_pins.h"
 
 #define TFW_UART_RX_RING 64u
 #define TFW_UART_TX_RING 64u
@@ -49,6 +50,10 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     if (st != TFW_OK) {
         return st;
     }
+    /* The pads first: the SM owns the IOMUX and routes LPUART7 to them only
+     * when asked. A refusal leaves the console to start anyway, as the SM
+     * may have routed them already (console_pins.h). */
+    (void)tfw_imx95_console_route();
     /* A reset first: BAUD is written only with the transmitter and receiver
      * off, and whatever ran before (the ROM, a previous image) left them on. */
     TFW_IMX95_LPUART_GLOBAL = TFW_IMX95_LPUART_GLOBAL_RST;

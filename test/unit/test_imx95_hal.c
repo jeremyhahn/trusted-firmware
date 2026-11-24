@@ -31,8 +31,22 @@
 
 static struct tfw_imx95_model *m;
 
+/* The console's pad request (console_pins.c, its own test): counted here, so
+ * the console is seen to ask before it starts. */
+static uint32_t routes, lpuart_resets_at_route;
+
+int32_t tfw_imx95_console_route(void);
+int32_t tfw_imx95_console_route(void)
+{
+    routes++;
+    lpuart_resets_at_route = tfw_imx95_model_get()->lpuart.resets;
+    return 0;
+}
+
 void setUp(void)
 {
+    routes = 0u;
+    lpuart_resets_at_route = 0xFFFFFFFFu;
     tfw_imx95_model_reset();
     tfw_imx95_model_reset_mark_clear();
     m = tfw_imx95_model_get();
@@ -108,6 +122,16 @@ static void test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing(voi
     TEST_ASSERT_EQUAL_HEX32(0x0F000004u, m->lpuart.baud);       /* reset value */
     TEST_ASSERT_EQUAL_HEX32(0u, m->lpuart.ctrl);
     TEST_ASSERT_EQUAL_HEX32(0u, m->nvic.iser[2]);
+    TEST_ASSERT_EQUAL_UINT32(0u, routes);
+}
+
+/* The pads are asked for once, before the LPUART's reset. */
+static void test_uart_init_routes_the_pads_once_before_the_reset(void)
+{
+    uart_up();
+    TEST_ASSERT_EQUAL_UINT32(1u, routes);
+    TEST_ASSERT_EQUAL_UINT32(0u, lpuart_resets_at_route);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
 }
 
 /* A transmission starts by enabling the empty-register interrupt, inside the
@@ -378,6 +402,7 @@ int main(void)
     RUN_TEST(test_uart_init_resets_before_the_divisor);
     RUN_TEST(test_uart_init_clears_a_latched_overrun);
     RUN_TEST(test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing);
+    RUN_TEST(test_uart_init_routes_the_pads_once_before_the_reset);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);

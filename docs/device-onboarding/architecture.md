@@ -60,18 +60,14 @@ the earlier table, which `engineering.md` cites.
 | 10 | This project owns no enrollment, registry, profile or verification | this | met | none ships; the registry in `xkms/e2e/device_attest_dice_e2e_test.go` (`deviceRegistry`) is a test stand-in | none needed |
 | 11 | T1: `tfwprov --record` writes the provisioning record, `ueid` joined to the DeviceID point as a `cnf` `jwk`, and refuses a record of another serial or point | this | met (#173) | `sdk/go/cmd/tfwprov/record.go` | `sdk/go/cmd/tfwprov/record_test.go`; `sdk/go/cmd/tfwprov/e2e_record_test.go` |
 | 12 | go-trusted-platform's, go-quicbaas's and go-xkms's SPECs name the same seam | the three other projects | theirs; not checkable from this repository | none | none |
-| 13 | T3 (the ATmega328P enrols) waits on the owner | the owner | open: the 328P's element-tier `ETH=1` image is over its flash budget and its profile leaves `ATTEST_CSR` out | `boards/atmega328p/profile.mk` (the flash budget), `boards/atmega328p/board_profile.h` (`TFW_FEATURE_ATTEST_CSR 0`) | none until the owner chooses |
-| 14 | T4 (the ATECC608C slot map) waits on the owner | the owner | open: `tfwprov --commit` refuses the pre-locked part | `sdk/go/cmd/tfwprov/template.go`; [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md) | `sdk/go/cmd/tfwprov/template_test.go` (the current map only) |
+| 13 | T3 (the ATmega328P enrols), approved by owner ruling 1243 | this | applied; the bench proof is open: `ATTEST_CSR` answered on a Nano, and the element-tier `ETH=1` image's RAM (1 121 bytes against its 1 024-byte budget at the last measurement, [ethernet engineering](../ethernet-transport/engineering.md#flash-and-ram)) | `FLASH_BUDGET` 28 672 in `boards/atmega328p/profile.mk`; `TFW_FLASH_BUDGET` and `TFW_FEATURE_ATTEST_CSR` in `boards/atmega328p/board_profile.h` | `test_the_element_image_carries_the_alias_certificate_and_attest_csr` in `test/unit/test_board_328p.c`; `test_attest_csr_is_present_in_a_328p_build_and_caps_says_so` in `test/unit/test_dispatch.c`; on a Nano, `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go` (bench, open) |
+| 14 | T4 (the ATECC608C slot map), (a1) approved by owner ruling 1243 | this | applied on the host and the provisioning image; the bench is open: the [ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)'s bench questions 1-4 and `make hw-enroll` on a MIKROE-6774 board | slots 6 and 15 in both boards' `board_profile.h`; `PROV_SLOT_LOCK` (`0x7D`) and `PROV_CONFIG_READ` (`0x7E`) in `src/caps/provision_atecc.c`; `ProvSlotLock`, `ProvConfigRead` in `sdk/go/provision.go`; the TrustFLEX plan in `sdk/go/cmd/tfwprov/steps.go` with `sdk/go/templates/atecc608a-trustflex.conf` | `test_a_slot_lock_of_the_image_slot_clears_its_bit` and the other slot-lock cases in `test/unit/test_provision.c`; `test/unit/test_frame.c`; `TestTrustFLEXCommitRunsEveryStepInOrder` and `TestTrustFLEXVerifyNamesEveryProblem` in `sdk/go/cmd/tfwprov/steps_test.go`; `TestATrustFLEXTemplateLoads` in `sdk/go/cmd/tfwprov/template_test.go` |
 
 ### Remaining slices
 
-1. **Adapter reads the claims through `sdk/go`** (open question 4). Once the
-   `sdk/go` tag `xkms/go.mod` pins carries `AliasUCCS` and
-   `ApplicationEvidence` (v0.4.2-alpha may already; to be checked against the
-   tag), the adapter calls them instead of decoding the claims through
-   go-xkms alone. Files: `xkms/avr/attestation.go`, `xkms/go.mod`. Proof:
-   `xkms/avr/attestation_test.go` under `make xkms-test`. Needs an `sdk/go`
-   tag if v0.4.2-alpha lacks them (a release, the owner's).
+1. **Adapter reads the claims through `sdk/go`. Done.** `xkms/go.mod` pins
+   `sdk/go` v0.4.2-alpha, which carries `AliasUCCS` and `ApplicationEvidence`
+   (`sdk/go/appevidence.go`), and `xkms/avr/attestation.go` calls both.
 2. **Requirement 5: the firmware measurement beside the application's.**
    Blocked on go-xkms (owner question 3: a `DiceTcbInfo` FWID, a second CoSWID
    in 273, or a submodule 266). Then: new templates and vectors in
@@ -81,19 +77,18 @@ the earlier table, which `engineering.md` cites.
    `test/unit/test_alias.c`, `sdk/go/appevidence_test.go` and
    `xkms/e2e/soft_enroll_test.go` at the go-xkms version that accepts the
    shape. Needs another project and an owner decision.
-3. **T3: the ATmega328P enrols.** The owner's choice of the 328P budget
-   ([ADR](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
-   Files: `boards/atmega328p/profile.mk` (the flash budget),
-   `boards/atmega328p/board_profile.h` (`TFW_FEATURE_ATTEST_CSR 0` leaves
-   `ATTEST_CSR` out) and whatever the choice drops. Proof:
-   the 328P element-tier `ETH=1` image builds within its flash and answers
-   `ATTEST_CSR` under `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`. Needs an
-   owner decision.
-4. **T4: the ATECC608C slot map.** The owner's ruling on the
-   [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md).
-   Files: `sdk/go/cmd/tfwprov/template.go`, `sdk/go/cmd/tfwprov/steps.go`.
-   Proof: `sdk/go/cmd/tfwprov/template_test.go`, then `make hw-enroll` on a
-   MIKROE-6774 board. Needs an owner decision and hardware.
+3. **T3: the ATmega328P enrols, on the bench.** Owner ruling 1243 applied
+   option (a) of the
+   [328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget):
+   the flash budget is the 28 672-byte application region and the element
+   image carries `ATTEST_CSR` (row 13). Open: `ATTEST_CSR` answered on a Nano
+   under `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`, and the element-tier
+   `ETH=1` image, which fits flash but not RAM at the last measurement. Needs
+   hardware.
+4. **T4: the ATECC608C slot map, on the bench.** Owner ruling 1243 accepted
+   (a1) of the [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)
+   (row 14). Open: the ADR's bench questions 1-4, read before any lock, then
+   `make hw-enroll` on a MIKROE-6774 board. Needs hardware.
 5. **T1's open item: the serial bound to the element.** An authenticated read
    of the platform block, so the record's `ueid` is not the operator's word.
    Files: `sdk/go/cmd/tfwprov/record.go`, `sdk/go/cmd/tfwprov/steps.go`.
@@ -367,11 +362,16 @@ around one.
   `tfwctl netcfg set` writes it and `tfwctl netcfg get` reads it back
   ([ethernet user guide](../ethernet-transport/user.md),
   [tfwctl reference](../host-sdk/cli.md)).
-- **T3 — the ATmega328P cannot enrol.** Its element-tier Ethernet image is over
-  its flash budget, and its profile leaves `ATTEST_CSR` out. The owner's choice
-  is pending ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
-- **T4 — the ATECC608C slot map.** Step 3 waits on the owner's slot map for the
-  pre-provisioned part.
+- **T3 — the ATmega328P enrols. Applied** by owner ruling 1243
+  ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)):
+  its flash budget is its 28 672-byte application region and its element image
+  carries `ATTEST_CSR`. Open: the bench proof on a Nano, and the element-tier
+  Ethernet image's RAM.
+- **T4 — the ATECC608C slot map. Applied** as (a1) by owner ruling 1243
+  ([slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)):
+  slots 6 and 15, `PROV_SLOT_LOCK` and `PROV_CONFIG_READ`, and `tfwprov`'s
+  TrustFLEX plan. Open: the ADR's bench questions 1-4 and `make hw-enroll` on a
+  MIKROE-6774 board.
 - **T5 — application measurements.** The SPEC row has the evidence carry the
   application's measurement beside the firmware's, and the device profile is
   matched from it. The alias certificate still carries one measurement, claim

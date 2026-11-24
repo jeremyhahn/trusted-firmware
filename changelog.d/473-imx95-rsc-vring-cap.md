@@ -1,0 +1,1 @@
+- fix(imx95): the resource-table test's model of Linux's loader refuses a vdev with more than two vrings, as `rproc_handle_vdev()` does ("too many vrings"), after its truncation and reserved-bytes checks (`test/unit/test_imx95_rsc_table.c`) (Refs #473).

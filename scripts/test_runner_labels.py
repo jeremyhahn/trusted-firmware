@@ -630,6 +630,53 @@ class RunnerLabelsTest(unittest.TestCase):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
             self.assertEqual(found, ["w.yml:3: qwne"], value)
 
+    def test_a_quoted_alias_looking_label_is_a_label(self):
+        for workflow, line in (
+            ('    runs-on: "*qwne"\n', 3),
+            ('    runs-on:\n      - "*qwne"\n', 4),
+            ('    runs-on: ["*qwne"]\n', 3),
+            ('    runs-on:\n      labels: "*qwne"\n', 4),
+            ('    runs-on: {labels: "*qwne"}\n', 3),
+            ('    runs-on:\n      "*qwne"\n', 4),
+        ):
+            with self.subTest(workflow=workflow):
+                found = self.check("jobs:\n  build:\n" + workflow)
+                self.assertEqual(found, [f"w.yml:{line}: *qwne"])
+
+    def test_a_quoted_label_keeps_a_hash(self):
+        found = self.check('jobs:\n  build:\n    runs-on: "linux # qwne"\n')
+        self.assertEqual(found, ["w.yml:3: linux # qwne"])
+
+    def test_a_quoted_label_keeps_anchor_and_tag_text(self):
+        for label in ("&a linux", "!!str linux"):
+            with self.subTest(label=label):
+                found = self.check(f'jobs:\n  build:\n    runs-on: "{label}"\n')
+                self.assertEqual(found, [f"w.yml:3: {label}"])
+
+    def test_a_quoted_label_is_unquoted_once(self):
+        found = self.check("jobs:\n  build:\n    runs-on: \"'linux'\"\n")
+        self.assertEqual(found, ["w.yml:3: 'linux'"])
+
+    def test_a_runs_on_in_a_flow_mapping_job_is_reported(self):
+        for workflow, line in (
+            ("jobs: {build: {runs-on: qwne}}\n", 1),
+            ("jobs:\n  build: {runs-on: [self-hosted], steps: []}\n", 2),
+            ("jobs:\n  build: {steps: [], 'runs-on' : linux}\n", 2),
+        ):
+            with self.subTest(workflow=workflow):
+                found = self.check(workflow)
+                self.assertEqual(found, [f"w.yml:{line}: <runs-on in a flow mapping>"])
+
+    def test_a_runs_on_in_a_comment_or_quoted_value_is_not_a_flow_mapping(self):
+        for workflow in (
+            "# {runs-on: qwne}\njobs:\n  build:\n    runs-on: linux\n",
+            "jobs:\n  build:\n    runs-on: linux # {runs-on: qwne}\n",
+            'jobs:\n  build:\n    runs-on: linux\n    steps:\n      - run: "echo {runs-on: x}"\n',
+            "jobs:\n  build:\n    runs-on: linux\n    steps:\n      - run: echo '{a, runs-on: x}'\n",
+        ):
+            with self.subTest(workflow=workflow):
+                self.assertEqual(self.check(workflow), [])
+
     def test_a_builtin_label_in_any_case_is_accepted(self):
         for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

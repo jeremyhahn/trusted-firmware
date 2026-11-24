@@ -384,7 +384,10 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
  * A literal, not the profile's macro: a bootloader that drifted from the part
  * on the bench has to fail here, not follow the drift. */
 #define EL_ADDR             0x36u
-#define EL_SLOT_IMAGE_SIGN  2u
+/* The image-signing key's slot on that part: 15, option (a1) of
+ * docs/device-provisioning/adr-trustflex-608c-slot-map.md (owner ruling 1243).
+ * A literal for the same reason as the address. */
+#define EL_SLOT_IMAGE_SIGN  15u
 #define EL_COUNTER_BOOT     0u
 
 /* The element's own secrets. They exist in this process and nowhere else --

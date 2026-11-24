@@ -237,10 +237,15 @@ tfw_status_t tfw_prov_seed_uds(uint8_t slot)
 }
 
 /* The data slots PROV_WRITE_PUBKEY writes: the image-signing key's slot as
- * tfw-boot reads it today, and slot 15, the TFLXTLS's secure-boot public key,
- * where the slot-map ADR's option (a) moves it. That ADR is PROPOSED, so the
- * set is one table and ratifying a slot changes one line. */
-static const uint8_t kPubkeySlots[] = { TFW_ATECC_SLOT_IMAGE, 15u };
+ * tfw-boot reads it (board-profile data, tfw/config.h), and slot 15, the
+ * TFLXTLS's secure-boot public key. On a board that follows the slot-map ADR's
+ * option (a1) the two are the same slot, and the check names it once. */
+#define PUBKEY_SLOT_TFLXTLS 15u
+
+static uint8_t pubkey_slot_ok(uint8_t slot)
+{
+    return (uint8_t)(slot == TFW_ATECC_SLOT_IMAGE || slot == PUBKEY_SLOT_TFLXTLS);
+}
 
 /* A stored P-256 public key is 72 bytes, pad4|X|pad4|Y, the form Verify's
  * stored mode reads. It is read back as two 32-byte blocks and then two 4-byte
@@ -271,9 +276,7 @@ tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coo
     uint8_t      i;
     tfw_status_t st;
 
-    for (i = 0u; i < sizeof kPubkeySlots && kPubkeySlots[i] != slot; i++) {
-    }
-    if (i == sizeof kPubkeySlots || half > 1u) {
+    if (!pubkey_slot_ok(slot) || half > 1u) {
         return TFW_ERR_RANGE;
     }
     if (tfw_atecc_wake() != TFW_OK) {

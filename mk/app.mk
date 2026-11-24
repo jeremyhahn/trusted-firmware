@@ -35,6 +35,7 @@ endif
 APP_NAME   :=
 APP_SRCS   :=
 APP_CFLAGS :=
+APP_COMMANDS :=
 include $(APP_ABS)/app.mk
 
 # The name becomes a directory and a binary name, so it is held to a shape no
@@ -60,8 +61,17 @@ ifneq ($(APP_MISSING),)
 $(error $(APP_DIR)/app.mk: APP_SRCS names files that do not exist: $(APP_MISSING))
 endif
 
+# APP_COMMANDS := yes: the application defines tfw_app_command (APP_CMD, 0x07);
+# otherwise the stand-in answers TFW_ERR_UNSUPPORTED for it. Getting it wrong
+# fails the link: a hook with the knob unset is a duplicate definition, the
+# knob set with no hook an undefined one.
+ifneq ($(filter-out yes,$(strip $(APP_COMMANDS))),)
+$(error $(APP_DIR)/app.mk: APP_COMMANDS "$(APP_COMMANDS)" must be yes or unset)
+endif
+APP_CMD_SRCS     := $(if $(filter yes,$(strip $(APP_COMMANDS))),,src/core/app_cmd_none.c)
+
 APP_SUFFIX       := -app-$(APP_NAME)
-APP_RUNNER_SRCS  := src/core/app_runner.c
+APP_RUNNER_SRCS  := src/core/app_runner.c $(APP_CMD_SRCS)
 APP_DEFS         := -DTFW_FEATURE_APP=1
 # After the CURDIR map, so it is the one that applies to an application inside
 # this checkout too: the image does not record where the application was built.
@@ -71,6 +81,8 @@ APP_ABS          :=
 APP_NAME         :=
 APP_SRCS         :=
 APP_CFLAGS       :=
+APP_COMMANDS     :=
+APP_CMD_SRCS     :=
 APP_SUFFIX       :=
 APP_RUNNER_SRCS  := src/core/app_runner_none.c
 APP_DEFS         :=
@@ -244,15 +256,16 @@ app-header-check-selftest:
 # are not, so the failure is the second application and nothing else.
 #
 # The caller: no file under APP_LINK_SRC but core/app_runner.c names a hook --
-# the descriptor, init, run, shutdown, before_update, after_update or
-# evidence -- as a token anywhere in its code, so a call split across lines or
+# the descriptor, init, run, shutdown, before_update, after_update, evidence
+# or command -- as a token anywhere in its code (core/app_cmd_none.c, the
+# stand-in that defines tfw_app_command and calls nothing, is skipped), so a call split across lines or
 # written (tfw_app_init)() is a caller too. Comments are stripped first by the
 # preprocessor (-fpreprocessed: no include or macro is expanded), so a comment
 # that names a hook is not a caller; tfw_app_runner_* and tfw_app_config_* are
 # the runner's, not hooks. A file the preprocessor cannot read is a failure,
 # and so is an empty source list. Run by host-test.
 APP_LINK_SRC  ?= src
-APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_(init|run|shutdown|before_update|after_update|evidence|descriptor)([^[:alnum:]_]|$$)
+APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_(init|run|shutdown|before_update|after_update|evidence|command|descriptor)([^[:alnum:]_]|$$)
 APP_UNCOMMENT  = $(CC) -fpreprocessed -dD -E -P -x c
 app-link-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
@@ -270,6 +283,7 @@ app-link-check:
 	for f in $$files; do \
 	  $(APP_UNCOMMENT) "$$f" > "$$t/code" 2> "$$t/cpp.log" || \
 	    { echo "app-link-check: the preprocessor cannot strip the comments of $$f"; head -n 5 "$$t/cpp.log"; exit 1; }; \
+	  [ "$$f" != '$(APP_LINK_SRC)/core/app_cmd_none.c' ] || continue; \
 	  grep -qE '$(APP_HOOK_ERE)' "$$t/code" || continue; \
 	  if [ "$$f" = '$(APP_LINK_SRC)/core/app_runner.c' ]; then runner=yes; else callers="$$callers $$f"; fi; \
 	done; \

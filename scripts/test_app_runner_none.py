@@ -84,7 +84,7 @@ class EmptyRunnerSurface(unittest.TestCase):
     def test_main_matches(self):
         self.assertEqual(problems(self.header, self.none, self.runner), [])
         entry = {n for n in declared(self.header) if n.startswith("tfw_app_runner_")}
-        self.assertEqual(len(entry), 7, sorted(entry))
+        self.assertEqual(len(entry), 8, sorted(entry))
 
     def test_new_entry_point_needs_both_runners(self):
         header = self._replace(self.header, "void tfw_app_runner_poll(void);\n",

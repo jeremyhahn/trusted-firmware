@@ -100,6 +100,17 @@ class AppMkGateTest(unittest.TestCase):
         self._refused(
             "APP_NAME := ok\nAPP_SRCS := a.c b.c\n", "do not exist", ["a.c"])
 
+    def test_app_commands_other_than_yes_refused(self):
+        self._refused(
+            "APP_NAME := ok\nAPP_SRCS := a.c\nAPP_COMMANDS := maybe\n",
+            "APP_COMMANDS", ["a.c"])
+
+    def test_app_commands_yes_accepted(self):
+        rc, out = self._make(
+            "APP_NAME := ok\nAPP_SRCS := a.c\nAPP_COMMANDS := yes\n", ["a.c"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("app-ok", out)
+
 
 if __name__ == "__main__":
     unittest.main()

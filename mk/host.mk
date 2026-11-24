@@ -180,7 +180,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
-                            test/unit/test_app_none.c test/unit/test_app_cmd.c \
+                            test/unit/test_app_none.c test/unit/test_app_cmd.c test/unit/test_app_cmd_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
@@ -1102,14 +1102,27 @@ $(HOST_DIR)/test_app_none: test/unit/test_app_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_app_cmd_none: APP_CMD against the stand-in hook, an application that
+# defines no tfw_app_command of its own (the test file is that application).
+$(HOST_DIR)/test_app_cmd_none: test/unit/test_app_cmd_none.c \
+                        $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        src/core/app_cmd_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # test_app_example: the example application, compiled as an application is --
 # APP_HOST_BASE_CFLAGS, no -Isrc -- and driven through the runner by the suite.
 $(HOST_DIR)/test-app-example/example.o: test/app/example/example.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(APP_HOST_BASE_CFLAGS) -MMD -MP -c -o $@ $<
 
+# The stand-in command hook too, while the example's app.mk leaves APP_COMMANDS
+# unset, as mk/app.mk links it for an image.
+TEST_APP_EXAMPLE_CMD_SRCS := $(if $(filter yes,$(shell sed -n 's/^APP_COMMANDS *:*= *//p' test/app/example/app.mk)),,src/core/app_cmd_none.c)
+
 $(HOST_DIR)/test_app_example: test/unit/test_app_example.c \
                         $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        $(TEST_APP_EXAMPLE_CMD_SRCS) \
                         $(HOST_DIR)/test-app-example/example.o \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

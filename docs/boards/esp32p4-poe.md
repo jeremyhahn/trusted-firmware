@@ -130,7 +130,7 @@ difference.
 | esp32-p4 | 1-Wire, pulse-in | fails: not measured | row `OneWireAndPulseIn` passes, but it does not check the presence value and only sees pulse-in time out on a silent pin, so a detector that always answers "absent" and a receiver that never captures an edge pass it too; needs a 1-Wire device on the pin answering presence, and a known pulse on the pulse-in pin measured within tolerance; issue to file |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO2, LEDC0), `noLED` and no tick pin, but `PWM` only checks that setting duty on GPIO2 returns success and `Pin` checks descriptors: no output is observed, and LEDC channels 1, 2 and 3 are never driven, so a wrong pin route or a missing waveform passes too; needs duty and frequency measured on each LEDC channel's pin within tolerance; issue to file. The 2026-11-17 run of #547: row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin, and row `Pin` fails on `pin 11 flags = digital, want digital and led`; row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag); in the run of lane hw-564a on 2026-11-19 rows `Pin` and `PWM` pass |
-| esp32-p4 | tone (GPIO6) | verified 2026-11-19 | row `Tone` (#548, hw-561b) on the image built from commit `2195e2cf`, sealed `trusted-firmware.bin` SHA-256 `20a73898aad8f209cbbad23ef60ea6c4f41eb8e483a5081a51d8240897b923fe` (\"Run 2026-11-19, hw-561b\" below), whose capture loops back the pin LEDC owns after NOTONE too, so the silence capture keeps the pad's output and reads what LEDC drives (Codex P1 on #561): 1 kHz on pin 4 read back with `pulse-capture` on the same pin as `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone`, 0 edges: the 4-edge, 20 ms capture answers TIMEOUT. The earlier 2026-11-19 run on `6c6a3dfb` captured after NOTONE with the pad's output off, so its silence proved nothing |
+| esp32-p4 | tone (GPIO6) | verified 2026-11-19 | row `Tone` (#548, hw-561b) on the image built from commit `2195e2cf`, sealed `trusted-firmware.bin` SHA-256 `20a73898aad8f209cbbad23ef60ea6c4f41eb8e483a5081a51d8240897b923fe` (\"Run 2026-11-19, hw-561b\" below), whose capture loops back the pin LEDC owns after NOTONE too, so the silence capture keeps the pad's output and reads what LEDC drives: 1 kHz on pin 4 read back with `pulse-capture` on the same pin as `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone`, 0 edges: the 4-edge, 20 ms capture answers TIMEOUT. The earlier 2026-11-19 run on `6c6a3dfb` captured after NOTONE with the pad's output off, so its silence proved nothing |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | verified 2026-11-19 | row `EEPROM` passes on the soft-tier image in the run of lane hw-564a (below), and on the `CRYPTO=none` image (2026-11-19, #539, "The DHCP image" below); before: row `EEPROM` stopped at "crypto tier none: no reserved-read facts"; the row now expects the reserved read answered on the none tier, as `tfw_auth_gate` gives it (#575) |
 | esp32-p4 | CAPS, I2C_CONFIG | verified 2026-11-19 | rows `Caps`, `I2CConfig` pass on the soft-tier image in the run of lane hw-564a (below); on the `CRYPTO=none` image row `Caps` passes (2026-11-17, #539, "tfw-wire over TCP" above); before: rows `Caps`, `I2CConfig` knew the soft and element tiers only; they now hold none-tier facts (CAPS reports no algorithm, I2C_CONFIG applies the clock) and are in this board's row list (#576) |
 | esp32-p4 | ATTEST unprovisioned | verified 2026-11-19 | row `AttestRefusedUnprovisioned` passes on the soft-tier image in the run of lane hw-564a (below); before: the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wanted NOT_PROVISIONED, a tier's answer; on a none-tier image it now wants UNSUPPORTED (`attestRefusal`, `sdk/go/cmd/tfwctl/e2e_rows_test.go`) |
@@ -223,7 +223,7 @@ board's layer-0 build. Sealed `trusted-firmware.bin` SHA-256
 `c206ed4ca28e12527e63aa87bc64c605880c68ac6d9afaa2d96764419282f7e3`, trailer
 version 1, measurement
 `adb97d94550a111b930247699ea4527702599fabd0058eba2acb4cd8f9602839`. Flashed
-app-only (ruling 945 (3)): esptool v5.6.0 `write-flash 0x20000` of that
+app-only: esptool v5.6.0 `write-flash 0x20000` of that
 image, one `Hash of data verified.`, and no other esptool write; the OTA
 writes are the firmware's own, over the wire. After a reset by `RESET_PORT`
 the console shows `tfw-l0: app at 0x20000 verified`, `tfw-eth: link up` and a
@@ -255,7 +255,7 @@ places it there), over the CH343P console port (USB id `1a86:55d3`, checked
 first) with esptool v5.6.0 `write-flash 0x20000 trusted-firmware.bin`. No
 bootloader, partition table, `tfw_plat` or erase was written. The board is
 left on this image. Writing the bootloader, partition table and `tfw_plat`
-is a provisioning procedure, documented separately (#589, ruling 945 (3)),
+is a provisioning procedure, documented separately,
 and is not part of this evidence.
 
 | Date | Row | Result | Evidence |

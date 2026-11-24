@@ -222,7 +222,7 @@ invariants.
 
 ### The soft tfw-boot (#130)
 
-The ATECC608C is never required on an AVR board (owner ruling, 2026-10-17), so
+The ATECC608C is never required on an AVR board, so
 a board with no element needs a tfw-boot on the soft tier. Until #130 no row
 had one: the soft tier linked `BOOT_SIG=ed25519-donna`, whose verify path is
 72 930 bytes alone (`boot/boot_verify.h`). The whole 2560 image was 96 492 /
@@ -291,10 +291,10 @@ against a reference, every split, and every one-bit flip. The cost is time, beca
 
 **Rows.** Every soft row is `BOOT_TIER=soft BOOT_MEASURE=soft
 BOOT_SIG=p256-soft`, measured by verify's `make bootloader-budget`. A row is in
-`BOOT_SUPPORTED` when it fits; the 2560 base row is (CA m467), with 2 bytes
+`BOOT_SUPPORTED` when it fits; the 2560 base row is, with 2 bytes
 spare that the next slices widen. Measured by lane-verify at 935494f with ld's
 own "region `text' overflowed", `UECC_OPT=0`. A row that does not fit sheds
-OTA, never verification (CA m467).
+OTA, never verification.
 
 | Board | `BOOT_OTA` | `BOOT_STORE` | Flash / boot section | Verify peak stack / SRAM | Row |
 |---|---|---|---|---|---|
@@ -358,7 +358,7 @@ see `docs/security/threat-model.md` for the boundary as drawn on this side.
 
 ## The Mega's runtime tier
 
-Owner ruling of 2026-10-17 (CA m435, issue #130 criterion 1): the ATECC608C is
+Owner ruling of 2026-10-17: the ATECC608C is
 never required on an AVR board. The Mega 2560 links both the element provider
 and the software DICE root, and at runtime runs the element when one answers,
 else the soft root. The boot side (`feat/130-soft-root`) is not this section's.

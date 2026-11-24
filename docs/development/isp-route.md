@@ -105,7 +105,7 @@ page](bench/nano.md#the-bench-change-2026-10-18).
 
 ### The Mega, 2026-10-16
 
-**Correction, 2026-10-16 (owner, CA m311):** the Mega on the ICSP header in
+**Correction, 2026-10-16:** the Mega on the ICSP header in
 this run is a different board from the one in the 2026-10-15 runs. It is a
 stock factory Arduino Mega 2560. The owner replaced the board that carries the
 Ethernet shield, because the shield blocks the ICSP header the USBasp needs.
@@ -286,13 +286,13 @@ application, and the Mega has none now.
 
 ### The Mega re-provisioned over ISP, 2026-10-16
 
-The Company Agent found what erased the part (m233): an Arduino IDE "Burn
+The Company Agent found what erased the part: an Arduino IDE "Burn
 Bootloader" over the USBasp. That is a chip erase with `EESAVE` unprogrammed,
 then the stock bootloader. The Mega was treated as a blank stock board, and
 its two blocks were written back over ISP with the values of the 2026-10-15
 dump. No chip erase, no fuse, no lock bit, and no flash write over ISP.
 
-**Correction, 2026-10-16 (owner, CA m311):** m233 is withdrawn. The part was
+**Correction, 2026-10-16:** m233 is withdrawn. The part was
 not erased: this is the stock factory board that replaced the shield board on
 the ICSP header ([the correction above](#the-mega-2026-10-16)). The
 re-provisioning and the reflash below were on the stock board. They wrote the

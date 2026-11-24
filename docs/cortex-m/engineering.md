@@ -51,7 +51,7 @@ text, R17–R24 this page's.
 | R13 | `make integration-test-cortex-m-wire` runs five Go tests on both boards: OTA_INFO on both slots, a confirmed update kept, an unconfirmed one rolled back, an image below the floor refused, a trial ended by the watchdog and rolled back | done | `test/integration/cortex-m/qemu_wire_test.sh`; `.github/workflows/ci.yml` | `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go` `TestQEMUABInfo`, `TestQEMUABConfirm`, `TestQEMUABRollback`, `TestQEMUABFloor`, `TestQEMUABWatchdog` |
 | R14 | The four silicon boards are written through one probe tool each; `make board-record` first, `make flash` and `make boot-flash` refuse without the record, `make board-restore` writes it back | done (tooling) | `mk/arch/cortex-m.mk` (`CM_TOOL_*`, `cm_read_*`, `cm_write_*`), `mk/board-restore.mk` | `scripts/test_cortex_m_flash.py` `test_write_without_record_is_refused`, `test_restore_needs_a_record` (`make scripts-test`) |
 | R15 | No option-byte, protection, lock, OTP or fuse operation is ever run | done | `mk/arch/cortex-m.mk` (`CM_PROBE_ARGS` refusal) | `scripts/test_cortex_m_flash.py` `test_no_refused_operation_in_any_line`, `test_refused_probe_args` |
-| R16 | Then hardware, in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269) | not started: no Cortex-M board has been written (slice 5) | — | none yet: needs the boards |
+| R16 | Then hardware, in the order SE052F, i.MX 95 M7, STM32H5 | not started: no Cortex-M board has been written (slice 5) | — | none yet: needs the boards |
 | R17 | No `#if` outside the four places | done | every Cortex-M file selected by `ARCH` and `SOC` in `mk/` | `make lint-conditionals` (`mk/host.mk`) |
 | R18 | One reset path; the reset marker outlives one reset and decodes to `WATCHDOG`, `SOFTWARE` or `PANIC` | done | `src/hal/cortex-m/hal_early.c`, `hal_reset_decode.h` | `test/unit/test_cm_reset_cause.c` `test_the_markers_are_the_words_the_images_write`; `sdk/go/cmd/tfwctl/reset_qemu_test.go` `TestQEMUResetCause` |
 | R19 | The fault record keeps PC, LR and xPSR across the panic reset | done | `src/hal/cortex-m/hal_fault_frame.h`, `hal_early.c` | `test/unit/test_cm_fault_frame.c` `test_the_record_keeps_pc_lr_and_xpsr`; `sdk/go/cmd/tfwctl/fault_qemu_test.go` `TestQEMUFaultPanic` |
@@ -102,7 +102,7 @@ halves are by `test/unit/hal/test_avr_sys_mutate.c` and
    pins `src/hal/cortex-m/hal_sys.c`'s count from `__heap_start` to the
    stack, with its reset cause, reset and watchdog calls; run by
    `make host-test`, and it fails with the subtraction reversed.
-5. **Silicon** (ruling 269 order): the SE052F (row `secure-element-se05x`),
+5. **Silicon**: the SE052F (row `secure-element-se05x`),
    the i.MX 95 M7 (row `imx95`; trusted-imx95 must first give the M7 its
    logical machine, console and boot-container slot) and the STM32H573I-DK
    (row `stm32h5`), each `make board-record` before any write and its run

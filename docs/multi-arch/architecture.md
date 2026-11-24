@@ -7,8 +7,7 @@ i.MX 95 M7 and ESP32-P4 ports are in progress (§7). Everything else here is pla
 and marked with its issue.
 Order of work: [ROADMAP.md](../../ROADMAP.md). The AVR gate ([#7](../../../../issues/7):
 every primitive and a proven end-to-end example) is lifted for `esp32-p4` (#48), and the
-Cortex-M ADRs (#14, #15) and the generic port on QEMU `mps2-an505` (#161) are ungated
-(CA m623); it is not lifted for `optiga-trust-m` or `rp2350` ([SPEC](../SPEC.md)).
+Cortex-M ADRs (#14, #15) and the generic port on QEMU `mps2-an505` (#161) are ungated; it is not lifted for `optiga-trust-m` or `rp2350` ([SPEC](../SPEC.md)).
 
 ## 1. Goal
 
@@ -87,7 +86,7 @@ Each choice is an ADR before any code.
   the nRF54L15-DK. The ruling answers the ADR's question 1: the M7 stays the
   reference part. CI emulates the generic port on QEMU
   `mps2-an505`. The hardware order is the SE052F, then the i.MX 95 M7, then the
-  STM32H5 (ruling 269), whose port waits for [#79](../../../../issues/79).
+  STM32H5, whose port waits for [#79](../../../../issues/79).
   The SE052F's element tier is proposed in
   [`adr-se052f-onboarding.md`](adr-se052f-onboarding.md).
   On the i.MX 95 the key tier is the EdgeLock secure enclave and AHAB secure
@@ -105,7 +104,7 @@ Each choice is an ADR before any code.
 
 | Architecture | Board | Crypto tier | Status |
 |---|---|---|---|
-| AVR | ATmega328P | ATECC608A only: `CRYPTO=soft` is refused (owner ruling 2026-10-17 (m522); `boards/atmega328p/profile.mk`) | supported |
+| AVR | ATmega328P | ATECC608A only: `CRYPTO=soft` is refused | supported |
 | AVR | ATmega2560 | none, soft, ATECC608A | supported |
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |

@@ -1,12 +1,12 @@
 # Device capabilities: user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 >
 > Conflicts with this document are defects. Fix them here first.
 
 Examples use `tfwctl`, the reference client (`../host-sdk/architecture.md`,
-`cli.md`). Where a Go SDK call is shown instead, it is
-given instead — see `cli.md#gap`.
+`cli.md`). Where a Go SDK call is shown, the same command is
+also a `tfwctl` verb — see `cli.md#the-rule-this-cli-is-measured-against`.
 
 ## Find out what a device can do
 
@@ -17,9 +17,10 @@ tfwctl /dev/ttyACM0 pin 9      # one pin: port/bit, ADC channel, PWM state
 
 Do this once per connection and act on the answer. Two boards can carry the
 same MCU and different compiled feature sets — `caps` reports what this
-*build* has, not what the silicon could in principle do. Four boards exist
-today (328P, 2560, 32U4, ATtiny85); `../boards/adding-a-board.md` and
-`../boards/attiny85.md` cover their differences, including the ATtiny85's
+*build* has, not what the silicon could in principle do. The boards are
+the directories under `boards/` at the repository root; the board pages in
+`../boards/` (`../boards/attiny85.md` among them) and
+`../boards/adding-a-board.md` cover their differences, including the ATtiny85's
 missing PWM, I2C, SPI and 1-Wire.
 
 ## Drive a pin

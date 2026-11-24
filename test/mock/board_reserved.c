@@ -1,6 +1,6 @@
 /* A host-only pin table for test_caps_reserved (#163): the 328P's, cut to the
- * rows that suite drives, with D3 -- a pin that has a compare unit -- marked
- * RESERVED. No shipped board has a reserved PWM-capable pin, so on the real
+ * rows that suite drives, with D3 -- a pin that has a compare unit -- and D11,
+ * the tone pin, marked RESERVED. No shipped board has a reserved PWM-capable pin, so on the real
  * tables pwm's RESERVED term is never the one that refuses: dropping it only
  * shows on a pin that would otherwise pass the board's PWM lookup. Linked in
  * place of boards/$(HOST_BOARD)/board.c; the rows left out are zero and never
@@ -21,6 +21,8 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
                                    TFW_PIN_DIGITAL | TFW_PIN_PWM | TFW_PIN_RESERVED },
     /*  9  D9  PB1 OC1A */ [9] = { TFW_PB(0u, 1u), TFW_ADC_NONE, 1u,
                                    TFW_PIN_DIGITAL | TFW_PIN_PWM },
+    /* 11  D11 PB3 OC2A */ [11] = { TFW_PB(0u, 3u), TFW_ADC_NONE, 3u,
+                                   TFW_PIN_DIGITAL | TFW_PIN_PWM | TFW_PIN_RESERVED },
 };
 
 const tfw_pwm_desc_t tfw_board_pwms[TFW_PWM_COUNT] TFW_PROGMEM = {

@@ -106,6 +106,8 @@ static uint8_t           hmac_msg[32];
 static size_t            hmac_len;
 
 static uint8_t            built_tier, built_cdi[32], built_meas[32];
+static const uint8_t     *built_cdi_at;
+static uint8_t            cdi_at_write[32];
 static uint32_t           built_version;
 static tfw_reset_cause_t  built_cause;
 static int                n_built;
@@ -370,6 +372,7 @@ void tfw_boot_handoff_build(uint8_t *block, uint8_t tier, const uint8_t cdi[TFW_
     n_built++;
     built_tier = tier;
     memcpy(built_cdi, cdi, 32u);
+    built_cdi_at = cdi;
     memcpy(built_meas, measurement, 32u);
     built_version = image_version;
     built_cause = reset_cause;
@@ -382,6 +385,9 @@ void tfw_boot_handoff_write(const uint8_t *block, uint8_t len)
     written = block;
     written_len = len;
     memcpy(written_copy, block, TFW_BOOT_HANDOFF_LEN);
+    if (built_cdi_at != NULL) {
+        memcpy(cdi_at_write, built_cdi_at, 32u);
+    }
 }
 
 tfw_reset_cause_t tfw_boot_reset_cause(void)
@@ -464,6 +470,8 @@ void setUp(void)
     hmac_len = 0u;
     built_tier = 0xFFu;
     memset(built_cdi, 0xEE, sizeof built_cdi);
+    built_cdi_at = NULL;
+    memset(cdi_at_write, 0xEE, sizeof cdi_at_write);
     memset(built_meas, 0, sizeof built_meas);
     built_version = 0u;
     built_cause = TFW_RESET_UNKNOWN;
@@ -990,6 +998,17 @@ static void test_the_cdi_is_the_hmac_of_the_measurement(void)
     TEST_ASSERT_TRUE(logged("I:cdi from eFuse BLOCK7 through the HMAC peripheral\n"));
 }
 
+/* HW Req 6.4: no copy of the CDI is left once layer 0 has handed it over, so the
+ * stack array is wiped before the handoff is written (boot/hal/esp32/boot_l0.c line 285). */
+static void test_the_cdi_is_wiped_from_the_stack_before_the_handoff_write(void)
+{
+    purpose_found = true;
+    TEST_ASSERT_EQUAL_INT(RAN_LOAD, run());
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(hmac_out, built_cdi, 32);
+    TEST_ASSERT_NOT_NULL(built_cdi_at);
+    assert_zero(cdi_at_write, 32u);
+}
+
 static void test_a_refused_hmac_is_the_none_tier_with_the_cdi_cleared(void)
 {
     purpose_found = true;
@@ -1077,6 +1096,7 @@ int main(void)
     RUN_TEST(test_no_ota_apps_reads_nothing);
     RUN_TEST(test_no_hmac_up_key_is_the_none_tier_with_no_cdi);
     RUN_TEST(test_the_cdi_is_the_hmac_of_the_measurement);
+    RUN_TEST(test_the_cdi_is_wiped_from_the_stack_before_the_handoff_write);
     RUN_TEST(test_a_refused_hmac_is_the_none_tier_with_the_cdi_cleared);
     RUN_TEST(test_a_valid_retained_record_is_kept_and_updated);
     RUN_TEST(test_a_retained_record_with_a_bad_crc_is_reset);

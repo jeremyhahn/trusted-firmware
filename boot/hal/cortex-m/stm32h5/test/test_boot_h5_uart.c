@@ -13,6 +13,7 @@
 #include "tfw/config.h"
 #include "regfile_model.h"
 #include "../../../../boot_hal.h"
+#include "../../boot_soc.h"
 #include "stm32h5/soc_regs.h"
 #include "stm32h5/h5_calc.h"
 
@@ -124,6 +125,80 @@ static void test_tx_writes_tdr_once_enabled(void)
     TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
 }
 
+/* Seeds the registers the hand-over shares with its neighbours: another
+ * bank's clock, another APB2 peripheral's clock, and PA8/PA11 as outputs on
+ * alternate function 5, so a whole-register write shows. */
+#define NEIGHBOUR_AHB2ENR (1u << 2u)
+#define NEIGHBOUR_APB2ENR (1u << 12u)
+#define NEIGHBOUR_MODER   ((0x1u << (2u * 8u)) | (0x1u << (2u * 11u)))
+#define NEIGHBOUR_AFRH    ((0x5u << (4u * (8u & 7u))) | (0x5u << (4u * (11u & 7u))))
+
+static void seed_neighbours(void)
+{
+    TFW_H5_RCC_AHB2ENR = NEIGHBOUR_AHB2ENR;
+    TFW_H5_RCC_APB2ENR = NEIGHBOUR_APB2ENR;
+    TFW_H5_GPIO_MODER(VCP_BANK) = NEIGHBOUR_MODER;
+    TFW_H5_GPIO_AFRH(VCP_BANK) = NEIGHBOUR_AFRH;
+}
+
+/* The hand-over to the application puts USART1, PA9/PA10 and their clocks
+ * back as a bare reset leaves them, clearing only its own bits. */
+static void test_off_puts_usart1_and_its_pins_back_to_reset(void)
+{
+    seed_neighbours();
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_ICR = 0u;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_ANALOG, mode_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_ANALOG, mode_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(0u, af_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(0u, af_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(1u, mode_of(8u));
+    TEST_ASSERT_EQUAL_UINT32(1u, mode_of(11u));
+    TEST_ASSERT_EQUAL_UINT32(5u, af_of(8u));
+    TEST_ASSERT_EQUAL_UINT32(5u, af_of(11u));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+}
+
+/* An init left off changed nothing, so the hand-over changes nothing either
+ * and does not wait for a TC that never comes (ISR stays 0 here: without the
+ * TE check this test would not finish). */
+static void test_off_after_an_init_left_off_touches_nothing(void)
+{
+    seed_neighbours();
+    TFW_H5_USART_BRR = 0x1234u;
+    TFW_H5_USART_ICR = 0u;
+    tfw_boot_uart_init(0u);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_UINT32(0u, mode_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(0u, mode_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(0u, af_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(0u, af_of(TFW_H5_VCP_RX_PIN));
+}
+
+/* After the hand-over TE is clear, so a stray tx stores nothing. */
+static void test_after_off_a_stray_tx_stores_nothing(void)
+{
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC | TFW_H5_USART_ISR_TXE;
+    tfw_cm_boot_uart_off();
+    TFW_H5_USART_TDR = 0u;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -134,5 +209,8 @@ int main(void)
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
     RUN_TEST(test_tx_stores_nothing_while_te_is_clear);
     RUN_TEST(test_tx_writes_tdr_once_enabled);
+    RUN_TEST(test_off_puts_usart1_and_its_pins_back_to_reset);
+    RUN_TEST(test_off_after_an_init_left_off_touches_nothing);
+    RUN_TEST(test_after_off_a_stray_tx_stores_nothing);
     return UNITY_END();
 }

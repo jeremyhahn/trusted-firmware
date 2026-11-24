@@ -325,7 +325,18 @@ static void test_twim_init_rates(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(250000uL));
     model_settle();
     TEST_ASSERT_EQUAL_HEX32(0x04000000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x01980000u, s_twim.regs[O_FREQUENCY / 4u]);
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(50000uL));
+    /* One below each cut-off falls to the next rate down. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(399999uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x04000000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(249999uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x01980000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(99999uL));
 }
 
 static void test_twim_write_acked(void)

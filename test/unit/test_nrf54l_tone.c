@@ -139,6 +139,9 @@ static void test_tone_calc_range(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(6000000u, &pre, &cc));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(8000000u, &pre, &cc));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(8000001u, &pre, &cc));
+    /* Far past the cap, where 2 * hz wraps to 0 or a small value. */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(0x80000000u, &pre, &cc));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(0xFFFFFFFFu, &pre, &cc));
     TEST_ASSERT_EQUAL_UINT32(99u, pre);   /* untouched on refusal */
     TEST_ASSERT_EQUAL_UINT32(77u, cc);
 }

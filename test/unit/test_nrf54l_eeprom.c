@@ -147,6 +147,20 @@ static void test_a_write_past_the_span_lands_with_wen_and_wen_is_cleared_after(v
     TEST_ASSERT_TRUE(erased(TFW_BOOT_EE_LEN + 8u, TFW_CM_PLATFORM_SIZE - TFW_BOOT_EE_LEN - 8u));
 }
 
+/* TFW_BOOT_EE_LEN is the first byte past the span: it is not boot state. */
+static void test_the_first_byte_past_the_span_lands(void)
+{
+    static const uint8_t b[4] = {0xA1u, 0xB2u, 0xC3u, 0xD4u};
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_LEN, b, sizeof b));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(b, &WINDOW[TFW_BOOT_EE_LEN], sizeof b);
+    TEST_ASSERT_EQUAL_UINT32(0u, dropped);
+    TEST_ASSERT_EQUAL_UINT32(0u, outside);
+    TEST_ASSERT_EQUAL_HEX32(0u, config & TFW_NRF_RRAMC_CONFIG_WEN);
+    TEST_ASSERT_TRUE(erased(0u, TFW_BOOT_EE_LEN));
+    TEST_ASSERT_TRUE(erased(TFW_BOOT_EE_LEN + 4u, TFW_CM_PLATFORM_SIZE - TFW_BOOT_EE_LEN - 4u));
+}
+
 static void test_config_is_put_back_as_it_was(void)
 {
     static const uint8_t b[4] = {1u, 2u, 3u, 4u};
@@ -284,6 +298,7 @@ int main(void)
     RUN_TEST(test_the_eeprom_is_the_platform_window);
     RUN_TEST(test_a_store_without_wen_programs_nothing);
     RUN_TEST(test_a_write_past_the_span_lands_with_wen_and_wen_is_cleared_after);
+    RUN_TEST(test_the_first_byte_past_the_span_lands);
     RUN_TEST(test_config_is_put_back_as_it_was);
     RUN_TEST(test_a_controller_that_never_readies_is_timeout_and_wen_is_cleared);
     RUN_TEST(test_a_controller_not_ready_after_wen_is_timeout_before_any_store);

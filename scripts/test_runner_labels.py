@@ -10,8 +10,10 @@ toolchain image. The tests read the allowlist and every `runs-on:` key, bare or 
 list, or group/labels mapping, a flow list or mapping on one line or across several, and a scalar
 or flow value on the line after an empty `runs-on:` or `labels:` key; a flow `labels:` or
 next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a
-value's anchor `&r` or tag `!!str` is dropped and an alias `*r` skipped, while a quoted label is
-read as written, so `"*r"`, `"&a b"` and `"a # b"` are labels) of
+value's anchor `&r` or tag `!!str` is dropped and an alias `*r` is read at its anchor, anywhere
+earlier in the file, or fails the test as `<unresolved alias *r>`, while a quoted label is read
+as written, so `"*r"`, `"&a b"` and `"a # b"` are labels; the content of a `|` or `>` block
+scalar, such as a `run: |` script, is not read) of
 .github/workflows/*.yml and *.yaml, and fail naming file:line and label for any plain-text label
 the allowlist and actionlint's built-in labels do not accept. The built-in labels, the self-hosted
 ones (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`), match in any case
@@ -398,9 +400,14 @@ def plain_labels(text):
     labels carry the line it opens on. A value that starts with `${{` is an
     expression and yields nothing, and a label with a `${{ ... }}` expression
     anywhere in it (`runner-${{ matrix.n }}`) is skipped. A value's leading
-    anchor (`&r`) and tag (`!!str`) are dropped, and an alias (`*r`) yields
-    nothing, its labels read at its anchor (an anchor outside a `runs-on:`
-    key is not read). A quoted label is read as written, unquoted once:
+    anchor (`&r`) and tag (`!!str`) are dropped. An alias (`*r`), as a value,
+    a block-list item or a flow item, yields the labels of its anchor's node,
+    read as a written value and reported on the alias's line; the anchor may
+    be on any mapping value or list item, or flow item, earlier in the file
+    (`env: {RUNNER: &runner codex}`). An alias whose anchor is missing, comes
+    later, or marks a block list, mapping or scalar yields the label
+    `<unresolved alias *r>`, which no allowlist accepts, so the test fails
+    closed on it. A quoted label is read as written, unquoted once:
     `"*r"`, `"&a linux"`, `"!!str linux"`, `"linux # x"` and `"'linux'"` are
     labels, not an alias, anchor, tag, comment or second quote.
 
@@ -409,6 +416,10 @@ def plain_labels(text):
     expressions and comments (`jobs: {build: {runs-on: x}}`), yields the
     label `<runs-on in a flow mapping>`, which no allowlist accepts, so the
     test fails closed on it.
+
+    The content lines of a block scalar (`run: |`, `>-`, `|2`, anchored or
+    tagged), every blank line or line deeper than its key or `-` after the
+    header, are not read, so a `runs-on:` in a script is not a key.
     """
     lines = text.splitlines()
     skip = _block_scalars(lines)

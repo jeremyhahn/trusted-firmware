@@ -86,7 +86,7 @@ purpose: the next image for the Nano's boot section may be `tfw-boot`.
 
 The programmer is a USBasp clone: vendor `16c0`, product `05dc`, strings
 `USBasp` and `www.fischl.de`. Whether it is on the bench host's USB is in
-[the bench inventory](bench/inventory.md#programmers). The Company Agent's udev
+[the bench inventory](bench/inventory.md#programmers). The bench host's udev
 rule gives it group `dialout`, mode `0660`. avrdude is the 7.1 in the table
 above. Every run prints `cannot set sck period; please check for usbasp
 firmware update`, because the clone's firmware predates that request. It then

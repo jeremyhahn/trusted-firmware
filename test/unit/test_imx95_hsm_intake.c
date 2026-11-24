@@ -374,6 +374,44 @@ static void test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reope
     TEST_ASSERT_EQUAL_HEX32(0x106u, in.session);
 }
 
+/* Pins hsm_intake.h's "several in one batch are one edge": two S2 events in
+ * one get_event batch raise the AHAB signal once, with nothing deferred. */
+static void test_s2_two_events_in_one_batch_are_one_edge(void)
+{
+    events[0] = S2_EVENT;
+    events[1] = S2_EVENT;
+    n_events  = 2u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+}
+
+/* Pins that s2_high is kept apart from the S1/S5 edge state: an S1 arriving
+ * on the pass an S2 event is deferred is raised on that pass, and the
+ * deferred S2 follows on the next. */
+static void test_a_deferred_s2_does_not_delay_s1(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[0]);
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();                          /* S2 deferred, S1 not */
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[2]);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
+}
+
 static void test_s2_other_events_raise_nothing(void)
 {
     events[0] = 0x11u;
@@ -491,6 +529,8 @@ int main(void)
     RUN_TEST(test_s2_back_to_back_events_raise_two_signals);
     RUN_TEST(test_s2_a_deferred_event_survives_a_refused_fetch);
     RUN_TEST(test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reopen);
+    RUN_TEST(test_s2_two_events_in_one_batch_are_one_edge);
+    RUN_TEST(test_a_deferred_s2_does_not_delay_s1);
     RUN_TEST(test_s2_other_events_raise_nothing);
     RUN_TEST(test_s2_session_the_enclave_lost_is_opened_again);
     RUN_TEST(test_s2_refused_session_is_retried_and_nothing_polled);

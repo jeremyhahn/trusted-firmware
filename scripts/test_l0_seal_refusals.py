@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from test_l0_seal import l0_seal
+from test_l0_seal import CODE, image, l0_seal
 
 # Writes the files l0_seal.py asks suit-emit for: the manifest and tbs on
 # "tbs", and on "envelope" keeps the sig it was given and writes $STUB_DIR/env.
@@ -152,6 +152,24 @@ class Main(unittest.TestCase):
     def test_the_last_board_id_and_version_in_range_reach_the_key(self):
         with self.assertRaisesRegex(AssertionError, "load_p256 reached"):
             self.main("0xFF", "4294967295")
+
+
+class Segments(unittest.TestCase):
+    def test_sixteen_segments_are_walked_as_layer_0_walks_them(self):
+        # The digest boot_l0's mutation test measures to: 24 + 16 * 16,
+        # padded to 288, and the gate length 320 past it.
+        img, last, digest = image(*[(CODE, bytes(8))] * 16)
+        self.assertEqual((last, digest), (264, 288))
+        self.assertEqual(l0_seal.layout(img), (264, 288))
+
+    def test_more_segments_than_esp_idf_loads_are_refused(self):
+        # Every segment is real and walkable: only the count is wrong.
+        for n in (17, 32):
+            img, _, _ = image(*[(CODE, bytes(8))] * n)
+            for f in (l0_seal.layout, l0_seal.unsigned_image):
+                with self.subTest(n=n, f=f.__name__):
+                    with self.assertRaisesRegex(l0_seal.SealError, "at most 16 segments"):
+                        f(img)
 
 
 if __name__ == "__main__":

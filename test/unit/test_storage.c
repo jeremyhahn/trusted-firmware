@@ -164,6 +164,23 @@ static void test_a_length_running_past_the_end_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_read(0xFFFCu, 8u));
 }
 
+/* Kills: `>` turned `>=` in either handler's end-of-part check (src/caps/storage.c
+ * lines 79 and 108), which would refuse a span ending exactly at
+ * TFW_EEPROM_SIZE (#627). */
+static void test_the_last_chunk_of_the_part_reads_and_writes(void)
+{
+    const uint8_t  data[8] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
+    const uint16_t at      = (uint16_t)(TFW_EEPROM_SIZE - 8u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(at, data, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &tfw_mock_eeprom()[at], 8u);
+    TEST_ASSERT_EQUAL(TFW_OK, ee_read(at, 8u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, outbuf, 8u);
+    /* the final byte alone */
+    TEST_ASSERT_EQUAL(TFW_OK, ee_read((uint16_t)(TFW_EEPROM_SIZE - 1u), 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x88u, outbuf[0]);
+}
+
 /* Chunked so a bulk write cannot hold the main loop. A byte takes ~3.4 ms, so
  * 64 bytes would block for 220 ms -- long enough to miss a scheduled deadline. */
 static void test_a_write_larger_than_the_chunk_is_refused(void)
@@ -190,6 +207,7 @@ int main(void)
     RUN_TEST(test_the_reserved_region_can_be_read);
     RUN_TEST(test_an_address_past_the_part_is_refused);
     RUN_TEST(test_a_length_running_past_the_end_is_refused);
+    RUN_TEST(test_the_last_chunk_of_the_part_reads_and_writes);
     RUN_TEST(test_a_write_larger_than_the_chunk_is_refused);
     RUN_TEST(test_a_zero_length_write_is_refused);
     return UNITY_END();

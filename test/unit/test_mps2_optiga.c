@@ -4,7 +4,7 @@
  * The OPTIGA Trust M transport (src/crypto/optiga/optiga_i2c.c) on the
  * Cortex-M bus: the MPS2 I2C master (src/hal/cortex-m/mps2/hal_bus.c) under
  * it, as mps2-an505's optiga:I2C=1 row links the two, bit-banged over a
- * simulated SBCon in place of sbcon.c, with an OPTIGA on the bus at 0x30.
+ * simulated SBCon behind the image's sbcon.c (test/model/mps2_bus_model.h), with an OPTIGA on the bus at 0x30.
  *
  * test_optiga_i2c.c pins the frames against the HAL's byte calls; this suite
  * pins what those calls become on the wire (Solution Reference Manual §2, the
@@ -29,6 +29,7 @@
 #include "tfw/hal.h"
 #include "sbcon.h"
 #include "pl022.h"
+#include "mps2_bus_model.h"
 #include "optiga_i2c.h"
 
 #define SB_BOTH   (TFW_SB_SCL | TFW_SB_SDA)
@@ -341,15 +342,15 @@ static void master_sets(uint32_t m)
 
 /* ---- sbcon.h, pl022.h and tfw_hal_delay_us, as hal_bus.c links them ------ */
 
-uint32_t tfw_mps2_sb_lines(void)          { return lines(); }
-void     tfw_mps2_sb_release(uint32_t m)   { master_sets(bus.m | m); }
-void     tfw_mps2_sb_drive_low(uint32_t m) { master_sets(bus.m & ~m); }
+uint32_t tfw_mps2_model_sb_lines(void)          { return lines(); }
+void     tfw_mps2_model_sb_release(uint32_t m)   { master_sets(bus.m | m); }
+void     tfw_mps2_model_sb_drive_low(uint32_t m) { master_sets(bus.m & ~m); }
 
 /* The SPI master in the same file is never called here. */
-uint32_t tfw_mps2_ssp_read(uint32_t off)            { (void)off; return 0u; }
-void     tfw_mps2_ssp_write(uint32_t off, uint32_t v) { (void)off; (void)v; }
-uint32_t tfw_mps2_misc_read(void)                   { return 0u; }
-void     tfw_mps2_misc_write(uint32_t v)            { (void)v; }
+uint32_t tfw_mps2_model_ssp_read(uint32_t off)            { (void)off; return 0u; }
+void     tfw_mps2_model_ssp_write(uint32_t off, uint32_t v) { (void)off; (void)v; }
+uint32_t tfw_mps2_model_misc_read(void)                   { return 0u; }
+void     tfw_mps2_model_misc_write(uint32_t v)            { (void)v; }
 
 void tfw_hal_delay_us(uint16_t us)
 {

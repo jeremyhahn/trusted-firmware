@@ -139,7 +139,8 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines. test_mps2_bus too: it links
 # the MPS2 bus driver itself, over a simulated SBCon, and test_mps2_spi_row links
-# it with bus.c over a modelled PL022, on the MPS2 board table.
+# it with bus.c over a modelled PL022, on the MPS2 board table; test_mps2_adc
+# links the MPS2 ADC under mps2-an505's profile.
 # test_cm_hal_eeprom links the Cortex-M EEPROM and NVM HAL in the mock's place.
 # test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
@@ -530,14 +531,40 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c with the suite's
-# simulated SBCon bus and delay in place of sbcon.c and hal_tick.c, so it
-# links no mock HAL, which defines the same bus entry points.
+# The MPS2 bus registers (#628): the image's sbcon.c and pl022.c, built under
+# mps2-an505's profile for its bases, over the register model in
+# test/model/mps2_bus_model.c, whose cortex-m/mps2/cm_regs.h comes ahead of
+# src/hal/cortex-m/'s. Each suite that links them gives its bus as the model's
+# tfw_mps2_model_* hooks and links with MPS2_BUS_REGS_WRAP, which tells the
+# model whether an accessor reads or writes (mps2_bus_model.h).
+# The objects keep EXTRA_CFLAGS, so coverage and test-asan instrument the
+# image's sources, and they outlive one make, unlike the one-command binaries:
+# a plain link after test-asan or coverage would meet instrumented objects.
+# Their directory names a checksum of EXTRA_CFLAGS, as HOST_DIR does of the
+# defines, so each flag set builds its own and a plain build keeps
+# $(HOST_DIR)/mps2_bus_regs.
+MPS2_BUS_REGS_DIR    := $(HOST_DIR)/mps2_bus_regs$(if $(strip $(EXTRA_CFLAGS)),-f$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(EXTRA_CFLAGS)))' | cksum)))
+MPS2_BUS_REGS_CFLAGS  = -Itest/model/cortex-m/mps2 -Itest/model -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+                        -Iboards/mps2-an505 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+MPS2_BUS_REGS_OBJS   := $(MPS2_BUS_REGS_DIR)/sbcon.o $(MPS2_BUS_REGS_DIR)/pl022.o $(MPS2_BUS_REGS_DIR)/mps2_bus_model.o
+MPS2_BUS_REGS_WRAP   := $(foreach f,sb_lines sb_release sb_drive_low ssp_read ssp_write misc_read misc_write,-Wl,--wrap=tfw_mps2_$(f))
+$(MPS2_BUS_REGS_DIR):
+	@mkdir -p $@
+$(MPS2_BUS_REGS_DIR)/%.o: src/hal/cortex-m/mps2/%.c src/hal/cortex-m/mps2/%.h src/hal/cortex-m/mps2/soc_regs.h \
+                          test/model/cortex-m/mps2/cm_regs.h test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+$(MPS2_BUS_REGS_DIR)/mps2_bus_model.o: test/model/mps2_bus_model.c test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+
+# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c over the image's
+# sbcon.c and pl022.c with the suite's simulated SBCon bus behind the register
+# model, and its delay in place of hal_tick.c, so it links no mock HAL, which
+# defines the same bus entry points.
 $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_bus.c \
                            test/mock/mps2_gpio_line_idle.c \
-                           $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                           $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The MPS2 watchdog (src/hal/cortex-m/mps2/hal_soc.c) on a register file
 # (test/model/cortex-m/mps2_soc_model.c): the model includes hal_soc.c after
@@ -577,9 +604,9 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
                                src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/mps2-an505/board.c \
-                               $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -DTFW_CM_SPI=1 \
-	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+                               $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Itest/model -DTFW_CM_SPI=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The MPS2 byte link (row cortex-m): src/hal/cortex-m/mps2/hal_uart.c, unchanged,
 # on mps2-an505's profile. test/model/cortex-m/ goes first so its cm_regs.h
@@ -2232,7 +2259,7 @@ LINT_SOC_DEFS_rp2350 := -DTFW_CM_PERIPH=1
 lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
-lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
+lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep lint-no-delay
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
@@ -2316,23 +2343,96 @@ lint-test-sleep:
 	fi
 	@echo "no sleeps in test files"
 
+## lint-no-delay: no blocking delay call in the firmware C
+# The device-capabilities SPEC row: "There is no delay()". Every poll in the
+# superloop returns promptly, so a timed output fires within one iteration and
+# the device answers while it waits (src/main.c). The sweep is every .c and .h under src/, boot/,
+# boards/ and include/, bar third_party, and it enters the HAL directories too: the
+# arch-leak gate lets src/hal/esp32 name vTaskDelay, this one does not.
+# _delay_us stays allowed: it is the bus-timing primitive behind
+# tfw_hal_delay_us (src/hal/avr/hal_bus.c, hal_pulse.c), microseconds inside
+# one transaction, not a wait. Every backslash-newline is deleted first, as C
+# does, so comments and literals are recognised on the spliced text: a comment
+# closed by a spliced * and / is closed, a spliced / and / or / and * opens one,
+# and a name or call split by a splice is matched whole (delay\ then (10); or
+# _delay\ then _ms(10);). Comments (/* */ across lines, and //) and the
+# contents of string and character literals are then blanked in place, so
+# prose naming delay() is not a finding and code beside a comment
+# (/* wait */ _delay_ms(10); delay /* ms */ (10);) still is. A call split
+# across lines (delay, then blank or comment-only lines, then the open
+# parenthesis) is still a call. A finding names the physical line where the
+# identifier starts. The gate
+# fails closed: a root it cannot enter or a file awk cannot read fails it,
+# never passes as no hits (scripts/test_lint_no_delay.py); boards/ and include/
+# are swept when present.
+LINT_NO_DELAY_ID := (delay|_delay_ms|delayMicroseconds|vTaskDelay)
+LINT_NO_DELAY_AWK := \
+	function phys(o,   k) { for (k = ns; k > 1 && so[k] > o; k--) ; return sl[k] } \
+	function ident(s) { return RSTART + (substr(s, RSTART, 1) ~ /[A-Za-z0-9_]/ ? 0 : 1) } \
+	function scan(s, f,   n, i, c, d, q, out) { out = ""; q = ""; n = length(s); \
+	  for (i = 1; i <= n; i++) { c = substr(s, i, 1); d = substr(s, i, 2); \
+	    if (inc) { if (d == "*/") { inc = 0; i++; out = out "  " } else out = out " "; continue } \
+	    if (q != "") { if (c == "\\") { i++; out = out "  " } else if (c == q) { q = ""; out = out c } else out = out " "; continue } \
+	    if (d == "/*") { inc = 1; i++; out = out "  "; continue } \
+	    if (d == "//") break; \
+	    if (c == "\"" || c == "\047") q = c; \
+	    out = out c } \
+	  if (pend != "" && out ~ /^[[:space:]]*[(]/) print pend; \
+	  if (out !~ /^[[:space:]]*$$/) pend = ""; \
+	  if (match(out, call)) { print f ":" phys(ident(out)) ": delay-call"; return } \
+	  if (match(out, tail)) pend = f ":" phys(ident(out)) ": delay-call" } \
+	BEGIN { call = "(^|[^A-Za-z0-9_])" id "[[:space:]]*[(]"; \
+	        tail = "(^|[^A-Za-z0-9_])" id "[[:space:]]*$$" } \
+	FNR == 1 { if (ns) scan(jb, jf); inc = 0; pend = ""; ns = 0; jb = "" } \
+	{ s = $$0; n = length(s); sp = (n > 0 && substr(s, n, 1) == "\\"); if (sp) s = substr(s, 1, n - 1); \
+	  ns++; so[ns] = length(jb) + 1; sl[ns] = FNR; jb = jb s; jf = FILENAME; \
+	  if (sp) next; \
+	  scan(jb, jf); ns = 0; jb = "" } \
+	END { if (ns) scan(jb, jf) }
+lint-no-delay:
+	@cd $(LINT_GREP_ROOT) || exit 1; \
+	hits=$$(find src boot $$(for d in boards include; do [ -d $$d ] && echo $$d; done) -name third_party -prune -o -type f \
+	     \( -name '*.c' -o -name '*.h' \) \
+	     -exec awk -v id='$(LINT_NO_DELAY_ID)' '$(LINT_NO_DELAY_AWK)' {} +); rc=$$?; \
+	if [ $$rc -ne 0 ]; then \
+	  echo "lint-no-delay: the scan could not read the tree (exit $$rc), so it is not clean"; \
+	  exit 1; \
+	fi; \
+	if [ -n "$$hits" ]; then \
+	  printf '%s\n' "$$hits"; \
+	  echo "a wait is a poll that returns at once, never a blocking delay (SPEC device-capabilities)"; \
+	  exit 1; \
+	fi
+	@echo "no delay calls in the firmware"
+
 ## lint-grep-selftest: the grep gates fail on a plant and print path and line only
 # Plants go into a throwaway tree, never into this one. Each plant must fail its
 # gate with `path:line: ` and without the planted text; an include guard, an
-# exempt HAL directory and a sleep outside a test file must not.
+# exempt HAL directory, a sleep outside a test file, a microsecond bus delay
+# and a comment that names delay() must not.
 lint-grep-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/optee/ta $$t/boards $$t/include $$t/sdk $$t/scripts && \
 	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
 	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
-	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep LINT_GREP_ROOT=$$t > /dev/null || \
+	printf '/*\n * delay() is banned\n */\n// vTaskDelay(1) too\n/*\n  prose with no asterisks: delay(10)\n  and _delay_ms(5) too\n*/\n' > $$t/src/core/comment.c && \
+	printf '_delay_us(1);\ntfw_hal_delay_us(1);\n/* there is no delay() */\n/* nor _delay_ms(), vTaskDelay() */\n// nor delayMicroseconds()\nputs("delay(1)"); x = f(); /* delay(2) */ y = 1;\n' > $$t/src/core/ok.c && \
+	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep lint-no-delay LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
 	             'conditionals:optee/ta/plant.c:#ifdef TFW_PLANTED_TEXT' \
 	             'timestamps:src/core/plant.c:const char *d = __DATE__; /* TFW_PLANTED_TEXT */' \
 	             'test-sleep:sdk/plant_test.go:time.Sleep(1) // TFW_PLANTED_TEXT' \
-	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT'; do \
+	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT' \
+	             'no-delay:src/core/plant.c:void f(void){ delay(10); } /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:    delay(100); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:boot/plant.c:_delay_ms(5); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:/* wait */ _delay_ms(10); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:delay /* milliseconds */ (10); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:src/core/plant.c:s = "/*"; delay(1); /* TFW_PLANTED_TEXT */' \
+	             'no-delay:boards/plant.h:{ delayMicroseconds (10); } /* TFW_PLANTED_TEXT */' \
+	             'no-delay:include/plant.h:if (x) vTaskDelay(1); /* TFW_PLANTED_TEXT */'; do \
 	  gate=$${plant%%:*}; rest=$${plant#*:}; f=$${rest%%:*}; printf '%s\n' "$${rest#*:}" > $$t/$$f; \
 	  if out=$$($(MAKE) --no-print-directory lint-$$gate LINT_GREP_ROOT=$$t 2>&1); then \
 	    echo "selftest: lint-$$gate passed a plant"; exit 1; \
@@ -2799,10 +2899,10 @@ host-dir:
 # The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
 # becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
 # by the same line. -include, because the first build has none.
--include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
+-include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d $(MPS2_BUS_REGS_DIR)/*.d)
 
 .PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
-        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
+        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-no-delay lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep
 #
@@ -3352,9 +3452,9 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
 # the pattern rule.
 $(HOST_DIR)/test_mps2_optiga: test/unit/test_mps2_optiga.c src/crypto/optiga/optiga_i2c.c \
                               src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
-                              $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                              $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
 # the transport faked in the suite at the APDU, so each command's bytes are

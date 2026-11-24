@@ -72,6 +72,7 @@ static struct {
                               * it for; < 0 is for good */
     int      accept;         /* commands still taken; < 0 is no limit */
     int      nack_at;        /* index of the data byte refused; < 0 none */
+    uint32_t refusal;        /* the flag that refusal raises: NDF */
     unsigned tx_index;
     uint16_t log[64];
     unsigned log_n;
@@ -89,6 +90,10 @@ static struct {
     int      wait;
     unsigned restarts;       /* STARTs on a bus already ours: repeated STARTs */
     unsigned resets;         /* MCR RST writes */
+    int      stop_lost;      /* a STOP runs but never ends the transfer */
+    uint32_t after_clear;    /* a flag raised again by the first W1C while this master holds the bus: one shot */
+    uint32_t stop_flag;      /* a flag the next STOP raises in place of SDF, the bus let go without it: one shot */
+    uint32_t rx_flag;        /* a flag the receive raises after its bytes */
 } m;
 
 static uint32_t delayed_us;
@@ -186,7 +191,7 @@ static void model_run(uint32_t v)
     case TFW_MCXN_LPI2C_CMD_TX:
         TEST_ASSERT_TRUE(m.mbf);
         if ((int)m.tx_index++ == m.nack_at) {
-            m.flags |= TFW_MCXN_LPI2C_MSR_NDF;
+            m.flags |= m.refusal;
             break;
         }
         m.got[m.got_n++] = (uint8_t)data;
@@ -196,9 +201,16 @@ static void model_run(uint32_t v)
         for (uint32_t i = 0; i <= data; i++) {
             m.rx[m.rx_head++ % sizeof m.rx] = m.answer[m.answer_pos++];
         }
+        m.flags |= m.rx_flag;
         break;
     case TFW_MCXN_LPI2C_CMD_STOP:
-        if (m.mbf) {
+        if (m.stop_flag) {
+            m.flags |= m.stop_flag;
+            m.stop_flag = 0u;
+            m.mbf = 0;
+            break;
+        }
+        if (m.mbf && !m.stop_lost) {
             m.mbf = 0;
             m.flags |= TFW_MCXN_LPI2C_MSR_SDF;
             m.stops++;
@@ -214,6 +226,10 @@ static void model_wr(uint32_t off, uint32_t v)
     switch (off) {
     case TFW_MCXN_LPI2C_MSR_OFF:
         m.flags &= ~(v & MSR_W1C);
+        if (m.mbf && m.after_clear) {
+            m.flags |= m.after_clear;
+            m.after_clear = 0u;
+        }
         break;
     case TFW_MCXN_LPI2C_MCR_OFF:
         m.mcr = v & ~(TFW_MCXN_LPI2C_MCR_RTF | TFW_MCXN_LPI2C_MCR_RRF);
@@ -250,6 +266,7 @@ void setUp(void)
     memset(&m, 0, sizeof m);
     m.accept = -1;
     m.nack_at = -1;
+    m.refusal = TFW_MCXN_LPI2C_MSR_NDF;
     slot_n = 0u;
     delayed_us = 0u;
 }
@@ -283,7 +300,7 @@ static void assert_timing(uint32_t hz, uint32_t pre, uint32_t lo, uint32_t hi,
     TEST_ASSERT_EQUAL_UINT32(datavd, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_DATAVD_SHIFT));
 }
 
-/* 12 MHz / (61 + 1 + 55 + 1 + 2) = 100 kHz exactly, prescale 1; CLKHI cut
+/* 12 MHz / (61 + 1 + 55 + 1 + 2) = 100 kHz exactly, prescale 0; CLKHI cut
  * from 57 to 55 for tBUF, as LPI2C_MasterSetBaudRate does. */
 static void test_100k_from_fro12m(void)
 {
@@ -308,6 +325,32 @@ static void test_a_slow_rate_takes_a_prescale(void)
     assert_timing(10000u, 4u, 38u, 35u, 36u, 17u, 15u);
 }
 
+/* 2 kHz: prescale 6 (div 64, latency 0) takes round(93.75) = 94 ticks, cycle
+ * 92, 187500 / 94 = 1994 Hz, error 6; prescale 7 takes 47 ticks, cycle 45,
+ * 93750 / 47 = 1994 Hz, error 6 too. The tie keeps the first, smaller
+ * prescale. CLKHI 46 is cut to 45 for tBUF (45 + 48 <= 92 + 1), CLKLO 92 - 45
+ * = 47; a period is 93 prescaled clocks, SETHOLD 93 / 2 - 1 = 45, DATAVD
+ * 93 / 4 - 1 = 22; FILTSDA 300 - 64 - 2 is capped at 15. */
+static void test_a_tie_goes_to_the_smaller_prescale(void)
+{
+    assert_timing(2000u, 6u, 47u, 45u, 45u, 22u, 15u);
+}
+
+/* The ceiling is CLKLO + CLKHI <= 120 - SCL_LATENCY, inclusive. 98 kHz:
+ * prescale 0 takes round(122.45) = 122 ticks, cycle 122 - 2 - 2 = 118 = 120 - 2,
+ * at the ceiling and taken; 12e6 / 122 = 98360 Hz, error 360, tied by
+ * prescale 1 (6e6 / 61). CLKHI 58 cut to 56 for tBUF (56 + 63 <= 118 + 1),
+ * CLKLO 62; a period is 122 clocks, SETHOLD 60, DATAVD 29; FILTSDA
+ * 6 - 1 - 2 = 3. 97 kHz: prescale 0 takes round(123.71) = 124 ticks, cycle
+ * 120 > 118, refused; prescale 1 takes 62 ticks, cycle 59, 6e6 / 62 = 96774
+ * Hz, error 226. CLKHI 29 cut to 28 (28 + 32 <= 60), CLKLO 31; a period is
+ * 61 clocks, SETHOLD 29, DATAVD 14; FILTSDA 6 - 2 - 2 = 2. */
+static void test_the_cycle_ceiling_is_inclusive(void)
+{
+    assert_timing(98000u, 0u, 62u, 56u, 60u, 29u, 3u);
+    assert_timing(97000u, 1u, 31u, 28u, 29u, 14u, 2u);
+}
+
 static void test_a_rate_out_of_reach_is_refused(void)
 {
     tfw_mcxn_lpi2c_timing_t t;
@@ -318,6 +361,79 @@ static void test_a_rate_out_of_reach_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 500u, &t));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 3000000u, &t));
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+}
+
+/* The 5 % bound itself, on a rate the search does find a setting for. From
+ * 12 MHz at prescale 0 the nearest period is 4 + 1 + 1 + 1 + 2 = 9 clocks
+ * (CLKLO + 1, CLKHI + 1, the latency): 12e6 / 9 = 1333333 Hz. Asked for
+ * 1403508 Hz that misses by 70175 Hz, hz / 20 exactly, and is accepted;
+ * 1403509 Hz misses by 70176 > 70175 and is refused with *out left alone.
+ * Nothing else refuses 1403509 Hz: every other check passes on that setting.
+ * (1263158 Hz would not do: its best setting, prescale 1, has CLKHI 0 and
+ * the field check refuses it whatever the bound.) */
+static void test_the_five_percent_bound_is_inclusive(void)
+{
+    tfw_mcxn_lpi2c_timing_t t;
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_mcxn_lpi2c_timing(12000000u, 1403508u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0x01030104u, t.mccr0);
+    TEST_ASSERT_EQUAL_UINT32(4u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_CLKLO_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(1u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_CLKHI_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(3u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_SETHOLD_SHIFT));
+    TEST_ASSERT_EQUAL_UINT32(1u, field(t.mccr0, TFW_MCXN_LPI2C_MCCR0_DATAVD_SHIFT));
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 1403509u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+}
+
+/* The slowest rate the search times from 12 MHz, on its last prescale. 766
+ * Hz: prescale 7 (div 128, latency 0) takes round(93750 / 766 = 122.39) =
+ * 122 ticks, cycle 120, at the ceiling; 93750 / 122 = 768 Hz, error 2;
+ * prescale 6 takes 245 ticks, too slow. CLKHI 60 cut to 58 for tBUF (58 + 63
+ * <= 120 + 1), CLKLO 120 - 58 = 62; a period is 12e6 / 766 / 128 = 122
+ * clocks, SETHOLD 60, DATAVD 29; FILTSDA 783 - 128 - 2 is capped at 15.
+ * 765 Hz: round(122.55) = 123 ticks, cycle 121 > 120, and no prescale is
+ * left, so it is refused with *out left alone. */
+static void test_the_slowest_rate_takes_the_last_prescale(void)
+{
+    tfw_mcxn_lpi2c_timing_t t;
+
+    assert_timing(766u, 7u, 62u, 58u, 60u, 29u, 15u);
+
+    memset(&t, 0xA5, sizeof t);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, 765u, &t));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+}
+
+/* From 12 MHz at prescale 0 (latency 2), a rate the search times exactly can
+ * still be refused: its CLKHI is 0. 2 MHz is 6 ticks, cycle 6 - 2 - 2 = 2, 0
+ * off, so the search stops there; CLKHI (2 - 2) / 2 = 0 while the period (6)
+ * and its quarter (1) pass, so only the CLKHI check refuses it. 1.75 MHz is 7
+ * ticks, cycle 3, 1714285 Hz (35715 off, within 87500), CLKHI (3 - 2) / 2 = 0:
+ * refused by the same check. 1.5 MHz, one tick slower at 8, is the fastest
+ * rate it accepts: cycle 4, CLKHI 1 (1 + 52 * 8 / 100 = 5 is not over 5),
+ * CLKLO 3, SETHOLD 3, DATAVD 1, FILTSDA 0. */
+static void test_a_rate_whose_clkhi_would_be_zero_is_refused(void)
+{
+    static const uint32_t refused[] = {1750000u, 2000000u};
+    tfw_mcxn_lpi2c_timing_t t;
+
+    assert_timing(1500000u, 0u, 3u, 1u, 3u, 1u, 0u);
+    for (size_t i = 0u; i < sizeof refused / sizeof refused[0]; i++) {
+        memset(&t, 0xA5, sizeof t);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_mcxn_lpi2c_timing(12000000u, refused[i], &t));
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr1);
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mcfgr2);
+        TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, t.mccr0);
+    }
 }
 
 /* ---- init */
@@ -347,6 +463,8 @@ static void test_init_refuses_a_rate_it_cannot_time(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(0u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(3000000u));
+    /* Timed exactly by the search but CLKHI would be 0. */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(2000000u));
     TEST_ASSERT_EQUAL_UINT(0u, slot_n);
 }
 
@@ -438,6 +556,34 @@ static void test_a_refused_last_byte_is_nack_and_stopped(void)
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
     TEST_ASSERT_EQUAL_UINT(1u, m.stops);
     TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 19-23 promise, and msr_error (lines 52-67) maps, each error
+ * flag to its own status: lost arbitration BUSY, pin low timeout TIMEOUT,
+ * FIFO error INTERNAL. Each one ends the transfer with a STOP. */
+static void test_each_error_flag_is_its_own_status_and_stopped(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02, 0x03 };
+    static const struct {
+        uint32_t   flag;
+        tfw_status_t st;
+    } rows[] = {
+        { TFW_MCXN_LPI2C_MSR_ALF, TFW_ERR_BUSY },
+        { TFW_MCXN_LPI2C_MSR_PLTF, TFW_ERR_TIMEOUT },
+        { TFW_MCXN_LPI2C_MSR_FEF, TFW_ERR_INTERNAL },
+    };
+
+    for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        setUp();
+        m.nack_at = 1;
+        m.refusal = rows[i].flag;
+        TEST_ASSERT_EQUAL(rows[i].st, tfw_hal_i2c_xfer(DEV_ADDR, out, 3u, NULL, 0u));
+        TEST_ASSERT_EQUAL_UINT(1u, m.got_n);
+        TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+        TEST_ASSERT_FALSE(m.mbf);
+        TEST_ASSERT_EQUAL_HEX16(CMD(2, 0), m.log[m.log_n - 1u]);
+        TEST_ASSERT_EQUAL_HEX32(0u, m.flags);
+    }
 }
 
 /* The controller runs the queue while the driver writes it: a refusal lands
@@ -565,6 +711,151 @@ static void test_a_bus_this_master_still_holds_is_not_started_on(void)
     TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
 }
 
+/* hal_bus.c 216-217: a flag left from the last transfer is cleared at the
+ * start, so the first push does not read a stale ALF as this transfer's. */
+static void test_a_flag_left_from_before_is_cleared_at_the_start(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+    static const uint16_t want[] = {
+        CMD(4, DEV_ADDR << 1), CMD(0, 0x01), CMD(0, 0x02), CMD(2, 0)
+    };
+
+    m.flags = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    assert_log(want, 4u);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.flags);
+}
+
+/* hal_bus.c 218-219 (RRF): a byte left in the receive FIFO is dropped at
+ * the start, not handed to the next read as its first byte. */
+static void test_a_byte_left_in_the_receive_fifo_is_not_read(void)
+{
+    uint8_t in[2];
+
+    m.rx[0] = 0xEEu;
+    m.rx_head = 1u;
+    memcpy(m.answer, "\x11\x22", 2u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, in, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(m.answer, in, 2u);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+}
+
+/* hal_bus.c 218-219 (RTF): a command left in the transmit FIFO is dropped
+ * at the start, so it does not run ahead of the new START. */
+static void test_a_command_left_in_the_transmit_fifo_is_not_run(void)
+{
+    static const uint8_t out[] = { 0x01 };
+    static const uint16_t want[] = { CMD(4, DEV_ADDR << 1), CMD(0, 0x01), CMD(2, 0) };
+
+    m.fifo[0] = CMD(4, 0x50u << 1);    /* a START to another address */
+    m.fifo_n = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, out, 1u, NULL, 0u));
+    assert_log(want, 3u);
+    TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
+    TEST_ASSERT_EQUAL_UINT(1u, m.got_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+}
+
+/* hal_bus.c 154-171: a STOP that is queued but never shows is a timeout,
+ * and the master is reset so the next transfer starts clean. */
+static void test_a_stop_that_never_shows_is_a_timeout_and_aborted(void)
+{
+    static const uint8_t out[] = { 0x01 };
+
+    m.lag = 1000000;                   /* nothing queued runs within the wait */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(3u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_EQUAL_UINT(0u, m.fifo_n);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 145-152: a STOP that cannot be queued after the last byte
+ * is a timeout, waited for once, and the master is reset. */
+static void test_a_stop_that_cannot_be_queued_is_a_timeout_waited_once(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.accept = 3;                      /* START and both bytes, no STOP */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(3u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+    TEST_ASSERT_TRUE(delayed_us < 2u * I2C_WAIT_US);
+}
+
+/* hal_bus.c lines 137-152: a refused byte whose STOP then cannot be queued
+ * keeps its NACK, and the master is reset. */
+static void test_a_refused_byte_whose_stop_cannot_be_queued_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.accept = 2;                      /* START and the first byte, no STOP */
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(2u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 137-171: a refused byte whose STOP runs but never shows
+ * keeps its NACK, and the master is reset. */
+static void test_a_refused_byte_whose_stop_never_shows_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.stop_lost = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 137-152: a flag the bus raises again after the error flush
+ * makes the STOP's push fail busy; the refused byte keeps its NACK. */
+static void test_a_refused_byte_keeps_its_nack_when_the_stop_meets_a_new_flag(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.after_clear = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 154-171: a STOP that loses arbitration after a refusal,
+ * no SDF and the bus let go, leaves the refused byte its NACK. */
+static void test_a_refused_byte_keeps_its_nack_when_its_stop_raises_a_flag(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.nack_at = 0;
+    m.stop_flag = TFW_MCXN_LPI2C_MSR_ALF;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+}
+
+/* hal_bus.c lines 137-143: a read that fails with its bytes still in the
+ * receive FIFO has them flushed with the error, not left for the next read. */
+static void test_a_failed_read_flushes_the_receive_fifo(void)
+{
+    uint8_t in[2];
+
+    m.lag = 1;
+    m.answer[0] = 0x5A;
+    m.answer[1] = 0xA5;
+    m.rx_flag = TFW_MCXN_LPI2C_MSR_FEF;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, in, 2u));
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+    TEST_ASSERT_EQUAL_UINT(m.rx_head, m.rx_tail);
+}
+
 static void test_an_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, NULL, 0u));
@@ -590,7 +881,12 @@ int main(void)
     RUN_TEST(test_400k_from_fro12m);
     RUN_TEST(test_1m_from_fro12m);
     RUN_TEST(test_a_slow_rate_takes_a_prescale);
+    RUN_TEST(test_a_tie_goes_to_the_smaller_prescale);
+    RUN_TEST(test_the_cycle_ceiling_is_inclusive);
     RUN_TEST(test_a_rate_out_of_reach_is_refused);
+    RUN_TEST(test_the_five_percent_bound_is_inclusive);
+    RUN_TEST(test_the_slowest_rate_takes_the_last_prescale);
+    RUN_TEST(test_a_rate_whose_clkhi_would_be_zero_is_refused);
     RUN_TEST(test_init_routes_clocks_pins_and_the_unit);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_time);
     RUN_TEST(test_a_write_is_start_bytes_and_stop);
@@ -600,6 +896,7 @@ int main(void)
     RUN_TEST(test_an_unanswered_read_address_is_nack_and_stopped);
     RUN_TEST(test_a_refused_data_byte_is_nack_and_the_bus_is_stopped);
     RUN_TEST(test_a_refused_last_byte_is_nack_and_stopped);
+    RUN_TEST(test_each_error_flag_is_its_own_status_and_stopped);
     RUN_TEST(test_an_address_refused_after_the_stop_is_queued_is_nack);
     RUN_TEST(test_a_byte_refused_after_the_stop_is_queued_is_nack);
     RUN_TEST(test_a_read_address_refused_behind_its_receive_is_nack);
@@ -608,6 +905,16 @@ int main(void)
     RUN_TEST(test_a_stuck_controller_is_a_timeout);
     RUN_TEST(test_a_stalled_transfer_is_aborted_and_the_next_starts_clean);
     RUN_TEST(test_a_bus_this_master_still_holds_is_not_started_on);
+    RUN_TEST(test_a_flag_left_from_before_is_cleared_at_the_start);
+    RUN_TEST(test_a_byte_left_in_the_receive_fifo_is_not_read);
+    RUN_TEST(test_a_command_left_in_the_transmit_fifo_is_not_run);
+    RUN_TEST(test_a_stop_that_never_shows_is_a_timeout_and_aborted);
+    RUN_TEST(test_a_stop_that_cannot_be_queued_is_a_timeout_waited_once);
+    RUN_TEST(test_a_refused_byte_whose_stop_cannot_be_queued_is_nack);
+    RUN_TEST(test_a_refused_byte_whose_stop_never_shows_is_nack);
+    RUN_TEST(test_a_refused_byte_keeps_its_nack_when_the_stop_meets_a_new_flag);
+    RUN_TEST(test_a_refused_byte_keeps_its_nack_when_its_stop_raises_a_flag);
+    RUN_TEST(test_a_failed_read_flushes_the_receive_fifo);
     RUN_TEST(test_an_empty_transfer_touches_nothing);
     RUN_TEST(test_spi_and_onewire_are_unsupported);
     return UNITY_END();

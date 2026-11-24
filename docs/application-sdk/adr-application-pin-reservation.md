@@ -71,7 +71,7 @@ vtable, and preprocessor conditionals stay in the four places.
   probe (`mk/wiznet-probe.mk:26`). A call from it into the application runner
   would make each of those link a runner.
 - **The example application already conflicts.** It drives pin 13, the LED
-  (`test/app/example/example.c:27`, `:41`), which a host may also write. On the
+  (`test/app/example/example.c:37`, `:51`), which a host may also write. On the
   ATmega328P, pin 13 is the Ethernet shield's SCK in an Ethernet image
   (`boards/atmega328p/board.c:43`): there the application drives a pin the
   firmware itself has taken.

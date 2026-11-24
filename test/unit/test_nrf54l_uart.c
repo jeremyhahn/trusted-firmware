@@ -27,6 +27,7 @@
 #define P1_ADDR(off)     ((uintptr_t)0x500D8200u + (off))
 /* UARTE20's interrupt, 198: NVIC word 6, bit 6. */
 #define NVIC_ISER6_ADDR  ((uintptr_t)0xE000E100u + 4u * 6u)
+#define NVIC_ICER6_ADDR  ((uintptr_t)0xE000E180u + 4u * 6u)
 
 static uint32_t peek(uintptr_t addr)
 {
@@ -213,7 +214,9 @@ void test_a_second_init_starts_with_empty_rings_and_nothing_on_the_wire(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
 
     TFW_NRF_UARTE_TX_START = 0u;
+    regfile_model_poke(NVIC_ICER6_ADDR, 0u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_HEX32(1u << (198u % 32u), peek(NVIC_ICER6_ADDR));
 
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
@@ -329,6 +332,52 @@ void test_irq_clears_a_receive_error(void)
     TEST_ASSERT_EQUAL_HEX32(0xFu, peek(UARTE_ADDR(0x480u)));
 }
 
+/* 64 bytes fill the ring (one on the wire, 63 queued) and go out in order;
+ * the last one's TXDRDY leaves the UARTE idle, so tx_tail wrapped back to
+ * tx_head. Three more then go out in order across the wrap. */
+void test_tx_ring_wraps_and_drains_in_order(void)
+{
+    uint32_t n;
+
+    for (n = 0u; n < 64u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)n));
+    }
+    for (n = 0u; n < 64u; n++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, tx_dma);
+        byte_left_txd();
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+
+    for (n = 0x40u; n < 0x43u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)n));
+    }
+    for (n = 0x40u; n < 0x43u; n++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, tx_dma);
+        byte_left_txd();
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+/* ERROR and DMA.RX.END in one interrupt: the error is cleared and the byte
+ * still reaches the ring, with the next receive started. */
+void test_irq_takes_a_byte_that_came_with_an_error(void)
+{
+    uint8_t b = 0u;
+
+    TFW_NRF_UARTE_RX_START = 0u;
+    TFW_NRF_UARTE_ERRORSRC = 0u;
+    TFW_NRF_UARTE_ERROR    = 1u;
+    rx_dma                 = 0x5Au;
+    TFW_NRF_UARTE_RX_END   = 1u;
+    tfw_cm_irq198();
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x114u)));
+    TEST_ASSERT_EQUAL_HEX32(0xFu, peek(UARTE_ADDR(0x480u)));
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x14Cu)));
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x028u)));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -351,5 +400,7 @@ int main(void)
     RUN_TEST(test_rx_returns_nothing_without_rx_end);
     RUN_TEST(test_rx_drops_a_byte_that_finds_the_ring_full);
     RUN_TEST(test_irq_clears_a_receive_error);
+    RUN_TEST(test_tx_ring_wraps_and_drains_in_order);
+    RUN_TEST(test_irq_takes_a_byte_that_came_with_an_error);
     return UNITY_END();
 }

@@ -32,9 +32,9 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **esp32-p4** — ESP32-P4 on a PoE Ethernet board, on Espressif's QEMU until the board arrives — [#48](../../issues/48) — open
 - **esp32** — the ESP-IDF architecture port, the ESP32-P4 first — [#23](../../issues/23) — open
 - **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — done
-- **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — [#52](../../issues/52) — open
+- **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane; the ESP32-P4 soft tier's trial, confirm and roll back rows are not applicable (owner ruling 1243, [#563](../../issues/563)) — [#52](../../issues/52) — open
 - **ota** — network and serial OTA on the AVR boards — [#75](../../issues/75) — open
-- **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part; landed, host and CI build only: the board as data (id `0x41`, provisional) and its TCM map (slice 1), the SCMI client (slice 2), LPUART3, RGPIO and WDOG5 on a register model (slice 3), and the enclave's message layer, session, key store, P-256 key, sign, export and verify (part of slice 5); waits: the run on the board, tier value 5 (slice 4), the enclave provider (slice 5), the OTA gate (slice 6), Ethernet (slice 7) and the owner's questions 3, 4, 19 to 21 ([imx95-design.md](docs/multi-arch/imx95-design.md), Row status) — [#49](../../issues/49) — open
+- **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part; landed, host and CI build only: the board as data (id `0x41`, provisional) and its TCM map (slice 1), the SCMI client (slice 2), LPUART3, RGPIO and WDOG5 on a register model (slice 3; the SPEC console is LPUART7, owner ruling 1243, and the move is [#474](../../issues/474)), and the enclave's message layer, session, key store, P-256 key, sign, export and verify (part of slice 5); waits: the run on the board, tier value 5 (slice 4), the enclave provider (slice 5), the OTA gate (slice 6), Ethernet (slice 7) and the owner's questions 3, 4, 19 to 21 ([imx95-design.md](docs/multi-arch/imx95-design.md), Row status) — [#49](../../issues/49) — open
 
 ## Next
 

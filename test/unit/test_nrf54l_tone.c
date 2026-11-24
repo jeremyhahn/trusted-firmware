@@ -139,6 +139,9 @@ static void test_tone_calc_range(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(6000000u, &pre, &cc));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(8000000u, &pre, &cc));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(8000001u, &pre, &cc));
+    /* Far past the cap, where 2 * hz wraps to 0 or a small value. */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(0x80000000u, &pre, &cc));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_nrf54l_tone_calc(0xFFFFFFFFu, &pre, &cc));
     TEST_ASSERT_EQUAL_UINT32(99u, pre);   /* untouched on refusal */
     TEST_ASSERT_EQUAL_UINT32(77u, cc);
 }
@@ -194,6 +197,71 @@ static void test_tone_retarget(void)
     TEST_ASSERT_EQUAL_HEX32(1u, last_w(A_TIMER(0x510u)));
     TEST_ASSERT_EQUAL_HEX32(40000u, last_w(A_TIMER(0x540u)));
     TEST_ASSERT_EQUAL_INT((int)log_n - 1, find_w(A_TIMER(0x000u), first));
+}
+
+/* A second start on another P1 pin. hal_tone.c lines 50-65 refuse a bad pin
+ * and then stop the playing tone, and that stop drives the old pin low and
+ * hands it back to the GPIO through tone_bit, which line 88 sets to the new
+ * pin only after the new set-up. A tone_bit set before the stop, or a stop
+ * through p->bit, would leave P1.10 at GPIOTE's last level, never driven
+ * low; this test fails then. */
+static void test_tone_retarget_to_another_pin_leaves_the_old_pin_low(void)
+{
+    static const tfw_pinref_t p14 = { .port = 1u, .bit = 14u };
+    unsigned from;
+    int outclr, cnf, cfg_stop, cfg_new;
+    uint32_t cfg;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&LED1, 1000u));
+    model_flush();
+    from = log_n;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&p14, 440u));
+    model_flush();
+
+    /* The stop's own CONFIG write (Disabled), then the new set-up's. */
+    outclr   = find_w(A_P1(0x008u), from);
+    cnf      = find_w(A_P1(0x080u + 4u * 10u), from);
+    cfg_stop = find_w(A_GPIOTE(0x510u), from);
+    TEST_ASSERT_TRUE(cfg_stop >= 0);
+    TEST_ASSERT_EQUAL_HEX32(0u, log_w[cfg_stop].val);
+    cfg_new  = find_w(A_GPIOTE(0x510u), (unsigned)cfg_stop + 1u);
+    TEST_ASSERT_TRUE(outclr >= 0 && outclr < cfg_new);
+    TEST_ASSERT_TRUE(cnf >= 0 && cnf < cfg_new);
+    TEST_ASSERT_EQUAL_HEX32(1uL << 10, log_w[outclr].val);
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, log_w[cnf].val);
+    TEST_ASSERT_EQUAL_INT(-1, find_w(A_P1(0x080u + 4u * 14u), from));
+
+    cfg = last_w(A_GPIOTE(0x510u));
+    TEST_ASSERT_EQUAL_UINT32(14u, (cfg >> TFW_NRF_GPIOTE_CONFIG_PSEL_POS) & 0x1Fu);
+    TEST_ASSERT_EQUAL_UINT32(1u, (cfg >> TFW_NRF_GPIOTE_CONFIG_PORT_POS) & 0xFu);
+    TEST_ASSERT_EQUAL_INT((int)log_n - 1, find_w(A_TIMER(0x000u), from));
+
+    /* The stop now follows the new pin. */
+    from = log_n;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_stop());
+    model_flush();
+    outclr = find_w(A_P1(0x008u), from);
+    TEST_ASSERT_TRUE(outclr >= 0);
+    TEST_ASSERT_EQUAL_HEX32(1uL << 14, log_w[outclr].val);
+}
+
+/* A refused start while a tone plays. hal_tone.c lines 50-65 return
+ * TFW_ERR_BAD_PIN before the stop at line 65, and line 88 is never reached,
+ * so the playing tone and tone_bit are left alone. A stop called before the
+ * pin check would silence the tone; this test fails then. */
+static void test_a_refused_start_leaves_a_playing_tone_alone(void)
+{
+    static const tfw_pinref_t p0 = { .port = 0u, .bit = 4u };
+    static const tfw_pinref_t nope = { .port = 1u, .bit = 17u };
+    unsigned from;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&LED1, 1000u));
+    model_flush();
+    from = log_n;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&p0, 440u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&nope, 440u));
+    model_flush();
+    TEST_ASSERT_EQUAL_UINT(from, log_n);
 }
 
 static void test_tone_stop(void)
@@ -283,6 +351,8 @@ int main(void)
     RUN_TEST(test_tone_calc_range);
     RUN_TEST(test_tone_start_configures_in_order);
     RUN_TEST(test_tone_retarget);
+    RUN_TEST(test_tone_retarget_to_another_pin_leaves_the_old_pin_low);
+    RUN_TEST(test_a_refused_start_leaves_a_playing_tone_alone);
     RUN_TEST(test_tone_stop);
     RUN_TEST(test_tone_zero_hz_stops);
     RUN_TEST(test_tone_refuses_other_ports);

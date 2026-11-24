@@ -8,7 +8,8 @@
  * model_settle) comes, so the model acts on it then, as the part would have.
  *
  * The device on the bus is scripted: present or not (ANACK), the write byte
- * it refuses (DNACK), the bytes it answers, or a bus that never stops.
+ * it refuses (DNACK), a read it overruns (OVERRUN), the bytes it answers, or
+ * a bus that never stops.
  */
 #include <stdint.h>
 #include <string.h>
@@ -40,12 +41,17 @@
 #define O_RX_MAXCNT    0x708u
 #define O_TX_PTR       0x73Cu
 #define O_TX_MAXCNT    0x740u
+/* P1 PIN_CNF[0] (soc_regs.h lines 69, 75: TFW_NRF_P1_BASE + 0x080). */
+#define P1_PIN_CNF0    (0x500D8200u + 0x080u)
+/* Pull-up, S0D1 drive, input connected (soc_regs.h line 122). */
+#define PIN_CNF_TWI    ((3u << 2) | (2u << 10))
 
 #define SH_LASTTX_RXSTART (1u << 7)
 #define SH_LASTTX_STOP    (1u << 9)
 #define SH_LASTRX_STOP    (1u << 12)
 #define ES_ANACK          (1u << 1)
 #define ES_DNACK          (1u << 2)
+#define ES_OVERRUN        (1u << 0)
 
 /* The TWIM as the model holds it, and the bus it drives. */
 typedef struct {
@@ -71,6 +77,8 @@ typedef struct {
                                   * the next EVENTS_STOPPED access */
     int      late_pending;
     int      hang;               /* STOPPED never raised */
+    int      overrun;            /* the read raises ERRORSRC.OVERRUN instead
+                                  * of finishing */
     uint32_t stop_lag;           /* microseconds a STOP takes to raise STOPPED */
     int      stop_pending;
     uint8_t  answer[16];
@@ -81,6 +89,12 @@ typedef struct {
     uint32_t nread;
     uint32_t restarts;           /* repeated STARTs */
     uint32_t stops;              /* STOP conditions sent */
+    uint32_t tasks_resume;
+    uint32_t task_seq;           /* STOP/RESUME writes so far, for order */
+    uint32_t resume_seq;         /* task_seq at the first RESUME, 0 none */
+    uint32_t stop_seq;           /* task_seq at the first STOP, 0 none */
+    uint32_t p1_pin_cnf[32];     /* P1 PIN_CNF[n] as last written */
+    uint32_t enable_at_config;   /* ENABLE, OR'd, at each PSEL or FREQUENCY write */
 } twim_model_t;
 
 static twim_model_t s_twim;
@@ -143,6 +157,10 @@ static void bus_read(void)
         bus_error(ES_ANACK);
         return;
     }
+    if (s_twim.overrun) {
+        bus_error(ES_OVERRUN);
+        return;
+    }
     for (i = 0u; i < s_twim.rxd_maxcnt; i++) {
         p[i] = s_twim.answer[i];
         s_twim.nread++;
@@ -190,16 +208,34 @@ static void model_write(uintptr_t addr, uint32_t v)
 {
     uint32_t off;
 
+    if (addr >= P1_PIN_CNF0 && addr < P1_PIN_CNF0 + 4u * 32u) {
+        s_twim.p1_pin_cnf[(addr - P1_PIN_CNF0) / 4u] = v;
+        return;
+    }
     if (addr < TWIM_BASE || addr >= TWIM_BASE + TWIM_SPAN) {
-        return; /* the pins' PIN_CNF: not modelled */
+        return;
     }
     off = (uint32_t)(addr - TWIM_BASE);
     switch (off) {
-    case O_TASKS_STOP:   s_twim.tasks_stop++; bus_stop(); break;
-    case O_TASKS_RESUME: break;
+    case O_TASKS_STOP:
+        if (s_twim.stop_seq == 0u) {
+            s_twim.stop_seq = ++s_twim.task_seq;
+        }
+        s_twim.tasks_stop++; bus_stop(); break;
+    case O_TASKS_RESUME:
+        if (s_twim.resume_seq == 0u) {
+            s_twim.resume_seq = ++s_twim.task_seq;
+        }
+        s_twim.tasks_resume++; break;
     case O_TASKS_TX:     s_twim.tasks_starttx++; bus_write(); break;
     case O_TASKS_RX:     s_twim.tasks_startrx++; bus_read(); break;
     case O_ERRORSRC:     s_twim.errorsrc &= ~v; break;
+    case O_PSEL_SCL:
+    case O_PSEL_SDA:
+    case O_FREQUENCY:
+        s_twim.enable_at_config |= s_twim.regs[O_ENABLE / 4u];
+        *field(off) = v;
+        break;
     default:             *field(off) = v; break;
     }
 }
@@ -289,7 +325,18 @@ static void test_twim_init_rates(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(250000uL));
     model_settle();
     TEST_ASSERT_EQUAL_HEX32(0x04000000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x01980000u, s_twim.regs[O_FREQUENCY / 4u]);
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(50000uL));
+    /* One below each cut-off falls to the next rate down. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(399999uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x04000000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(249999uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0x01980000u, s_twim.regs[O_FREQUENCY / 4u]);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(99999uL));
 }
 
 static void test_twim_write_acked(void)
@@ -353,6 +400,32 @@ static void test_twim_read_address_nack(void)
     s_twim.present = 0;
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x22u, NULL, 0u, 1u));
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+}
+
+/* An RX overrun is a lost byte, not an absent device: TFW_ERR_INTERNAL, so a
+ * caller that retries on a NACK does not, and the bus is still stopped and
+ * the error latch cleared. */
+static void test_twim_read_overrun_is_internal_not_nack(void)
+{
+    s_twim.overrun = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+}
+
+static void test_twim_write_then_read_overrun_is_internal_not_nack(void)
+{
+    static const uint8_t wr[1] = { 0x10u };
+
+    s_twim.overrun = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, xfer(0x60u, wr, 1u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.nsent);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
 }
 
 static void test_twim_data_nack(void)
@@ -459,6 +532,107 @@ static void test_spi_and_onewire_refuse(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_ow_read(&p, &b, 1u));
 }
 
+/* Init over an earlier owner's INTEN, SHORTS and pins: both masks cleared and
+ * SCL P1.10, SDA P1.8 set to the TWI PIN_CNF (hal_bus.c lines 127-133). */
+static void test_twim_init_clears_inten_shorts_and_sets_the_pins(void)
+{
+    s_twim.regs[O_INTEN / 4u] = 0xFFFFFFFFu;
+    s_twim.shorts             = 0xFFFFFFFFu;
+    memset(s_twim.p1_pin_cnf, 0, sizeof s_twim.p1_pin_cnf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_INTEN / 4u]);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.shorts);
+    TEST_ASSERT_EQUAL_HEX32(PIN_CNF_TWI, s_twim.p1_pin_cnf[10]);
+    TEST_ASSERT_EQUAL_HEX32(PIN_CNF_TWI, s_twim.p1_pin_cnf[8]);
+}
+
+/* An ANACK left latched by the last transfer: cleared before the next starts,
+ * so a good write is not failed on it (hal_bus.c lines 38, 41, 149). */
+static void test_twim_stale_error_does_not_fail_the_next_transfer(void)
+{
+    static const uint8_t wr[1] = { 0x01u };
+
+    s_twim.events_error = 1u;
+    s_twim.errorsrc     = ES_ANACK;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, wr, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+}
+
+/* A data NACK suspends the TWIM: RESUME before the STOP, the nrfx sequence
+ * (hal_bus.c lines 66-71). */
+static void test_twim_data_nack_resumes_before_the_stop(void)
+{
+    static const uint8_t wr[3] = { 0x01u, 0x02u, 0x03u };
+
+    s_twim.dnack_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_resume);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_NOT_EQUAL_UINT32(0u, s_twim.resume_seq);
+    TEST_ASSERT_NOT_EQUAL_UINT32(0u, s_twim.stop_seq);
+    TEST_ASSERT_TRUE(s_twim.resume_seq < s_twim.stop_seq);
+}
+
+/* A write whose STOP never takes: the TWIM is disabled and both EasyDMA counts
+ * cleared, TX's too, so none is left armed (hal_bus.c lines 92-99). */
+static void test_twim_write_never_stopped_clears_the_tx_count(void)
+{
+    static const uint8_t wr[2] = { 0x01u, 0x02u };
+
+    s_twim.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x60u, wr, 2u, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.txd_maxcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.rxd_maxcnt);
+}
+
+/* Re-init of an enabled TWIM: PSEL and FREQUENCY written with it disabled,
+ * then enabled again (hal_bus.c lines 126-134). */
+static void test_twim_reinit_configures_with_the_twim_disabled(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+    s_twim.enable_at_config = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
+    model_settle();
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.enable_at_config);
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+}
+
+/* STOPPED on the transfer wait's last poll is taken, no STOP sent; one poll
+ * later is a timeout (hal_bus.c lines 24, 81, 84). */
+static void test_twim_stopped_on_the_waits_last_poll_is_taken(void)
+{
+    s_twim.stop_lag = 100000u - 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
+
+    setUp();
+    s_twim.stop_lag = 100000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+}
+
+/* STOPPED on the STOP wait's last poll keeps the TWIM enabled and its counts;
+ * one poll later it is disabled and RX.MAXCNT cleared (hal_bus.c lines 25,
+ * 86-98). */
+static void test_twim_stopped_on_the_stops_last_poll_keeps_the_twim(void)
+{
+    s_twim.stop_lag = 100000u + 1000u - 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(2u, s_twim.rxd_maxcnt);
+
+    setUp();
+    s_twim.stop_lag = 100000u + 1000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.rxd_maxcnt);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -469,6 +643,8 @@ int main(void)
     RUN_TEST(test_twim_write_then_read_repeated_start);
     RUN_TEST(test_twim_address_nack);
     RUN_TEST(test_twim_read_address_nack);
+    RUN_TEST(test_twim_read_overrun_is_internal_not_nack);
+    RUN_TEST(test_twim_write_then_read_overrun_is_internal_not_nack);
     RUN_TEST(test_twim_data_nack);
     RUN_TEST(test_twim_last_byte_nack_with_stopped);
     RUN_TEST(test_twim_last_byte_nack_between_reads);
@@ -477,5 +653,12 @@ int main(void)
     RUN_TEST(test_twim_read_stopped_late);
     RUN_TEST(test_twim_empty_transaction_does_nothing);
     RUN_TEST(test_spi_and_onewire_refuse);
+    RUN_TEST(test_twim_init_clears_inten_shorts_and_sets_the_pins);
+    RUN_TEST(test_twim_stale_error_does_not_fail_the_next_transfer);
+    RUN_TEST(test_twim_data_nack_resumes_before_the_stop);
+    RUN_TEST(test_twim_write_never_stopped_clears_the_tx_count);
+    RUN_TEST(test_twim_reinit_configures_with_the_twim_disabled);
+    RUN_TEST(test_twim_stopped_on_the_waits_last_poll_is_taken);
+    RUN_TEST(test_twim_stopped_on_the_stops_last_poll_keeps_the_twim);
     return UNITY_END();
 }

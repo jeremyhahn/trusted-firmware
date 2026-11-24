@@ -11,9 +11,14 @@
 
 #include <stdint.h>
 
+#include "tfw/types.h"
+
 void tfw_nrf54l_model_soc_early(void);
 void tfw_nrf54l_model_watchdog_arm(void);
 void tfw_nrf54l_model_watchdog_pet(void);
+
+/* the SoC's reset-cause take, by mark. */
+tfw_reset_cause_t tfw_nrf54l_model_reset_cause(uint32_t mark);
 
 /* hal_early.c's marker word, which the arm writes first. */
 uint32_t tfw_nrf54l_model_mark(void);

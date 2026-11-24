@@ -199,6 +199,24 @@ static void test_a_duty_after_duty_0_starts_once_the_stop_has_landed(void)
     TEST_ASSERT_EQUAL_HEX16(0x8000u | 502u, tfw_nrf54l_pwm_seq[0]);
 }
 
+/* A STOPPED left over from before the release must not pass for the new
+ * stop: release drops it, so the next start waits for the stop to land. */
+static void test_release_drops_a_stale_stopped(void)
+{
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 3u,
+                               &TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TFW_NRF_PWM_SEQ0_START = 0u;
+    TFW_NRF_PWM_EVENTS_STOPPED = 1u;                             /* stale */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_STOP);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());     /* no start before the stop */
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);             /* the stop landed */
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_SEQ0_START);
+}
+
 static void test_another_channel_after_the_last_one_stops_starts_once_the_stop_has_landed(void)
 {
     tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 3u,
@@ -301,6 +319,7 @@ int main(void)
     RUN_TEST(test_a_second_channel_plays_beside_the_first);
     RUN_TEST(test_stop_disconnects_and_stops_the_last_channel);
     RUN_TEST(test_a_duty_after_duty_0_starts_once_the_stop_has_landed);
+    RUN_TEST(test_release_drops_a_stale_stopped);
     RUN_TEST(test_another_channel_after_the_last_one_stops_starts_once_the_stop_has_landed);
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);
     RUN_TEST(test_a_stop_that_never_lands_fails_the_next_write);

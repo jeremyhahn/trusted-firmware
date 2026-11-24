@@ -122,6 +122,57 @@ class ReproBuild(unittest.TestCase):
         self.b = self.a
         run = self.run_script()
         self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("--dir names two different directories", run.stderr)
+
+    def test_a_symlink_to_the_other_directory_is_refused(self):
+        # Two names, one directory: both builds would run at one path, so a
+        # path-dependent image would compare equal to itself.
+        os.makedirs(self.a)
+        self.b = os.path.join(self.tmp.name, "out-a-link")
+        os.symlink(self.a, self.b)
+        run = self.run_script()
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("--dir names two different directories", run.stderr)
+
+    def test_the_source_tree_as_a_directory_is_refused(self):
+        self.a = self.src
+        run = self.run_script()
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("is or holds the source tree", run.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(self.src, ".git")))
+        self.assertTrue(os.path.isfile(os.path.join(self.src, "untracked.c")),
+                        "the uncommitted work is still there")
+
+    def test_the_source_tree_as_the_second_directory_is_refused(self):
+        self.b = self.src
+        run = self.run_script()
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("is or holds the source tree", run.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(self.src, ".git")))
+        self.assertTrue(os.path.isfile(os.path.join(self.src, "untracked.c")),
+                        "the uncommitted work is still there")
+
+    def test_a_symlink_to_the_source_tree_is_refused(self):
+        self.a = os.path.join(self.tmp.name, "src-link")
+        os.symlink(self.src, self.a)
+        run = self.run_script()
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("is or holds the source tree", run.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.src, "untracked.c")),
+                        "the uncommitted work is still there")
+
+    def test_a_directory_holding_the_source_tree_is_refused(self):
+        # A clone in a fresh parent, so the parent holds the source and
+        # nothing else of the test's own.
+        outer = os.path.join(self.tmp.name, "outer")
+        subprocess.run(["git", "clone", "-q", self.src, os.path.join(outer, "src")],
+                       check=True, capture_output=True)
+        self.src = os.path.join(outer, "src")
+        self.a = outer
+        run = self.run_script()
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("is or holds the source tree", run.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(self.src, ".git")))
 
     def run_app(self, app_dir):
         return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,

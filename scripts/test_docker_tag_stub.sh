@@ -2,20 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# A stand-in for docker, for scripts/test_docker_tag.py: it plays the daemon
-# of run 70520, where another leg tagged the same content-addressed name in
-# the same second, so every `tag` fails.
-#
-#   STUB_BUILT_ID   the id of the image this leg built (<image>-<build id>)
-#   STUB_TARGET_ID  the id the target name resolves to; empty, it resolves to none
-#   STUB_BUILT_LABEL  the built image's tfw.image.inputs label; empty, it has none
-#   STUB_TARGET_LABEL the target image's tfw.image.inputs label; empty, it has none
-#   STUB_TAG_ERROR  what `tag` says on stderr; the daemon's AlreadyExists by default
-#   STUB_LOG        a file each call is appended to
-#
-# `run` fails on anything but a build-id name (<image>-<build id>): the class
-# name may hold another leg's image. It also fails on a build-id name already
-# removed by `image rm` or `rmi`, as the daemon would.
+# A stand-in for docker, for scripts/test_docker_tag.py: it plays the daemon of run 70520, where another leg tagged the same content-addressed name in the same second, so every `tag` fails.
 set -euo pipefail
 
 [ -z "${STUB_LOG:-}" ] || echo "$*" >>"$STUB_LOG"

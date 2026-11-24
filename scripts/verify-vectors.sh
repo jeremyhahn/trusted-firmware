@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: commercial
 #
 # The C and Go mirrors of the wire vectors must carry identical values.
-#
-# They are two files on purpose -- neither language can include the other's --
-# and two files that must agree will eventually not. This is the check that
-# makes the disagreement a build failure instead of a field incident.
 set -euo pipefail
 
 C=testdata/vectors.h

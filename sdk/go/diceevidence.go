@@ -98,8 +98,9 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 //     SHA-256(authData);
 //   - the UEID (claim 256) is present, and is the type byte 0x01 then the
 //     16-byte device id;
-//   - the TCB measurement (claim 273's file hash) is present, and equals
-//     measurement unless that is nil.
+//   - the TCB measurement (claim 273) is ApplicationEvidence's, the one
+//     sha-256 hash of the one file, fs-name "app" (a CoSWID naming another
+//     file, or none, is refused), and equals measurement unless that is nil.
 func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, measurement []byte) (*DICEEvidence, error) {
 	if roots == nil {
 		return nil, evidenceErr("no trusted roots for the DeviceID certificate")
@@ -167,10 +168,11 @@ func verifyAliasLeaf(alias, devID *x509.Certificate, roots *x509.CertPool) error
 	return err
 }
 
-// aliasClaims reads eat_nonce (10), ueid (256) and the measurement (273,
-// [[258, CoSWID]] with the file hash at evidence/file/hash) from the alias
+// aliasClaims reads eat_nonce (10) and ueid (256) from the alias
 // certificate's UCCS, and refuses a claims set whose ueid is absent, not a
-// byte string, or not the type byte 0x01 then the 16-byte device id.
+// byte string, or not the type byte 0x01 then the 16-byte device id. The measurement (273) is ApplicationEvidence's: the one sha-256 hash of
+// the one file, fs-name "app"; ApplicationEvidence's refusal is returned
+// unchanged.
 func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	uccs, err := AliasUCCS(der)
 	if err != nil {
@@ -189,29 +191,11 @@ func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
 	if len(ueid) != diceUEIDLen || ueid[0] != 0x01 {
 		return nil, nil, nil, evidenceErr("the UEID is not 0x01 and a 16-byte device id")
 	}
-	meas, _ := claims[273].([]any)
-	if len(meas) != 1 {
-		return nil, nil, nil, evidenceErr("no TCB measurement (claim 273)")
+	ev, err := ApplicationEvidence(uccs)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	pair, _ := meas[0].([]any)
-	if len(pair) != 2 || pair[0] != uint64(258) {
-		return nil, nil, nil, evidenceErr("the measurement is not a CoSWID")
-	}
-	raw, _ := pair[1].([]byte)
-	if v, err = cborDecode(raw); err != nil {
-		return nil, nil, nil, errors.Join(evidenceErr("the CoSWID is not CBOR"), err)
-	}
-	coswid, _ := v.(map[uint64]any)
-	evidence, _ := coswid[3].(map[uint64]any)
-	file, _ := evidence[17].(map[uint64]any)
-	hash, _ := file[7].([]any)
-	if len(hash) != 2 || hash[0] != uint64(1) {
-		return nil, nil, nil, evidenceErr("the CoSWID carries no SHA-256 file hash")
-	}
-	fwHash, _ = hash[1].([]byte)
-	if len(fwHash) != sha256.Size {
-		return nil, nil, nil, evidenceErr("the file hash is not 32 bytes")
-	}
+	fwHash = bytes.Clone(ev[:])
 	return nonce, ueid, fwHash, nil
 }
 

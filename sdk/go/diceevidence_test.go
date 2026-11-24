@@ -290,7 +290,7 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			if layer == "claims" {
 				p.claims = p.claims[:2]
 			}
-		}), nil, "no TCB measurement (claim 273)"},
+		}), nil, "no measurements claim (273)"},
 		{"no claim 256", build(t, ex, func(layer string, p *parts) {
 			if layer == "claims" {
 				p.claims = cmap{p.claims[0], p.claims[2]}
@@ -317,18 +317,18 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			if layer == "content" {
 				p.ct = uint64(257)
 			}
-		}), nil, "the measurement is not a CoSWID"},
+		}), nil, "measurement content type is not 258, application/swid+cbor"},
 		{"CoSWID not CBOR", build(t, ex, func(layer string, p *parts) {
 			if layer == "content" {
 				p.coswidBytes = []byte{0xff}
 			}
-		}), nil, "the CoSWID is not CBOR"},
+		}), nil, "CoSWID: additional information 31 is not a definite length"},
 		{"hash algorithm 7", build(t, ex, func(layer string, p *parts) {
 			if layer == "file" {
 				p.file[0].v = []any{uint64(7), ex}
 			}
-		}), nil, "the CoSWID carries no SHA-256 file hash"},
-		{"31-byte hash", build(t, ex[:31], nil), nil, "the file hash is not 32 bytes"},
+		}), nil, "file hash-alg-id is not 1, sha-256"},
+		{"31-byte hash", build(t, ex[:31], nil), nil, "file hash-value is not 32 bytes"},
 		{"fs-name boot", build(t, ex, func(layer string, p *parts) {
 			if layer == "file" {
 				p.file[1].v = "boot"

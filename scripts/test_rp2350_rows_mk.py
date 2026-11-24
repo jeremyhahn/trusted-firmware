@@ -5,7 +5,9 @@
 #429): each row's image directory is one word; the default row links the I2C
 bus, the converter, PWM, the tone and the RP2350's flash EEPROM with tfw-boot's
 flash helper; the PERIPH=0 row links the core hal_eeprom.c, which keeps
-ota_ctl.c's and app_runner.c's entry points, and no flash helper. The owner
+ota_ctl.c's and app_runner.c's entry points, and no flash helper. The I2C=0
+and PERIPH=0 rows drop their -D switch (TFW_CM_I2C, TFW_CM_PERIPH) and the
+sources it names: the I2C bus for bus_none.c, and PWM and the tone. The owner
 lifted the AVR gate for rp2350 (ruling 697), so `make flash` refuses no row.
 Make variables and recipes only: nothing is compiled, so no cross toolchain is
 needed."""
@@ -82,6 +84,42 @@ class Rp2350EepromSelection(unittest.TestCase):
         srcs = self.srcs()
         for src in DEFAULT_PERIPHS:
             self.assertIn(src, srcs)
+
+
+I2C_SRCS = ("src/hal/cortex-m/rp2350/hal_bus.c", "src/caps/bus.c")
+# The converter stays in the PERIPH=0 rows: hal_adc.c builds a stub when
+# TFW_FEATURE_ANALOG is 0, so only these four drop out.
+PERIPH_ONLY_SRCS = ("src/hal/cortex-m/rp2350/hal_pwm.c", "src/caps/pwm.c",
+                    "src/hal/cortex-m/rp2350/hal_tone.c", "src/caps/tone.c")
+
+
+class Rp2350RowSwitches(unittest.TestCase):
+
+    def srcs(self, *row):
+        return var("FW_SRCS", *row)[0].split()
+
+    def test_each_row_defines_only_its_own_switches(self):
+        for row, defs in (((), ["-DTFW_CM_I2C=1", "-DTFW_CM_PERIPH=1"]),
+                          (("I2C=0",), ["-DTFW_CM_PERIPH=1"]),
+                          (("PERIPH=0",), ["-DTFW_CM_I2C=1"]),
+                          (("I2C=0", "PERIPH=0"), [])):
+            with self.subTest(row=row):
+                self.assertEqual(var("BOARD_DEFS", *row)[0].split(), defs)
+
+    def test_the_i2c_off_rows_link_bus_none_and_no_bus_driver(self):
+        for row in (("I2C=0",), ("I2C=0", "PERIPH=0")):
+            with self.subTest(row=row):
+                srcs = self.srcs(*row)
+                self.assertIn("src/caps/bus_none.c", srcs)
+                for src in I2C_SRCS:
+                    self.assertNotIn(src, srcs)
+
+    def test_the_periph_off_rows_link_no_pwm_or_tone(self):
+        for row in (("PERIPH=0",), ("I2C=0", "PERIPH=0")):
+            with self.subTest(row=row):
+                srcs = self.srcs(*row)
+                for src in PERIPH_ONLY_SRCS:
+                    self.assertNotIn(src, srcs)
 
 
 def flash(*row, picotool=True):

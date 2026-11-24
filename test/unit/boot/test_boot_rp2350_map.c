@@ -6,7 +6,9 @@
  * (bddd20f928ce76142793bef434d4f75f4af6e433),
  * src/boards/include/boards/pico2_w.h line 79, PICO_FLASH_SIZE_BYTES
  * (4 * 1024 * 1024), and the Pico 2 W datasheet's §1. A change to any region
- * here moves where tfw-boot writes the platform block on the board.
+ * here moves where tfw-boot writes the platform block on the board, and a
+ * change to the application's EEPROM sector moves what the EEPROM family
+ * (src/hal/cortex-m/rp2350/hal_eeprom.c) erases and programs.
  */
 #include <stdint.h>
 #include "unity.h"
@@ -51,6 +53,20 @@ static void test_the_platform_block_is_the_last_sector(void)
                      (uint32_t)TFW_CM_PLATFORM_BASE);
 }
 
+/* The application's EEPROM sector is the one 4 KiB sector directly below the
+ * platform block, on a sector boundary and above the application. */
+static void test_the_user_eeprom_sector_sits_directly_below_the_platform_block(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x103FE000u, (uint32_t)TFW_CM_USER_EE_BASE);
+    TEST_ASSERT_EQUAL_HEX32(0x00001000u, (uint32_t)TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FLASH_SECTOR, (uint32_t)TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_EQUAL_UINT32(0u, (uint32_t)TFW_CM_USER_EE_BASE % TFW_RP_FLASH_SECTOR);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)TFW_CM_PLATFORM_BASE,
+                            (uint32_t)(TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE));
+    TEST_ASSERT_TRUE((uint32_t)(TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE) <=
+                     (uint32_t)TFW_CM_USER_EE_BASE);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -58,5 +74,6 @@ int main(void)
     RUN_TEST(test_tfw_boot_takes_the_first_32_kib);
     RUN_TEST(test_the_application_follows_tfw_boot);
     RUN_TEST(test_the_platform_block_is_the_last_sector);
+    RUN_TEST(test_the_user_eeprom_sector_sits_directly_below_the_platform_block);
     return UNITY_END();
 }

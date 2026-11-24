@@ -221,6 +221,19 @@ static void test_the_last_sector_of_the_flash_is_written(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(buf, &flash[off], SECTOR);
 }
 
+static void test_a_write_with_interrupts_already_masked_leaves_them_masked(void)
+{
+    irq_masked = 1u;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_rp_flash_sector_write(0x00008000u, buf));
+    TEST_ASSERT_EQUAL_STRING("IERPFC", trace);
+    TEST_ASSERT_TRUE(irq_masked);
+    TEST_ASSERT_EQUAL_UINT32(1u, irq_saves);
+    TEST_ASSERT_EQUAL_UINT32(1u, irq_restores);
+    /* tearDown checks the unmasked state every other test leaves. */
+    irq_masked = 0u;
+}
+
 static void assert_untouched(void)
 {
     TEST_ASSERT_EQUAL_UINT32(0u, ntrace);
@@ -263,6 +276,7 @@ int main(void)
     RUN_TEST(test_the_six_functions_are_looked_up_by_their_codes);
     RUN_TEST(test_a_sector_is_erased_and_programmed_in_the_roms_order);
     RUN_TEST(test_the_last_sector_of_the_flash_is_written);
+    RUN_TEST(test_a_write_with_interrupts_already_masked_leaves_them_masked);
     RUN_TEST(test_an_offset_inside_a_sector_is_refused_untouched);
     RUN_TEST(test_a_sector_past_the_flash_is_refused_untouched);
     RUN_TEST(test_a_rom_without_any_one_function_is_refused_untouched);

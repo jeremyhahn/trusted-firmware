@@ -103,6 +103,23 @@ static void test_early_running_watchdog_stopped_then_reloaded(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
 }
 
+/* A running watchdog that does stop: RUNSTATUS drops to 0 on the first
+ * poll after STOP, so both events are cleared and RR0 is never reloaded. */
+static void test_early_watchdog_that_stops_is_not_reloaded(void)
+{
+    TFW_NRF_WDT_RUNSTATUS  = 1u;
+    TFW_NRF_WDT_EV_TIMEOUT = 1u;
+    TFW_NRF_WDT_EV_STOPPED = 1u;
+    regfile_model_clear_after(WDT_ADDR(0x400u), 2u);
+    tfw_nrf54l_model_soc_early();
+    TEST_ASSERT_EQUAL_HEX32(0x6E524635uL, regfile_model_peek(WDT_TSEN_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(1u, regfile_model_peek(WDT_STOP_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_RR0_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_EV_TIMEOUT_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_EV_STOPPED_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
+}
+
 static void test_early_pll_at_128mhz_and_crystal_started(void)
 {
     TFW_NRF_PLL_FREQ = 3u;   /* CK64M, the reset value */
@@ -291,6 +308,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_early_stopped_watchdog_is_left_alone);
     RUN_TEST(test_early_running_watchdog_stopped_then_reloaded);
+    RUN_TEST(test_early_watchdog_that_stops_is_not_reloaded);
     RUN_TEST(test_early_pll_at_128mhz_and_crystal_started);
     RUN_TEST(test_early_copies_trims_to_the_erased_entry);
     RUN_TEST(test_early_trims_end_at_a_zero_address);

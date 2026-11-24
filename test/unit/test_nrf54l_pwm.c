@@ -48,7 +48,14 @@ void tearDown(void)
 
 static void test_first_write_configures_pwm20_up_counting_at_1khz(void)
 {
+    /* The binary's first write (configure runs once): it clears what an earlier owner left. */
+    TFW_NRF_PWM_SHORTS        = 0xFFFFFFFFu;
+    TFW_NRF_PWM_INTEN         = 0xFFFFFFFFu;
+    TFW_NRF_PWM_SEQ0_ENDDELAY = 0xFFFFFFFFu;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_PWM_SHORTS);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_PWM_INTEN);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_ENDDELAY);
     TEST_ASSERT_EQUAL_HEX32(1u, TFW_NRF_PWM_ENABLE);       /* Enabled */
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_PWM_MODE);         /* UPDOWN Up */
     TEST_ASSERT_EQUAL_HEX32(4u, TFW_NRF_PWM_PRESCALER);    /* DIV_16, 1 MHz */
@@ -94,6 +101,19 @@ static void test_duty_255_drives_the_pin_high_without_the_peripheral(void)
     TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTSET(P1));
     TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, TFW_NRF_GPIO_PIN_CNF(P1, 10u));
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
+}
+
+static void test_a_duty_after_255_idles_the_pin_low_before_the_peripheral_drives_it(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 255u));
+    TFW_NRF_GPIO_OUTCLR(P1) = 0u;
+    TFW_NRF_PWM_SEQ0_START  = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    /* 255 left the GPIO output high: between the periods' end and STOP it must read low. */
+    TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTCLR(P1));
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, TFW_NRF_GPIO_PIN_CNF(P1, 10u));
+    TEST_ASSERT_EQUAL_HEX32(0x2Au, TFW_NRF_PWM_PSEL_OUT(0));
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_SEQ0_START);
 }
 
 /* The wire path: PWM_WRITE goes through src/caps/pwm.c, which routes duty
@@ -276,6 +296,7 @@ int main(void)
     RUN_TEST(test_a_duty_is_scaled_to_countertop_and_played);
     RUN_TEST(test_duty_0_drives_the_pin_low_without_the_peripheral);
     RUN_TEST(test_duty_255_drives_the_pin_high_without_the_peripheral);
+    RUN_TEST(test_a_duty_after_255_idles_the_pin_low_before_the_peripheral_drives_it);
     RUN_TEST(test_wire_duty_0_after_255_drives_the_pin_low);
     RUN_TEST(test_a_second_channel_plays_beside_the_first);
     RUN_TEST(test_stop_disconnects_and_stops_the_last_channel);

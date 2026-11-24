@@ -1,0 +1,1 @@
+- The ESP32 bench self-check's EEPROM pattern is pinned byte by byte, so a pattern that leaves a byte unset or unchanged fails the host test (Refs #48).

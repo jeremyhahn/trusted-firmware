@@ -65,6 +65,19 @@ void test_write_page_past_the_write_end_is_protected(void)
     TEST_ASSERT_EQUAL_UINT(0u, cm_stub_nwrite);
 }
 
+/* The address space's last page ends at a wrapped 0, which addr plus a page
+ * would compare as below any end (row/628-cortex-m). */
+void test_write_page_refuses_a_page_whose_end_wraps(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, tfw_boot_flash_write_page((uint32_t)(0u - PAGE), page));
+    TEST_ASSERT_EQUAL_UINT(0u, cm_stub_nwrite);
+}
+
+void test_page_size_is_the_ota_page(void)
+{
+    TEST_ASSERT_EQUAL_UINT16(TFW_OTA_PAGE_MAX, tfw_boot_flash_page_size());
+}
+
 void test_write_page_misaligned_is_out_of_range(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_flash_write_page((uint32_t)TFW_APP_REGION_BASE + 1u, page));
@@ -149,6 +162,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_write_page_below_app_region_is_protected);
     RUN_TEST(test_write_page_past_the_write_end_is_protected);
+    RUN_TEST(test_write_page_refuses_a_page_whose_end_wraps);
+    RUN_TEST(test_page_size_is_the_ota_page);
     RUN_TEST(test_write_page_misaligned_is_out_of_range);
     RUN_TEST(test_write_page_in_range_writes_the_page_once);
     RUN_TEST(test_write_page_returns_the_socs_status);

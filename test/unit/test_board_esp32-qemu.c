@@ -81,6 +81,32 @@ static void test_every_pwm_row_drives_the_pin_that_names_it(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_PWM_COUNT, n);
 }
 
+/* Literals, from the per-part LEDC counts: hal_tone.c (lines 15-17) takes
+ * LEDC_TIMER_MAX - 1 and LEDC_CHANNEL_MAX - 1 in LEDC_LOW_SPEED_MODE. The C3
+ * has 6 channels and 4 timers in its one (low-speed) group, mode 0, so its
+ * tone is timer 3, channel 5, in the rows' own group; the ESP32 has 8 channels
+ * and 4 timers per group, and its tone sits in group 1 while mode 0 is the
+ * high-speed group. Under board-sweep a row is { ctl = channel, duty = gpio,
+ * bit = timer, wide = mode }. */
+static void test_no_pwm_row_names_the_tones_timer_or_channel_on_either_part(void)
+{
+    for (uint8_t i = 0u; i < TFW_PWM_COUNT; i++) {
+        const tfw_pwm_desc_t *row = &tfw_board_pwms[i];
+
+        TEST_ASSERT_LESS_THAN_UINT16(5u, row->ctl);    /* the C3's tone channel, and its six */
+        TEST_ASSERT_LESS_THAN_UINT8(3u, row->bit);     /* the tone's timer on both parts */
+        TEST_ASSERT_EQUAL_UINT8(0u, row->wide);        /* the C3's only group */
+    }
+}
+
+static void test_the_tone_pin_has_no_pwm_row(void)
+{
+    tfw_pwmref_t p;
+
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_board_pwm((tfw_pin_t)TFW_TONE_PIN, &p));
+    TEST_ASSERT_FALSE(tfw_board_pin_flags((tfw_pin_t)TFW_TONE_PIN) & TFW_PIN_PWM);
+}
+
 static void test_a_pin_beyond_the_board_is_refused(void)
 {
     tfw_pinref_t r;
@@ -106,6 +132,8 @@ int main(void)
     RUN_TEST(test_every_pin_exists_on_both_machines_and_is_free_on_both);
     RUN_TEST(test_no_pin_offers_an_adc);
     RUN_TEST(test_every_pwm_row_drives_the_pin_that_names_it);
+    RUN_TEST(test_no_pwm_row_names_the_tones_timer_or_channel_on_either_part);
+    RUN_TEST(test_the_tone_pin_has_no_pwm_row);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_the_trailer_bound_is_16_mib_less_the_trailer);
     return UNITY_END();

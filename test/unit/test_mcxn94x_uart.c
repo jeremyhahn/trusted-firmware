@@ -230,6 +230,37 @@ static void test_rx_writes_back_the_error_flags_it_saw(void)
     TEST_ASSERT_EQUAL_HEX8(0x42u, b);
 }
 
+/* The ring keeps one slot empty, so it holds 63 bytes; the 64th is read from
+ * DATA and dropped (hal_uart.c lines 98-104), and the 63 stay queued. */
+static void test_rx_drops_a_byte_when_the_ring_is_full(void)
+{
+    uint8_t  b = 0u;
+    uint32_t n;
+
+    for (n = 0u; n < 63u; n++) {
+        preset(DATA_ADDR, n);
+        preset(STAT_ADDR, TFW_MCXN_LPUART_STAT_RDRF);
+        tfw_cm_irq39();
+    }
+    preset(DATA_ADDR, 0xEEu);
+    preset(STAT_ADDR, TFW_MCXN_LPUART_STAT_RDRF);
+    tfw_cm_irq39();
+    TEST_ASSERT_BITS_LOW(TFW_MCXN_LPUART_STAT_RDRF, regfile_model_peek(STAT_ADDR));
+
+    for (n = 0u; n < 63u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+
+    preset(DATA_ADDR, 0x5Au);
+    preset(STAT_ADDR, TFW_MCXN_LPUART_STAT_RDRF);
+    tfw_cm_irq39();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -247,5 +278,6 @@ int main(void)
     RUN_TEST(test_rx_reads_data_with_rdrf_set);
     RUN_TEST(test_rx_none_with_rdrf_clear);
     RUN_TEST(test_rx_writes_back_the_error_flags_it_saw);
+    RUN_TEST(test_rx_drops_a_byte_when_the_ring_is_full);
     return UNITY_END();
 }

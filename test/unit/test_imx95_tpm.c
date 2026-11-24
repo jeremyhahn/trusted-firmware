@@ -168,6 +168,26 @@ static void test_tpm_second_channel_leaves_the_counter_alone(void)
     TEST_ASSERT_EQUAL_UINT32(12047u, reg(TFW_IMX95_TPM_CnV(0)));
 }
 
+/* hal_pwm.c lines 48-50: a running counter is left alone only when both
+ * SC (CMOD, PS and CPWMS) and MOD match. A counter left at another period,
+ * or in center-aligned mode, is stopped and reprogrammed. */
+static void test_tpm_a_counter_at_another_period_or_mode_is_reprogrammed(void)
+{
+    set_reg(TFW_IMX95_TPM_SC, TFW_IMX95_TPM_SC_CMOD_INC);
+    set_reg(TFW_IMX95_TPM_MOD, 59999u);
+    TEST_ASSERT_EQUAL(TFW_OK, write_at(&ch0, 128u));
+    TEST_ASSERT_EQUAL_UINT32(23999u, reg(TFW_IMX95_TPM_MOD));
+    TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_TPM_SC_CMOD_INC, reg(TFW_IMX95_TPM_SC));
+    TEST_ASSERT_EQUAL_UINT32(12047u, reg(TFW_IMX95_TPM_CnV(0)));
+
+    set_reg(TFW_IMX95_TPM_SC, TFW_IMX95_TPM_SC_CMOD_INC | TFW_IMX95_TPM_SC_CPWMS);
+    set_reg(TFW_IMX95_TPM_MOD, 23999u);
+    TEST_ASSERT_EQUAL(TFW_OK, write_at(&ch1, 64u));
+    TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_TPM_SC_CMOD_INC, reg(TFW_IMX95_TPM_SC));
+    TEST_ASSERT_EQUAL_UINT32(23999u, reg(TFW_IMX95_TPM_MOD));
+    TEST_ASSERT_EQUAL_UINT32(6023u, reg(TFW_IMX95_TPM_CnV(1)));
+}
+
 /* Stop disables the channel and leaves the counter and the other channel. */
 static void test_tpm_stop_disables_the_channel_only(void)
 {
@@ -288,6 +308,7 @@ int main(void)
     RUN_TEST(test_tpm_cnv_for_several_duties);
     RUN_TEST(test_tpm_duty_0_is_low_and_255_is_high);
     RUN_TEST(test_tpm_second_channel_leaves_the_counter_alone);
+    RUN_TEST(test_tpm_a_counter_at_another_period_or_mode_is_reprogrammed);
     RUN_TEST(test_tpm_stop_disables_the_channel_only);
     RUN_TEST(test_tpm_a_pin_with_no_channel_is_range);
     RUN_TEST(test_pwm_write_refused_leaves_the_pin_an_input);

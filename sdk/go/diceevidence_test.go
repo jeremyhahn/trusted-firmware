@@ -268,6 +268,13 @@ func selfDICEChain(t *testing.T, uccs []byte, aliasPub any) (obj, nonce []byte, 
 // signature check still has a properly signed chain.
 func selfDICEChainWith(t *testing.T, uccs []byte, aliasPub any, mutate func(*x509.Certificate)) (obj, nonce []byte, roots *x509.CertPool, reg DICERegistry) {
 	t.Helper()
+	return selfDICEChainOpts(t, uccs, aliasPub, nil, nil, mutate)
+}
+
+// selfDICEChainOpts is selfDICEChainWith with the root and DeviceID
+// templates also open to a mutator before they are signed.
+func selfDICEChainOpts(t *testing.T, uccs []byte, aliasPub any, rootMut, devMut, mutate func(*x509.Certificate)) (obj, nonce []byte, roots *x509.CertPool, reg DICERegistry) {
+	t.Helper()
 	now := time.Now()
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -275,6 +282,9 @@ func selfDICEChainWith(t *testing.T, uccs []byte, aliasPub any, mutate func(*x50
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test manufacturer root"},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	if rootMut != nil {
+		rootMut(rootTmpl)
 	}
 	rootDER, err := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, &rootKey.PublicKey, rootKey)
 	require.NoError(t, err)
@@ -287,6 +297,9 @@ func selfDICEChainWith(t *testing.T, uccs []byte, aliasPub any, mutate func(*x50
 		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "tfw DeviceID"},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	if devMut != nil {
+		devMut(devTmpl)
 	}
 	devDER, err := x509.CreateCertificate(rand.Reader, devTmpl, root, &devKey.PublicKey, rootKey)
 	require.NoError(t, err)
@@ -445,6 +458,56 @@ func TestDICEAttestationRefusesAnAliasOutsideItsValidityOrWithAnUnknownCriticalE
 	t.Run("unknown non-critical extension verifies", func(t *testing.T) {
 		obj, nonce, roots, reg := selfDICEChainWith(t, build(t, ex, nil), nil, withExt(false))
 		_, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
+		require.NoError(t, err)
+	})
+}
+
+// TestDICEAttestationValidatesTheAliasAsTheLeafOfTheChain: the alias is
+// path-validated through the DeviceID to a root, so the DeviceID's name
+// constraints and the root's path length apply to it, not only the
+// DeviceID's signature.
+func TestDICEAttestationValidatesTheAliasAsTheLeafOfTheChain(t *testing.T) {
+	ex := []byte(vectors.AppEvExample)
+	const reason = "the alias certificate does not chain through the DeviceID to a root"
+	permitted := func(c *x509.Certificate) {
+		c.PermittedDNSDomainsCritical = true
+		c.PermittedDNSDomains = []string{"allowed.example"}
+	}
+	excluded := func(c *x509.Certificate) { c.ExcludedDNSDomains = []string{"blocked.example"} }
+	dns := func(name string) func(*x509.Certificate) {
+		return func(c *x509.Certificate) { c.DNSNames = []string{name} }
+	}
+	rootPathLenZero := func(c *x509.Certificate) { c.MaxPathLen, c.MaxPathLenZero = 0, true }
+	refuse := func(t *testing.T, rootMut, devMut, aliasMut func(*x509.Certificate)) {
+		t.Helper()
+		obj, nonce, roots, reg := selfDICEChainOpts(t, build(t, ex, nil), nil, rootMut, devMut, aliasMut)
+		ev, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
+		require.Nil(t, ev)
+		var ee *EvidenceError
+		require.ErrorAs(t, err, &ee)
+		require.Equal(t, reason, ee.Reason)
+	}
+	t.Run("alias name outside the DeviceID's permitted domain", func(t *testing.T) {
+		refuse(t, nil, permitted, dns("outside.example"))
+	})
+	t.Run("alias name inside the DeviceID's permitted domain verifies", func(t *testing.T) {
+		obj, nonce, roots, reg := selfDICEChainOpts(t, build(t, ex, nil), nil, nil, permitted, dns("a.allowed.example"))
+		_, err := VerifyDICEAttestation(obj, nonce, roots, reg, ex)
+		require.NoError(t, err)
+	})
+	t.Run("alias name in the DeviceID's excluded domain", func(t *testing.T) {
+		refuse(t, nil, excluded, dns("blocked.example"))
+	})
+	t.Run("root path length zero with the DeviceID as an intermediate", func(t *testing.T) {
+		refuse(t, rootPathLenZero, nil, nil)
+	})
+	t.Run("root path length zero still passes the DeviceID chain check", func(t *testing.T) {
+		obj, _, roots, _ := selfDICEChainOpts(t, build(t, ex, nil), nil, rootPathLenZero, nil, nil)
+		st, err := decodeDICEObject(obj)
+		require.NoError(t, err)
+		devID, err := x509.ParseCertificate(st.x5c[1])
+		require.NoError(t, err)
+		_, err = devID.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
 		require.NoError(t, err)
 	})
 }

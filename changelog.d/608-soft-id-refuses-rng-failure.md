@@ -1,0 +1,1 @@
+- The soft P-256 identity refuses with TFW_ERR_CRYPTO when the blinding RNG fails, and never answers an all-zero signature or public key (#608).

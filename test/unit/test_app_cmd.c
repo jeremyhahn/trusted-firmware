@@ -215,6 +215,25 @@ static void test_a_refused_call_counts_no_overrun(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_app_runner_overruns());
 }
 
+/* The APP_CMD path holds the count at its ceiling, as the poll path does: a
+ * count that wrapped would read as no overruns at all. */
+static void test_overruns_through_app_cmd_stop_at_0xffff(void)
+{
+    static const uint8_t req[] = { 0x00u };
+    uint32_t             i;
+
+    tfw_mock_app_set_command_ms(TFW_APP_RUN_BUDGET_MS + 1u);
+    tfw_app_runner_start();
+    for (i = 0u; i < 0xFFFFu; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_OK, app_cmd(req, (uint8_t)sizeof req));
+    }
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, tfw_app_runner_overruns());
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_cmd(req, (uint8_t)sizeof req));
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, tfw_app_runner_overruns());
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, app_info_overruns());
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+}
+
 /* ---------------------------------------------- the session view (dec. 5) */
 
 /* The host library links the permissive gate, so the view says open. */
@@ -240,6 +259,7 @@ int main(void)
     RUN_TEST(test_a_call_over_the_budget_counts_one_overrun);
     RUN_TEST(test_a_call_at_the_budget_counts_none);
     RUN_TEST(test_a_refused_call_counts_no_overrun);
+    RUN_TEST(test_overruns_through_app_cmd_stop_at_0xffff);
     RUN_TEST(test_session_ok_follows_the_auth_gate);
     return UNITY_END();
 }

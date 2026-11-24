@@ -139,20 +139,30 @@ tfw_status_t tfw_crypto_init(void)
     have_uds = 0u;
     uECC_set_rng(blind_rng);
     /* As on the software tier: a valid handoff for this tier is authoritative,
-     * and one for another tier, or none at all, leaves no CDI. There is no
-     * local fallback here -- the CDI is a MAC over a measurement only the
-     * bootloader's layer 0 holds. */
-    if (tier && *tier == (uint8_t)TFW_CRYPTO_SECURE_ELEMENT && tfw_boot_handoff_take_cdi(cdi)) {
-        uint8_t fp[32];
-        char    fp_hex[33];
+     * and one for another tier is drained and wiped, as on the software tier,
+     * and leaves no CDI, as does none at all. There is no local fallback here
+     * -- the CDI is a MAC over a measurement only the bootloader's layer 0
+     * holds. */
+    if (tier && *tier == (uint8_t)TFW_CRYPTO_SECURE_ELEMENT) {
+        if (tfw_boot_handoff_take_cdi(cdi)) {
+            uint8_t fp[32];
+            char    fp_hex[33];
 
-        have_cdi = 1u;
-        tfw_hmac_sha256(cdi, (uint8_t)sizeof cdi,
-                        (const uint8_t *)"tfw-cdi-fingerprint-v1", 22u, fp);
-        hex(fp_hex, fp, 16u);
-        ESP_LOGI(TAG, "cdi hmac-fingerprint=%s", fp_hex);
-        tfw_secure_zero(fp, sizeof fp);
+            have_cdi = 1u;
+            tfw_hmac_sha256(cdi, (uint8_t)sizeof cdi,
+                            (const uint8_t *)"tfw-cdi-fingerprint-v1", 22u, fp);
+            hex(fp_hex, fp, 16u);
+            ESP_LOGI(TAG, "cdi hmac-fingerprint=%s", fp_hex);
+            tfw_secure_zero(fp, sizeof fp);
+        } else {
+            ESP_LOGW(TAG, "cdi: none in the handoff (tier %u)", (unsigned)*tier);
+        }
     } else if (tier) {
+        uint8_t discard[32];
+
+        if (tfw_boot_handoff_take_cdi(discard)) {
+            tfw_secure_zero(discard, sizeof discard);
+        }
         ESP_LOGW(TAG, "cdi: none in the handoff (tier %u)", (unsigned)*tier);
     } else {
         ESP_LOGW(TAG, "cdi: no valid handoff from layer 0");

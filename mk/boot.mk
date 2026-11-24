@@ -724,11 +724,14 @@ $(BOOT_TEST_DIR)/test_h5_hal_soc: src/hal/cortex-m/stm32h5/test/test_h5_hal_soc.
 	   -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The RP2350's sector read-modify-write (row rp2350): the arithmetic every
 # tfw-boot flash write goes through, over a RAM flash the test supplies in
-# place of rp_flash_rom.c's boot ROM calls.
-$(BOOT_TEST_DIR)/test_boot_rp2350_flash: test/unit/boot/test_boot_rp2350_flash.c \
-        boot/hal/cortex-m/rp2350/rp_flash.c src/core/secure_zero.c \
-        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# place of rp_flash_rom.c's boot ROM calls. boot_flash.c, the entry tfw-boot
+# calls, is linked too, under the Pico 2 W's profile
+# (BOOT_TEST_RP2350_CFLAGS, below), so its bound is the board's flash end.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_flash
+$(BOOT_TEST_DIR)/test_boot_rp2350_flash: boot/hal/cortex-m/rp2350/test/test_boot_rp2350_flash.c \
+        boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/boot_flash.c \
+        src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The MCXN947's flash writes (row mcxn947), boot/hal/cortex-m/mcxn94x/
 # mcxn_flash.c, over a model of the boot ROM's flash driver in place of the
 # ROM's: the test is the driver, so boot_flash.c, which finds the ROM's, is

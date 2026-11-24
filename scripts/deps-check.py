@@ -172,6 +172,10 @@ class Report:
         self.failed = 0
 
     def check(self, name, pinned, latest, reason):
+        # Any version is >= (), so a check with no number would pass over nothing.
+        if not pinned or not latest:
+            self.fail(name, "no version number in %s" % ("the pin" if not pinned else "upstream's answer"))
+            return
         if pinned >= latest:
             print(f"  ok      {name} {show(pinned)}")
         elif reason:
@@ -213,7 +217,12 @@ def toolchain():
 
     def go():
         body, _ = fetch("https://go.dev/VERSION?m=text")
-        rep.check("go", numbers(pins["GO_VERSION"]), numbers(body.splitlines()[0]), held("GO"))
+        line = body.splitlines()[0] if body else ""
+        m = re.fullmatch(r"go(\d+)\.(\d+)(?:\.(\d+))?", line.strip())
+        if not m:
+            raise LookupFailed(f"https://go.dev/VERSION?m=text: {line[:80]!r} is not a Go release")
+        rep.check("go", numbers(pins["GO_VERSION"]), tuple(int(g) for g in m.groups() if g is not None),
+                  held("GO"))
 
     def base():
         image = pins["BASE_IMAGE"]

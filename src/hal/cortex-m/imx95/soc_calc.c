@@ -53,8 +53,10 @@ tfw_status_t tfw_imx95_lpuart_baud(uint32_t clk_hz, uint32_t baud, uint32_t *bau
         d   = baud * osr;
         sbr = clk_hz / d;
         rem = clk_hz % d;
-        if (rem >= d - rem) {
-            sbr++;                      /* to the nearest, without clk + d/2 */
+        if (rem >= d - rem && sbr < TFW_IMX95_LPUART_SBR_MAX) {
+            sbr++;                      /* to the nearest, without clk + d/2;
+                                         * at the cap, the cap is the nearest
+                                         * legal divisor */
         }
         if (sbr == 0u || sbr > TFW_IMX95_LPUART_SBR_MAX) {
             continue;

@@ -289,12 +289,14 @@ void test_a_missing_or_empty_image_is_refused(void)
     TEST_ASSERT_EQUAL_INT32(-1, cli_size(p_tbs));
     cli_put(p_img, cli_image, 0u);
     TEST_ASSERT_EQUAL_INT(1, cli_tbs("1", "0"));
+    TEST_ASSERT_TRUE(cli_said("is empty"));
     TEST_ASSERT_EQUAL_INT32(-1, cli_size(p_tbs));
 
     cli_good_tbs(tbs);
     TEST_ASSERT_EQUAL_INT(1, cli_run(6, seal_none));
     cli_assert_no_seal_output();
     TEST_ASSERT_EQUAL_INT(1, cli_seal());
+    TEST_ASSERT_TRUE(cli_said("is empty"));
     cli_assert_no_seal_output();
 }
 

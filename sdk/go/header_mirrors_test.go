@@ -7,17 +7,26 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
 
-// The SDK's hand-copied mirrors of include/tfw that protocol_constants_test.go,
+// The SDK's hand-copied mirrors of include/tfw, src/core/suit.h and the
+// ATECC608A driver's slot map that protocol_constants_test.go,
 // platform_constants_test.go and scripts/test_status_mirror.py do not cover
-// (#629): each test reads the header and fails, naming the macro, when a
-// constant here no longer matches it.
+// (#629): crypto tiers, CAPS feature bits, algorithm bits, pin flags, the
+// netcfg block, the image trailer, reset causes, attest/alias page sizes, the
+// signature length, HSM state flags and envelope max, timer and I2C bounds,
+// the default baud and the element slots. Each test reads the header and
+// fails, naming the macro, when a constant here no longer matches it.
 
 const (
-	mirrorTypesH = "../../include/tfw/types.h"
-	mirrorBoardH = "../../include/tfw/board.h"
-	mirrorEthH   = "../../include/tfw/eth.h"
+	mirrorTypesH  = "../../include/tfw/types.h"
+	mirrorBoardH  = "../../include/tfw/board.h"
+	mirrorEthH    = "../../include/tfw/eth.h"
+	mirrorCryptoH = "../../include/tfw/crypto.h"
+	mirrorSuitH   = "../../src/core/suit.h"
+	mirrorAteccH  = "../../src/crypto/atecc608a/atecc.h"
 )
 
 // mirrorConstant is one Go constant and the header macro it mirrors.
@@ -198,5 +207,64 @@ func TestImageTrailerMatchesBootH(t *testing.T) {
 		{platformBootH, "TFW_BOOT_TRAILER_LEN", "ImageTrailerLen", uint64(ImageTrailerLen)},
 		{platformBootH, "TFW_BOOT_TRAILER_VERSION", "ImageTrailerVersion", uint64(ImageTrailerVersion)},
 		{platformBootH, "TFW_BOOT_TRAILER_MAGIC", "imageTrailerMagic", uint64(imageTrailerMagic)},
+	})
+}
+
+// ResetCause numbering is wire: it must follow tfw_reset_cause_t.
+func TestResetCausesMatchTypesH(t *testing.T) {
+	typesH := mirrorReadHeader(t, mirrorTypesH)
+	causes := []mirrorConstant{
+		{mirrorTypesH, "TFW_RESET_UNKNOWN", "ResetUnknown", uint64(ResetUnknown)},
+		{mirrorTypesH, "TFW_RESET_POWER_ON", "ResetPowerOn", uint64(ResetPowerOn)},
+		{mirrorTypesH, "TFW_RESET_EXTERNAL", "ResetExternal", uint64(ResetExternal)},
+		{mirrorTypesH, "TFW_RESET_BROWNOUT", "ResetBrownout", uint64(ResetBrownout)},
+		{mirrorTypesH, "TFW_RESET_WATCHDOG", "ResetWatchdog", uint64(ResetWatchdog)},
+		{mirrorTypesH, "TFW_RESET_SOFTWARE", "ResetSoftware", uint64(ResetSoftware)},
+		{mirrorTypesH, "TFW_RESET_PANIC", "ResetPanic", uint64(ResetPanic)},
+	}
+	for _, c := range causes {
+		want, ok := headerEnumValue(typesH, c.macro)
+		if !ok {
+			t.Fatalf("%s: no enum member %s = N (renamed or removed?)", c.header, c.macro)
+		}
+		require.Equalf(t, want, c.goValue, "%s = %d in Go, %s = %d in %s", c.goName, c.goValue, c.macro, want, c.header)
+	}
+}
+
+// The attest tests' fake link pages by attestPage and aliasPage, so only this
+// test ties those sizes to the device's.
+func TestAttestPagesAndSigLenMatchTheHeaders(t *testing.T) {
+	mirrorCheckDefines(t, []mirrorConstant{
+		{protoProtocolH, "TFW_ATTEST_PAGE", "attestPage", uint64(attestPage)},
+		{protoProtocolH, "TFW_ALIAS_PAGE", "aliasPage", uint64(aliasPage)},
+		{mirrorCryptoH, "TFW_SIG_LEN", "ecdsaRawSigLen", uint64(ecdsaRawSigLen)},
+	})
+}
+
+func TestHSMConstantsMatchTheHeaders(t *testing.T) {
+	mirrorCheckDefines(t, []mirrorConstant{
+		{protoProtocolH, "TFW_HSM_STATE_SET", "HSMSetHeld", uint64(HSMSetHeld)},
+		{protoProtocolH, "TFW_HSM_STATE_LOCKED", "HSMLocked", uint64(HSMLocked)},
+		{protoProtocolH, "TFW_HSM_STATE_WIPED", "HSMWiped", uint64(HSMWiped)},
+		{mirrorSuitH, "TFW_SUIT_INTEGRATED_MAX", "HSMEnvelopeMax", uint64(HSMEnvelopeMax)},
+	})
+}
+
+// TFW_UART_BAUD sits in an #ifndef: the default value is the one pinned.
+func TestDeviceBoundsMatchConfigH(t *testing.T) {
+	mirrorCheckDefines(t, []mirrorConstant{
+		{protoConfigH, "TFW_SCHED_MAX_MS", "timerMaxMillis", uint64(timerMaxMillis)},
+		{protoConfigH, "TFW_I2C_HZ_MIN", "I2CClockMin", uint64(I2CClockMin)},
+		{protoConfigH, "TFW_I2C_HZ_MAX", "I2CClockMax", uint64(I2CClockMax)},
+		{protoConfigH, "TFW_UART_BAUD", "serialport.DefaultBaud", uint64(serialport.DefaultBaud)},
+	})
+}
+
+// SlotSecureBootKey comes from the part's datasheet, not a header.
+func TestElementSlotsMatchAteccH(t *testing.T) {
+	mirrorCheckDefines(t, []mirrorConstant{
+		{mirrorAteccH, "TFW_ATECC_SLOT_DEVICEID", "SlotDeviceID", uint64(SlotDeviceID)},
+		{mirrorAteccH, "TFW_ATECC_SLOT_UDS", "SlotUDS", uint64(SlotUDS)},
+		{mirrorAteccH, "TFW_ATECC_SLOT_IMAGE", "SlotImageSigning", uint64(SlotImageSigning)},
 	})
 }

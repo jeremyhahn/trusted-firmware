@@ -125,6 +125,54 @@ func TestTheGoodTemplateLoads(t *testing.T) {
 	}
 }
 
+func TestATrustFLEXTemplateLoads(t *testing.T) {
+	tm, err := loadTemplate(writeTemplate(t, "name = tflx\nplan = trustflex\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm.Plan != planTrustFLEX || tm.Name != "tflx" || len(tm.Blocks) != 0 {
+		t.Fatalf("loaded %+v", tm)
+	}
+}
+
+func TestTheBlankPartTemplateHasNoPlan(t *testing.T) {
+	tm, err := loadTemplate(writeTemplateLines(t, goodTemplateLines()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm.Plan != "" {
+		t.Fatalf("plan %q, want the blank-part plan", tm.Plan)
+	}
+}
+
+func TestTrustFLEXTemplateRefusals(t *testing.T) {
+	for name, body := range map[string]string{
+		"config block":    "name = tflx\nplan = trustflex\nblock2 = " + block32 + "\n",
+		"config lock crc": "name = tflx\nplan = trustflex\nconfig_lock_crc = 0x1234\n",
+		"data lock crc":   "name = tflx\nplan = trustflex\ndata_lock_crc = 0x1234\n",
+		"no name":         "plan = trustflex\n",
+		"unknown plan":    "name = tflx\nplan = trustflexx\n",
+		"repeated plan":   "name = tflx\nplan = trustflex\nplan = trustflex\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadTemplate(writeTemplate(t, body)); err == nil {
+				t.Fatal("loaded")
+			}
+		})
+	}
+}
+
+func TestTheShippedTemplatesLoad(t *testing.T) {
+	blank, err := loadTemplate(filepath.Join("..", "..", "templates", "atecc608a-dice.conf"))
+	if err != nil || blank.Plan != "" {
+		t.Fatalf("atecc608a-dice.conf: %v, plan %q", err, blank.Plan)
+	}
+	tflx, err := loadTemplate(filepath.Join("..", "..", "templates", "atecc608a-trustflex.conf"))
+	if err != nil || tflx.Plan != planTrustFLEX {
+		t.Fatalf("atecc608a-trustflex.conf: %v", err)
+	}
+}
+
 func TestEveryMutatedTemplateFieldIsRefused(t *testing.T) {
 	replace := func(i int, s string) func([]string) []string {
 		return func(l []string) []string { l[i] = s; return l }

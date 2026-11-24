@@ -88,6 +88,24 @@ fails unless it matches ([cli](cli.md)). The config zone must be locked
 `TFW_ERR_RANGE`. Element tier only: the UDS backend answers
 `TFW_ERR_UNSUPPORTED`.
 
+### `PROV_SLOT_LOCK` (`0x7D`)
+
+Request `[slot:1][crc:2 LE]`, reply empty; `Device.ProvSlotLock`. Locks one
+data slot of a pre-locked ATECC608C-TFLXTLS with the element's `Lock` in
+SlotLock mode. **Irreversible.** `crc` is the CRC-16 of the slot's contents and
+is mandatory: the SDK refuses `0` before sending. Only the board's UDS slot
+(`6`) and image slot (`15`) are accepted (`TFW_ERR_RANGE` otherwise); a slot
+already slot-locked is `TFW_ERR_STATE`. For the UDS slot the firmware first
+checks that an HMAC keyed by the slot works, and returns the element's error
+if it does not. `tfwprov`'s TrustFLEX plan ([cli](cli.md)) calls it last.
+
+### `PROV_CONFIG_READ` (`0x7E`)
+
+Request `[block:1]`, `0`–`3`; reply the 32 bytes of that config block;
+`Device.ProvConfigRead`. A block past `3` is `TFW_ERR_RANGE`, and the SDK
+refuses it before sending. Writes nothing: the TrustFLEX plan's commit and
+`--verify` read the whole zone with it.
+
 ## Status codes specific to this surface
 
 See [`engineering.md`](engineering.md) for the full table mapping each status

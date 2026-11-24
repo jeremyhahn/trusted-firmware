@@ -3,7 +3,8 @@
 /*
  * src/hal/cortex-m/hal_sys.c on the host (row cortex-m, #458): free SRAM,
  * the reset cause (tfw-boot's handoff first, the reset handler's latch
- * after), the reset and the watchdog arm and pet.
+ * after, every cause tfw-boot hands off, UNKNOWN included, back unchanged),
+ * the reset, the watchdog arm and pet, and tfw_hal_init(), which is TFW_OK.
  *
  * The linker symbol __heap_start is a variable here; the core's reset, the
  * SoC's watchdog and the latch are test/model/cortex-m/cm_sys_model.c, which
@@ -125,6 +126,29 @@ static void test_reset_cause_prefers_the_handoff(void)
     TEST_ASSERT_EQUAL_STRING("", calls);              /* the latch not asked */
 }
 
+/* Each cause on the wire, UNKNOWN (0) to PANIC (6), with the latch holding
+ * another: what tfw-boot handed off comes back as it was, the latch unasked. */
+static void test_every_handed_off_cause_comes_back_unchanged(void)
+{
+    int c;
+
+    for (c = (int)TFW_RESET_UNKNOWN; c <= (int)TFW_RESET_PANIC; c++) {
+        memset(calls, 0, sizeof calls);
+        ncalls               = 0u;
+        hand_ok              = 1u;
+        hand_val             = (uint8_t)c;
+        cm_sys_model_latched = (tfw_reset_cause_t)((c + 1) % 7);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(c, tfw_hal_reset_cause(), "handed-off cause changed");
+        TEST_ASSERT_EQUAL_STRING_MESSAGE("", calls, "the latch was asked");
+    }
+}
+
+static void test_init_is_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_init());
+    TEST_ASSERT_EQUAL_STRING("", calls);
+}
+
 static void test_reset_cause_falls_back_to_the_latch(void)
 {
     hand_val = (uint8_t)TFW_RESET_WATCHDOG;           /* written nowhere: not handed off */
@@ -157,6 +181,8 @@ int main(void)
     RUN_TEST(test_a_deeper_stack_leaves_less_free_ram);
     RUN_TEST(test_reset_cause_prefers_the_handoff);
     RUN_TEST(test_reset_cause_falls_back_to_the_latch);
+    RUN_TEST(test_every_handed_off_cause_comes_back_unchanged);
+    RUN_TEST(test_init_is_ok);
     RUN_TEST(test_reset_is_the_system_reset);
     RUN_TEST(test_watchdog_arm_and_pet_are_the_socs);
     return UNITY_END();

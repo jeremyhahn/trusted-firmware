@@ -13,10 +13,16 @@
  *   - a timer that will not divide to the frequency out of range with no
  *     channel configured, a channel that will not configure internal, and
  *     neither leaving a tone to stop;
+ *   - a refused start claims no pin and leaves a running tone, and its pin,
+ *     as they were;
  *   - a stop as the last channel stopped low, once, only while a tone runs,
  *     and a failed driver stop reported as internal with the tone left
  *     running, so a retry stops it;
  *   - a tone of 0 Hz a stop.
+ *
+ * It also holds that a tone started on another pin, running or stopped
+ * before, resets the pin the channel drove, once, so one tone sounds on one
+ * pin, and that a retune on the same pin resets nothing (#48).
  *
  * The unit's running flag is static, so the tests run in the order main()
  * lists and each leaves no tone running.
@@ -28,8 +34,11 @@
 #include "driver/ledc.h"
 #include "tfw/hal.h"
 #include "hal_esp32.h"
+#include "driver/gpio.h"
 
 static unsigned              n_timer, n_chan, n_stop;
+static unsigned              n_reset;
+static int                   reset_seen;
 static ledc_timer_config_t   timer_seen;
 static ledc_channel_config_t chan_seen;
 static ledc_mode_t           stop_mode;
@@ -60,11 +69,20 @@ esp_err_t ledc_stop(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t idl
     return stop_err;
 }
 
+esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
+{
+    n_reset++;
+    reset_seen = gpio_num;
+    return ESP_OK;
+}
+
 void setUp(void)
 {
     stop_err = ESP_OK;
     tfw_esp_tone_release(tfw_esp_tone_gpio()); /* MODE takes the last test's pin back */
     n_timer = n_chan = n_stop = 0u;
+    n_reset = 0u;
+    reset_seen = -1;
     memset(&timer_seen, 0x5A, sizeof timer_seen);
     memset(&chan_seen, 0x5A, sizeof chan_seen);
     stop_mode = (ledc_mode_t)0x5A;
@@ -107,6 +125,7 @@ static void test_a_frequency_the_timer_refuses_is_out_of_range(void)
         setUp();
         timer_err = errs[i];
         TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&p, 440u));
+        TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());   /* a refused start claims no pin */
         TEST_ASSERT_EQUAL_UINT(1u, n_timer);
         TEST_ASSERT_EQUAL_UINT(0u, n_chan);
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
@@ -124,11 +143,27 @@ static void test_a_channel_it_cannot_configure_is_internal(void)
         setUp();
         chan_err = errs[i];
         TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_tone_start(&p, 440u));
+        TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());   /* a refused start claims no pin */
         TEST_ASSERT_EQUAL_UINT(1u, n_timer);
         TEST_ASSERT_EQUAL_UINT(1u, n_chan);
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
         TEST_ASSERT_EQUAL_UINT(0u, n_stop);
     }
+}
+
+static void test_a_refused_start_keeps_the_running_tone_and_its_pin(void)
+{
+    const tfw_pinref_t p7 = { 7u };
+    const tfw_pinref_t p4 = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p7, 440u));
+    timer_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&p4, 880u));
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());      /* the loopback stays on the tone */
+    TEST_ASSERT_EQUAL_UINT(1u, n_chan);
+    timer_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());     /* the old tone still ran */
+    assert_stopped_once();
 }
 
 static void test_a_tone_is_the_last_timer_and_channel_at_half_duty(void)
@@ -209,6 +244,48 @@ static void test_a_failed_driver_stop_is_reported(void)
     TEST_ASSERT_EQUAL_UINT(2u, n_stop);
 }
 
+/* #48: ledc_channel_config routes the channel to the new pin and leaves the
+ * old one routed too, so the start must take the old pin back itself. */
+static void test_a_tone_on_another_pin_takes_the_old_pin_off_the_channel(void)
+{
+    const tfw_pinref_t a = { 7u };
+    const tfw_pinref_t b = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&b, 880u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_reset);
+    TEST_ASSERT_EQUAL_INT(7, reset_seen);
+    TEST_ASSERT_EQUAL_INT(4, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    assert_stopped_once();
+}
+
+static void test_a_tone_after_notone_on_another_pin_takes_the_stopped_pin_back(void)
+{
+    const tfw_pinref_t a = { 7u };
+    const tfw_pinref_t b = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&b, 880u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_reset);
+    TEST_ASSERT_EQUAL_INT(7, reset_seen);
+    TEST_ASSERT_EQUAL_INT(4, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+}
+
+static void test_a_retune_on_the_same_pin_resets_nothing(void)
+{
+    const tfw_pinref_t a = { 7u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 880u));
+    TEST_ASSERT_EQUAL_UINT(0u, n_reset);
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    assert_stopped_once();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -216,9 +293,13 @@ int main(void)
     RUN_TEST(test_0_hz_with_no_tone_does_nothing);
     RUN_TEST(test_a_frequency_the_timer_refuses_is_out_of_range);
     RUN_TEST(test_a_channel_it_cannot_configure_is_internal);
+    RUN_TEST(test_a_refused_start_keeps_the_running_tone_and_its_pin);
     RUN_TEST(test_a_tone_is_the_last_timer_and_channel_at_half_duty);
     RUN_TEST(test_the_frequency_is_passed_whole);
     RUN_TEST(test_0_hz_stops_a_running_tone);
     RUN_TEST(test_a_failed_driver_stop_is_reported);
+    RUN_TEST(test_a_tone_on_another_pin_takes_the_old_pin_off_the_channel);
+    RUN_TEST(test_a_tone_after_notone_on_another_pin_takes_the_stopped_pin_back);
+    RUN_TEST(test_a_retune_on_the_same_pin_resets_nothing);
     return UNITY_END();
 }

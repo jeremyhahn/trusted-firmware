@@ -160,6 +160,12 @@ static void test_no_reply_carries_the_uds(void)
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_prov_cmd_write_pubkey(&r, &w));
         TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
     }
+    prep(lock, (uint8_t)sizeof lock);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_prov_cmd_slot_lock(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    prep(&slot, 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_prov_cmd_config_read(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 
     /* The check itself sees a run when one is there. */
     prep(0, 0u);

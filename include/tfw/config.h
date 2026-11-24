@@ -482,6 +482,20 @@
 #ifndef TFW_ELEMENT_I2C_ADDR
 #define TFW_ELEMENT_I2C_ADDR 0x60u
 #endif
+
+/* The element's UDS slot and image-signing-key slot, src/crypto/atecc608a/
+ * and boot/verify/verify_atecc608a.c. Board-profile data for the same reason
+ * as the address: a TrustFLEX part arrives with its slots already configured,
+ * so the slot each role lives in is a fact about the part
+ * (docs/device-provisioning/adr-trustflex-608c-slot-map.md). The defaults are
+ * the blank-part map this firmware always used, so a board that states nothing
+ * builds what it built before. The DeviceID stays in slot 0 everywhere. */
+#ifndef TFW_ATECC_SLOT_UDS
+#define TFW_ATECC_SLOT_UDS 1u
+#endif
+#ifndef TFW_ATECC_SLOT_IMAGE
+#define TFW_ATECC_SLOT_IMAGE 2u
+#endif
 #ifndef TFW_ELEMENT_I2C_HZ
 #define TFW_ELEMENT_I2C_HZ 100000uL
 #endif

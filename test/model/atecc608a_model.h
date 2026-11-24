@@ -64,6 +64,9 @@ const uint8_t *tfw_model_slot(uint8_t n);
 /* The 72 bytes a clear Write put in slot n (PROV_WRITE_PUBKEY's path, every
  * slot but the UDS's), or NULL for a slot the part does not have. */
 const uint8_t *tfw_model_clear_slot(uint8_t n);
+/* The summary CRC a SlotLock of slot n has to carry for the model to accept
+ * it: the element's CRC-16 over the slot's contents as the model holds them. */
+uint16_t tfw_model_slot_crc(uint8_t n);
 
 /* Whether the element's Verify answers "valid" in STORED mode (the
  * bootloader's image check, whose key sits in a locked slot the model does not

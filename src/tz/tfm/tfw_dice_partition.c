@@ -25,6 +25,7 @@
 #include "../dice_partition.h"
 #include "../dice_service.h"
 #include "../../core/secure_zero.h"
+#include "../../third_party/micro-ecc/uECC.h"
 
 /* The UDS is HKDF-SHA256(HUK, info) (no salt): bound to this partition by
  * TF-M's builtin key loader, never leaving the secure side. */
@@ -42,6 +43,14 @@ psa_status_t tfw_dice_service_sfn(const psa_msg_t *msg);
 /* Static, so it lives in the partition's private data, never on a stack a
  * later call reuses; zero outside init. */
 static uint8_t tfw_dice_uds[TFW_DICE_UDS_LEN];
+
+/* Blinding for micro-ecc's point arithmetic; never the nonce. Fails closed:
+ * on Arm micro-ecc has no default RNG, and without one a sign runs its
+ * variable-time inverse on the RFC 6979 nonce unblinded. */
+static int tfw_dice_blind_rng(uint8_t *dest, unsigned size)
+{
+    return psa_generate_random(dest, (size_t)size) == PSA_SUCCESS;
+}
 
 static psa_status_t tfw_dice_derive_uds(uint8_t uds[TFW_DICE_UDS_LEN])
 {
@@ -107,6 +116,7 @@ psa_status_t tfw_dice_partition_init(void)
     /* Every refusal leaves the service answering TFW_ERR_NOT_PROVISIONED and
      * still returns PSA_SUCCESS: TF-M boots and the client sees why. */
     tfw_dice_service_clear();
+    uECC_set_rng(tfw_dice_blind_rng);
     if (tfw_dice_derive_uds(tfw_dice_uds) == PSA_SUCCESS &&
         tfw_dice_read_ns_measurement(meas)) {
         st = tfw_dice_partition_start(tfw_dice_uds, meas, TFW_CRYPTO_SOFTWARE);

@@ -77,9 +77,78 @@ FLOW_ENTRY = re.compile(r"""^\s*["']?labels["']?\s*:(.*)$""", re.DOTALL)
 PROPS = re.compile(r"^(?:[&!]\S*(?:\s+|$))+")
 
 
+class _Scanner:
+    """Walk YAML text a character at a time, tracking whether it is inside a
+    quoted scalar (`"a,b"`, `'a,b'`), a `${{ ... }}` expression, and how deep
+    in nested `[...]` and `{...}` flows. A single-quoted scalar escapes its
+    quote as `''`, a double-quoted one with a backslash; an expression's own
+    string literals are single-quoted. A quote opens a scalar only at the
+    start of a value (after a blank, `:`, `,` or an opening bracket) or inside
+    an expression. The state carries over from one feed to the next, so a
+    flow can be walked line by line."""
+
+    def __init__(self):
+        self.quote, self.expr, self.nest, self.prev = None, 0, 0, " "
+
+    def feed(self, text):
+        """Yield (index, char, top) for each character of text; top is True
+        for a character outside any quoted scalar and expression (`nest` is
+        already updated for a top bracket, `prev` is the character before)."""
+        i = 0
+        while i < len(text):
+            c, top, step = text[i], False, 1
+            if self.quote == "'":
+                if text.startswith("''", i):
+                    step = 2
+                elif c == "'":
+                    self.quote = None
+            elif self.quote == '"':
+                if c == "\\":
+                    step = 2
+                elif c == '"':
+                    self.quote = None
+            elif text.startswith("${{", i):
+                self.expr += 1
+                step = 3
+            elif self.expr and text.startswith("}}", i):
+                self.expr -= 1
+                step = 2
+            elif c in "'\"" and (self.expr or self.prev in " \t:,[{"):
+                self.quote = c
+            elif not self.expr:
+                top = True
+                if c in "[{":
+                    self.nest += 1
+                elif c in "]}":
+                    self.nest -= 1
+            yield i, c, top
+            self.prev = text[min(i + step, len(text)) - 1]
+            i += step
+
+
+def _is_comment(scanner, c, top):
+    """Return whether a character the scanner yielded starts a ` # comment`."""
+    return top and c == "#" and scanner.prev in " \t"
+
+
+def _strip_comment(text):
+    """Return text up to a ` # comment` outside quoted scalars and expressions."""
+    scanner = _Scanner()
+    for i, c, top in scanner.feed(text):
+        if _is_comment(scanner, c, top):
+            return text[:i]
+    return text
+
+
 def _value(text):
-    """Return a YAML scalar with its trailing ` # comment` and quotes removed."""
-    text = re.split(r"\s+#", " " + text, maxsplit=1)[0].strip()
+    """Return a YAML scalar with its trailing ` # comment` and quotes removed;
+    a `#` inside a quoted scalar or a `${{ }}` expression is text."""
+    return _unquote(_strip_comment(text))
+
+
+def _unquote(text):
+    """Return a scalar stripped of blanks and of the quotes around it."""
+    text = text.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
         text = text[1:-1]
     return text
@@ -89,7 +158,7 @@ def _node(text):
     """Return a value as _value returns it, its leading anchor and tag
     removed; None for an alias, whose labels are read where its anchor is."""
     text = PROPS.sub("", _value(text), count=1)
-    return None if text.startswith("*") else _value(text)
+    return None if text.startswith("*") else _unquote(text)
 
 
 def allowlist(path):
@@ -115,41 +184,12 @@ def _split_flow(inner):
     brackets) on its top-level commas. A comma inside a quoted scalar
     (`"a,b"`, `'a,b'`), a `${{ ... }}` expression or a nested `[...]` or
     `{...}` flow does not split it, nor does a bracket inside any of those
-    close it. A single-quoted scalar escapes its quote as `''`, a
-    double-quoted one with a backslash; an expression's own string literals
-    are single-quoted."""
-    parts, start, i = [], 0, 0
-    quote, expr, nest = None, 0, 0
-    while i < len(inner):
-        c = inner[i]
-        if quote == "'":
-            if inner.startswith("''", i):
-                i += 1
-            elif c == "'":
-                quote = None
-        elif quote == '"':
-            if c == "\\":
-                i += 1
-            elif c == '"':
-                quote = None
-        elif inner.startswith("${{", i):
-            expr += 1
-            i += 2
-        elif expr and inner.startswith("}}", i):
-            expr -= 1
-            i += 1
-        elif c in "'\"" and (expr or not inner[start:i].strip() or inner[i - 1] in " \t:[{"):
-            quote = c
-        elif expr:
-            pass
-        elif c in "[{":
-            nest += 1
-        elif c in "]}":
-            nest -= 1
-        elif c == "," and not nest:
+    close it (see _Scanner)."""
+    parts, start, scanner = [], 0, _Scanner()
+    for i, c, top in scanner.feed(inner):
+        if top and c == "," and not scanner.nest:
             parts.append(inner[start:i])
             start = i + 1
-        i += 1
     parts.append(inner[start:])
     return parts
 
@@ -180,14 +220,26 @@ def _flow(lines, i, value):
     """Return (value, last): a flow list or mapping `value` opened on line i
     joined with the following lines up to `last`, the line where it closes;
     (value, i) when it is not a flow or closes on line i, (None, len(lines))
-    when it never closes."""
-    close = {"[": "]", "{": "}"}.get(value[:1])
-    if not close or value.endswith(close):
+    when it never closes. It closes at the bracket that brings it back to
+    depth 0 outside quoted scalars and expressions, so a `]`, `}` or `}}`
+    inside an open quoted label does not end it; a ` # comment` on a
+    following line is dropped only outside them too."""
+    if not value.startswith(("[", "{")):
         return value, i
-    for j in range(i + 1, len(lines)):
-        value = f"{value} {_value(lines[j])}".strip()
-        if value.endswith(close):
-            return value, j
+    scanner, parts = _Scanner(), []
+    for j in range(i, len(lines)):
+        text = value if j == i else lines[j].strip()
+        # Lines join with a blank, as the folded line break of a flow.
+        scanner.prev = " "
+        end = len(text)
+        for k, c, top in scanner.feed(text):
+            if _is_comment(scanner, c, top):
+                end = k
+                break
+            if top and c in "]}" and not scanner.nest:
+                parts.append(text[: k + 1])
+                return " ".join(parts), j
+        parts.append(text[:end].strip())
     return None, len(lines)
 
 

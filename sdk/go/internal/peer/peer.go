@@ -803,7 +803,7 @@ type ModemLines interface {
 }
 
 // ESPReset is esptool's classic reset on the ESP32 auto-reset circuit
-// (docs/plans/550.md): RTS drives EN and DTR drives GPIO0, each asserted
+// (#550): RTS drives EN and DTR drives GPIO0, each asserted
 // line pulling its pin low, and both asserted together pull neither. DTR is
 // released first so GPIO0 is high when EN rises (a normal boot, not the ROM
 // download mode); RTS then holds EN low for ResetPulse and releases it.

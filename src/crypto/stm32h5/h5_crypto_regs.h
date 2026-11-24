@@ -3,7 +3,7 @@
 /*
  * The STM32H5's HASH and PKA registers, as offsets from each peripheral's
  * base, and the field values the drivers write (#544). Every value is from
- * ST's sources at the commits docs/plans/544.md pins:
+ * ST's sources at these commits:
  *
  *   CMSIS  STMicroelectronics/cmsis-device-h5 @ 884b8dc7, Include/stm32h573xx.h
  *   HAL    STMicroelectronics/stm32h5xx-hal-driver @ 16fea2d2,

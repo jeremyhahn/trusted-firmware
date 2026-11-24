@@ -16,7 +16,8 @@
 #   RELEASABILITY_PATTERNS  the pattern list (default: releasability.patterns beside this script)
 #
 # A list line the gate cannot use (an unknown class, an empty pattern, a regex
-# grep -E refuses) exits 2.
+# grep -E refuses) exits 2, as do a list with no rules (only blank and `#`
+# lines), a list the gate cannot read, and a published file it cannot read.
 #
 # A line is waived by `lab-string-ok:` followed by a reason, in the file's own
 # comment syntax, on the line itself or the line above. The marker with no
@@ -41,6 +42,13 @@ while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' valu
   elif [ -f "$path" ]; then published+=("$path"); fi
 done < <(git ls-files -z | git check-attr -z --stdin export-ignore)
 
+[ -f "$patterns" ] && [ -r "$patterns" ] || { echo "releasability: cannot read pattern list $patterns" >&2; exit 2; }
+# grep's status 2 on an unreadable file is lost in the scan below, so refuse it here.
+for path in ${published[@]+"${published[@]}"}; do
+  [ -r "$path" ] || { echo "releasability: cannot read $path" >&2; exit 2; }
+done
+
+rules=0
 hits=$(mktemp)
 trap 'rm -f "$hits"' EXIT
 
@@ -52,6 +60,7 @@ while IFS=$'\t' read -r class re _ || [ -n "$class" ]; do
   # The scan below ignores grep's status, so a regex grep -E refuses would match nothing.
   rerc=0; grep -E -e "$re" /dev/null 2> /dev/null || rerc=$?
   [ "$rerc" -lt 2 ] || { echo "releasability: pattern grep -E refuses for $class in $patterns" >&2; exit 2; }
+  rules=$((rules + 1))
   # git archive publishes a symlink as its target text, which has no comment
   # to carry a waiver. A here-string, not a pipe: see the SIGPIPE note below.
   for path in ${links[@]+"${links[@]}"}; do
@@ -75,6 +84,7 @@ while IFS=$'\t' read -r class re _ || [ -n "$class" ]; do
         printf '%s:%s: %s\n' "$path" "$n" "$class"
       done >> "$hits"
 done < "$patterns"
+[ "$rules" -gt 0 ] || { echo "releasability: no rules in $patterns" >&2; exit 2; }
 
 for path in ${stripped[@]+"${stripped[@]}"}; do
   echo "$path: strip-at-publish"

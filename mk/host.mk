@@ -139,7 +139,8 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines. test_mps2_bus too: it links
 # the MPS2 bus driver itself, over a simulated SBCon, and test_mps2_spi_row links
-# it with bus.c over a modelled PL022, on the MPS2 board table.
+# it with bus.c over a modelled PL022, on the MPS2 board table; test_mps2_adc
+# links the MPS2 ADC under mps2-an505's profile.
 # test_cm_hal_eeprom links the Cortex-M EEPROM and NVM HAL in the mock's place.
 # test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
@@ -530,14 +531,40 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c with the suite's
-# simulated SBCon bus and delay in place of sbcon.c and hal_tick.c, so it
-# links no mock HAL, which defines the same bus entry points.
+# The MPS2 bus registers (#628): the image's sbcon.c and pl022.c, built under
+# mps2-an505's profile for its bases, over the register model in
+# test/model/mps2_bus_model.c, whose cortex-m/mps2/cm_regs.h comes ahead of
+# src/hal/cortex-m/'s. Each suite that links them gives its bus as the model's
+# tfw_mps2_model_* hooks and links with MPS2_BUS_REGS_WRAP, which tells the
+# model whether an accessor reads or writes (mps2_bus_model.h).
+# The objects keep EXTRA_CFLAGS, so coverage and test-asan instrument the
+# image's sources, and they outlive one make, unlike the one-command binaries:
+# a plain link after test-asan or coverage would meet instrumented objects.
+# Their directory names a checksum of EXTRA_CFLAGS, as HOST_DIR does of the
+# defines, so each flag set builds its own and a plain build keeps
+# $(HOST_DIR)/mps2_bus_regs.
+MPS2_BUS_REGS_DIR    := $(HOST_DIR)/mps2_bus_regs$(if $(strip $(EXTRA_CFLAGS)),-f$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(EXTRA_CFLAGS)))' | cksum)))
+MPS2_BUS_REGS_CFLAGS  = -Itest/model/cortex-m/mps2 -Itest/model -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+                        -Iboards/mps2-an505 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+MPS2_BUS_REGS_OBJS   := $(MPS2_BUS_REGS_DIR)/sbcon.o $(MPS2_BUS_REGS_DIR)/pl022.o $(MPS2_BUS_REGS_DIR)/mps2_bus_model.o
+MPS2_BUS_REGS_WRAP   := $(foreach f,sb_lines sb_release sb_drive_low ssp_read ssp_write misc_read misc_write,-Wl,--wrap=tfw_mps2_$(f))
+$(MPS2_BUS_REGS_DIR):
+	@mkdir -p $@
+$(MPS2_BUS_REGS_DIR)/%.o: src/hal/cortex-m/mps2/%.c src/hal/cortex-m/mps2/%.h src/hal/cortex-m/mps2/soc_regs.h \
+                          test/model/cortex-m/mps2/cm_regs.h test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+$(MPS2_BUS_REGS_DIR)/mps2_bus_model.o: test/model/mps2_bus_model.c test/model/mps2_bus_model.h | $(MPS2_BUS_REGS_DIR)
+	@$(HOST_CC) $(MPS2_BUS_REGS_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+
+# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c over the image's
+# sbcon.c and pl022.c with the suite's simulated SBCon bus behind the register
+# model, and its delay in place of hal_tick.c, so it links no mock HAL, which
+# defines the same bus entry points.
 $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_bus.c \
                            test/mock/mps2_gpio_line_idle.c \
-                           $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                           $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The MPS2 watchdog (src/hal/cortex-m/mps2/hal_soc.c) on a register file
 # (test/model/cortex-m/mps2_soc_model.c): the model includes hal_soc.c after
@@ -577,9 +604,9 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
                                src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/mps2-an505/board.c \
-                               $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -DTFW_CM_SPI=1 \
-	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+                               $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Itest/model -DTFW_CM_SPI=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The MPS2 byte link (row cortex-m): src/hal/cortex-m/mps2/hal_uart.c, unchanged,
 # on mps2-an505's profile. test/model/cortex-m/ goes first so its cm_regs.h
@@ -2872,7 +2899,7 @@ host-dir:
 # The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
 # becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
 # by the same line. -include, because the first build has none.
--include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
+-include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d $(MPS2_BUS_REGS_DIR)/*.d)
 
 .PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-no-delay lint-grep-selftest
@@ -3425,9 +3452,9 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
 # the pattern rule.
 $(HOST_DIR)/test_mps2_optiga: test/unit/test_mps2_optiga.c src/crypto/optiga/optiga_i2c.c \
                               src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
-                              $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
+                              $(MPS2_BUS_REGS_OBJS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 -Itest/model \
+	   -o $@ $^ $(MPS2_BUS_REGS_WRAP) $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
 # the transport faked in the suite at the APDU, so each command's bytes are

@@ -72,6 +72,19 @@ APP_CMD_SRCS     := $(if $(filter yes,$(strip $(APP_COMMANDS))),,src/core/app_cm
 
 APP_SUFFIX       := -app-$(APP_NAME)
 APP_RUNNER_SRCS  := src/core/app_runner.c $(APP_CMD_SRCS)
+
+# The image's path does not change with APP_COMMANDS, and a source dropped from
+# a link (or an older one put back) never makes make relink: so every link of
+# an application image depends on a stamp holding the selection, rewritten only
+# when it changes. mk/host.mk and mk/firmware.mk name the stamp files, as the
+# build directories are not known yet here.
+APP_CONFIG_TEXT  = APP_COMMANDS=$(strip $(APP_COMMANDS)) RUNNER=$(strip $(APP_RUNNER_SRCS))
+define APP_CONFIG_STAMP
+@mkdir -p $(dir $@)
+@printf '%s\n' '$(APP_CONFIG_TEXT)' > $@.tmp
+@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+endef
+
 APP_DEFS         := -DTFW_FEATURE_APP=1
 # After the CURDIR map, so it is the one that applies to an application inside
 # this checkout too: the image does not record where the application was built.

@@ -241,6 +241,44 @@ static void test_prov_write_pubkey_frames_match_the_vectors(void)
                                     TFW_ERR_PROTECTED_REGION, 0, 0u), wire);
 }
 
+static void test_prov_slot_lock_and_config_read_frames_match_the_vectors(void)
+{
+    static const uint8_t sl_req[]   = TFWV_FRAME_PROV_SLOT_LOCK_REQ;
+    static const uint8_t sl_resp[]  = TFWV_FRAME_PROV_SLOT_LOCK_RESP;
+    static const uint8_t sl_range[] = TFWV_FRAME_PROV_SLOT_LOCK_RANGE_RESP;
+    static const uint8_t sl_prot[]  = TFWV_FRAME_PROV_SLOT_LOCK_PROTECTED_RESP;
+    static const uint8_t cr_req[]   = TFWV_FRAME_PROV_CONFIG_READ_REQ;
+    static const uint8_t cr_resp[]  = TFWV_FRAME_PROV_CONFIG_READ_RESP;
+    static const uint8_t cr_range[] = TFWV_FRAME_PROV_CONFIG_READ_RANGE_RESP;
+    static const uint8_t lock[3]    = { 15u, 0xEFu, 0xBEu }; /* slot, CRC LE */
+    static const uint8_t block      = 2u;
+    uint8_t              wire[TFW_MAX_FRAME];
+    uint8_t              cfg[32];
+    uint8_t              i;
+
+    for (i = 0u; i < 32u; i++) {
+        cfg[i] = (uint8_t)(0x40u + i);
+    }
+    check(sl_req, sizeof sl_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_PROV_SLOT_LOCK, lock, 3u), wire);
+    check(sl_resp, sizeof sl_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 9u, TFW_CMD_PROV_SLOT_LOCK, TFW_OK, 0, 0u), wire);
+    check(sl_range, sizeof sl_range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 9u, TFW_CMD_PROV_SLOT_LOCK, TFW_ERR_RANGE, 0, 0u),
+          wire);
+    check(sl_prot, sizeof sl_prot - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 9u, TFW_CMD_PROV_SLOT_LOCK,
+                                    TFW_ERR_PROTECTED_REGION, 0, 0u), wire);
+    check(cr_req, sizeof cr_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 10u, TFW_CMD_PROV_CONFIG_READ, &block, 1u), wire);
+    check(cr_resp, sizeof cr_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 10u, TFW_CMD_PROV_CONFIG_READ, TFW_OK, cfg, 32u),
+          wire);
+    check(cr_range, sizeof cr_range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 10u, TFW_CMD_PROV_CONFIG_READ, TFW_ERR_RANGE, 0,
+                                    0u), wire);
+}
+
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
@@ -426,6 +464,7 @@ int main(void)
     RUN_TEST(test_peer_binding_refusals_match_the_vectors);
     RUN_TEST(test_hsm_channel_frames_match_the_vectors);
     RUN_TEST(test_prov_write_pubkey_frames_match_the_vectors);
+    RUN_TEST(test_prov_slot_lock_and_config_read_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);

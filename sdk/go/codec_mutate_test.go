@@ -53,6 +53,13 @@ var frameVectors = map[string]string{
 	"PROV_WRITE_PUBKEY ok":   vectors.FrameProvWritePubKeyResp,
 	"PROV_WRITE_PUBKEY rng":  vectors.FrameProvWritePubKeyRangeResp,
 	"PROV_WRITE_PUBKEY prot": vectors.FrameProvWritePubKeyProtectedResp,
+	"PROV_SLOT_LOCK req":     vectors.FrameProvSlotLockReq,
+	"PROV_SLOT_LOCK ok":      vectors.FrameProvSlotLockResp,
+	"PROV_SLOT_LOCK rng":     vectors.FrameProvSlotLockRangeResp,
+	"PROV_SLOT_LOCK prot":    vectors.FrameProvSlotLockProtectedResp,
+	"PROV_CONFIG_READ req":   vectors.FrameProvConfigReadReq,
+	"PROV_CONFIG_READ ok":    vectors.FrameProvConfigReadResp,
+	"PROV_CONFIG_READ rng":   vectors.FrameProvConfigReadRangeResp,
 }
 
 // isFrameErr reports whether err is one of the errors Decode documents.

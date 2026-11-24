@@ -135,7 +135,14 @@ value one for one; the full inventory is `api.md`.
   any LEN outside `TFW_LEN_MIN..TFW_MAX_LEN` before using it as an index. An
   unchecked length on read folds trailing bytes into the next field —
   `tfw_frame_payload_len` computes `want - 2 - has_status`, which wraps on a
-  too-short LEN and hands the dispatcher a length past the buffer.
+  too-short LEN and hands the dispatcher a length past the buffer. Once the
+  frame is complete and its CRC good, `tfw_framer_push` in state
+  `TFW_FRAME_CRC_HI` also refuses, as `TFW_FRAME_BAD_FORMAT` counted in
+  `err_format`, a response-shaped OP with no room for STATUS and a request
+  (no STATUS byte) whose LEN exceeds `TFW_MAX_PAYLOAD + 2`; a response or event
+  may use the full `TFW_MAX_LEN`. The state is already wait-SOF, so no byte is
+  reprocessed. `test_a_request_longer_than_the_maximum_payload_is_refused` in
+  `test/unit/test_frame.c` pins both sides.
 - **The reader's underflow and the writer's overflow are sticky**, set once
   and never cleared. A handler asks once, at the end, whether its whole
   sequence of reads or writes stayed in bounds; `tfw_dispatch` re-checks both

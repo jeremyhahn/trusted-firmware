@@ -6,3 +6,5 @@
   payload no encoder produces; the dispatcher then refused it per command. It
   is now `TFW_FRAME_BAD_FORMAT` and counted in `err_format`. Responses of the
   same LEN are unchanged. No wire format, status code or vector changed.
+  `docs/wire-protocol/` (api, architecture, engineering) now states the
+  request LEN bound.

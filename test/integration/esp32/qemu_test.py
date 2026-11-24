@@ -230,10 +230,15 @@ class Qemu:
 
     def wait_for(self, pattern, count=1, timeout=BOOT_TIMEOUT):
         """Until the log holds `pattern` `count` times; bounded by `timeout`,
-        and by QEMU exiting, which is what the log is read between."""
+        and by QEMU exiting, which is what the log is read between. The log
+        is read one last time after QEMU exits or the deadline passes, so a
+        line written just before either is not reported missing."""
+        def seen():
+            return len(re.findall(pattern, self.text())) >= count
+
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if len(re.findall(pattern, self.text())) >= count:
+            if seen():
                 return
             # Between reads of the log, wait on the one other thing that can
             # happen: QEMU exiting.
@@ -241,7 +246,11 @@ class Qemu:
                 self.proc.wait(min(0.25, max(0, deadline - time.time())))
             except subprocess.TimeoutExpired:
                 continue
+            if seen():
+                return
             raise self.failure(f'QEMU exited ({self.proc.returncode}) waiting for {pattern!r}')
+        if seen():
+            return
         raise self.failure(f'{timeout}s without {pattern!r} (x{count}) in {self.logpath}')
 
     def failure(self, what):

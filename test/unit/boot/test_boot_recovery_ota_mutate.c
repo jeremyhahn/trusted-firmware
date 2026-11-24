@@ -19,6 +19,7 @@
 #include "boot_store.h"
 #include "boot_trial.h"
 #include "frame.h"
+#include "vectors.h"
 
 #define IDLE  100u
 #define NEVER 100000u   /* an escape no bounded session reaches */
@@ -137,6 +138,14 @@ static void feed_image(uint32_t total)
 
 static void feed_end(void)  { feed_frame(3u, TFW_CMD_OTA_END, 0, 0u); }
 static void feed_ping(void) { feed_frame(7u, TFW_CMD_PING, 0, 0u); }
+
+/* A CRC-valid PING one byte past the maximum payload (#640): the framer
+ * refuses it as a format error. */
+static void feed_oversize(void)
+{
+    static const uint8_t over[] = TFWV_FRAME_PING_OVERSIZE_REQ;
+    tfw_boot_mock_feed_rx(over, sizeof over - 1u);
+}
 
 static void feed_junk(size_t n)
 {
@@ -322,6 +331,31 @@ static void test_a_refused_frame_other_than_end_does_not_end_the_session(void)
     TEST_ASSERT_EQUAL(TFW_OK, s.resp[1]);
 }
 
+/* A request longer than the maximum payload never reaches answer(): the
+ * bootloader sends nothing for it and still answers the next request. */
+static void test_a_request_longer_than_the_maximum_payload_is_not_answered(void)
+{
+    tx_t s;
+
+    feed_oversize();
+    feed_ping();
+    TEST_ASSERT_EQUAL_INT(0, session(IDLE, 0u, 0u, 0u));
+    s = drain();
+    TEST_ASSERT_EQUAL_UINT(1u, s.responses);
+    TEST_ASSERT_EQUAL(TFW_OK, s.resp[0]);
+}
+
+/* And it is not progress: arriving at poll 60 it leaves the idle bound where
+ * it was, so the session ends at IDLE empty polls, not 60 + IDLE. */
+static void test_a_request_longer_than_the_maximum_payload_does_not_restart_the_idle_bound(void)
+{
+    feed_begin();
+    feed_at = 60u;
+    feed_fn = feed_oversize;
+    TEST_ASSERT_EQUAL_INT(0, session(IDLE, 0u, 0u, 0u));
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
+}
+
 /* In recovery a refused OTA_END does not end the loop. */
 static void test_a_refused_end_does_not_end_recovery(void)
 {
@@ -438,6 +472,8 @@ int main(void)
     RUN_TEST(test_accepted_data_restarts_the_byte_budget);
     RUN_TEST(test_recovery_announces_the_reason_it_was_entered);
     RUN_TEST(test_a_refused_frame_other_than_end_does_not_end_the_session);
+    RUN_TEST(test_a_request_longer_than_the_maximum_payload_is_not_answered);
+    RUN_TEST(test_a_request_longer_than_the_maximum_payload_does_not_restart_the_idle_bound);
     RUN_TEST(test_a_refused_end_does_not_end_recovery);
     RUN_TEST(test_the_update_is_evaluated_against_the_tiers_floor);
     RUN_TEST(test_a_refused_update_is_stored_as_failed);

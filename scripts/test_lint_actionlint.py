@@ -44,6 +44,32 @@ def allowlist_labels(text):
     return labels
 
 
+def allowlist_path_ignores(text):
+    """Return {path: [ignore patterns]} from the paths: section of actionlint.yaml."""
+    ignores = {}
+    in_paths = False
+    path = None
+    for line in text.splitlines():
+        stripped = line.split(" #", 1)[0].rstrip()
+        if not stripped or stripped.lstrip().startswith("#"):
+            continue
+        indent = len(stripped) - len(stripped.lstrip())
+        if indent == 0:
+            in_paths = stripped == "paths:"
+            path = None
+            continue
+        if not in_paths:
+            continue
+        if indent == 2 and stripped.endswith(":"):
+            path = stripped.strip()[:-1].strip("'\"")
+            ignores[path] = []
+        elif path is not None:
+            m = re.match(r"^\s+-\s+(.+)$", stripped)
+            if m:
+                ignores[path].append(m.group(1).strip().strip("'\""))
+    return ignores
+
+
 def make_rule(text, target):
     """Return a target's prerequisites, with backslash continuations joined."""
     joined = text.replace("\\\n", " ")
@@ -99,6 +125,20 @@ class StructureTest(unittest.TestCase):
     def test_allowlist_parser_reads_labels(self):
         text = "self-hosted-runner:\n  labels:\n    - a  # x\n    - b\nconfig-variables: null\n"
         self.assertEqual(allowlist_labels(text), ["a", "b"])
+
+    def test_code_review_ignore_is_scoped_to_sc2015(self):
+        # code-review.yml is the handbook's template, not edited here: its
+        # SC2015 info is ignored for that file only, and no other workflow
+        # carries an ignore, so shellcheck still gates every file this repo owns.
+        ignores = allowlist_path_ignores(ALLOWLIST.read_text(encoding="utf-8"))
+        self.assertEqual(ignores, {".github/workflows/code-review.yml": ["SC2015:"]})
+
+    def test_path_ignore_parser_reads_paths(self):
+        text = (
+            "self-hosted-runner:\n  labels:\n    - a\n"
+            "paths:\n  # c\n  x.yml:\n    ignore:\n      - 'SC1:'\n  y.yml:\n    ignore: []\n"
+        )
+        self.assertEqual(allowlist_path_ignores(text), {"x.yml": ["SC1:"], "y.yml": []})
 
     def lint_actionlint_recipe(self):
         lines = self.mk.splitlines()

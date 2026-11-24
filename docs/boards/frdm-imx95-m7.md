@@ -121,7 +121,7 @@ exists off the board. A row that is not this board's says why.
 
 - **The `imx95` row's wording.** It does not yet say who owns the A55's secure
   world. The sentence proposed to the owner is in
-  [`../plans/537.md`](../plans/537.md); `docs/SPEC.md` is not edited here.
+  row #537; `docs/SPEC.md` is not edited here.
 - **The design's question 2.** Ruling 771's brief has the M7 as ARMv7-M with
   no TrustZone-M, which agrees with the ref ADR and the build and not with
   IMX95CEC Table 1.

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b, docs/plans/590b.md) on host.
+ * The secure-world DICE service (#590 slice b) on host.
  *
  * The DeviceID reference is today's non-secure path, linked beside the
  * service: the soft root's P-256 identity (src/crypto/soft/id_p256.c) over this

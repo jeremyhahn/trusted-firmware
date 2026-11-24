@@ -292,11 +292,21 @@ static void test_a_request_longer_than_the_maximum_payload_is_refused(void)
 
     TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(over, sizeof over - 1u));
     TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
 
-    /* A response of the same LEN is the full payload plus its STATUS. */
+    /* A response of the same LEN is the full payload plus its STATUS. The
+     * same framer takes it READY: it resynced after the refusal. */
     memset(pay, 0x5Au, sizeof pay);
     n = tfw_frame_encode_response(wire, sizeof wire, 1u, TFW_CMD_PING, TFW_OK, pay, TFW_MAX_PAYLOAD);
     TEST_ASSERT_EQUAL_UINT8(TFW_MAX_LEN, wire[1]);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
+
+    /* A request at the maximum payload, one byte short of the refused one,
+     * is READY. */
+    n = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_PING, pay, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_TRUE(n > 0u);
     TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
     TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
 }

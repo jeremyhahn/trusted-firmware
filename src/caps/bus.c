@@ -35,13 +35,13 @@
  *
  * Both calls run unconditionally here, rather than behind TFW_FEATURE_I2C /
  * TFW_FEATURE_SPI checks, because those two macros cannot be tested with an
- * #if in this file -- see the header comment above and mk/avr.mk's BUS_SRCS,
- * which links this translation unit as ONE unit with hal_bus.c whenever any
- * of I2C, SPI or 1-Wire is on. Every board that gates one of the three today
- * gates all three together (the ATtiny85; see mk/avr.mk's BUS_OFF), so
- * calling both is exactly "compiled-in peripherals" for every build that
- * exists. A board that someday wants I2C without SPI would need this split
- * the same way hal_bus.c's own comment says 1-Wire would.
+ * #if in this file -- see the header comment above and mk/firmware.mk's
+ * BUS_SRCS, which links this translation unit as ONE unit with hal_bus.c
+ * whenever any of I2C, SPI or 1-Wire is on. Only the ATtiny85 gates all three
+ * off (see mk/firmware.mk's BUS_OFF). A board that lacks some of the three
+ * (for example the FRDM-IMX95 M7, I2C without SPI or 1-Wire) keeps this file
+ * whole, and its hal_bus.c gives the missing entry points stubs that answer
+ * TFW_ERR_UNSUPPORTED.
  *
  * tfw_crypto_init() (main.c) runs AFTER this, not before: the ATECC608
  * provider calls tfw_hal_i2c_init() itself at its own required rate, and that

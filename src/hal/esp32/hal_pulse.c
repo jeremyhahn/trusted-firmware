@@ -9,6 +9,8 @@
  * task -- so an interval can read long by the length of a preemption. A board
  * that names ESP_PULSE := rmt links hal_pulse_rmt.c instead, which times the
  * edges on the RMT receiver; this file is the default and the QEMU board's.
+ * A capture's timeout_us bounds the wait for the start level and then each
+ * interval, so a quiet line of timeout_us ends it, as in hal_pulse_rmt.c.
  */
 
 #include "driver/gpio.h"
@@ -55,20 +57,19 @@ tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
                                   uint16_t *out_us, uint8_t max_edges,
                                   uint32_t timeout_us, uint8_t *out_n)
 {
-    int     cur      = start_level ? 1 : 0;
-    int64_t deadline = esp_timer_get_time() + (int64_t)timeout_us;
+    int     cur = start_level ? 1 : 0;
     int64_t last;
     uint8_t n = 0u;
 
     *out_n = 0u;
-    if (wait_level(p, cur, deadline) != 0) {
+    if (wait_level(p, cur, esp_timer_get_time() + (int64_t)timeout_us) != 0) {
         return TFW_ERR_TIMEOUT;
     }
     last = esp_timer_get_time();
     while (n < max_edges) {
         int64_t now;
 
-        if (wait_level(p, !cur, deadline) != 0) {
+        if (wait_level(p, !cur, last + (int64_t)timeout_us) != 0) {
             break;              /* the line went quiet: what we have is the capture */
         }
         now = esp_timer_get_time();

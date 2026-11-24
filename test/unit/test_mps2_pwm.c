@@ -117,6 +117,7 @@ void test_pwm_compare_for_several_duties(void)
     }
 }
 
+/* An idle timer gets no Control, Load or IntClr write and no NVIC call (hal_pwm.c ch_static). */
 void test_pwm_255_drives_high_and_leaves_the_timer(void)
 {
     tfw_pwmref_t r = ch(0u);
@@ -126,6 +127,8 @@ void test_pwm_255_drives_high_and_leaves_the_timer(void)
     TEST_ASSERT_EQUAL_UINT32(0u, DT_CONTROL);
     TEST_ASSERT_EQUAL_UINT32(0u, DT_LOAD);
     TEST_ASSERT_EQUAL_UINT32(~0u, s_nvic_on);
+    TEST_ASSERT_EQUAL_UINT32(0u, DT_INTCLR);
+    TEST_ASSERT_EQUAL_UINT32(~0u, s_nvic_off);
 }
 
 void test_pwm_0_drives_low_and_leaves_the_timer(void)
@@ -136,7 +139,10 @@ void test_pwm_0_drives_low_and_leaves_the_timer(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&r, 0u));
     TEST_ASSERT_EQUAL_UINT8(0u, s_level[0]);
     TEST_ASSERT_EQUAL_UINT32(0u, DT_CONTROL);
+    TEST_ASSERT_EQUAL_UINT32(0u, DT_LOAD);
     TEST_ASSERT_EQUAL_UINT32(~0u, s_nvic_on);
+    TEST_ASSERT_EQUAL_UINT32(0u, DT_INTCLR);
+    TEST_ASSERT_EQUAL_UINT32(~0u, s_nvic_off);
 }
 
 void test_pwm_two_channels(void)

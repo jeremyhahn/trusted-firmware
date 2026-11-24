@@ -1,0 +1,3 @@
+### Changed
+
+- **`docs/device-capabilities/api.md` states the pin scheduler's refusals, re-arming and a refused revert** (#627): TIMER_SET's `TFW_ERR_RESERVED_PIN`, pin-lookup, `TFW_ERR_RANGE` and `TFW_ERR_NO_SLOT` refusals in check order, re-arming in the pin's own slot, and a HAL refusal arming nothing; TIMER_CANCEL's `TFW_ERR_RANGE`, `TFW_ERR_NO_SLOT` and a refused final write that keeps the timer; TIMER_QUERY's zeros for an unarmed pin; and a revert the HAL refuses at the deadline, which stays armed and is retried each sweep, so TIMER_QUERY can answer active 1 with `remaining_ms` 0 for longer than one sweep. `docs/device-capabilities/engineering.md` names `test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries` beside the held-pin revert row.

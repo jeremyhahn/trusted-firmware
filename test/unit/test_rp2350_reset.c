@@ -34,6 +34,12 @@ void tearDown(void) { }
 #define HAD_HZD_SYS_RESET_REQ    0x08000000u
 #define HAD_WATCHDOG_RSM         0x10000000u
 
+/* The bits powman.h gives no field: bit 20, bits 29-31, and every low bit
+ * but DOUBLE_TAP and RESCUE_FLAG. */
+#define RESERVED_20              0x00100000u
+#define RESERVED_HIGH            0xE0000000u
+#define UNDEFINED_LOW            0x0000FFEEu
+
 #define ASKED     1u
 #define NOT_ASKED 0u
 
@@ -75,6 +81,21 @@ static void test_the_two_flags_are_not_a_source(void)
     TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_rp2350_reset_decode(0u, DOUBLE_TAP, NOT_ASKED));
 }
 
+/* A bit with no field is no source either: beside one HAD_ flag it changes
+ * nothing, and alone it is no cause. */
+static void test_reserved_bits_are_not_a_source(void)
+{
+    TEST_ASSERT_EQUAL(TFW_RESET_POWER_ON,
+                      tfw_rp2350_reset_decode(0u, HAD_POR | RESERVED_20, NOT_ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_BROWNOUT,
+                      tfw_rp2350_reset_decode(0u, HAD_BOR | RESERVED_HIGH, NOT_ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
+                      tfw_rp2350_reset_decode(0u, HAD_RUN_LOW | UNDEFINED_LOW, NOT_ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
+                      tfw_rp2350_reset_decode(0u, RESERVED_20 | RESERVED_HIGH | UNDEFINED_LOW,
+                                              NOT_ASKED));
+}
+
 static void test_a_chip_reset_with_no_value_is_unknown(void)
 {
     static const uint32_t none[] = {
@@ -110,6 +131,7 @@ int main(void)
     RUN_TEST(test_each_chip_reset_with_a_value_maps_to_it);
     RUN_TEST(test_the_two_flags_are_not_a_source);
     RUN_TEST(test_a_chip_reset_with_no_value_is_unknown);
+    RUN_TEST(test_reserved_bits_are_not_a_source);
     RUN_TEST(test_a_take_reads_both_and_writes_neither);
     return UNITY_END();
 }

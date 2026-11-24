@@ -10,6 +10,8 @@
  *   - a write as the row's timer at 8 bits and 1 kHz on the automatic
  *     clock, then the row's channel on that timer and pin at the duty, the
  *     phase at 0, each field from its own field of the row;
+ *   - duties 0 to 254 passed whole, and duty 255 as the full 8-bit period
+ *     (256), so the pin is high all cycle as on the AVR;
  *   - a timer that will not configure failing the write with no channel
  *     configured, a channel that will not configure failing it too;
  *   - a stop as the row's channel stopped low, a failed stop internal.
@@ -90,7 +92,7 @@ static void test_a_write_is_the_timer_then_the_channel(void)
         TEST_ASSERT_EQUAL((ledc_mode_t)rows[i].mode, chan_seen.speed_mode);
         TEST_ASSERT_EQUAL((ledc_channel_t)rows[i].channel, chan_seen.channel);
         TEST_ASSERT_EQUAL((ledc_timer_t)rows[i].timer, chan_seen.timer_sel);
-        TEST_ASSERT_EQUAL_UINT32(duty[i], chan_seen.duty);
+        TEST_ASSERT_EQUAL_UINT32(duty[i] == 255u ? 256u : duty[i], chan_seen.duty);
         TEST_ASSERT_EQUAL_INT(0, chan_seen.hpoint);
         TEST_ASSERT_EQUAL(LEDC_INTR_DISABLE, chan_seen.intr_type);
         TEST_ASSERT_EQUAL_UINT(0u, n_stop);
@@ -99,7 +101,7 @@ static void test_a_write_is_the_timer_then_the_channel(void)
 
 static void test_the_duty_is_passed_whole(void)
 {
-    static const uint8_t duty[] = { 0u, 1u, 127u, 254u, 255u };
+    static const uint8_t duty[] = { 0u, 1u, 127u, 254u };
     const tfw_pwmref_t   p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
     unsigned i;
 
@@ -107,6 +109,15 @@ static void test_the_duty_is_passed_whole(void)
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, duty[i]));
         TEST_ASSERT_EQUAL_UINT32(duty[i], chan_seen.duty);
     }
+}
+
+static void test_duty_255_is_the_full_period(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 255u));
+    TEST_ASSERT_EQUAL(LEDC_TIMER_8_BIT, timer_seen.duty_resolution);
+    TEST_ASSERT_EQUAL_UINT32(1u << 8, chan_seen.duty);
 }
 
 static void test_a_timer_it_cannot_configure_fails_with_no_channel(void)
@@ -175,6 +186,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_write_is_the_timer_then_the_channel);
     RUN_TEST(test_the_duty_is_passed_whole);
+    RUN_TEST(test_duty_255_is_the_full_period);
     RUN_TEST(test_a_timer_it_cannot_configure_fails_with_no_channel);
     RUN_TEST(test_a_channel_it_cannot_configure_fails);
     RUN_TEST(test_a_stop_is_the_channel_stopped_low);

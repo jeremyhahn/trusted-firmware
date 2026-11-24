@@ -60,6 +60,8 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     gpt_halt();
     if (tone_active && (tone_pin.port != p->port || tone_pin.bit != p->bit)) {
         (void)tfw_hal_gpio_write(&tone_pin, 0u);
+        /* As mcxn94x: the new pin starts a fresh half period from low. */
+        tone_level = 0u;
     }
     tone_pin    = *p;
     tone_active = 1u;

@@ -198,8 +198,9 @@ static void test_the_last_sector_is_writable(void)
     TEST_ASSERT_EQUAL_HEX32(FLASH_LEN - TFW_MCXN_FLASH_SECTOR, erased_at[0]);
 }
 
-/* Below the flash, past its end, running over its end, and a length that
- * wraps: each refused before the driver is called at all. */
+/* Below the flash, at its end (FLASH_END, one past the last byte), a start
+ * past its end (even with a zero length), running over its end, and a length
+ * that wraps: each refused before the driver is called at all. */
 static void test_a_span_outside_the_flash_is_refused(void)
 {
     const uint8_t b[2] = { 0u, 0u };
@@ -207,6 +208,9 @@ static void test_a_span_outside_the_flash_is_refused(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(TFW_MCXN_FLASH_BASE - 1u, b, 1u));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(0x00000000u, b, 1u));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(FLASH_END, b, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(FLASH_END + 1u, b, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(FLASH_END + 1u, b, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(0xFFFFFFFFu, b, 1u));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(FLASH_END - 1u, b, 2u));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, update(TFW_MCXN_FLASH_BASE + 0x1000u, b, 0xFFFFFFFFu));
     TEST_ASSERT_EQUAL_UINT32(0u, inits);

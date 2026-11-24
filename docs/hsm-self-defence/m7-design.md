@@ -41,7 +41,7 @@ run on the board:
 | The SCMI client: Base PROTOCOL_VERSION, PROTOCOL_ATTRIBUTES; Clock CLOCK_CONFIG_SET, CLOCK_RATE_GET; Power domain POWER_STATE_SET; Reset domain RESET; imx-sm's Logical Machine Management LMM_SHUTDOWN | `src/hal/cortex-m/imx95/scmi.c`, `scmi.h` | A2 (power domains off) and, if a PHY sits behind a reset or power domain, A1. Not called until imx95 question 21 names the channel and ids |
 | The SCMI shared-memory transport over an MU | `src/hal/cortex-m/imx95/scmi_mu.c`, `scmi_mu.h` | The path to the System Manager for A1, A2, A5 |
 | The enclave's message layer: GET_INFO, session, key store, key management, KEY_GENERATE, signature generation, PUB_KEY_RECOVERY, signature verification | `src/hal/cortex-m/imx95/ele_mu.c`, `ele_mu.h` | The session and key-store handles A3 and A4 need; GET_INFO's lifecycle field for S3. Not called until imx95 questions 3 and 4 are answered |
-| LPUART3, RGPIO, WDOG5 behind `hal.h`; the tick | `src/hal/cortex-m/imx95/hal_*.c`, `src/hal/cortex-m/hal_tick.c` | The channel's UART until the MU channel exists; the time base S6 and *W* count from |
+| LPUART7, RGPIO, WDOG5 behind `hal.h`; the tick | `src/hal/cortex-m/imx95/hal_*.c`, `src/hal/cortex-m/hal_tick.c` | The channel's UART until the MU channel exists; the time base S6 and *W* count from |
 | The remoteproc resource table | `src/hal/cortex-m/imx95/rsc_table.c` | Nothing; it lets Linux load and start the M7 (question O1) |
 
 **What the row lacks**, by part:
@@ -94,8 +94,8 @@ As architecture.md §2, with what #49 changes:
   GET_INFO's lifecycle field is on main, the attestation call is not. M7-observed
   once the M7 has the MU (imx95 Q3).
 - **S4, IMA; S5, hotplug through Linux; the verdict; the selection.**
-  A55-reported, as `0x76`–`0x7A`; on the M7 their transport is LPUART3 until
-  an MU channel exists (architecture Q9). A compromised A55 can forge or drop them.
+  A55-reported, as `0x76`–`0x7A`; on the M7 their transport is LPUART7,
+  the M7 console (#474), until an MU channel exists (architecture Q9). A compromised A55 can forge or drop them.
 - **S6, heartbeat loss.** The M7's own tick. A compromised A55 can force it
   (lockdown) but not prevent the M7 counting it.
 

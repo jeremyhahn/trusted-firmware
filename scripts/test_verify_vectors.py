@@ -28,7 +28,7 @@ G = os.path.join("sdk", "go", "internal", "vectors", "vectors.go")
 # What the real pair carries today. A new vector moves a count here; a sed
 # pattern that stops matching moves it to 0 and turns test_real_pair red.
 AGREE = [
-    "wire vectors agree: 7 CRC values and 36 wire frames, both languages",
+    "wire vectors agree: 7 CRC values and 37 wire frames, both languages",
     "SYS_INFO reply vectors agree: 6 values, both languages",
     "CAPS reply vectors agree: 2 values, both languages",
     "APP_INFO reply vectors agree: 3 values, both languages",

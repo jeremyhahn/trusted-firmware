@@ -30,6 +30,7 @@ void setUp(void)
     tfw_mock_reset();
     tfw_sys_reset_state();
     tfw_mock_app_reset();
+    tfw_app_runner_reset_state();
 }
 
 void tearDown(void) {}

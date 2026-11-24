@@ -19,6 +19,7 @@ const (
 	CmdReset        Cmd = 0x02
 	CmdSysInfo      Cmd = 0x03
 	CmdAppInfo      Cmd = 0x06
+	CmdAppCmd       Cmd = 0x07
 	CmdPinMode      Cmd = 0x10
 	CmdDigitalRead  Cmd = 0x11
 	CmdDigitalWrite Cmd = 0x12

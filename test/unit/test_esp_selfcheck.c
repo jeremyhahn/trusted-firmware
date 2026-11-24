@@ -223,6 +223,9 @@ static int g_gpio_read_as;
 static tfw_status_t g_adc_st;
 static uint16_t g_adc_raw;
 static tfw_status_t g_pwm_st;
+/* The one PWM write, counted from 1, that returns TFW_ERR_INTERNAL (0: none). */
+static unsigned g_pwm_fail_at;
+static unsigned g_pwm_writes;
 static tfw_status_t g_tone_start_st;
 static tfw_status_t g_tone_stop_st;
 static tfw_status_t g_pulse_st;
@@ -358,6 +361,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     trace("pwm:%u ", duty);
     (void)p;
     g_duty = duty;
+    if (++g_pwm_writes == g_pwm_fail_at) return TFW_ERR_INTERNAL;
     return g_pwm_st;
 }
 
@@ -475,6 +479,7 @@ void setUp(void)
     g_adc_st = TFW_OK;
     g_adc_raw = 2048u;
     g_pwm_st = TFW_OK;
+    g_pwm_fail_at = g_pwm_writes = 0u;
     g_ledc_as = -1;
     g_tone_start_st = g_tone_stop_st = TFW_OK;
     g_pulse_st = TFW_ERR_TIMEOUT;
@@ -725,6 +730,45 @@ static void test_a_tone_that_fails_to_start_or_stop_fails(void)
     g_tone_stop_st = TFW_ERR_INTERNAL;
     tfw_esp_selfcheck();
     TEST_ASSERT_TRUE(verdict_is("hal_tone", "FAIL"));
+}
+
+/* A tone that never started is neither waited on nor stopped: the pulse
+ * check's pull-up follows the start at once. */
+static void test_a_refused_tone_start_waits_for_nothing_and_stops_nothing(void)
+{
+    g_tone_start_st = TFW_ERR_BUSY;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "tone:1000 mode:2 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "tone_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* A refused 128 write: no settle, no duty read, no 0 write, no stop. */
+static void test_a_refused_first_pwm_write_reads_no_duty_and_stops_nothing(void)
+{
+    g_pwm_fail_at = 1u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "pwm:128 tone:1000 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "duty?"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm:0"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+}
+
+/* A refused 0 write: the 128 duty was read, but no second read and no stop. */
+static void test_a_refused_second_pwm_write_reads_no_second_duty_and_stops_nothing(void)
+{
+    g_pwm_fail_at = 2u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "pwm:128 delay:20000 duty? pwm:0 tone:1000 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
 }
 
 /* Nothing drives the pulled-up pin, so only a timeout passes: a measured
@@ -989,6 +1033,22 @@ static void test_a_failed_restore_is_reported_on_its_own_line(void)
     TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "FAIL"));
 }
 
+static void test_a_failed_reread_after_the_restore_fails_the_restore_line(void)
+{
+    char want[64];
+
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_UINT(5u, g_reads);    /* a good run's last read is the re-read */
+
+    setUp();
+    g_fail_read_at = 5u;                    /* read 5: the restore's re-read */
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "FAIL"));
+    snprintf(want, sizeof want, "FAIL status %d, sector restored 0", (int)TFW_ERR_INTERNAL);
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom_restore"), want));
+}
+
 static void test_a_restore_wrong_outside_the_tested_bytes_fails(void)
 {
     /* The restore reports OK but the sector's first byte did not take: the
@@ -1079,6 +1139,7 @@ int main(void)
     RUN_TEST(test_a_failed_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_readback_still_restores_the_whole_sector);
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
+    RUN_TEST(test_a_failed_reread_after_the_restore_fails_the_restore_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
     RUN_TEST(test_a_pattern_that_reads_back_wrong_fails);
     RUN_TEST(test_the_pattern_written_flips_each_saved_byte_by_its_own_mask);
@@ -1101,6 +1162,9 @@ int main(void)
     RUN_TEST(test_an_adc_value_out_of_range_fails);
     RUN_TEST(test_a_wrong_pwm_duty_fails);
     RUN_TEST(test_a_tone_that_fails_to_start_or_stop_fails);
+    RUN_TEST(test_a_refused_tone_start_waits_for_nothing_and_stops_nothing);
+    RUN_TEST(test_a_refused_first_pwm_write_reads_no_duty_and_stops_nothing);
+    RUN_TEST(test_a_refused_second_pwm_write_reads_no_second_duty_and_stops_nothing);
     RUN_TEST(test_an_unexpected_pulse_result_fails);
     RUN_TEST(test_a_refused_pwm_stop_fails_though_both_duties_read_right);
     RUN_TEST(test_a_refused_gpio_restore_to_input_fails_though_both_reads_are_right);

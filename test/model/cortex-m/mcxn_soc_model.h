@@ -62,5 +62,9 @@ static volatile uint32_t *model_soc_reg(uintptr_t addr)
 static void model_soc_early(void)          { tfw_cm_soc_early(); }
 static void model_soc_watchdog_arm(void)   { tfw_cm_soc_watchdog_arm(); }
 static void model_soc_watchdog_pet(void)   { tfw_cm_soc_watchdog_pet(); }
+static tfw_reset_cause_t model_soc_reset_cause(uint32_t mark)
+{
+    return tfw_cm_soc_reset_cause(mark);
+}
 
 #endif /* TFW_MCXN_SOC_MODEL_H */

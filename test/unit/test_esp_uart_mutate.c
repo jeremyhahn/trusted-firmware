@@ -19,8 +19,11 @@
  *   - a byte stream in and out unchanged, through partial sends, a full
  *     TX_BUF of exactly 512 bytes, and the pending reply sent before a new
  *     connection is weighed;
+ *   - the boot hold with no host: exactly TX_BUF bytes kept for the first
+ *     host, the next byte discards them whole and ends the hold;
  *   - each socket error: EAGAIN keeps the host, anything else drops it with
- *     its errno, and a dropped host's unread and unsent bytes go with it.
+ *     its errno, and a dropped host's unread and unsent bytes go with it,
+ *     the byte offered to a full buffer whose send then fails too.
  *
  * Deterministic: a literal clock, literal counts.
  */
@@ -780,6 +783,40 @@ static void test_eagain_on_send_keeps_the_host_and_the_bytes(void)
     TEST_ASSERT_EQUAL_MEMORY("hold", k.fd[3].out, 4u);
 }
 
+static void test_a_reinit_with_a_host_keeps_its_reply_and_holds_nothing(void)
+{
+    /* Only an init with no host is boot: one while a host is connected
+     * keeps that host's unsent reply and starts no hold for the next. */
+    take(3);
+    k.fd[3].send_block = 1;
+    send_str("hold");
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].closes);
+    k.fd[3].send_block = 0;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_MEMORY("hold", k.fd[3].out, 4u);
+    k.fd[3].hung = 1;
+    idle_pass();
+    send_str("x");
+    arrive(5);
+    idle_pass();
+    (void)tfw_hal_uart_tx_idle();
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[5].out_len);
+}
+
+static void test_a_reinit_with_no_host_drops_the_held_bytes_and_holds_afresh(void)
+{
+    /* hal_uart.c tfw_hal_uart_init: an init with no host is boot, so what the
+     * last boot held is dropped and the first host gets this boot's bytes only. */
+    send_str("old");
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    send_str("new");
+    take(3);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(3u, k.fd[3].out_len);
+    TEST_ASSERT_EQUAL_MEMORY("new", k.fd[3].out, 3u);
+}
+
 /* ---- the operator session goes with its host (#607) ------------------ */
 
 static void test_a_quiet_host_replaced_ends_its_operator_session(void)
@@ -847,6 +884,72 @@ static void test_a_host_refused_in_the_window_ends_no_session(void)
     TEST_ASSERT_EQUAL_UINT(0u, session_ends);
 }
 
+/* The byte offered when the full buffer's send fails is the dropped host's:
+ * kept, it would reach the next host ahead of that host's first frame. */
+static void test_a_byte_after_a_failed_full_send_never_reaches_the_next_host(void)
+{
+    unsigned i;
+
+    take(3);
+    k.fd[3].send_block = 1;
+    for (i = 0u; i < TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x11u));
+    }
+    k.fd[3].send_err = ECONNRESET;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xCCu));
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    arrive(4);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].sends);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[4].out_len);
+}
+
+static void test_the_hold_keeps_exactly_tx_buf_for_the_first_host(void)
+{
+    unsigned i;
+
+    /* hal_uart.c lines 63-66: with no host, up to TX_BUF bytes wait in tx_buf. */
+    for (i = 0u; i < TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)i));
+    }
+    take(3);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(TX_BUF, k.fd[3].out_len);
+    for (i = 0u; i < TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8((uint8_t)i, k.fd[3].out[i]);
+    }
+}
+
+static void test_the_byte_past_a_full_hold_discards_it_whole(void)
+{
+    unsigned i;
+
+    /* hal_uart.c lines 63-66: the byte past TX_BUF discards the hold, never sent cut. */
+    for (i = 0u; i <= TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)i));
+    }
+    take(3);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].out_len);
+}
+
+static void test_a_byte_after_a_discarded_hold_is_not_held(void)
+{
+    unsigned i;
+
+    /* hal_uart.c lines 63-66: once discarded, the hold is over for this boot. */
+    for (i = 0u; i <= TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)i));
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x55u));
+    take(3);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].out_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -876,11 +979,17 @@ int main(void)
     RUN_TEST(test_a_broken_recv_drops_the_host_with_its_errno);
     RUN_TEST(test_a_broken_send_drops_the_host_and_its_bytes);
     RUN_TEST(test_eagain_on_send_keeps_the_host_and_the_bytes);
+    RUN_TEST(test_a_reinit_with_a_host_keeps_its_reply_and_holds_nothing);
+    RUN_TEST(test_a_reinit_with_no_host_drops_the_held_bytes_and_holds_afresh);
     RUN_TEST(test_a_quiet_host_replaced_ends_its_operator_session);
     RUN_TEST(test_a_host_that_hangs_up_ends_its_operator_session);
     RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_end_the_session_once);
     RUN_TEST(test_a_broken_recv_ends_the_operator_session);
     RUN_TEST(test_a_broken_send_ends_the_operator_session);
     RUN_TEST(test_a_host_refused_in_the_window_ends_no_session);
+    RUN_TEST(test_a_byte_after_a_failed_full_send_never_reaches_the_next_host);
+    RUN_TEST(test_the_hold_keeps_exactly_tx_buf_for_the_first_host);
+    RUN_TEST(test_the_byte_past_a_full_hold_discards_it_whole);
+    RUN_TEST(test_a_byte_after_a_discarded_hold_is_not_held);
     return UNITY_END();
 }

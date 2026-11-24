@@ -73,6 +73,7 @@ static int       gated, released, div_reset, div_ok;
 static int       conv_reset, conv_out, fifo0_reset, fifo1_reset, powered;
 static int       enabled, ofs_done, gain_req, gain_done;
 static int       ofs_ok, gain_ok;      /* the calibrations finish */
+static uint32_t  gain_cal[2];          /* each side's GCC GAIN_CAL */
 static int       held;                 /* a conversion outlives the poll */
 static int       late;                 /* ... and is still in flight */
 static uint32_t  late_val;
@@ -187,7 +188,7 @@ volatile uint32_t *tfw_mcxn_model_reg(uintptr_t addr)
         set(addr, ofs_done && (!gain_req || gain_done) ? STAT_CAL_RDY : 0u);
     }
     if (addr == ADC_GCC0 || addr == ADC_GCC1) {
-        set(addr, gain_done ? (GCC_RDY | GAIN_CAL) : 0u);
+        set(addr, gain_done ? (GCC_RDY | gain_cal[addr == ADC_GCC1]) : 0u);
     }
     if (addr == ADC_RESFIFO0) {
         if (nfifo > 0u) {
@@ -257,6 +258,7 @@ void setUp(void)
     conv_reset = conv_out = fifo0_reset = fifo1_reset = powered = 0;
     enabled = ofs_done = gain_req = gain_done = 0;
     ofs_ok = gain_ok = 1;
+    gain_cal[0] = gain_cal[1] = GAIN_CAL;
     held = late = 0;
     nfifo = 0u;
     for (unsigned i = 0u; i < 64u; i++) {
@@ -325,6 +327,16 @@ static void test_a_gain_calibration_that_never_finishes_times_out(void)
     TEST_ASSERT_TRUE(written(ADC_CTRL, CTRL_CAL_REQ));
     TEST_ASSERT_FALSE(written(ADC_GCR0, GCR_RDY));          /* no gain result */
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(14u, &raw));
+}
+
+static void test_each_side_takes_its_own_gain(void)
+{
+    /* hal_adc.c lines 82-84: GCR(side) = (GCC(side) << 16) / (0x1FFFF - GCC(side)). */
+    gain_cal[0] = 0x4000u;                 /* 0x40000000 / 0x1BFFF = 0x2492 */
+    gain_cal[1] = 0xC000u;                 /* 0xC0000000 / 0x13FFF = 0x999A */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    TEST_ASSERT_EQUAL_HEX32(GCR_RDY | 0x2492u, peek(ADC_GCR0));
+    TEST_ASSERT_EQUAL_HEX32(GCR_RDY | 0x999Au, peek(ADC_GCR1));
 }
 
 static void test_one_read_per_header_channel(void)
@@ -439,6 +451,7 @@ int main(void)
     RUN_TEST(test_init_ungates_clocks_resets_calibrates_in_order);
     RUN_TEST(test_an_offset_calibration_that_never_finishes_times_out);
     RUN_TEST(test_a_gain_calibration_that_never_finishes_times_out);
+    RUN_TEST(test_each_side_takes_its_own_gain);
     RUN_TEST(test_one_read_per_header_channel);
     RUN_TEST(test_a_read_releases_the_pad_before_the_trigger);
     RUN_TEST(test_an_empty_fifo_times_out);

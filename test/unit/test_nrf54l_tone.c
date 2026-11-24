@@ -247,6 +247,34 @@ static void test_tone_refuses_other_ports(void)
     TEST_ASSERT_EQUAL_UINT(0u, log_n);
 }
 
+/* A refused start leaves the tone already playing alone: the pin check comes
+ * before the retargeting stop, so a bad pin writes nothing and the next stop
+ * still has a tone to stop. */
+static void test_a_refused_start_leaves_the_playing_tone_alone(void)
+{
+    static const tfw_pinref_t bad[] = {
+        { .port = 0u, .bit = 4u },
+        { .port = 2u, .bit = 9u },
+        { .port = 1u, .bit = 17u },
+    };
+    unsigned from;
+    unsigned i;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_start(&LED1, 1000u));
+    model_flush();
+    from = log_n;
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&bad[i], 440u));
+    }
+    model_flush();
+    TEST_ASSERT_EQUAL_UINT(from, log_n);   /* the 1 kHz tone is as it was */
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_tone_stop());
+    model_flush();
+    TEST_ASSERT_TRUE(find_w(A_DPPIC(0x508u), from) >= 0);            /* CHENCLR */
+    TEST_ASSERT_EQUAL_HEX32(0u, last_w(A_GPIOTE(0x510u)));            /* Disabled */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -258,5 +286,6 @@ int main(void)
     RUN_TEST(test_tone_stop);
     RUN_TEST(test_tone_zero_hz_stops);
     RUN_TEST(test_tone_refuses_other_ports);
+    RUN_TEST(test_a_refused_start_leaves_the_playing_tone_alone);
     return UNITY_END();
 }

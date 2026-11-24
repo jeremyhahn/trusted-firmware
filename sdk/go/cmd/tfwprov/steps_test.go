@@ -392,6 +392,14 @@ func TestATCRC16MatchesTheElementsCommandPacket(t *testing.T) {
 	}
 }
 
+func TestSlot15ImageIsTheElementsPublicKeyFormat(t *testing.T) {
+	key := append(bytes.Repeat([]byte{0xAA}, 32), bytes.Repeat([]byte{0xBB}, 32)...)
+	want := append(append(append(make([]byte, 4), key[:32]...), make([]byte, 4)...), key[32:]...)
+	if got := slot15Image(key); !bytes.Equal(got, want) {
+		t.Fatalf("image = %x", got)
+	}
+}
+
 func TestTrustFLEXCommitRunsEveryStepInOrder(t *testing.T) {
 	withUDSLockCRC(t, 0x1234, nil)
 	e := trustflexElement()

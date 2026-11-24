@@ -254,12 +254,17 @@ func atCRC16(data []byte) uint16 {
 	return crc
 }
 
-// slot15Image is slot 15's 72 bytes after PROV_WRITE_PUBKEY: X in its first
-// 32-byte block, Y in its second, and the last 8 bytes zero. An element whose
-// slot holds anything else answers the SlotLock with an error and locks
-// nothing, so a wrong image fails safe.
+// slot15Image is slot 15's 72 bytes after PROV_WRITE_PUBKEY, which stores the
+// key in the element's public-key format, pad4‖X‖pad4‖Y with zero pads
+// (docs/device-provisioning/api.md). An element whose slot holds anything else
+// answers the SlotLock with an error and locks nothing, so a wrong image fails
+// safe.
 func slot15Image(key []byte) []byte {
-	return append(append([]byte(nil), key...), make([]byte, 8)...)
+	img := make([]byte, 0, 72)
+	img = append(img, 0, 0, 0, 0)
+	img = append(img, key[:32]...)
+	img = append(img, 0, 0, 0, 0)
+	return append(img, key[32:64]...)
 }
 
 // readConfigZone reads the whole 128-byte config zone, block by block.

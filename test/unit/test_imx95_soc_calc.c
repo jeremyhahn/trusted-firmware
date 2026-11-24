@@ -88,6 +88,17 @@ static void test_a_baud_below_the_divisor_is_out_of_range(void)
     TEST_ASSERT_EQUAL_HEX32(0x1F0009C4u, reg);
 }
 
+static void test_a_quotient_just_under_8192_takes_sbr_8191(void)
+{
+    uint32_t reg = 0u;
+
+    /* 26213600 Hz, 100 baud: x32 is 8191.75 clocks a divisor, which rounds
+     * to 8192, past the field. The nearest legal SBR is 8191, 100.009 baud,
+     * which truncates to 100: within 3 %, so not a refusal. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpuart_baud(26213600u, 100u, &reg));
+    TEST_ASSERT_EQUAL_HEX32(0x1F001FFFu, reg);     /* OSR 31 (x32), SBR 8191 */
+}
+
 static void test_the_gpio_banks(void)
 {
     TEST_ASSERT_EQUAL_HEX32(0x47400000u, tfw_imx95_gpio_base(0u));
@@ -113,6 +124,7 @@ int main(void)
     RUN_TEST(test_a_divisor_more_than_3_percent_off_is_refused);
     RUN_TEST(test_an_error_of_exactly_3_percent_is_accepted_and_one_baud_more_is_not);
     RUN_TEST(test_a_baud_below_the_divisor_is_out_of_range);
+    RUN_TEST(test_a_quotient_just_under_8192_takes_sbr_8191);
     RUN_TEST(test_the_gpio_banks);
     RUN_TEST(test_a_bank_past_gpio5_has_no_base);
     return UNITY_END();

@@ -12,7 +12,8 @@
  *
  * hal_bus.c clocks the protocol over these three; sbcon.c is the only file that
  * touches the registers, so the host suite (test/unit/test_mps2_bus.c) links
- * hal_bus.c against a simulated bus in its place.
+ * hal_bus.c and sbcon.c over a register model (test/model/mps2_bus_model.h)
+ * with a simulated bus behind it.
  */
 #ifndef TFW_CM_MPS2_SBCON_H
 #define TFW_CM_MPS2_SBCON_H

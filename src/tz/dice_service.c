@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b): docs/plans/590b.md.
+ * The secure-world DICE service (#590 slice b).
  *
  * Built over the existing code without changing it: the DeviceID key is
  * src/crypto/deviceid_p256.c over HMAC-SHA256(UDS, TFW_DEVICEID_LABEL), the

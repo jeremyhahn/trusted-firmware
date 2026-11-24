@@ -7,9 +7,11 @@
  * operator key in the platform block is the operator's only when its
  * operator_bind tag is HMAC(UDS, "tfw-opsess-v1" || key)
  * (docs/multi-arch/esp32-p4-design.md 2.5). The fake is the one place the
- * UDS is held; the provider never sees it.
+ * UDS is held; the provider never sees it. Each of the tag's 32 bytes is
+ * checked on its own: a tag wrong in any one byte is refused (#48).
  */
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include "unity.h"
 #include "uECC.h"
@@ -289,6 +291,30 @@ static void test_another_parts_tag_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
+/* #48: every byte of the tag is compared, not a prefix of it. One bit wrong in
+ * any one of the 32 bytes and the bound operator's own signature is refused;
+ * the true tag baked again opens the gate, so the refusals met a live gate. */
+static void test_a_tag_wrong_in_any_one_byte_is_refused(void)
+{
+    uint8_t tag[32];
+    uint8_t i;
+    char    msg[24];
+
+    for (i = 0u; i < (uint8_t)sizeof tag; i++) {
+        bind_tag(operator_pub, tag);
+        tag[i] ^= 0x01u;
+        bake(operator_pub, tag);
+        tfw_auth_session_init();
+        snprintf(msg, sizeof msg, "tag byte %u", (unsigned)i);
+        TEST_ASSERT_NOT_EQUAL_MESSAGE(TFW_OK, authenticate_with(operator_priv), msg);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate(), msg);
+    }
+    bake_bound(operator_pub);
+    tfw_auth_session_init();
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
+}
+
 static void test_no_uds_means_no_session(void)
 {
     uds_burned = 0;
@@ -331,6 +357,7 @@ int main(void)
     RUN_TEST(test_an_unbound_key_is_refused_even_with_its_own_signature);
     RUN_TEST(test_a_tag_moved_to_another_key_is_refused);
     RUN_TEST(test_another_parts_tag_is_refused);
+    RUN_TEST(test_a_tag_wrong_in_any_one_byte_is_refused);
     RUN_TEST(test_no_uds_means_no_session);
     RUN_TEST(test_a_busy_entropy_source_refuses_the_challenge);
     RUN_TEST(test_the_challenge_is_drawn_with_the_entropy_source_on);

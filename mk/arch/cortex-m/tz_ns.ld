@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The TZ=1 non-secure image (#590, docs/plans/590.md), preprocessed with the
+ * The TZ=1 non-secure image (#590), preprocessed with the
  * board's tz_map_<board>.h as tz_s.ld is. It links against the secure link's
  * import library, whose symbols are the SG veneers' addresses in the NSC
  * region: the only secure addresses this image names.

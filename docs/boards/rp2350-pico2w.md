@@ -60,7 +60,7 @@ functions, Go `Test` functions or Python methods in the files named.
 3. **The first bench run** (needs hardware and the bench): factory record,
    the flash part's JEDEC id, the console on GPIO0/1, then tfw-boot and the
    application flashed and the wire protocol answered, then the peripheral
-   check of `docs/plans/429.md` slice 3; it updates this page's "What is not
+   check of #429 slice 3; it updates this page's "What is not
    verified", proven by `make board-record BOARD=rp2350-pico2w` and the
    recorded session.
 4. **The enrolment transport** (owner decision, ADR open question 5, then
@@ -148,7 +148,7 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
 | I2C | I2C0 on GPIO4 (SDA) and GPIO5 (SCL), pico-sdk 2.1.1's `PICO_DEFAULT_I2C`, with the pad pull-ups on; in the default image (`I2C ?= 1`), off in the `soft:I2C=0` row | `profile.mk`, `board_profile.h` |
 | PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz; in the default image, off in the `soft:PERIPH=0` row | `board.c`, `board_profile.h` |
-| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350 (ruling 697), so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, docs/plans/429.md slice 3) | `profile.mk`, `board_profile.h` |
+| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350 (ruling 697), so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, #429 slice 3) | `profile.mk`, `board_profile.h` |
 | Not driven | SPI, 1-Wire, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
@@ -195,7 +195,7 @@ tfw-boot rp2350-pico2w flash   7536 / 32768    ram  4420 / 524288 (soft tier, p2
 | Boot UART | UART0 on GPIO0/1, polled, the application's divisors; held in reset while off, so nothing of it outlives the handoff | `boot/hal/cortex-m/rp2350/boot_uart.c` |
 | Flash writes | the 4 KiB sector read-modify-write that every write (platform block and image page) goes through; a sector that already holds the bytes is not erased; the sector buffer is zeroed after each write | `boot/hal/cortex-m/rp2350/rp_flash.c`, `boot_flash.c` |
 | Boot ROM | `rom_table_lookup` through the halfword at `0x16`, flag `RT_FLAG_FUNC_ARM_SEC` (`0x0004`); codes `IF` `EX` `RE` `RP` `FC` `CX`; sector erase `0x20` over 4096 bytes. The sequence runs from SRAM (`.ramfunc`, copied with `.data`) with IRQs masked, and XIP comes back on the 03h read until the next reset. A sector offset that is not 4096-aligned or lies past the 4 MiB, and a ROM without any one of the six, are refused before XIP is left. The lookup itself is `rp_rom_lookup.c`, the one piece the host cannot run | `boot/hal/cortex-m/rp2350/rp_flash_rom.c`, `rp_rom_lookup.c`, `rp_flash.h`, `mk/arch/cortex-m/rp2350.ld` |
-| Host test | `rp_flash.c` over a RAM flash; the ROM codes pinned as literals | `test/unit/boot/test_boot_rp2350_flash.c` |
+| Host test | `rp_flash.c` over a RAM flash; the ROM codes pinned as literals | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_flash.c` |
 | Host test | the flash map by literal under the board's profile: 4 MiB, tfw-boot, the application, the platform block in the last sector | `test/unit/boot/test_boot_rp2350_map.c` |
 | Host test | the boot UART over a register model (`boot/hal/cortex-m/rp2350/test/cm_regs.h`): 115200 8N1 from 12 MHz (IBRD 6, FBRD 33, §12.1.7.1), UART0 out of reset through the SET/CLR aliases, GPIO0/1 function 2 and their pads, TX/RX through UARTDR, an unreachable baud left in reset, the pins returned at handoff; every address a literal from §12.1.8, §7.5.3, §9.11 | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` |
 | Host test | `rp_flash_rom.c` whole over a model of the ROM's function table and a 4 MiB flash: the six functions looked up by the codes as literals (`0x4649` `0x5845` `0x4552` `0x5052` `0x4346` `0x5843`); one sector erased (4096 bytes, block 4096, `0x20`) and programmed in 256-byte pages in the order `IF EX RE RP FC CX`, every ROM call with interrupts masked and erase and program only with XIP off; the last sector written; a misaligned offset, one past the flash and a ROM missing each function in turn refused with nothing called; XIP on and the interrupt mask restored after every path | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` |

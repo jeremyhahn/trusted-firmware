@@ -13,7 +13,8 @@
  *     configured INPUT_OUTPUT so that a read returns the pin;
  *   - any one of those calls failing the mode, the rest still made;
  *   - a mode it does not know refused as out of range;
- *   - a write as 0 or 1, a failed one a bad pin; a read as 0 or 1.
+ *   - a write as 0 or 1, a failed one a bad pin; a read as 0 or 1,
+ *     a pin the part lacks a bad pin read untouched.
  */
 
 #include <stdint.h>
@@ -234,6 +235,22 @@ static void test_a_read_is_0_or_1(void)
     }
 }
 
+static void test_a_read_of_a_pin_the_part_lacks_is_a_bad_pin_untouched(void)
+{
+    static const uint8_t bad[] = { 1u, 4u, 6u, 32u, 34u, 53u, 55u, 63u, 64u, 255u };
+    unsigned i;
+
+    for (i = 0u; i < sizeof bad; i++) {
+        tfw_pinref_t p   = { bad[i] };
+        uint8_t      out = 0xA5u;
+
+        ncalls = 0u;
+        TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_read(&p, &out));
+        TEST_ASSERT_EQUAL_UINT8(0xA5u, out);
+        TEST_ASSERT_EQUAL_UINT(0u, ncalls);   /* no GET call */
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -245,5 +262,6 @@ int main(void)
     RUN_TEST(test_a_write_is_0_or_1);
     RUN_TEST(test_a_failed_write_is_a_bad_pin);
     RUN_TEST(test_a_read_is_0_or_1);
+    RUN_TEST(test_a_read_of_a_pin_the_part_lacks_is_a_bad_pin_untouched);
     return UNITY_END();
 }

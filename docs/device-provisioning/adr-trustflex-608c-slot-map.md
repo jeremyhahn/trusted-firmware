@@ -1,7 +1,10 @@
 # ADR: the element tier on the shipped ATECC608C-TFLXTLS
 
-> **Status: PROPOSED** · Scope: trusted-firmware, #7 · Last verified: 2026-10-15
-> An owner decision. Nothing here changes code, vectors, SPEC or row status.
+> **Status: ACCEPTED (a1)** by owner ruling 1243 (#53, 2026-11-24), gated on the
+> bench reads below · Scope: trusted-firmware, #7, #53 · Last verified: 2026-11-24
+> What the row's lanes applied is under [Applied](#applied). It does not change
+> SPEC or row status: the bench reads and `make hw-enroll` on a MIKROE-6774
+> board stay open.
 
 ## Context
 
@@ -317,19 +320,62 @@ Fallbacks:
 
 (d1) is a separate yes/no for the owner on top of (a).
 
-## Open questions for the owner
+## Decision
 
-1. Is a Microchip-generated, permanent DeviceID acceptable? Or should the
-   DeviceID come from our ceremony, through (d1) or (c)?
-2. Slot 6 or slot 5 for the UDS? Should the UDS gate stay at all on this tier
-   (d2)?
-3. Should we order blank 608C parts now as a fallback? That needs an ordering
-   code and a carrier board.
+Owner ruling 1243 (issue #53, 2026-11-24) approves T3 and T4 "as written in
+docs/device-onboarding/", which is the Recommendation above: (a1), gated on the
+bench reads. (d1) is not taken.
+
+## Applied
+
+On the row branch of #53, before any bench read:
+
+- **Slots as board-profile data.** `TFW_ATECC_SLOT_UDS` and
+  `TFW_ATECC_SLOT_IMAGE` are `#ifndef` defaults (1 and 2) in
+  `include/tfw/config.h`; `boards/atmega328p/board_profile.h` and
+  `boards/atmega2560/board_profile.h` state 6 and 15, and tfw-boot's verifier
+  reads `TFW_ATECC_SLOT_IMAGE` (`boot/verify/verify_atecc608a.c`). Pinned by
+  `test/unit/test_board_328p.c` and `test/unit/test_board_2560.c`.
+- **Two commands under `TFW_FEATURE_PROVISION`.** `PROV_SLOT_LOCK` (`0x7D`,
+  `[slot][crc LE]`) takes only the UDS and image slots, refuses a slot already
+  locked with `TFW_ERR_PROTECTED_REGION`, and for the UDS slot runs one HMAC
+  keyed by it (output scrubbed) before the `Lock`. `PROV_CONFIG_READ` (`0x7E`,
+  `[block]`) returns one 32-byte config block. Both are in
+  `src/caps/provision_atecc.c`; the soft-UDS backend answers
+  `TFW_ERR_UNSUPPORTED` (`src/caps/provision_uds.c`). Pinned by
+  `test/unit/test_provision.c` and the frame vectors in `testdata/vectors.h`,
+  mirrored in `sdk/go/internal/vectors/vectors.go` and checked by
+  `test/unit/test_frame.c`. `PROV_WRITE_PUBKEY` accepts slot 15.
+- **SDK.** `Device.ProvSlotLock`, `Device.ProvConfigRead`, `CmdProvSlotLock`,
+  `CmdProvConfigRead` and `SlotTrustFLEXUDS = 6` in `sdk/go/provision.go`;
+  `SlotDeviceID` and `SlotUDS` keep their values.
+- **Host flow.** A template whose `plan` key names the TrustFLEX plan,
+  `sdk/go/templates/atecc608a-trustflex.conf`, makes `tfwprov` run the seven
+  steps above under `--dry-run`, `--commit` and `--verify`; `--image-key`
+  supplies the slot-15 public key (`sdk/go/cmd/tfwprov/steps.go`,
+  `sdk/go/cmd/tfwprov/template.go`). Pinned by
+  `sdk/go/cmd/tfwprov/steps_test.go` and `sdk/go/cmd/tfwprov/template_test.go`.
+- **The simulator jig.** The tfwsim provisioning jig keeps the default slot map
+  (`mk/host.mk`) until `tfwprov`'s plan is the TrustFLEX one end to end.
+
+Nothing here has run on a part. The bench questions below run first; a "no"
+on any of them sends the row to the fallbacks above.
+
+## The owner's questions
+
+1. Is a Microchip-generated, permanent DeviceID acceptable? **Open.** The
+   ruling does not answer it; (a1) keeps the shipped slot-0 key meanwhile.
+2. Slot 6 or slot 5 for the UDS, and does the gate stay? **Answered:** slot 6,
+   and the gate stays (a1).
+3. Blank 608C parts as a fallback? **Answered** by "as written": (c) stays
+   the fallback if the bench shows slots 6 and 15 permanent or slot 0 latched;
+   nothing is ordered before the bench reads.
 4. Do the Microchip certificates in slots 10–12 play any part in enrolment?
-   That is go-xkms's call (certificate profiles), so it is filed there if
-   wanted.
-5. Do the new command ids and SDK constants of (a) fit the provisioning image on
-   the 328P?
+   **Open.** The ruling does not answer it, and it is go-xkms's call.
+5. Do the new command ids and SDK constants fit the provisioning image on the
+   328P? **Answered** with T3: the 328P's flash budget is its 28 672-byte
+   application region (`FLASH_BUDGET` in `boards/atmega328p/profile.mk`), and
+   every image the board builds is held to it.
 
 Datasheet note for `PROV_WRITE_PUBKEY`, which accepts slots 2 and 15 until the
 slot is ratified: DS40002515B tables 3-3 to 3-16 give no slot's byte size

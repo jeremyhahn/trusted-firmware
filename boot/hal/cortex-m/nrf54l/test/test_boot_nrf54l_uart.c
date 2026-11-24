@@ -138,6 +138,20 @@ static void test_off_disables_only_after_rxto(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
 }
 
+/* RXTO comes only on the fourth poll after RX.STOP: the wait polls RXTO by
+ * its register on every pass, so RX.STOP completes inside the wait, and
+ * ENABLE is not touched while RX.STOP is still pending. */
+static void test_off_waits_for_a_late_rxto(void)
+{
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 3u,
+                               &TFW_NRF_UARTE_ENABLE);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_ENABLE);
+}
+
 /* ...and the UARTE and the console pins are back at their reset values. */
 static void test_off_restores_reset_values(void)
 {
@@ -276,25 +290,26 @@ static void test_init_drops_a_stale_rx_end(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
 }
 
-/* A send waits for TXDRDY before it clears it: after TX.START, TXDRDY is used
- * exactly twice, by the wait and then by the cleanup, and it is first seen
- * raised on the wait's use, not the cleanup's. Without the wait, the cleanup
- * write's lookup would raise TXDRDY and end the task, and the asserts on the
- * registers alone would still hold. TX.START, TXDRDY and TX.END end at 0. */
+/* A send waits for TXDRDY before it clears it. The late task keeps TXDRDY
+ * clear for the first three uses after TX.START and raises it on the fourth:
+ * the wait polled TXDRDY while it was clear, it ended on the poll that found
+ * it raised (use 4), and the cleanup write came after (use 5). A wait that
+ * returned at once would leave one use, none of them raised, and TX.START
+ * still set. TX.START, TXDRDY and TX.END end at 0. */
 static void test_tx_waits_for_txdrdy_and_clears_its_events(void)
 {
     unsigned uses;
     unsigned first_raised;
 
     tfw_boot_uart_init(BAUD);
-    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 0u, NULL);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 3u, NULL);
     TFW_NRF_UARTE_TX_END = 1u;
     txdrdy_seam_reset();
     tfw_boot_uart_tx(0x5Au);
     uses         = txdrdy_uses;         /* before the asserts below use TXDRDY */
     first_raised = txdrdy_first_raised;
-    TEST_ASSERT_EQUAL_UINT(2u, uses);
-    TEST_ASSERT_EQUAL_UINT(1u, first_raised);
+    TEST_ASSERT_EQUAL_UINT(5u, uses);
+    TEST_ASSERT_EQUAL_UINT(4u, first_raised);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);
@@ -332,10 +347,15 @@ static void test_init_drops_a_stale_rxto(void)
 
 static void test_tx_whose_txdrdy_never_comes_returns(void)
 {
-    uint8_t b;
+    uint8_t  b;
+    unsigned uses;
 
     tfw_boot_uart_init(BAUD);
+    txdrdy_seam_reset();
     tfw_boot_uart_tx(0x5Au);
+    uses = txdrdy_uses;                 /* before the asserts below use TXDRDY */
+    /* The bounded wait polled TXDRDY on every pass, then the cleanup. */
+    TEST_ASSERT_EQUAL_UINT(UARTE_SPINS + 1u, uses);
     TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_TX_START);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
     TFW_NRF_UARTE_RX_END = 1u;
@@ -490,6 +510,7 @@ int main(void)
     RUN_TEST(test_tx_sends_one_byte);
     RUN_TEST(test_off_stops_the_armed_receive);
     RUN_TEST(test_off_disables_only_after_rxto);
+    RUN_TEST(test_off_waits_for_a_late_rxto);
     RUN_TEST(test_off_restores_reset_values);
     RUN_TEST(test_rx_takes_a_byte_once);
     RUN_TEST(test_unlisted_baud_leaves_the_uarte_off);

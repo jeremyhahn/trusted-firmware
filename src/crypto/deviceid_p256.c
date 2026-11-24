@@ -10,16 +10,17 @@
  * docs/multi-arch/esp32-p4-design.md section 2.1, option (a).
  *
  *   seed    HMAC-SHA256(UDS, "tfw-deviceid-v1"), computed by the root.
- *   scalar  the seed itself if uECC_compute_public_key accepts it; else
- *           SHA-256 of it, again until it does. That is the element model's
- *           reduction, the rule of the design's section 2.1
- *           (test/model/atecc608a.c). It accepts less than [1, n-1]: its
- *           co-Z ladder ends at the point at infinity for the scalars 1 and
- *           n-1, and EccPoint_compute_public_key refuses the zero point. A
- *           range compare comes first, so a seed outside [1, n-1] (a 2^-32
- *           event) costs no point multiplication. A refusal that survives
- *           DERIVE_TRIES hashes -- a blinding RNG that fails, not a scalar --
- *           is returned, and the key is not used.
+ *   scalar  the seed itself if the curve takes it; else SHA-256 of it, again
+ *           until it does. That is the element model's reduction, the rule
+ *           of the design's section 2.1 (test/model/atecc608a.c). micro-ecc
+ *           takes less than [1, n-1]: its co-Z ladder reaches the point at
+ *           infinity or -G on its last step for the scalars 1, n-2 and n-1,
+ *           and EccPoint_compute_public_key refuses them. So a scalar is
+ *           hashed again only when it is outside [1, n-1] or is 1, n-2 or
+ *           n-1, decided by compares on the scalar alone, before any point
+ *           multiplication. The one other refusal is the blinding RNG's: it
+ *           refuses the call with the output zeroed and never hashes again,
+ *           so the next call with a working RNG gives the same key (#608).
  *   point   d.G, X || Y big-endian, 64 bytes: the wire's PUBKEY.
  *   sign    ECDSA P-256 with k from RFC 6979 section 3.2, HMAC-SHA256, so a
  *           signature needs no entropy. Not micro-ecc's
@@ -63,11 +64,8 @@ static const uint8_t P256_N[32] = {
     0xBC,0xE6,0xFA,0xAD,0xA7,0x17,0x9E,0x84,0xF3,0xB9,0xCA,0xC2,0xFC,0x63,0x25,0x51
 };
 
-/* Hashes of the scalar that micro-ecc may refuse before the derivation does,
- * and RFC 6979 rounds before a signature does. From the scalar or k alone each
- * further try is a 2^-32 event at most; a refusal past them is the blinding
- * RNG's. */
-#define DERIVE_TRIES 8u
+/* RFC 6979 rounds before a signature refuses. From k alone each further round
+ * is a 2^-32 event at most; a refusal past them is the blinding RNG's. */
 #define SIGN_ROUNDS  8u
 
 /* v < n, for a big-endian 32-byte v. */
@@ -94,6 +92,31 @@ static int is_zero(const uint8_t v[32])
     return acc == 0u;
 }
 
+/* v == 1. No early exit: every byte is read. */
+static int is_one(const uint8_t v[32])
+{
+    uint8_t acc = (uint8_t)(v[31] ^ 0x01u);
+    uint8_t i;
+
+    for (i = 0u; i < 31u; i++) {
+        acc = (uint8_t)(acc | v[i]);
+    }
+    return acc == 0u;
+}
+
+/* v == n-k for k in {1, 2}: n's low byte is 0x51, so no borrow. No early
+ * exit: every byte is read. */
+static int is_n_minus(const uint8_t v[32], uint8_t k)
+{
+    uint8_t acc = (uint8_t)(v[31] ^ (uint8_t)(P256_N[31] - k));
+    uint8_t i;
+
+    for (i = 0u; i < 31u; i++) {
+        acc = (uint8_t)(acc | (uint8_t)(v[i] ^ P256_N[i]));
+    }
+    return acc == 0u;
+}
+
 /* v -= n. One subtraction is a full reduction: a 256-bit v is below 2n. */
 static void sub_n(uint8_t v[32])
 {
@@ -111,18 +134,18 @@ static void sub_n(uint8_t v[32])
 /* The scalar and its point, or 0 with both zeroed. */
 static int derive(const uint8_t seed[32], uint8_t d[32], uint8_t pub[64])
 {
-    uint8_t tries;
-
+    /* The rehash is decided from the scalar alone: an entropy failure must
+     * never move the key to the next hash (#608). */
     memcpy(d, seed, 32u);
-    for (tries = 0u; tries < DERIVE_TRIES; tries++) {
-        while (is_zero(d) || !below_n(d)) {
-            tfw_sha256(d, 32u, d);
-        }
-        if (uECC_compute_public_key(d, pub, uECC_secp256r1())) {
-            return 1;
-        }
+    while (is_zero(d) || !below_n(d) || is_one(d) || is_n_minus(d, 1u) ||
+           is_n_minus(d, 2u)) {
         tfw_sha256(d, 32u, d);
     }
+    if (uECC_compute_public_key(d, pub, uECC_secp256r1())) {
+        return 1;
+    }
+    /* Only the blinding RNG refuses any other scalar: refuse the call,
+     * and the next one with a working RNG gives this same key. */
     tfw_secure_zero(d, 32u);
     memset(pub, 0x00, 64u);
     return 0;

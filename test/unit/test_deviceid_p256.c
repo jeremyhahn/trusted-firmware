@@ -376,6 +376,12 @@ static void test_a_blinding_rng_that_fails_once_refuses_and_then_gives_the_same_
     check_retry(s, ONE_D, ONE_PUB);
     n_minus_one(s);
     check_retry(s, NM1_D, NM1_PUB);
+    /* n-2 too: the ladder's last step lands on -G for it. */
+    s[31] = (uint8_t)(s[31] - 1u);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(s, d));
+    TEST_ASSERT_FALSE(memcmp(s, d, 32) == 0);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(s, pub));
+    TEST_ASSERT_TRUE(uECC_valid_public_key(pub, uECC_secp256r1()));
 }
 
 static void test_the_signer_refuses_a_scalar_outside_the_range(void)

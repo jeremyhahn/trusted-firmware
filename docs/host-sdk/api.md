@@ -99,7 +99,7 @@ reaches for by task.
 |---|---|
 | liveness / framing check | `Ping(ctx, msg []byte) ([]byte, error)` |
 | discover the board | `Caps(ctx) (*Caps, error)`, `PinInfo(ctx, pin) (*PinInfo, error)` |
-| runtime state | `SysInfo(ctx) (*SysInfo, error)`, `AppInfo(ctx) (*AppInfo, error)` |
+| runtime state | `SysInfo(ctx) (*SysInfo, error)`, `AppInfo(ctx) (*AppInfo, error)`, `AppCommand(ctx, op, args) ([]byte, error)` |
 | GPIO | `SetPinMode`, `DigitalRead`, `DigitalWrite` |
 | device-held timers | `TimerSet`, `TimerCancel`, `TimerQuery` |
 | analog | `AnalogRead`, `SetADCReference` |
@@ -271,7 +271,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Caps` | `type Caps struct` | What a device reports about itself. |
 | `tfw.Caps.Has` | `func (c Caps) Has(feature uint32) bool` | Reports whether a feature was compiled into this build. |
 | `tfw.Cmd` | `type Cmd uint8` | A command id. |
-| `tfw.CmdCaps`, `tfw.CmdPing`, `tfw.CmdReset`, `tfw.CmdSysInfo`, `tfw.CmdAppInfo`, `tfw.CmdPinMode`, `tfw.CmdDigitalRead`, `tfw.CmdDigitalWrite`, `tfw.CmdTimerSet`, `tfw.CmdTimerCancel`, `tfw.CmdTimerQuery`, `tfw.CmdAnalogRead`, `tfw.CmdADCRef`, `tfw.CmdEEPROMRead`, `tfw.CmdEEPROMWrite`, `tfw.CmdPWMWrite`, `tfw.CmdTone`, `tfw.CmdNoTone`, `tfw.CmdPulseIn`, `tfw.CmdPulseCapture`, `tfw.CmdI2CXfer`, `tfw.CmdSPIXfer`, `tfw.CmdOneWireReset`, `tfw.CmdOneWireWrite`, `tfw.CmdOneWireRead`, `tfw.CmdI2CConfig`, `tfw.CmdSPIConfig`, `tfw.CmdAttest` | `const Cmd` 0x00…0x60 | Commands. |
+| `tfw.CmdCaps`, `tfw.CmdPing`, `tfw.CmdReset`, `tfw.CmdSysInfo`, `tfw.CmdAppInfo`, `tfw.CmdAppCmd`, `tfw.CmdPinMode`, `tfw.CmdDigitalRead`, `tfw.CmdDigitalWrite`, `tfw.CmdTimerSet`, `tfw.CmdTimerCancel`, `tfw.CmdTimerQuery`, `tfw.CmdAnalogRead`, `tfw.CmdADCRef`, `tfw.CmdEEPROMRead`, `tfw.CmdEEPROMWrite`, `tfw.CmdPWMWrite`, `tfw.CmdTone`, `tfw.CmdNoTone`, `tfw.CmdPulseIn`, `tfw.CmdPulseCapture`, `tfw.CmdI2CXfer`, `tfw.CmdSPIXfer`, `tfw.CmdOneWireReset`, `tfw.CmdOneWireWrite`, `tfw.CmdOneWireRead`, `tfw.CmdI2CConfig`, `tfw.CmdSPIConfig`, `tfw.CmdAttest` | `const Cmd` 0x00…0x60 | Commands. |
 | `tfw.CmdAttestCert`, `tfw.CmdAttestCSR` | `const Cmd` 0x63, 0x64 | ATTEST_CERT, and ATTEST_CSR: request [b:32], response [sig:64], issue #30. |
 | `tfw.CmdAuthChallenge`, `tfw.CmdAuthResponse` | `const Cmd` 0x61, 0x62 | The operator-signature auth session -- issue #4. |
 | `tfw.CmdOTABegin`, `tfw.CmdOTAData`, `tfw.CmdOTAEnd`, `tfw.CmdOTAStatus`, `tfw.CmdOTAInfo`, `tfw.CmdOTAActivate` | `const Cmd` 0x68…0x6D | The OTA session: [total_len:4]; [offset:4]bytes; END; -> [state:1][received:4]; [slot:1] -> SlotInfo; [mode:1]. |
@@ -288,6 +288,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.Activate` | `func (d *Device) Activate(ctx context.Context, now bool) error` | ADR section 13's name for OTAActivate: now true is OTAActivateResetNow, false OTAActivateAtReset. |
 | `tfw.Device.AnalogRead` | `func (d *Device) AnalogRead(ctx context.Context, pin uint8) (uint16, error)` | Returns the RAW converter count, 0..1023 on a 10-bit ADC. |
 | `tfw.Device.AppInfo` | `func (d *Device) AppInfo(ctx context.Context) (*AppInfo, error)` | Reads the application linked into the image and its runner's state. |
+| `tfw.Device.AppCommand` | `func (d *Device) AppCommand(ctx context.Context, op uint8, args []byte) ([]byte, error)` | APP_CMD (0x07): sends `[op][args]` to the linked application and returns its reply bytes undecoded; an empty reply is a nil-error result. More than 63 bytes of args is an `*ArgRangeError`, with nothing sent. The device answers StatusErrUnknownCmd with no application linked (and over Ethernet, which does not admit APP_CMD), StatusErrBadState when it is not running, StatusErrUnsupported for an op it lacks and StatusErrAuthRequired when it wants a session (docs/application-sdk/adr-application-wire-commands.md). |
 | `tfw.Device.Attest` | `func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error)` | Asks the device for nonce-bound attestation evidence. |
 | `tfw.Device.AttestCSR` | `func (d *Device) AttestCSR(ctx context.Context, b [AliasNonceLen]byte) ([CSRSigLen]byte, error)` | Asks for the possession signature ACME finalize needs, as the 64 raw bytes r\|\|s the device sent. |
 | `tfw.Device.AttestCert` | `func (d *Device) AttestCert(ctx context.Context, nonce []byte) ([]byte, error)` | Asks the device to mint an alias certificate carrying the challenge, and returns it as DER. |

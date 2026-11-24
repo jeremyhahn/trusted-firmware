@@ -40,6 +40,7 @@ tfwctl ports
 | `pin` | `<pin>` | one pin's descriptor: flags, port.bit, ADC channel, PWM support |
 | `sys` | — | uptime, free RAM, last reset cause, framer error counters |
 | `app` | — | the application: name, profile, state, version, ABI, the CAPS bits it needs; an image with none answers unknown command |
+| `app-cmd` | `<op> [hex-args]` | one application command, APP_CMD: `op` is 0-255, decimal or `0x` hex; `hex-args` is even-length hex of at most 63 bytes. Prints the reply as lowercase hex, `{"reply": "<hex>"}` with `-json`. A bad op or args exits 1 with nothing sent. The device answers unknown command with no application linked, bad state when it is not running, unsupported for an op it lacks and auth required when it wants a session. Serial only: a `tcp://` device is still sent the command and answers unknown command |
 | `reset` | `[soft\|boot]` | restart; `boot` enters the bootloader (default `soft`) |
 | `mode` | `<pin> <in\|out\|pullup>` | configures a pin's direction |
 | `read` | `<pin>` | digital read; prints `0` or `1` |

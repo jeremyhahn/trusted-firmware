@@ -544,10 +544,14 @@ AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
 # -analog-pwm-tone-eeprom): FW_DIR is one word in every target and recipe.
 ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),-$(subst $() ,-,$(shell printf '%s' \
                       '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z)))
+# And a link-mode flag a profile.mk names here (frdm-imx95-m7's IMX_BOOT=1 as
+# -imxboot): it changes no object, only the link, so make would reuse the ELF
+# linked in the other mode; its own directory means it never does.
+BOARD_DIR_SUFFIX ?=
 
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(if $(filter 1,$(ETH_MAC)),-ethmac,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(if $(filter 1,$(ETH_MAC)),-ethmac,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)$(BOARD_DIR_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The row, for the bench images that compile with FW_CFLAGS in a directory of

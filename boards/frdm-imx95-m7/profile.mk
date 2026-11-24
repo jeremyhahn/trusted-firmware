@@ -84,9 +84,11 @@ BOOT_BUDGET    := 32768
 # trusted-imx95's, docs/multi-arch/imx95-design.md R12). The System Manager
 # loads the container's M7 image at the ITCM base and starts it from the vector
 # there, so this build links the application, and measures it, from ITCM 0.
-# make tracks no flag, so the ELF linked for the other mode would be reused in
-# the same directory: IMX_BOOT=1 is refused in the default build/ and takes its
-# own BUILD_DIR:
+# make tracks no flag and the mode changes only the link, so the ELF linked for
+# the other mode would be reused in the same directory: BOARD_DIR_SUFFIX names
+# this mode's FW_DIR -imxboot, so the two modes' ELFs stay apart in any
+# BUILD_DIR. The default build/ is still kept for the slot image only, so
+# IMX_BOOT=1 is refused there and takes its own BUILD_DIR:
 #   make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware
 # tfw-boot's geometry above stays: no tfw-boot is built for this board.
 IMX_BOOT       ?= 0
@@ -100,6 +102,7 @@ $(error IMX_BOOT=1 links the application at ITCM 0, not the slot: give it its ow
 endif
 APP_BASE       := 0x00000000
 FWHASH_BASE    := $(APP_BASE)
+BOARD_DIR_SUFFIX := -imxboot
 endif
 
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is

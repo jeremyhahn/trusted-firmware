@@ -120,9 +120,18 @@ func TestProvSlotLockSendsTheSlotAndItsCRC(t *testing.T) {
 // PROV_SEED_UDS took. Slot 6 is the UDS slot of every board's map.
 func TestProvSlotLockUDSSendsTheSlotAndAZeroCRC(t *testing.T) {
 	link := &recordingLink{}
-	require.NoError(t, New(link).ProvSlotLockUDS(context.Background(), SlotUDS))
+	require.NoError(t, New(link).ProvSlotLockUDS(context.Background(), SlotTrustFLEXUDS))
 	assert.Equal(t, CmdProvSlotLock, link.cmd)
 	assert.Equal(t, []byte{6, 0, 0}, link.payload)
+}
+
+// The slot-map ADR (adr-trustflex-608c-slot-map.md) keeps SlotDeviceID and
+// SlotUDS at their values (the blank-part map, include/tfw/config.h) and puts
+// SlotTrustFLEXUDS, the TrustFLEX map every board profile builds, beside them.
+func TestSlotConstantsKeepTheADRValues(t *testing.T) {
+	assert.Equal(t, uint8(0), SlotDeviceID)
+	assert.Equal(t, uint8(1), SlotUDS)
+	assert.Equal(t, uint8(6), SlotTrustFLEXUDS)
 }
 
 func TestProvSlotLockRefusesAZeroCRCBeforeSending(t *testing.T) {

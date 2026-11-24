@@ -41,7 +41,9 @@ The zero segment is grown here until the SHA-256 ends 16 bytes past a 4 KB
 boundary: 4080 bytes to the signature sector, for the trailer's 128 and the SUIT
 envelope. Zeros leave the XOR checksum as it is, and a multiple of
 16 leaves its alignment; the SHA-256 is recomputed. An image whose last segment
-is not that zero segment is refused, never sealed some other way.
+is not that zero segment is refused, never sealed some other way. So is an
+image with more than 16 segments, which ESP-IDF does not load and layer 0 does
+not measure past.
 
 Run under ESP-IDF's Python, which carries cryptography and espsecure.py.
 """
@@ -72,6 +74,7 @@ ESP_MAGIC = 0xE9
 HEADER_LEN = 24                # esp_image_header_t
 HASH_APPENDED = 23             # its hash_appended byte
 SEGMENT_HEADER_LEN = 8         # esp_image_segment_header_t
+ESP_IMAGE_MAX_SEGMENTS = 16    # esp_app_format.h; boot_l0.c digest_end() walks no further
 SECTOR = 4096
 ROOM_END = 16                  # where the SHA-256 ends past a 4 KB boundary
 
@@ -86,6 +89,9 @@ def layout(img):
         raise SealError('not an ESP-IDF image')
     if img[HASH_APPENDED] != 1:
         raise SealError('the image has no appended SHA-256 to bind the trailer to')
+    if img[1] > ESP_IMAGE_MAX_SEGMENTS:
+        raise SealError(f'{img[1]} segments: ESP-IDF loads at most '
+                        f'{ESP_IMAGE_MAX_SEGMENTS} segments')
     pos, last = HEADER_LEN, None
     for _ in range(img[1]):
         if pos + SEGMENT_HEADER_LEN > len(img):

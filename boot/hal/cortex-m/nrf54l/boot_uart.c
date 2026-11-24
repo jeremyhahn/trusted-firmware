@@ -34,10 +34,22 @@ static volatile uint8_t rx_dma;
 static volatile uint8_t tx_dma;
 static uint8_t          enabled;
 
-static uint8_t event_wait(const volatile uint32_t *event)
+/* Each event is read by its register name on every pass of a wait, so every
+ * poll is one register access (on the host build, one model lookup). */
+static uint32_t txdrdy(void)
+{
+    return TFW_NRF_UARTE_TXDRDY;
+}
+
+static uint32_t rxto(void)
+{
+    return TFW_NRF_UARTE_RXTO;
+}
+
+static uint8_t event_wait(uint32_t (*event)(void))
 {
     for (uint32_t i = 0u; i < UARTE_SPINS; i++) {
-        if (*event != 0u) {
+        if (event() != 0u) {
             return 1u;
         }
     }
@@ -121,7 +133,7 @@ void tfw_boot_uart_tx(uint8_t byte)
     TFW_NRF_UARTE_TX_PTR    = (uint32_t)(uintptr_t)&tx_dma;
     TFW_NRF_UARTE_TX_MAXCNT = 1u;
     TFW_NRF_UARTE_TX_START  = 1u;
-    (void)event_wait(&TFW_NRF_UARTE_TXDRDY);
+    (void)event_wait(txdrdy);
     TFW_NRF_UARTE_TXDRDY = 0u;
     TFW_NRF_UARTE_TX_END = 0u;
 }
@@ -132,7 +144,7 @@ void tfw_cm_boot_uart_off(void)
         /* The armed receive stopped first: a disabled UARTE must not still
          * own a transfer into tfw-boot's RAM the application reuses. */
         TFW_NRF_UARTE_RX_STOP = 1u;
-        (void)event_wait(&TFW_NRF_UARTE_RXTO);
+        (void)event_wait(rxto);
         enabled = 0u;
     }
     TFW_NRF_UARTE_ENABLE   = 0u;

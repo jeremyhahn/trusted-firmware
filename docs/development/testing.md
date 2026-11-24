@@ -124,6 +124,13 @@ Two fixed paces stay in `boot_harness.c` because they are not waits:
 `*_test.go` and any `time.sleep(` in a `test_*.py` or `*_test.py`. It prints
 `path:line: test-sleep` for each one.
 
+`make lint-no-delay`, also part of `make lint`, holds the firmware to the same
+rule: a `delay(`, `_delay_ms(`, `delayMicroseconds(` or `vTaskDelay(` call in
+any `.c` or `.h` under `src/` or `boot/` fails with `path:line: delay-call`.
+A call split across lines (`delay`, then any blank or comment-only lines, then
+`(10)`) is still a call, reported at the line of the name. Comment lines are skipped, and `_delay_us`, the bus-timing primitive behind
+`tfw_hal_delay_us`, stays allowed.
+
 ### Exemptions proposed to the owner
 
 In these places the elapsed time is what is under test, so the fixed interval
@@ -420,7 +427,7 @@ pipeline finishes within one hour. Where each part is met:
 | (b) A lower-layer integration test moves into its package's unit suite, or E2E, or goes | #169 (`b0eab87`): `sdk/go/tfwsim`'s simulator suites (attest CSR, auth, auto, DICE, Ethernet, launch, OTA) became `tfwctl` E2E, `sdk/go/cmd/tfwctl/e2e_*_test.go`, and the package kept in-memory fakes (`fake_test.go`, `operator_test.go`). Every test that starts a simulator carries the `tfwsim` build tag, and only `make sdk-test` compiles it in. #170 (`6928bce`): `internal/simproc`'s start test went to `internal/peer`, and `tfwctl` gained the app and netcfg E2E. The cross-implementation suite (`sdk/go/tfwsim_test.go`) becoming `tfwctl` E2E is in flight (#163 decision 1) |
 | (c) Every sleep becomes a bounded polling helper | #169 (`b0eab87`): `awaitFile` in `sdk/go/cmd/tfwctl/ota_stage_simavr_test.go`, `wait_for` in `test/integration/esp32/qemu_test.py`, and fakes driven by the test in `sdk/go`, `internal/peer`, `serialport` and `xkms/avr` |
 | (d) 90 % or better unit coverage per package | `make sdk-coverage` and `make xkms-coverage` fail when any one package is under 90 %, not only the module total (`mk/go.mk`, `go-cover-floor`). `sdk-coverage` builds no simulator: the `tfwsim` tag is off. `make coverage` holds the C sources at 90 % (`mk/host.mk`); #166 (`81cdd4c`) raised the lowest of them |
-| No sleep at any tier | `make lint-test-sleep`, part of `make lint` (#172, `8b640c9`), fails on `time.Sleep` or `time.sleep(` in any Go or Python test file. Production code sleeps only where the delay is the protocol: `internal/peer`'s reset pulse and `scripts/deps-check.py`'s backoff |
+| No sleep at any tier | `make lint-test-sleep`, part of `make lint` (#172, `8b640c9`), fails on `time.Sleep` or `time.sleep(` in any Go or Python test file. Production code sleeps only where the delay is the protocol: `internal/peer`'s reset pulse and `scripts/deps-check.py`'s backoff. The firmware has no blocking delay at all: `make lint-no-delay` (#627) |
 | PR pipeline under one hour | CI minutes: coordinator |
 
 Counts, before (`c33e82d`, the last main commit before #166) and after

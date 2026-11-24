@@ -105,6 +105,41 @@ static void test_a_read_longer_than_a_reply_can_carry_is_refused(void)
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x48u, 200u, 0x00u }, 3u));
 }
 
+/* The bounds are inclusive: 0x7F is a seven-bit address, and a transfer of
+ * exactly TFW_MAX_PAYLOAD - 1 bytes is the largest a reply can carry, so each
+ * bus accepts it. */
+static void test_the_highest_seven_bit_address_reaches_the_bus(void)
+{
+    const uint8_t resp[1] = { 0x5Au };
+    tfw_mock_set_bus_response(resp, 1u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x7Fu, 1u, 0x00u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0x7Fu, tfw_mock_last_i2c_addr());
+}
+
+static void test_a_transfer_of_the_largest_reply_is_accepted_on_every_bus(void)
+{
+    const uint8_t max = (uint8_t)(TFW_MAX_PAYLOAD - 1u);
+    uint8_t       resp[TFW_MAX_PAYLOAD - 1u];
+    uint8_t       req[TFW_MAX_PAYLOAD];
+
+    for (uint8_t i = 0u; i < max; i++) { resp[i] = (uint8_t)(0x80u + i); }
+    tfw_mock_set_bus_response(resp, max);
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x48u, max, 0x00u }, 3u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(resp, outbuf, max);
+
+    memset(req, 0xA5, sizeof req);
+    req[0] = 10u;                                   /* SPI chip-select */
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SPI_XFER, req, (uint8_t)(1u + max)));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(resp, outbuf, max);
+
+    req[0] = 9u;                                    /* 1-Wire pin */
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_ONEWIRE_WRITE, req, (uint8_t)(1u + max)));
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_ONEWIRE_READ, (const uint8_t[]){ 9u, max }, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(resp, outbuf, max);
+}
+
 static void test_an_spi_transfer_returns_the_bytes_clocked_in(void)
 {
     const uint8_t resp[2] = { 0x12, 0x34 };
@@ -281,6 +316,8 @@ int main(void)
     RUN_TEST(test_the_optiga_address_reaches_the_bus_without_its_transport);
     RUN_TEST(test_an_address_beyond_seven_bits_is_refused);
     RUN_TEST(test_a_read_longer_than_a_reply_can_carry_is_refused);
+    RUN_TEST(test_the_highest_seven_bit_address_reaches_the_bus);
+    RUN_TEST(test_a_transfer_of_the_largest_reply_is_accepted_on_every_bus);
     RUN_TEST(test_an_spi_transfer_returns_the_bytes_clocked_in);
     RUN_TEST(test_a_reserved_chip_select_is_refused);
     RUN_TEST(test_a_onewire_reset_reports_presence);

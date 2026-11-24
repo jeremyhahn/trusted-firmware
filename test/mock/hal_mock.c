@@ -31,13 +31,16 @@ static uint32_t ee_lo, ee_hi;            /* the span [ee_lo, ee_hi) they covered
 #define EE_NOT_STUCK 0xFFFFFFFFuL
 static uint32_t ee_stuck = EE_NOT_STUCK; /* a cell whose writes do not stick */
 static uint8_t  ee_read_fails;           /* every read refused */
+static tfw_status_t ee_write_fail;       /* every in-range write's status; TFW_OK = none */
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
 static unsigned adc_ref_calls;           /* how often tfw_hal_adc_set_ref was called */
+static tfw_status_t adc_ref_fail;        /* tfw_hal_adc_set_ref's status; TFW_OK = none */
 static tfw_status_t gpio_mode_fail;      /* the next tfw_hal_gpio_mode's status; TFW_OK = none */
 static uint8_t  adc_read_fails;          /* every conversion refused */
 static uint16_t tone_hz;
+static tfw_status_t tone_stop_fail;      /* tfw_hal_tone_stop's status; TFW_OK = none */
 static uint32_t pulse_in_us;
 static uint16_t capture_us[32];
 static uint8_t  capture_n;
@@ -49,6 +52,7 @@ static unsigned ow_reads;                /* calls tfw_hal_ow_read took */
 static uint32_t last_i2c_hz;
 static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
 static tfw_status_t bus_fail;            /* every bus transfer's status; TFW_OK = none */
+static tfw_status_t bus_init_fail;       /* i2c_init/spi_init's status; TFW_OK = none */
 static tfw_status_t gpio_io_fail;        /* every gpio read/write's status; TFW_OK = none */
 static tfw_status_t pwm_fail;            /* every pwm write/stop's status; TFW_OK = none */
 
@@ -145,17 +149,18 @@ void tfw_mock_reset(void)
     memset(pwm_duty, 0, sizeof pwm_duty);
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
     ee_written = 0u; ee_lo = ee_hi = 0u; ee_stuck = EE_NOT_STUCK;
-    ee_read_fails = 0u;
+    ee_read_fails = 0u; ee_write_fail = TFW_OK;
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
     adc_ref_calls = 0u;
+    adc_ref_fail = TFW_OK;
     gpio_mode_fail = TFW_OK;
     adc_read_fails = 0u;
-    tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
+    tone_hz = 0u; tone_stop_fail = TFW_OK; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
-    bus_fail = TFW_OK; gpio_io_fail = TFW_OK; pwm_fail = TFW_OK;
+    bus_fail = TFW_OK; bus_init_fail = TFW_OK; gpio_io_fail = TFW_OK; pwm_fail = TFW_OK;
 }
 
 void tfw_mock_set_bus_response(const uint8_t *b, uint8_t n)
@@ -174,6 +179,7 @@ uint8_t  tfw_mock_last_spi_mode(void)    { return last_spi_mode; }
 uint8_t  tfw_mock_last_spi_clkdiv(void)  { return last_spi_clkdiv; }
 uint8_t  tfw_mock_last_spi_lsb(void)     { return last_spi_lsb; }
 void     tfw_mock_bus_fails(tfw_status_t st)     { bus_fail = st; }
+void     tfw_mock_bus_init_fails(tfw_status_t st) { bus_init_fail = st; }
 void     tfw_mock_gpio_io_fails(tfw_status_t st) { gpio_io_fail = st; }
 void     tfw_mock_pwm_fails(tfw_status_t st)     { pwm_fail = st; }
 
@@ -188,6 +194,7 @@ uint8_t tfw_mock_pwm_connected(uint16_t ctl_key, uint8_t bit)
 }
 
 uint16_t tfw_mock_tone_hz(void) { return tone_hz; }
+void tfw_mock_tone_stop_fails(tfw_status_t st) { tone_stop_fail = st; }
 
 void tfw_mock_set_pulse_in(uint32_t us) { pulse_in_us = us; }
 
@@ -206,12 +213,14 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw)
 void tfw_mock_adc_read_fails(uint8_t on) { adc_read_fails = on; }
 uint8_t  tfw_mock_adc_ref(void)       { return adc_ref; }
 unsigned tfw_mock_adc_ref_calls(void) { return adc_ref_calls; }
+void tfw_mock_adc_ref_fails(tfw_status_t st) { adc_ref_fail = st; }
 void tfw_mock_gpio_mode_fails_once(tfw_status_t st) { gpio_mode_fail = st; }
 
 uint8_t *tfw_mock_eeprom(void) { return eeprom; }
 size_t   tfw_mock_eeprom_size(void) { return sizeof eeprom; }
 void     tfw_mock_eeprom_stuck_at(uint16_t addr) { ee_stuck = addr; }
 void     tfw_mock_eeprom_read_fails(uint8_t on) { ee_read_fails = on; }
+void     tfw_mock_eeprom_write_fails(tfw_status_t st) { ee_write_fail = st; }
 
 size_t tfw_mock_eeprom_written(uint16_t *lo, uint16_t *hi)
 {
@@ -419,6 +428,7 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 {
     adc_ref_calls++;
     if ((uint8_t)ref > (uint8_t)TFW_ADC_REF_INTERNAL) { return TFW_ERR_RANGE; }
+    if (adc_ref_fail != TFW_OK) { return adc_ref_fail; }
     adc_ref = (uint8_t)ref;
     return TFW_OK;
 }
@@ -444,6 +454,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     uint8_t i;
 
     if ((uint32_t)addr + len > EEPROM_SIZE) { return TFW_ERR_RANGE; }
+    if (ee_write_fail != TFW_OK) { return ee_write_fail; }   /* refused: nothing counted or stored */
     if (len != 0u) {
         if (ee_written == 0u || addr < ee_lo)              { ee_lo = addr; }
         if (ee_written == 0u || (uint32_t)addr + len > ee_hi) { ee_hi = (uint32_t)addr + len; }
@@ -508,7 +519,12 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     return TFW_OK;
 }
 
-tfw_status_t tfw_hal_tone_stop(void) { tone_hz = 0u; return TFW_OK; }
+tfw_status_t tfw_hal_tone_stop(void)
+{
+    if (tone_stop_fail != TFW_OK) { return tone_stop_fail; }
+    tone_hz = 0u;
+    return TFW_OK;
+}
 
 tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
                             uint32_t timeout_us, uint32_t *out_us)
@@ -543,7 +559,12 @@ tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
  * exactly the definitions below, as before.
  */
 __attribute__((weak))
-tfw_status_t tfw_hal_i2c_init(uint32_t hz) { last_i2c_hz = hz; return TFW_OK; }
+tfw_status_t tfw_hal_i2c_init(uint32_t hz)
+{
+    if (bus_init_fail != TFW_OK) { return bus_init_fail; }   /* refused: clock not recorded */
+    last_i2c_hz = hz;
+    return TFW_OK;
+}
 
 __attribute__((weak))
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
@@ -558,7 +579,11 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 }
 
 tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb)
-{ last_spi_mode = mode; last_spi_clkdiv = clkdiv; last_spi_lsb = lsb; return TFW_OK; }
+{
+    if (bus_init_fail != TFW_OK) { return bus_init_fail; }   /* refused: setting not recorded */
+    last_spi_mode = mode; last_spi_clkdiv = clkdiv; last_spi_lsb = lsb;
+    return TFW_OK;
+}
 
 tfw_status_t tfw_mock_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                                uint8_t *rd, uint8_t len)

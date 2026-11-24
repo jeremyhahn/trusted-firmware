@@ -442,6 +442,50 @@ class RunnerLabelsTest(unittest.TestCase):
         found = self.check('jobs:\n  build:\n    runs-on: "x-}} ${{"\n')
         self.assertEqual(found, ["w.yml:3: x-}} ${{"])
 
+    def test_a_multi_argument_expression_label_is_skipped(self):
+        expr = "\"${{ format('runner-{0}', matrix.arch) }}\""
+        found = self.check(f"jobs:\n  build:\n    runs-on: [self-hosted, {expr}]\n")
+        self.assertEqual(found, [])
+        found = self.check(
+            f"jobs:\n  build:\n    runs-on: [self-hosted, {expr}, qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_single_quoted_expression_label_is_skipped(self):
+        found = self.check(
+            "jobs:\n  build:\n"
+            "    runs-on: [self-hosted, '${{ format(''a-{0}'', inputs.h) }}']\n"
+        )
+        self.assertEqual(found, [])
+
+    def test_a_flow_mapping_expression_label_is_skipped(self):
+        for value, want in (
+            ("{group: g, labels: \"${{ format('a', b) }}\"}", []),
+            ("{group: g, labels: [qwne, \"${{ f('a', b) }}\"]}", ["w.yml:3: qwne"]),
+            ('{labels: [self-hosted, "${{ matrix.os[0] }}", qwne]}', ["w.yml:3: qwne"]),
+        ):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, want, value)
+
+    def test_a_bracket_in_an_expression_label_is_kept(self):
+        found = self.check(
+            'jobs:\n  build:\n    runs-on: [self-hosted, "${{ matrix.os[0] }}", qwne]\n'
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_quoted_label_with_a_comma_is_one_label(self):
+        found = self.check('jobs:\n  build:\n    runs-on: [self-hosted, "a,b"]\n')
+        self.assertEqual(found, ["w.yml:3: a,b"])
+
+    def test_a_multi_argument_expression_across_lines_is_skipped(self):
+        for value in (
+            "[self-hosted, \"${{ format('runner-{0}',\n      matrix.arch) }}\"]",
+            "[self-hosted,\n      \"${{ format('runner-{0}', matrix.arch) }}\"]",
+            "{group: g, labels: \"${{ format('a',\n      b) }}\"}",
+        ):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, [], value)
+
     def test_a_builtin_label_in_any_case_is_accepted(self):
         for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

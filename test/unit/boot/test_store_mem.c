@@ -237,6 +237,28 @@ static void test_boot_read_starting_past_the_span_is_refused(void)
     TEST_ASSERT_EQUAL_HEX8(0xEEu, out);
 }
 
+static void test_boot_a_write_enable_does_not_outlive_its_session(void)
+{
+    uint8_t wren = 0x06u;
+    uint8_t prog[6] = { 0x02u, 0x00u, 0x00u, 0x08u, 0x0Fu, 0xF0u };
+
+    /* A WREN left set at close dies there, not only at the next open:
+     * a program before any open is refused, and still is after it. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_cmd(&wren, 1u, &wren, 0u));
+    tfw_boot_store_close();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_open());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+
+    /* An open over a session never closed clears it too. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_cmd(&wren, 1u, &wren, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_open());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -257,5 +279,6 @@ int main(void)
     RUN_TEST(test_boot_program_shorter_than_its_address_or_with_a_read_is_refused);
     RUN_TEST(test_boot_program_past_the_span_is_refused_and_touches_nothing);
     RUN_TEST(test_boot_read_starting_past_the_span_is_refused);
+    RUN_TEST(test_boot_a_write_enable_does_not_outlive_its_session);
     return UNITY_END();
 }

@@ -467,6 +467,8 @@ const (
 	espSegHeaderLen = 8
 	trailerMagic    = 0x4D494654 // "TFIM"
 	trailerLen      = 128
+	trailerVersion  = 1 // TFW_BOOT_TRAILER_VERSION
+	trVersion       = 4
 	trImageVersion  = 8
 	trMeasurement   = 16
 )
@@ -565,6 +567,9 @@ func trailerOf(img []byte) (uint32, [32]byte, error) {
 	t := img[at : at+trailerLen]
 	if binary.LittleEndian.Uint32(t) != trailerMagic {
 		return 0, m, errors.New("no trailer v1 after the appended SHA-256")
+	}
+	if v := binary.LittleEndian.Uint16(t[trVersion:]); v != trailerVersion {
+		return 0, m, fmt.Errorf("trailer version %d, not %d", v, trailerVersion)
 	}
 	copy(m[:], t[trMeasurement:trMeasurement+32])
 	if !bytes.Equal(m[:], img[digest:at]) {

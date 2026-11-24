@@ -53,9 +53,17 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
          * the timer drove another, and the tone simply did not sound. The
          * board descriptor already knows where OC2A is; use what it said. */
         _SFR_MEM8(p->port + 1u) |= (uint8_t)_BV(p->bit);
+        /* In CTC a top written below the running count is missed: the counter
+         * runs on to 0xFF and wraps first. Stop the clock and zero the count. */
+        TCCR2B = 0u;
+        TCNT2  = 0u;
+        /* CTC before the top: PWM_WRITE leaves WGM20 set, and in a PWM mode
+         * OCR2A is double buffered, reaching the compare unit only at TOP on
+         * a running clock. Written there with the clock stopped, the top would
+         * never land and the tone would use the old duty as its compare. */
         TCCR2A = (uint8_t)(_BV(COM2A0) | _BV(WGM21));
-        TCCR2B = (uint8_t)_BV(CS22);
         OCR2A  = (uint8_t)top;
+        TCCR2B = (uint8_t)_BV(CS22);
     }
     tone_active = 1u;
     return TFW_OK;

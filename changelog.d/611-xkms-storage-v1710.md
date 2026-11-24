@@ -1,1 +1,0 @@
-- xkms takes cloud.google.com/go/storage v1.71.0, the deps-check finding (#611).

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The TZ=1 case (#590, docs/plans/590.md): QEMU boots the secure image, which
+# The TZ=1 case (#590): QEMU boots the secure image, which
 # sets up the SAU and enters the non-secure image; the non-secure image calls
 # tfw_s_version through its NSC veneer and prints the value, then reads
 # Secure SRAM, and the secure SecureFault handler reports the fault

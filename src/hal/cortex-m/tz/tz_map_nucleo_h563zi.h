@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The TZ=1 secure/non-secure split of the NUCLEO-H563ZI (#590,
- * docs/plans/590.md), from the STM32H563 memory map (RM0481): flash at
+ * The TZ=1 secure/non-secure split of the NUCLEO-H563ZI (#590),
+ * from the STM32H563 memory map (RM0481): flash at
  * 0x08000000 Non-secure and 0x0C000000 Secure, SRAM at 0x20000000 and
  * 0x30000000, peripherals at 0x40000000 and 0x50000000. Built and
  * size-checked only: the board is not flashed with it. Running it needs

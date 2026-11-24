@@ -329,6 +329,26 @@ func TestDICEAttestationClaimsRefusals(t *testing.T) {
 			}
 		}), nil, "the CoSWID carries no SHA-256 file hash"},
 		{"31-byte hash", build(t, ex[:31], nil), nil, "the file hash is not 32 bytes"},
+		{"fs-name boot", build(t, ex, func(layer string, p *parts) {
+			if layer == "file" {
+				p.file[1].v = "boot"
+			}
+		}), nil, `file is not exactly fs-name (24) "app" and a hash (7)`},
+		{"no fs-name", build(t, ex, func(layer string, p *parts) {
+			if layer == "file" {
+				p.file = p.file[:1]
+			}
+		}), nil, `file is not exactly fs-name (24) "app" and a hash (7)`},
+		{"a second file key", build(t, ex, func(layer string, p *parts) {
+			if layer == "file" {
+				p.file = append(p.file, kv{25, uint64(0)})
+			}
+		}), nil, `file is not exactly fs-name (24) "app" and a hash (7)`},
+		{"two evidence entries", build(t, ex, func(layer string, p *parts) {
+			if layer == "evidence" {
+				p.evidence = append(p.evidence, kv{18, uint64(0)})
+			}
+		}), nil, "evidence is not exactly one file (17)"},
 		{"no UCCS extension", nil, nil, "no tcg-dice-UCCS-evidence extension"},
 	}
 	for _, c := range cases {

@@ -1,22 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The Ethernet controller probe (#55): a throwaway bench image that reads which
-# chip an Arduino Ethernet shield carries. A PROBE, not the driver, and not part
-# of `make ci` or the firmware matrix -- it needs a board and a shield on a desk.
-# See docs/development/wiznet-probe.md.
-#
-#   make wiznet-probe BOARD=atmega2560
-#   make wiznet-probe-flash BOARD=atmega2560 [AVRDUDE_PORT=/dev/ttyACM0]
-#
-# Built on the firmware's own HAL and board tables, with the firmware's flags by
-# reference, so it names no register, no pin bit and no toolchain binary -- the
-# board's profile and mk/arch/$(ARCH).mk say all of that, as they do for the
-# image the driver will ship in.
+# The Ethernet controller probe: a throwaway bench image that reads which chip an Arduino Ethernet shield carries.
 
 WIZPROBE_SRC_DIR := test/hw/wiznet-probe
-# The row is in the path where a row flag is given (FW_ROW_SUFFIX, #161), as
-# for the bake image: these objects take FW_CFLAGS too.
+# The row is in the path where a row flag is given, as for the bake image: these objects take FW_CFLAGS too.
 WIZPROBE_DIR     := $(BUILD_DIR)/wiznet-probe/$(BOARD)$(FW_ROW_SUFFIX)
 WIZPROBE_TARGET  := $(WIZPROBE_DIR)/wiznet-probe
 

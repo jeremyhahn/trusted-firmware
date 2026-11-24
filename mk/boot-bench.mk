@@ -1,33 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The soft-rooted bench Mega's signing key (#7; CA rulings 188 and 189).
-#
-# DEVELOPMENT ONLY. A soft-tier tfw-boot boots only an application signed with
-# the P-256 key whose public half is in its tfw_boot_p256_key slot
-# (boot/verify/p256_key_slot.c), and the built image holds the erased
-# placeholder there. On a bench board that key is a bench key: a P-256 key the
-# developer makes once, kept outside the repository, never in a log, a record
-# or a commit. A device that leaves the bench is signed by go-xkms's key
-# (docs/ota/architecture.md), never this one.
-#
-#   make bench-key                   creates BENCH_KEY, mode 600, if it is not
-#                                    there. Nothing else ever creates it.
-#   make boot-bench BOARD=atmega2560 $(BOOT_TARGET)-bench.hex: tfw-boot with
-#                                    the key's public half in its key slot,
-#                                    and nothing else changed
-#   make bench-sign BOARD=... CRYPTO=... IMAGE_VERSION=<n>
-#                                    signs image-tbs's .tbs with the key and
-#                                    writes the 64-byte r||s image-seal takes
-#                                    as IMAGE_SIG
-#   make boot-flash-uds BOARD=atmega2560 BOOT_TIER=soft ...
-#                                    the bench image over ISP, through
-#                                    boot-flash, with a fresh UDS that is
-#                                    never kept
-#
-# BENCH_KEY names the private key. Its default is under $(HOME), outside the
-# checkout, and a path inside the repository tree is refused before anything
-# runs, whichever goal reads it.
+# The soft-rooted bench Mega's signing key.
 BENCH_KEY ?= $(HOME)/.config/trusted-firmware/bench-p256.pem
 
 BENCH_KEY_GOALS := $(filter bench-key boot-bench bench-sign boot-flash-uds,$(MAKECMDGOALS))
@@ -42,18 +16,13 @@ $(error $(firstword $(BENCH_KEY_GOALS)): REFUSED. BENCH_KEY=$(BENCH_KEY) is insi
 endif
 endif
 
-# The goals that read the key need it made already: make bench-key, never a
-# side effect of a build.
+# The goals that read the key need it made already: make bench-key, never a side effect of a build.
 $(BENCH_KEY):
 	@echo "$(firstword $(BENCH_KEY_GOALS) $@): there is no bench key at $@." >&2
 	@echo "  make bench-key creates one (development only); nothing else does." >&2
 	@exit 1
 
 ## bench-key: create the development-only bench P-256 signing key at BENCH_KEY, outside the tree
-# umask 077 from the first byte, so the key is never readable by anyone else,
-# not even between its creation and the chmod. Only its public half's SHA-256 is
-# printed. A key already there is kept, not replaced, at mode 600 or 400; any
-# other mode is refused.
 bench-key:
 	@if [ -e '$(BENCH_KEY)' ]; then \
 	   mode=$$(stat -c %a '$(BENCH_KEY)'); \
@@ -71,9 +40,7 @@ bench-key:
 	 echo "bench-key: wrote $(BENCH_KEY), mode 600, development only"; \
 	 echo "  public key (DER) SHA-256 $$pub"
 
-# A P-256 SubjectPublicKeyInfo in DER is these 27 bytes, the last the
-# uncompressed point's 0x04, then X || Y: the 64 bytes tfw_boot_p256_key holds.
-# Any other key is refused rather than cut to size.
+# A P-256 SubjectPublicKeyInfo in DER is these 27 bytes, the last the uncompressed point's 0x04, then X || Y: the 64 bytes tfw_boot_p256_key holds.
 BENCH_SPKI_P256 := 3059301306072a8648ce3d020106082a8648ce3d03010703420004
 
 # $(call BENCH_KEY_PUB,<out>): the bench key's public half, X || Y, to <out>.
@@ -84,15 +51,7 @@ BENCH_KEY_PUB = \
   if [ $${\#der} -ne 182 ]; then echo "$@: $(BENCH_KEY)'s public key is not 91 bytes of DER" >&2; exit 1; fi; \
   printf '%s' "$${der\#$(BENCH_SPKI_P256)}" | tr a-f A-F | basenc --base16 -d > $(1)
 
-# $(call BOOT_SLOT_PATCH,<elf>,<symbol>,<bytes>,<out elf>): <elf> with the
-# bytes of the file <bytes> in place of the flash slot <symbol>, written to
-# <out elf>; <elf> is not touched. The objcopy path of mk/boot.mk's
-# cdi_soft_uds.o, on the linked image: the section that holds the slot comes
-# out with objcopy, the bytes go in at the slot's offset, and --update-section
-# puts it back. The symbol's address and size are the ELF's own (nm -S), the
-# section is the one whose span holds it (size -A). Refused, and nothing
-# written, unless the file is the slot's size and the slot is the erased
-# placeholder, all 0xFF: a slot already patched is never patched over.
+# $(call BOOT_SLOT_PATCH,<elf>,<symbol>,<bytes>,<out elf>): <elf> with the bytes of the file <bytes> in place of the flash slot <symbol>, written to <out elf>; <elf> is not touched.
 BOOT_SLOT_PATCH = \
   set -- $$($(ARCH_NM) -S $(1) | awk '$$4 == "$(2)" { print $$1, $$2 }'); \
   if [ $$\# -ne 2 ]; then echo "$@: $(1) has no $(2) slot" >&2; exit 1; fi; \
@@ -110,8 +69,7 @@ BOOT_SLOT_PATCH = \
     $(ARCH_OBJCOPY) --update-section $$sec=$(4).sec $(1) $(4); \
   rc=$$?; rm -f $(4).sec; if [ $$rc -ne 0 ]; then rm -f $(4); exit 1; fi
 
-# The bench image is the soft tier's, P-256 in software: the only row with a
-# key slot in flash to put a public half in.
+# The bench image is the soft tier's, P-256 in software: the only row with a key slot in flash to put a public half in.
 BOOT_BENCH := $(BOOT_TARGET)-bench
 BOOT_BENCH_GOAL := $(firstword $(filter boot-bench boot-flash-uds,$(MAKECMDGOALS)))
 ifneq ($(BOOT_BENCH_GOAL),)
@@ -134,9 +92,6 @@ boot-bench: $(BOOT_BENCH).hex
 	@echo "built $<: the bench key's public half in tfw_boot_p256_key, development only"
 
 ## bench-sign: sign image-tbs's .tbs with the bench key, writing the r||s image-seal takes (development only)
-# ES256 as go-xkms signs it: ECDSA P-256 over the SHA-256 of the 48-byte span.
-# openssl writes the signature in DER; image-seal takes r || s, each 32 bytes
-# big-endian, so each INTEGER loses DER's sign byte and is padded to 32.
 bench-sign: $(BENCH_KEY)
 	@if [ ! -f $(SUIT_OUT).tbs ]; then \
 	   echo "bench-sign: there is no $(SUIT_OUT).tbs to sign: make image-tbs first" >&2; exit 1; \
@@ -156,19 +111,7 @@ bench-sign: $(BENCH_KEY)
 	@echo "  $(SUIT_OUT).sig"
 	@echo "  then: make image-seal BOARD=$(BOARD) CRYPTO=$(CRYPTO) IMAGE_SIG=$(SUIT_OUT).sig"
 
-# The soft tier's UDS (boot/tier/cdi_soft.c's uds_slot): one per image, placed
-# at provisioning. On the bench, at flash time: 32 bytes from the host's CSPRNG
-# go into a temporary copy of the bench image, the objcopy path above, and
-# boot-flash writes that copy over ISP with every check it makes. The copy and
-# its UDS are in a directory of their own under $TMPDIR, mode 700, and the EXIT
-# trap removes it whether the flash passes, fails or is interrupted. Nothing
-# prints the UDS or keeps it: only the flashed image's SHA-256, printed and
-# added to BOOT_UDS_RECORD once the flash has passed. The bench image and
-# tfw-boot's own are left as they were. Run it again and the part gets a new
-# UDS, so a new identity.
-#
-# boot-flash runs through BOOT_SUBMAKE rather than $(MAKE) itself: make runs a
-# recipe that names $(MAKE) even under -n, and this one must do nothing then.
+# The soft tier's UDS (boot/tier/cdi_soft.c's uds_slot): one per image, placed at provisioning.
 BOOT_UDS_RECORD := $(BOOT_DIR_OUT)/uds-flashed.sha256
 BOOT_SUBMAKE     = $(MAKE)
 

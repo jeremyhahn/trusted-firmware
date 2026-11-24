@@ -1,25 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The SUIT manifest's to-be-signed bytes (issue #78; ADR decision 3).
-#
-#   make suit-tbs BOARD=atmega2560 CRYPTO=atecc608a IMAGE_VERSION=<n>
-#       writes, beside $(BOARD)-$(CRYPTO).bin in $(REL_DIR):
-#         .suit-manifest  the bstr-wrapped manifest
-#         .suit-tbs       the COSE Sig_structure go-xkms signs with ES256
-#   make suit-envelope BOARD=... CRYPTO=... SUIT_SIG=<64-byte r||s file>
-#         .suit           the envelope, sent after the image in OTA_DATA
-#
-# NO SIGNING HERE. The key is go-xkms's (decision 10); this tree emits the bytes
-# to sign and assembles what comes back.
-#
-# IMAGE_VERSION is required and has no default, for the reason SOURCE_COMMIT
-# has none in mk/release.mk: the manifest's sequence number must be the
-# trailer's image_version or the device's gate refuses it, and a default would
-# make a mismatch look like a value.
-#
-# The emitter is a host tool built per board, against that board's profile, so
-# its vendor and class ids are the ones the device's gate compares against.
+# The SUIT manifest's to-be-signed bytes.
 
 SUIT_EMIT_BIN  := $(BUILD_DIR)/tools/suit-emit-$(BOARD)
 SUIT_EMIT_SRCS := tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/sha256.c
@@ -51,28 +33,7 @@ suit-envelope: $(SUIT_EMIT_BIN)
 
 .PHONY: suit-tbs suit-envelope
 
-# The trailer's to-be-signed bytes, and the signed images (row ota; ADR
-# decision 2): what every tfw-boot row reads before it measures.
-#
-#   make image-tbs BOARD=atmega2560 CRYPTO=atecc608a IMAGE_VERSION=<n> [IMAGE_FLAGS=0x01]
-#       writes, beside $(BOARD)-$(CRYPTO).bin in $(REL_DIR):
-#         .tbs     trailer v1's 48-byte signed span, board id in byte 6, that
-#                  go-xkms signs with ES256
-#   make image-seal BOARD=... CRYPTO=... IMAGE_SIG=<64-byte r||s file>
-#         .stream  the image and trailer padded to 256-byte pages, trailer
-#                  last: what `tfwctl ota-stage` sends. On a board that
-#                  checks the manifest at OTA_ACTIVATE (OTA_MANIFEST := 1,
-#                  element tier; ruling 121) suit-envelope's .suit goes after
-#                  the image, a little-endian u16 length then the envelope,
-#                  and image-seal refuses to run without it
-#         .region  the application region, trailer at its end: what tfw-boot's
-#                  serial session and an ISP write take
-#
-# The same IMAGE_VERSION as suit-tbs, for the reason given there. IMAGE_FLAGS
-# is mk/boot.mk's, 0x01 marking a development image. NO SIGNING HERE either.
-#
-# A board with no tfw-boot row in mk/boot.mk's BOOT_SUPPORTED (the ATtiny85)
-# has nothing that reads a trailer, so it gets no span to sign.
+# The trailer's to-be-signed bytes, and the signed images (row ota; ADR decision 2): what every tfw-boot row reads before it measures.
 IMAGE_SEAL_BIN  := $(BUILD_DIR)/tools/image-seal-$(BOARD)
 IMAGE_SEAL_SRCS := tools/image-seal/main.c tools/image-seal/seal.c \
                    boot/boot_image.c boot/boot_platform.c src/crypto/sha256.c \
@@ -116,10 +77,7 @@ image-seal: image-seal-row $(IMAGE_SEAL_BIN)
 	@echo "  $(SUIT_OUT).stream"
 	@echo "  $(SUIT_OUT).region"
 
-# The sealer's test, test/unit/test_image_seal.c: its trailer, signed as
-# go-xkms signs, through tfw-boot's own tfw_boot_evaluate with the p256-soft
-# backend. The ATmega2560's profile, the soft row's board. An explicit link,
-# so mk/host.mk's pattern rule for test/unit/ does not apply.
+# The sealer's test, test/unit/test_image_seal.c: its trailer, signed as go-xkms signs, through tfw-boot's own tfw_boot_evaluate with the p256-soft backend.
 $(HOST_DIR)/test_image_seal: test/unit/test_image_seal.c tools/image-seal/seal.c \
         boot/boot_policy.c boot/boot_image.c boot/boot_platform.c boot/measure/measure_soft.c \
         boot/verify/verify_p256_soft.c src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
@@ -127,9 +85,7 @@ $(HOST_DIR)/test_image_seal: test/unit/test_image_seal.c tools/image-seal/seal.c
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(UECC_HOST_DEFS) -Itools/image-seal \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The sealer's command line, test/unit/test_image_seal_cli.c: main.c as make
-# image-tbs and make image-seal run it, included into the suite (its main
-# renamed), so it is a prerequisite and not linked on its own.
+# The sealer's command line, test/unit/test_image_seal_cli.c: main.c as make image-tbs and make image-seal run it, included into the suite (its main renamed), so it is a prerequisite and not linked on its own.
 $(HOST_DIR)/test_image_seal_cli: test/unit/test_image_seal_cli.c tools/image-seal/main.c tools/image-seal/seal.c \
         boot/boot_policy.c boot/boot_image.c boot/boot_platform.c boot/measure/measure_soft.c \
         boot/verify/verify_p256_soft.c src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \

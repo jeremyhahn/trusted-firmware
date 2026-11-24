@@ -1,29 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The application hook (docs/application-sdk/). An application lives in its own
-# repository and is linked into this firmware by naming its directory:
-#
-#   make firmware APP_DIR=../trusted-firmware-heartbeat BOARD=atmega328p
-#   make tfwsim   APP_DIR=../trusted-firmware-heartbeat
-#
-# APP_DIR/app.mk sets APP_NAME, APP_SRCS (relative to APP_DIR) and optionally
-# APP_CFLAGS. Nothing in this repository is edited to add one.
-#
-# Included BEFORE mk/host.mk and mk/firmware.mk: both name their outputs after
-# the application, so a build with one never overwrites the image without it.
-# Only variables are set here; the rules that compile an application's files
-# are beside the ones that compile the firmware's, in those two files.
-#
-# APP_RUNNER_SRCS is the runner the image links. With an application it is
-# src/core/app_runner.c; with no APP_DIR it is src/core/app_runner_none.c,
-# whose entry points are empty, so a build with no application links no
-# runner, no descriptor and no configuration code and costs no flash.
-#
-# APP_DEFS turns on TFW_FEATURE_APP beside the real runner, and only beside it:
-# the flag gives APP_INFO its commands.def entry, and the handler is defined in
-# app_runner.c. An image with no application has neither, and answers APP_INFO
-# TFW_ERR_UNKNOWN_CMD.
+# The application hook (docs/application-sdk/).
 
 APP_DIR ?=
 
@@ -37,16 +15,14 @@ APP_SRCS   :=
 APP_CFLAGS :=
 include $(APP_ABS)/app.mk
 
-# The name becomes a directory and a binary name, so it is held to a shape no
-# path or shell can misread.
+# The name becomes a directory and a binary name, so it is held to a shape no path or shell can misread.
 ifneq ($(shell printf '%s' '$(APP_NAME)' | grep -Eqx '[a-z0-9][a-z0-9-]{0,14}' && echo ok),ok)
 $(error $(APP_DIR)/app.mk: APP_NAME "$(APP_NAME)" must be [a-z0-9][a-z0-9-]*, at most 15 characters)
 endif
 ifeq ($(strip $(APP_SRCS)),)
 $(error $(APP_DIR)/app.mk: APP_SRCS is empty -- name the application's .c files, relative to its directory)
 endif
-# Relative and inside the directory, or the object path would leave the build
-# directory with it.
+# Relative and inside the directory, or the object path would leave the build directory with it.
 ifneq ($(filter /% ../% %/../%,$(APP_SRCS)),)
 $(error $(APP_DIR)/app.mk: APP_SRCS must be relative paths inside the application directory: $(filter /% ../% %/../%,$(APP_SRCS)))
 endif
@@ -61,8 +37,7 @@ endif
 APP_SUFFIX       := -app-$(APP_NAME)
 APP_RUNNER_SRCS  := src/core/app_runner.c
 APP_DEFS         := -DTFW_FEATURE_APP=1
-# After the CURDIR map, so it is the one that applies to an application inside
-# this checkout too: the image does not record where the application was built.
+# After the CURDIR map, so it is the one that applies to an application inside this checkout too: the image does not record where the application was built.
 APP_PREFIX_MAP   := -ffile-prefix-map=$(APP_ABS)=app
 else
 APP_ABS          :=
@@ -75,20 +50,11 @@ APP_DEFS         :=
 APP_PREFIX_MAP   :=
 endif
 
-# The project's warning set, applied to an application as to the firmware: it
-# is linked into the same image and measured with it.
+# The project's warning set, applied to an application as to the firmware: it is linked into the same image and measured with it.
 APP_WARN_CFLAGS := -Wall -Wextra -Werror -Wconversion -Wshadow \
                    -Wpointer-arith -Wcast-qual -Wstrict-prototypes
 
 ## app-sdk-check: build the example application from outside the tree and run it on tfwsim
-# From a copy in a temporary directory, so the example can only be finding what
-# any application repository finds: include/tfw and the build hook.
-#
-# The objects and their dependency files are named after the application, not
-# its directory, and each run's copy is a new directory: a .d left by the last
-# run names a source that is gone, and an object from it would be linked in
-# place of this copy's. So the application's object directories are emptied
-# before the build and again on exit (app-obj-dirs prints them).
 app-sdk-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	cp -a test/app/example/. "$$t/" && \
@@ -103,29 +69,11 @@ app-sdk-check:
 	echo "app-sdk-check: the example builds out of tree and runs"
 
 ## tfwsim-app-example: build the software- and element-tier simulators with the example application linked
-# A make of its own because APP_DIR names one application per invocation; the
-# cross-implementation tests need these images beside the ones without one. The
-# element tier's is the only image whose alias certificate carries an
-# application's evidence (#51).
 tfwsim-app-example:
 	@$(MAKE) --no-print-directory tfwsim APP_DIR=test/app/example
 	@$(MAKE) --no-print-directory tfwsim-atecc608a APP_DIR=test/app/example
 
 ## app-firmware-check: build the example application's firmware image for BOARD from outside the tree
-# From a copy at a fixed path, refreshed on every run, not a temporary one: the
-# application's objects are in a build directory that does not name APP_DIR,
-# and the dependency file an earlier run left there names its source by path.
-# A path that changes with each run is one that no longer exists on the next.
-# Its object directory is emptied before and after, as app-sdk-check's are.
-#
-# An ESP32 board's image is ESP-IDF's (`make firmware` refuses one), so it is
-# esp32-build there, which needs ESP-IDF exported. The image must then hold one
-# of the application's own symbols, a hook or the descriptor: nm of the ELF,
-# or on ESP32 scripts/app_symbols.py on ESP-IDF's ELF (no nm is exported for
-# the tree). Never a linker map: it lists the input sections --gc-sections
-# discarded, so a dropped application would pass. LTO may inline a hook, never
-# all of them and the descriptor; the runner's tfw_app_runner_* are not the
-# application's.
 APP_OWN_SYMBOLS := tfw_app_(descriptor|init|run|shutdown|before_update|after_update|evidence)
 APP_SYMBOLS     := python3 scripts/app_symbols.py
 app-firmware-check:
@@ -139,23 +87,16 @@ app-firmware-check:
 	  { echo "app-firmware-check: $$img holds none of the application's symbols"; exit 1; }; \
 	echo "app-firmware-check: $(BOARD)'s image holds the example application"
 
-# The directories an application's objects are built in, for the two checks
-# above. Expanded when it runs, after mk/firmware.mk and mk/host.mk have set them.
+# The directories an application's objects are built in, for the two checks above.
 app-obj-dirs:
 	@$(if $(and $(FW_DIR),$(HOST_DIR),$(APP_NAME)),,$(error app-obj-dirs: FW_DIR, HOST_DIR or APP_NAME is empty))
 	@echo $(FW_DIR)/app $(APP_HOST_DIR) $(APP_HOST_ELEMENT_DIR)
 
-# The file app-firmware-check looks in for the application: the ELF, or on an
-# ESP32 board the ELF ESP-IDF writes ($(ESP_OUT)/idf/trusted-firmware.elf).
+# The file app-firmware-check looks in for the application: the ELF, or on an ESP32 board the ELF ESP-IDF writes ($(ESP_OUT)/idf/trusted-firmware.elf).
 app-image:
 	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.elf,$(TARGET).elf)
 
 ## app-firmware-check-selftest: the ESP32 image check counts only symbols the linked image keeps
-# The example linked on the host twice with --gc-sections: once with nothing
-# reaching it, so its sections are discarded though the map still names them,
-# and once kept. scripts/app_symbols.py must refuse the first and find the
-# second, and the first's map must name .text.tfw_app_, the case a map grep
-# accepted.
 app-firmware-check-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	$(CC) $(HOST_CFLAGS) -ffunction-sections -fdata-sections -c test/app/example/example.c -o "$$t/example.o" && \
@@ -173,19 +114,6 @@ app-firmware-check-selftest:
 	echo "app-firmware-check-selftest: a discarded application is refused, a kept one found"
 
 ## app-header-check: every public header compiles on its own, with an application's flags, against every board
-# An application repository sees include/tfw/, its board's board_profile.h and
-# the HAL's types, and nothing of src/. Each header is compiled as the whole of
-# a translation unit, included twice so its guard is exercised too, against
-# each board directory, with the warning set an application is held to: a
-# header that leans on one included before it, or on src/, fails here rather
-# than in an application's repository. The host's HAL types
-# (test/mock/hal_types.h) stand in for the architecture's; an architecture's
-# own are compiled when the example builds as firmware (app-firmware-check).
-#
-# Two plants first, so the gate is seen to fail: a header that names uint8_t
-# without <stdint.h>, and a unit that includes src/core/app_runner.h, which an
-# application must not. An empty header or board list is a failure, not a pass.
-# Run by host-test.
 APP_HEADER_ROOT   ?= .
 APP_HEADER_CFLAGS  = -std=c11 $(APP_WARN_CFLAGS) -Iinclude -Itest/mock \
                      -DTFW_BOARD_HEADER='"board_profile.h"' -fsyntax-only
@@ -216,10 +144,6 @@ app-header-check:
 	echo "app-header-check: $$(printf '%s\n' $$hdrs | wc -l) headers compile on their own against $$(printf '%s\n' $$boards | wc -l) boards ($$n units)"
 
 ## app-header-check-selftest: the header gate rejects a header that is not self-contained, and names it
-# A copy of include/ and one board with a planted header that needs <stddef.h>
-# from whoever includes it: the gate must fail and print the header's name. The
-# copy unplanted must pass. Run by the security stage, beside the other gates'
-# selftests.
 app-header-check-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	mkdir -p "$$t/boards" "$$t/test" && cp -a include "$$t/" && cp -a test/mock "$$t/test/" && \
@@ -234,21 +158,6 @@ app-header-check-selftest:
 	echo "app-header-check rejects a header that is not self-contained and names it"
 
 ## app-link-check: one application per image, and the runner the only caller of its hooks
-# Two halves. The link: the example application and the recording mock
-# (test/mock/app_mock.c) both define the hooks, strong and with no weak
-# default, so linking the two together must fail with a multiple definition of
-# a tfw_app_ hook, and the example alone must link. A relocatable link (-r) is
-# enough to see it: undefined symbols are allowed there, duplicate definitions
-# are not, so the failure is the second application and nothing else.
-#
-# The caller: no file under APP_LINK_SRC but core/app_runner.c names a hook --
-# the descriptor, init, run, shutdown, before_update, after_update or
-# evidence -- as a token anywhere in its code, so a call split across lines or
-# written (tfw_app_init)() is a caller too. Comments are stripped first by the
-# preprocessor (-fpreprocessed: no include or macro is expanded), so a comment
-# that names a hook is not a caller; tfw_app_runner_* and tfw_app_config_* are
-# the runner's, not hooks. A file the preprocessor cannot read is a failure,
-# and so is an empty source list. Run by host-test.
 APP_LINK_SRC  ?= src
 APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_(init|run|shutdown|before_update|after_update|evidence|descriptor)([^[:alnum:]_]|$$)
 APP_UNCOMMENT  = $(CC) -fpreprocessed -dD -E -P -x c
@@ -278,10 +187,6 @@ app-link-check:
 	echo "app-link-check: a second application does not link, and only core/app_runner.c of $$(printf '%s\n' $$files | wc -l) files names a hook"
 
 ## app-link-check-selftest: the link gate rejects a hook called outside the runner, and names the file
-# A copy of src/ with a call to tfw_app_init planted in a copy of main.c, three
-# ways: on one line, split across two, and parenthesised. Each time the gate
-# must fail and print that file. The copy unplanted must pass. Run by the
-# security stage, beside app-header-check-selftest.
 app-link-check-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && cp -a src "$$t/" && cp "$$t/src/main.c" "$$t/main.c" && \
 	$(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" > /dev/null || \

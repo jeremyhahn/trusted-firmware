@@ -133,6 +133,8 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
 #define TFW_ATECC_LOCK_CONFIG     0x00u
 #define TFW_ATECC_LOCK_DATA       0x01u
 #define TFW_ATECC_LOCK_NO_CRC     0x80u
+#define TFW_ATECC_LOCK_SLOT       0x02u  /* SlotLock: one data slot, slot in mode bits 2-5 */
+#define TFW_ATECC_LOCK_SLOT_SHIFT 2u
 #define TFW_ATECC_ZONE_CONFIG     0x00u
 #define TFW_ATECC_ZONE_DATA       0x02u
 #define TFW_ATECC_ZONE_32         0x80u

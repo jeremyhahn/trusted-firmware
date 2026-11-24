@@ -121,3 +121,17 @@ tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coo
     (void)back;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_prov_slot_lock(uint8_t slot, uint16_t crc)
+{
+    (void)slot;
+    (void)crc;
+    return TFW_ERR_UNSUPPORTED;
+}
+
+tfw_status_t tfw_prov_config_read(uint8_t block, uint8_t out[32])
+{
+    (void)block;
+    (void)out;
+    return TFW_ERR_UNSUPPORTED;
+}

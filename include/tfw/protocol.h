@@ -225,6 +225,18 @@
 #define TFW_CMD_HSM_RECORD_READ   0x7Cu  /* [index:1], one entry of the A6 record */
 #define TFW_HSM_RECORD_LEN        10u
 
+/* Provisioning for a part that ships configured, the TrustFLEX ATECC608C
+ * (docs/device-provisioning/adr-trustflex-608c-slot-map.md, option (a1)).
+ * PROV_SLOT_LOCK: request [slot:1][crc:2 LE], the shape of PROV_LOCK; the
+ * element's Lock in SlotLock mode with the CRC of the slot's contents; reply
+ * empty. Only the UDS and image-signing slots are taken (TFW_ERR_RANGE
+ * otherwise), a slot already slot-locked is TFW_ERR_PROTECTED_REGION, and the
+ * UDS slot is first proven to key an HMAC. Irreversible. PROV_CONFIG_READ:
+ * request [block:1] 0..3, reply the 32 bytes of that config-zone block; block
+ * > 3 is TFW_ERR_RANGE. Present where TFW_FEATURE_PROVISION is. */
+#define TFW_CMD_PROV_SLOT_LOCK    0x7Du  /* irreversible; one data slot */
+#define TFW_CMD_PROV_CONFIG_READ  0x7Eu  /* a 32-byte block of the config zone */
+
 /* State flags in the reply. */
 #define TFW_HSM_STATE_SET         0x01u  /* a verified policy set is held */
 #define TFW_HSM_STATE_LOCKED      0x02u  /* the device keys are locked */

@@ -352,6 +352,19 @@ uint8_t tfw_model_config_locked(void) { return config_locked; }
 uint8_t tfw_model_data_locked(void)   { return data_locked; }
 const uint8_t *tfw_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
 const uint8_t *tfw_model_clear_slot(uint8_t n) { return n < 16u ? clear_slots[n] : 0; }
+
+/* The CRC a SlotLock of slot n must carry: the element's CRC-16 over the
+ * slot as the model holds it -- the clear-readable copy for a slot in
+ * CLEAR_READ_SLOTS, the secret copy for any other. The part sizes slots
+ * differently (36 or 72 bytes); the model's contents are what it checks. */
+uint16_t tfw_model_slot_crc(uint8_t n)
+{
+    n = (uint8_t)(n & 0x0Fu);
+    if (((CLEAR_READ_SLOTS >> n) & 1u) != 0u) {
+        return tfw_atecc_crc16(clear_slots[n], (uint8_t)sizeof clear_slots[0]);
+    }
+    return tfw_atecc_crc16(slots[n], (uint8_t)sizeof slots[0]);
+}
 void tfw_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
 void tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64])
 {
@@ -661,6 +674,24 @@ static void handle_command(const uint8_t *p, uint8_t n)
     }
 
     case TFW_ATECC_OP_LOCK:
+        /* SlotLock mode (mode bits 0-1 = 2, slot in bits 2-5): param2 is the
+         * CRC of the slot's contents, which the part checks before it clears
+         * the slot's SlotLocked bit (config 88-89). A slot already locked, or a
+         * CRC that does not match, is an execution error and changes nothing. */
+        if ((param1 & 0x03u) == TFW_ATECC_LOCK_SLOT) {
+            uint8_t  s   = (uint8_t)((param1 >> TFW_ATECC_LOCK_SLOT_SHIFT) & 0x0Fu);
+            uint16_t bit = (uint16_t)(1u << s);
+            uint16_t unlocked = (uint16_t)(config[88] | ((uint16_t)config[89] << 8));
+
+            if ((param1 & TFW_ATECC_LOCK_NO_CRC) != 0u)  { respond_status(0x03u); return; }
+            if ((unlocked & bit) == 0u)                  { respond_status(0x0Fu); return; }
+            if (param2 != tfw_model_slot_crc(s))         { respond_status(0x0Fu); return; }
+            unlocked = (uint16_t)(unlocked & (uint16_t)~bit);
+            config[88] = (uint8_t)(unlocked & 0xFFu);
+            config[89] = (uint8_t)(unlocked >> 8);
+            respond_status(0x00u);
+            return;
+        }
         /* The summary CRC is in param2. A zero would be the no-CRC form, which
          * the firmware refuses before it ever reaches here -- so the model
          * treats it as the parse error the part would give. */

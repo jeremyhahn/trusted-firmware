@@ -355,14 +355,17 @@ On the row branch of #53, before any bench read:
   supplies the slot-15 public key (`sdk/go/cmd/tfwprov/steps.go`,
   `sdk/go/cmd/tfwprov/template.go`). Pinned by
   `sdk/go/cmd/tfwprov/steps_test.go` and `sdk/go/cmd/tfwprov/template_test.go`.
-- **The simulator jig.** The tfwsim provisioning jig keeps the default slot map
-  (`mk/host.mk`) until `tfwprov`'s plan is the TrustFLEX one end to end.
-
-Not yet applied, this row's next step: the slot-6 lock CRC is of a UDS the host
-never sees, so `--commit` refuses a TrustFLEX part before writing anything
-until the firmware computes that CRC inside `PROV_SLOT_LOCK` from the boot's
-`PROV_SEED_UDS` (no new wire field). `PROV_PUBKEY` reading slot 15, and the
-jig taking the TrustFLEX map, follow with it.
+- **The slot-6 lock.** The slot-6 CRC is of a UDS the host never sees, so
+  `--commit` (**irreversible**) seeds slot 6, writes slot 15, then slot-locks
+  slot 6 through `Device.ProvSlotLockUDS` (a CRC of 0) and slot 15 through
+  `ProvSlotLock(15, crc)`. The firmware takes slot 6's CRC from this boot's
+  `PROV_SEED_UDS` (no new wire field) and answers `BAD_STATE` without one, and
+  the slot-15 lock is then not sent; `PROV_PUBKEY` reads slot 15
+  (`src/caps/provision_atecc.c`, `sdk/go/cmd/tfwprov/steps.go`). Pinned by
+  `test/unit/test_provision.c` and `sdk/go/cmd/tfwprov/steps_test.go`.
+- **The simulator jig.** `tfwsim-prov` builds the boards' slot map, and
+  `--trustflex-element` commits, slot-locks and verifies a pre-locked
+  TrustFLEX element end to end. `--verify` writes nothing.
 
 Nothing here has run on a part. The bench questions below run first; a "no"
 on any of them sends the row to the fallbacks above.

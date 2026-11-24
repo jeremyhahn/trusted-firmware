@@ -57,12 +57,15 @@ tfwprov --commit  --config sdk/go/templates/atecc608a-trustflex.conf --image-key
 tfwprov --verify  --config sdk/go/templates/atecc608a-trustflex.conf --image-key <image-key.pem> --record device.json <port>
 ```
 
-`--dry-run` prints the seven steps. `--commit` keeps the shipped slot-0
-DeviceID, seeds the UDS into slot 6, writes the `--image-key` public key to
-slot 15 and slot-locks both
-([the TrustFLEX plan](../device-provisioning/cli.md#the-trustflex-plan)). Until the slot-6
-lock CRC is computed in the firmware, `--commit` refuses a TrustFLEX part
-before it writes anything; `--verify` reads the part and writes nothing.
+`--dry-run` prints the seven steps. `--commit` is **irreversible**: it keeps
+the shipped slot-0 DeviceID, seeds the UDS into slot 6, writes the
+`--image-key` public key to slot 15, then slot-locks slot 6 and slot 15
+([the TrustFLEX plan](../device-provisioning/cli.md#the-trustflex-plan)). The
+firmware takes slot 6's lock CRC from this boot's `PROV_SEED_UDS` and answers
+`BAD_STATE` without one, so slot 15 is not locked either. `--verify` reads the
+part and writes nothing. Nothing has run on a real part yet: answer the
+[slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)'s
+bench questions 1-4 before any `--commit`.
 
 ## 4. Lock bits and the production image
 

@@ -178,6 +178,15 @@ mass-erased.
 As ADR #15 states it ("Platforms upstream at v2.3.1"): the STM32H573I-DK is an
 upstream TF-M platform at **v2.3.1**; the NUCLEO-H563ZI is not.
 
+- **TF-M v2.3.1, built only (#608).** `make tfm-image TFM_BOARD=stm32h573i-dk`
+  (`mk/arch/tfm-targets.mk`, `scripts/tfm-build.sh`) builds BL2, the secure
+  image (Profile Medium, Initial Attestation off, our DICE partition and
+  tf-m-extras' Measured Boot on) and tf-m-extras' example non-secure image
+  from TF-M's own `stm/stm32h573i_dk` port, out of tree in `TFM_WORK`. The
+  images are built and never flashed. Running them needs TZEN=1 and the
+  secure watermark: option bytes the owner sets. Nothing in this tree writes
+  an option byte.
+
 ## Bench run
 
 Run on 2026-11-17 (#535) at commit c97a2728 (main f2a88d8c with the pyOCD
@@ -528,3 +537,5 @@ same HSI; the absolute 64 MHz is not measured). Not settled by the bench run:
   solder-bridge table has not been read.
 - The pitch measured with a scope or counter, not the board's own SysTick:
   not done.
+- The TF-M images ("Upstream TF-M"): built, never flashed; the hardware run
+  on this kit is pending (#608).

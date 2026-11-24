@@ -407,6 +407,41 @@ class BadTablesAreReported(unittest.TestCase):
         self.assertTrue(check_provisioning(
             os.path.join(REPO, PROVISIONING), path))
 
+    def test_layer0_tfw_auth_retyped_as_app(self):
+        path = self.mutated("esp32p4-poe", "tfw_auth,    data,",
+                            "tfw_auth,    app,")
+        self.assertTrue(check_layer0_labels(path, layer0_labels()))
+
+    def test_tfw_eeprom_below_tfw_eeprom_size(self):
+        path = self.mutated("esp32p4-poe", "0x13000,  0x1000,",
+                            "0x13000,  0x800,")
+        self.assertTrue(check_eeprom_size(
+            path, c_string(HAL_HEADER, "TFW_ESP_PART_EEPROM"),
+            c_define(board_profile("esp32p4-poe"), "TFW_EEPROM_SIZE")))
+
+    def test_ota_1_removed(self):
+        path = self.mutated("esp32p4-poe",
+                            "ota_1,       app,  ota_1,   0x620000, 0x600000,\n",
+                            "")
+        self.assertTrue(check_ota_slots(
+            path, c_define(board_profile("esp32p4-poe"), "TFW_OTA_SLOTS")))
+
+    def test_p4_ota_1_past_the_app_region(self):
+        path = self.mutated("esp32p4-poe", "0x620000, 0x600000",
+                            "0xA20000, 0x600000")
+        self.assertTrue(check_app_region(
+            path, c_define(board_profile("esp32p4-poe"),
+                           "TFW_APP_REGION_SIZE")))
+
+    def test_qemu_tfw_auth_off_its_sector(self):
+        # tfw_auth has free flash up to ota_0, so only the alignment breaks.
+        path = self.mutated("esp32-qemu", "0x16000,  0x1000,",
+                            "0x16800,  0x1000,")
+        self.assertEqual(check_order(path), [])
+        self.assertTrue(check_app_region(
+            path, c_define(board_profile("esp32-qemu"),
+                           "TFW_APP_REGION_SIZE")))
+
 
 if __name__ == "__main__":
     unittest.main()

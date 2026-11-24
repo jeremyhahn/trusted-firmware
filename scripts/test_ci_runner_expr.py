@@ -34,7 +34,9 @@
    self-hosted use max(S1/C1, S2/C2) wins and a tie goes self-hosted; one
    full pool sends the run to the other, both full take the shorter queue
    and equal queues go self-hosted; uncounted jobs stay uncounted; a fork's head
-   stays hosted where self-hosted would win. Both self-hosted label lists
+   stays hosted where self-hosted would win, and so does an event the
+   self-hosted runners refuse (anything but a push to main and a pull
+   request). Both self-hosted label lists
    are asserted exactly, and each test also asserts the self-hosted side
    of its boundary.
 
@@ -344,7 +346,8 @@ class OverflowShortList(unittest.TestCase):
     the hosted default, with a ::warning on a short listing or a reply that is
     not 200, and with a ::notice for a fork's head."""
 
-    def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}'):
+    def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}',
+               ref="refs/heads/main"):
         run = step_run(CI, "Balanced runner pool (ruling 1137)")
         with tempfile.TemporaryDirectory() as d:
             bindir = os.path.join(d, "bin")
@@ -355,7 +358,7 @@ class OverflowShortList(unittest.TestCase):
             os.chmod(curl, 0o755)
             out = os.path.join(d, "out")
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
-                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r", REF=ref,
                        API="https://api.github.com/repos/o/r/actions", RUN_ID="7", JOB_TOKEN="t",
                        HS="12", C1="2", C2="1", RUNNER_TEMP=d, GITHUB_OUTPUT=out,
                        FAKE_CODE=code, FAKE_BODY=body)
@@ -402,7 +405,7 @@ class BalancedPool(unittest.TestCase):
     by URL (run 100 is this run). Every test also asserts a case on the
     other side of its boundary, so an unconditional hosted pick fails it."""
 
-    def balance(self, routes, hs="10", c1="10", c2="10", event="push", head=""):
+    def balance(self, routes, hs="10", c1="10", c2="10", event="push", head="", ref="refs/heads/main"):
         run = step_run(CI, "Balanced runner pool (ruling 1137)")
         with tempfile.TemporaryDirectory() as d:
             bindir = os.path.join(d, "bin")
@@ -417,7 +420,7 @@ class BalancedPool(unittest.TestCase):
             with open(paths["routes.json"], "w", encoding="utf-8") as f:
                 json.dump(routes, f)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
-                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r", REF=ref,
                        API="https://api.github.com/repos/o/r/actions", RUN_ID="100", JOB_TOKEN=TOKEN,
                        HS=hs, C1=c1, C2=c2, RUNNER_TEMP=d, GITHUB_OUTPUT=paths["out"],
                        FAKE_ROUTES=paths["routes.json"], FAKE_LOG=paths["log"], FAKE_TOKEN=TOKEN)
@@ -569,6 +572,26 @@ class BalancedPool(unittest.TestCase):
                 self.assertIn("::notice::runner selection: this pull request's head repository is not "
                               "this repository (a fork)", out)
                 self.assertEqual(calls, [])
+
+    # G. an event the self-hosted runners refuse (their job-started hook takes a
+    # push to main and a same-repository pull request only): hosted, no call.
+
+    def test_refused_event_stays_hosted_where_self_hosted_wins(self):
+        win = pool(h=9)
+        self.assert_pick("self", win, event="push", ref="refs/heads/main")
+        for event, ref in (("schedule", "refs/heads/main"), ("workflow_dispatch", "refs/heads/main"),
+                           ("push", "refs/heads/feature"), ("pull_request_target", "refs/heads/main")):
+            with self.subTest(event=event, ref=ref):
+                out, outputs, calls = self.balance(win, event=event, head="o/r", ref=ref)
+                self.assertEqual(outputs, HOSTED_OUT, out)
+                self.assertIn(f"::notice::runner selection: event {event} on {ref} is not a push to main "
+                              "or a pull request, which the self-hosted runners refuse", out)
+                self.assertEqual(calls, [])
+
+    def test_quiet_schedule_run_stays_hosted(self):
+        out, outputs, calls = self.balance(pool(), event="schedule")
+        self.assertEqual(outputs, HOSTED_OUT, out)
+        self.assertEqual(calls, [])
 
 
 class PullRequestTarget(unittest.TestCase):

@@ -3,7 +3,10 @@
 #
 # mk/app.mk's APP_DIR gate, the refusals an out-of-tree application meets
 # before anything is compiled. app-image only echoes a path, so make parses the
-# Makefile and stops: the test needs no compiler and builds nothing.
+# Makefile and stops: those tests need no compiler and build nothing.
+#
+# And that changing APP_COMMANDS relinks: AppCommandsRelinkTest builds tfwsim
+# with an application in a temporary build directory, so it needs cc.
 
 import os
 import shutil
@@ -110,6 +113,92 @@ class AppMkGateTest(unittest.TestCase):
             "APP_NAME := ok\nAPP_SRCS := a.c\nAPP_COMMANDS := yes\n", ["a.c"])
         self.assertEqual(rc, 0, out)
         self.assertIn("app-ok", out)
+
+
+# The hook-less application: example.c with its command hook renamed, so it
+# defines every hook but tfw_app_command (tfw/app.h's prototype is renamed with
+# it).
+_NOCMD_C = ('#define tfw_app_command example_unused_command\n'
+            '#include "example.c"\n')
+
+
+@unittest.skipIf(_MAKE is None, "no make")
+@unittest.skipIf(shutil.which("cc") is None, "no cc")
+class AppCommandsRelinkTest(unittest.TestCase):
+    """APP_COMMANDS does not change the image's path, so an incremental build
+    after it changes must still relink: the hook missing, or defined twice,
+    fails the build instead of the old binary being kept."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.app = os.path.join(tmp.name, "app")
+        self.build = os.path.join(tmp.name, "build")
+        os.makedirs(self.app)
+        shutil.copy(os.path.join(_REPO, "test", "app", "example", "example.c"),
+                    self.app)
+        with open(os.path.join(self.app, "nocmd.c"), "w") as f:
+            f.write(_NOCMD_C)
+
+    def _app_mk(self, srcs, commands):
+        with open(os.path.join(self.app, "app.mk"), "w") as f:
+            f.write("APP_NAME := relink-t\nAPP_SRCS := %s\n" % srcs)
+            if commands:
+                f.write("APP_COMMANDS := yes\n")
+
+    def _make(self, *args):
+        env = dict(os.environ)
+        for name in ("MAKEFLAGS", "MAKELEVEL", "MFLAGS", "APP_DIR"):
+            env.pop(name, None)
+        p = subprocess.run(
+            [_MAKE, "--no-print-directory", "-C", _REPO] + list(args)
+            + ["APP_DIR=" + self.app, "BUILD_DIR=" + self.build],
+            env=env, capture_output=True, text=True, timeout=600)
+        return p.returncode, p.stdout + p.stderr
+
+    def _built(self):
+        rc, out = self._make("tfwsim")
+        self.assertEqual(rc, 0, out)
+
+    def test_commands_turned_on_relinks(self):
+        self._app_mk("nocmd.c", commands=False)
+        self._built()
+        self._app_mk("nocmd.c", commands=True)
+        rc, out = self._make("tfwsim")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("tfw_app_command", out)
+        self.assertIn("undefined reference", out)
+
+    def test_commands_turned_off_relinks(self):
+        self._app_mk("example.c", commands=True)
+        self._built()
+        self._app_mk("example.c", commands=False)
+        rc, out = self._make("tfwsim")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("tfw_app_command", out)
+        self.assertIn("multiple definition", out)
+
+    def test_unchanged_selection_does_not_relink(self):
+        self._app_mk("example.c", commands=True)
+        self._built()
+        rc, host_dir = self._make("-s", "host-dir")
+        self.assertEqual(rc, 0, host_dir)
+        image = os.path.join(_REPO, host_dir.strip(), "tfwsim-app-relink-t")
+        before = os.stat(image).st_mtime_ns
+        self._built()
+        self.assertEqual(os.stat(image).st_mtime_ns, before)
+
+    def test_firmware_link_depends_on_the_selection(self):
+        # No firmware build: avr-gcc may be missing. make's database lists
+        # the ELF's prerequisites without running a recipe.
+        self._app_mk("example.c", commands=True)
+        rc, out = self._make("-pn", "firmware", "BOARD=atmega328p")
+        elf = [line for line in out.splitlines()
+               if ":" in line
+               and line.split(":", 1)[0].endswith("trusted-firmware.elf")]
+        self.assertTrue(elf, "no trusted-firmware.elf rule in make -pn")
+        self.assertTrue(any("app-config.txt" in line for line in elf),
+                        "\n".join(elf))
 
 
 if __name__ == "__main__":

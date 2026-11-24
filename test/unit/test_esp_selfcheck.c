@@ -7,7 +7,9 @@
  * and LEDC drivers (test/mock/esp32/selfcheck), the real EEPROM HAL
  * (src/hal/esp32/hal_eeprom.c) on a modelled NOR partition, and the suite's
  * own other HAL and board calls. Each console line the check
- * logs is kept, so a test asserts the verdict it printed.
+ * logs is kept, so a test asserts the verdict it printed. The board lookups
+ * answer with the PoE board's own rows (boards/esp32p4-poe/board.c) and
+ * record which pin each check asked for.
  */
 
 #include "unity.h"
@@ -75,9 +77,19 @@ static int g_pad_input;      /* the input buffer */
 static int g_pad_held;
 static uint32_t g_pad_out = 1u;
 
+/* The one gpio call that refuses (0 none, 1 gpio_hold_dis, 2 gpio_set_level,
+ * 3 gpio_set_direction, 4 gpio_hold_en). A refused call changes no pad state
+ * and returns ESP_FAIL. Every gpio_hold_en and gpio_get_level call is
+ * counted, refused or not. */
+static int g_gpio_refuse;
+static unsigned g_hold_en_calls;
+static unsigned g_get_level_calls;
+
 esp_err_t gpio_hold_en(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    g_hold_en_calls++;
+    if (g_gpio_refuse == 4) return ESP_FAIL;
     g_pad_held = 1;
     return ESP_OK;
 }
@@ -85,6 +97,7 @@ esp_err_t gpio_hold_en(gpio_num_t n)
 esp_err_t gpio_hold_dis(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 1) return ESP_FAIL;
     g_pad_held = 0;
     return ESP_OK;
 }
@@ -92,6 +105,7 @@ esp_err_t gpio_hold_dis(gpio_num_t n)
 esp_err_t gpio_set_level(gpio_num_t n, uint32_t level)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 2) return ESP_FAIL;
     if (!g_pad_held) g_pad_out = level;
     return ESP_OK;
 }
@@ -99,6 +113,7 @@ esp_err_t gpio_set_level(gpio_num_t n, uint32_t level)
 esp_err_t gpio_set_direction(gpio_num_t n, gpio_mode_t mode)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    if (g_gpio_refuse == 3) return ESP_FAIL;
     if (!g_pad_held) g_pad_input = (mode == GPIO_MODE_INPUT || mode == GPIO_MODE_INPUT_OUTPUT);
     return ESP_OK;
 }
@@ -106,16 +121,28 @@ esp_err_t gpio_set_direction(gpio_num_t n, gpio_mode_t mode)
 int gpio_get_level(gpio_num_t n)
 {
     TEST_ASSERT_EQUAL_INT(TFW_ESP_COPROC_EN_GPIO, n);
+    g_get_level_calls++;
     return g_pad_input ? g_pad_ext : 0;
 }
 
 /* --------------------------------------------------------------- the LEDC */
+
+/* The HAL and LEDC calls the check makes, in order. */
+static char g_trace[512];
+
+static void trace(const char *fmt, unsigned v)
+{
+    size_t n = strlen(g_trace);
+
+    (void)snprintf(g_trace + n, sizeof g_trace - n, fmt, v);
+}
 
 static uint32_t g_duty;
 static int g_ledc_as;   /* the duty LEDC reads back, -1: the one written */
 
 uint32_t ledc_get_duty(ledc_mode_t mode, ledc_channel_t channel)
 {
+    trace("duty? ", 0u);
     (void)mode;
     (void)channel;
     return g_ledc_as < 0 ? g_duty : (uint32_t)g_ledc_as;
@@ -134,11 +161,14 @@ static const esp_partition_t g_part = {
     .size = PART_SIZE, .erase_size = PART_SIZE, .label = "tfw_eeprom",
 };
 static uint8_t g_flash[PART_SIZE];
+/* The flash as the pattern write (program 1) left it. */
+static uint8_t g_after_pattern[PART_SIZE];
 static unsigned g_reads, g_erases, g_programs;
 static unsigned g_fail_read_at;
 static unsigned g_fail_erase_at;     /* the sector is erased, then it fails */
 static unsigned g_fail_program_at;   /* half the range is programmed, then it fails */
-static unsigned g_stuck_program_at;  /* reports OK, but byte 0 stays 0x00 */
+static unsigned g_stuck_program_at;  /* reports OK, but byte g_stuck_off stays 0x00 */
+static size_t g_stuck_off;          /* from the programmed range's start */
 
 const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
                                                 esp_partition_subtype_t subtype,
@@ -176,7 +206,8 @@ esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *
     g_programs++;
     if (g_programs == g_fail_program_at) n = size / 2u;
     for (size_t i = 0u; i < n; i++) g_flash[off + i] &= b[i];
-    if (g_programs == g_stuck_program_at) g_flash[off] = 0x00u;
+    if (g_programs == g_stuck_program_at) g_flash[off + g_stuck_off] = 0x00u;
+    if (g_programs == 1u) memcpy(g_after_pattern, g_flash, sizeof g_after_pattern);
     return g_programs == g_fail_program_at ? ESP_FAIL : ESP_OK;
 }
 
@@ -209,29 +240,60 @@ static int g_i2c_probe;
 static int g_spi_cs_at_xfer;
 static int g_spi_xfers;
 
+/* The PoE board's own pin rows, copied from boards/esp32p4-poe/board.c lines
+ * 21-37: the file cannot be #included here, since the dependency file then
+ * puts it in the link line of mk/host.mk's rule and its tables link twice.
+ * Then the pins and ADC channel the checks asked for, in order. */
+static const tfw_pin_desc_t g_poe_pins[TFW_PIN_COUNT] = {
+/*  0  GPIO2   LEDC0      */ { TFW_PB(0u,  2u), TFW_ADC_NONE, 0u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  1  GPIO3   LEDC1      */ { TFW_PB(0u,  3u), TFW_ADC_NONE, 1u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  2  GPIO4   LEDC2      */ { TFW_PB(0u,  4u), TFW_ADC_NONE, 2u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  3  GPIO5   LEDC3      */ { TFW_PB(0u,  5u), TFW_ADC_NONE, 3u,           TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  4  GPIO6   C6 IO2     */ { TFW_PB(0u,  6u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  5  GPIO7   I2C SDA    */ { TFW_PB(0u,  7u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  6  GPIO8   I2C SCL    */ { TFW_PB(0u,  8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/*  7  GPIO20  ADC1_CH4   */ { TFW_PB(0u, 20u), 4u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/*  8  GPIO21  ADC1_CH5   */ { TFW_PB(0u, 21u), 5u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/*  9  GPIO22  ADC1_CH6   */ { TFW_PB(0u, 22u), 6u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 10  GPIO23  ADC1_CH7   */ { TFW_PB(0u, 23u), 7u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 11  GPIO32             */ { TFW_PB(1u,  0u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 12  GPIO33             */ { TFW_PB(1u,  1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 13  GPIO46  SPI MOSI   */ { TFW_PB(1u, 14u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 14  GPIO47  SPI MISO   */ { TFW_PB(1u, 15u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 15  GPIO48  SPI SCK    */ { TFW_PB(1u, 16u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 16  GPIO53  PA_CTRL    */ { TFW_PB(1u, 21u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+};
+
+static tfw_pin_t g_pins_asked[8];
+static unsigned g_pins_n;
+static int g_adc_pin_asked, g_pwm_pin_asked, g_adc_ch_read;
+
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
-    (void)pin;
+    if (g_pins_n < sizeof g_pins_asked / sizeof g_pins_asked[0]) g_pins_asked[g_pins_n] = pin;
+    g_pins_n++;
     memset(out, 0, sizeof *out);
     return TFW_OK;
 }
 
 tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out)
 {
-    (void)pin;
-    *out = 4u;
+    g_adc_pin_asked = pin;
+    if (pin >= TFW_PIN_COUNT) return TFW_ERR_INTERNAL;
+    *out = g_poe_pins[pin].adc_ch;
     return TFW_OK;
 }
 
 tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 {
-    (void)pin;
+    g_pwm_pin_asked = pin;
     memset(out, 0, sizeof *out);
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
+    trace("mode:%u ", (unsigned)mode);
     (void)p;
     g_gpio_mode = mode;
     return TFW_OK;
@@ -239,6 +301,7 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
+    trace("w%u ", level);
     (void)p;
     g_gpio_level = level;
     return TFW_OK;
@@ -246,22 +309,29 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
+    trace("r ", 0u);
     (void)p;
     *out = g_gpio_read_as < 0 ? g_gpio_level : (uint8_t)g_gpio_read_as;
     return g_gpio_read_st;
 }
 
-tfw_status_t tfw_hal_adc_init(void) { return TFW_OK; }
+tfw_status_t tfw_hal_adc_init(void)
+{
+    trace("adc_init ", 0u);
+    return TFW_OK;
+}
 
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
-    (void)channel;
+    trace("adc_read:%u ", channel);
+    g_adc_ch_read = channel;
     *out_raw = g_adc_raw;
     return g_adc_st;
 }
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
+    trace("pwm:%u ", duty);
     (void)p;
     g_duty = duty;
     return g_pwm_st;
@@ -269,22 +339,29 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 
 tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
+    trace("pwm_stop ", 0u);
     (void)p;
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
 {
+    trace("tone:%u ", hz);
     (void)p;
     (void)hz;
     return g_tone_start_st;
 }
 
-tfw_status_t tfw_hal_tone_stop(void) { return g_tone_stop_st; }
+tfw_status_t tfw_hal_tone_stop(void)
+{
+    trace("tone_stop ", 0u);
+    return g_tone_stop_st;
+}
 
 tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
                               uint32_t timeout_us, uint32_t *out_us)
 {
+    trace("pulse ", 0u);
     (void)p;
     (void)level;
     (void)timeout_us;
@@ -292,10 +369,14 @@ tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
     return g_pulse_st;
 }
 
-void tfw_hal_delay_us(uint16_t us) { (void)us; }
+void tfw_hal_delay_us(uint16_t us)
+{
+    trace("delay:%u ", us);
+}
 
 tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
+    trace("i2c_init ", 0u);
     (void)hz;
     return TFW_OK;
 }
@@ -303,6 +384,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                              uint8_t *rd, uint8_t rlen)
 {
+    trace("i2c ", 0u);
     g_i2c_addr = addr7;
     g_i2c_probe = wr == NULL && wlen == 0u && rd == NULL && rlen == 0u;
     return g_i2c_st;
@@ -310,6 +392,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 
 tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 {
+    trace("spi_init ", 0u);
     (void)mode;
     (void)clkdiv;
     (void)lsb_first;
@@ -319,6 +402,7 @@ tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                              uint8_t *rd, uint8_t len)
 {
+    trace("spi ", 0u);
     (void)cs;
     (void)wr;
     memset(rd, 0xff, len);
@@ -329,6 +413,7 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
 
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 {
+    trace("ow_reset ", 0u);
     (void)p;
     *out_presence = g_ow_presence;
     return TFW_OK;
@@ -336,6 +421,7 @@ tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
+    trace("ow_read ", 0u);
     (void)p;
     memset(buf, g_ow_byte, len);
     return TFW_OK;
@@ -348,14 +434,18 @@ static uint8_t g_before[PART_SIZE];
 void setUp(void)
 {
     g_log[0] = '\0';
+    g_trace[0] = '\0';
     /* As tfw_esp_board_init() leaves the enable: an output driven low and
      * held, its input buffer off. */
     g_pad_ext = 0;
     g_pad_input = 0;
     g_pad_held = 1;
     g_pad_out = 0u;
+    g_gpio_refuse = 0;
+    g_hold_en_calls = g_get_level_calls = 0u;
     g_reads = g_erases = g_programs = 0u;
     g_fail_read_at = g_fail_erase_at = g_fail_program_at = g_stuck_program_at = 0u;
+    g_stuck_off = 0u;
     g_gpio_read_st = TFW_OK;
     g_gpio_read_as = -1;
     g_adc_st = TFW_OK;
@@ -373,8 +463,11 @@ void setUp(void)
     g_i2c_probe = 0;
     g_spi_cs_at_xfer = 0;
     g_spi_xfers = 0;
+    g_pins_n = 0u;
+    g_adc_pin_asked = g_pwm_pin_asked = g_adc_ch_read = -1;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
     memcpy(g_before, g_flash, sizeof g_before);
+    memset(g_after_pattern, 0, sizeof g_after_pattern);
 }
 
 void tearDown(void) {}
@@ -394,6 +487,33 @@ static void test_every_check_passes_on_a_good_board(void)
     TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "PASS"));
     TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "PASS"));
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
+/* gpio, tone, pulse, SPI chip select, 1-Wire: each on the header pin its
+ * comment in hal_selfcheck.c names, none claimed by the board or the build;
+ * the ADC reads the channel of its pin's row, and PWM runs LEDC channel 0. */
+static void test_each_check_uses_the_free_header_pin_it_names(void)
+{
+    static const tfw_pin_t want[] = { 11u, TFW_TONE_PIN, 12u, 11u, 12u };
+
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_UINT(sizeof want / sizeof want[0], g_pins_n);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, g_pins_asked, sizeof want / sizeof want[0]);
+    TEST_ASSERT_EQUAL_INT(7, g_adc_pin_asked);
+    TEST_ASSERT_EQUAL_INT(4, g_adc_ch_read);
+    TEST_ASSERT_EQUAL_INT(0, g_pwm_pin_asked);
+    for (unsigned i = 0u; i < g_pins_n; i++) {
+        TEST_ASSERT_TRUE(g_pins_asked[i] < TFW_PIN_COUNT);
+        TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_pins_asked[i]].flags &
+                                       (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    }
+    TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_adc_pin_asked].flags &
+                                   (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    TEST_ASSERT_TRUE(g_poe_pins[g_adc_pin_asked].flags & TFW_PIN_ADC);
+    TEST_ASSERT_EQUAL_HEX8(0u, g_poe_pins[g_pwm_pin_asked].flags &
+                                   (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+    TEST_ASSERT_TRUE(g_poe_pins[g_pwm_pin_asked].flags & TFW_PIN_PWM);
+    TEST_ASSERT_EQUAL_UINT8(0u, g_poe_pins[g_pwm_pin_asked].pwm_idx);
 }
 
 static void test_the_i2c_check_probes_the_empty_address(void)
@@ -552,6 +672,43 @@ static void test_the_c6_check_leaves_the_enable_low_and_held(void)
     TEST_ASSERT_EQUAL_UINT32(0u, g_pad_out);
 }
 
+static void test_a_refused_re_hold_fails_the_c6_check(void)
+{
+    /* The pad reads 0, so the refused re-hold is the only failure. */
+    g_gpio_refuse = 4;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level 0"));
+}
+
+static void test_a_refused_hold_release_fails_and_still_re_holds(void)
+{
+    g_gpio_refuse = 1;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(0u, g_get_level_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
+static void test_a_refused_drive_low_fails_the_c6_check(void)
+{
+    g_gpio_refuse = 2;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
+static void test_a_refused_pad_direction_fails_the_c6_check(void)
+{
+    g_gpio_refuse = 3;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("c6_enable", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("c6_enable"), "pad level -1"));
+    TEST_ASSERT_EQUAL_UINT(1u, g_hold_en_calls);
+}
+
 /* The calls the check makes, in order, under the real hal_eeprom.c:
  *   reads:    1 the save, 2 the pattern write's sector, 3 the pattern's
  *             readback, 4 the restore's sector, 5 the restore's readback
@@ -606,6 +763,38 @@ static void test_a_restore_wrong_outside_the_tested_bytes_fails(void)
     TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom_restore"), "sector restored 0"));
 }
 
+static void test_a_pattern_that_reads_back_wrong_fails(void)
+{
+    /* The pattern write reports OK but its first byte did not take: the
+     * check compares what it read back, so the status alone is no PASS. */
+    g_stuck_program_at = 1u;
+    g_stuck_off = TFW_EEPROM_SIZE - 16u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom"), "status 0, pattern read back 0"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "PASS"));
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
+static void test_the_pattern_written_flips_each_saved_byte_by_its_own_mask(void)
+{
+    /* The read-back compare passes for any pattern the flash stores, so the
+     * bytes the pattern write left are checked one by one: each of the 16
+     * differs from the saved byte by its own mask, and the rest of the
+     * sector is written back as it was. The sector base is 0 here. */
+    const size_t at = TFW_EEPROM_SIZE - 16u;
+    tfw_esp_selfcheck();
+    for (unsigned i = 0u; i < 16u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xa5u ^ (i * 0x11u) ^ g_before[at + i]),
+                               g_after_pattern[at + i]);
+        TEST_ASSERT_NOT_EQUAL(g_before[at + i], g_after_pattern[at + i]);
+    }
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_after_pattern, at);
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "PASS"));
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
 static void test_an_unreadable_sector_is_never_written(void)
 {
     g_fail_read_at = 1u;
@@ -617,17 +806,45 @@ static void test_an_unreadable_sector_is_never_written(void)
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
 }
 
+/* Each check's set-up and tear-down calls, in the order they run:
+ * the gpio pin goes to output and back to input;
+ * the ADC is set up before its read;
+ * each duty read waits 20 ms after its write;
+ * LEDC is stopped, and the tone sounds 20 ms before it stops;
+ * the pulse pin is pulled up;
+ * SPI is set up before its transfer. */
+static void test_a_good_board_sets_up_settles_and_releases_each_peripheral_in_order(void)
+{
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_STRING("mode:1 w1 r w0 r mode:0 "
+                             "adc_init adc_read:4 "
+                             "pwm:128 delay:20000 duty? pwm:0 delay:20000 duty? pwm_stop "
+                             "tone:1000 delay:20000 tone_stop "
+                             "mode:2 pulse "
+                             "i2c_init i2c "
+                             "mode:1 w1 spi_init spi mode:0 "
+                             "ow_reset ow_read ",
+                             g_trace);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_every_check_passes_on_a_good_board);
+    RUN_TEST(test_each_check_uses_the_free_header_pin_it_names);
     RUN_TEST(test_a_high_c6_enable_fails_though_the_held_output_reads_zero);
     RUN_TEST(test_the_c6_check_leaves_the_enable_low_and_held);
+    RUN_TEST(test_a_refused_re_hold_fails_the_c6_check);
+    RUN_TEST(test_a_refused_hold_release_fails_and_still_re_holds);
+    RUN_TEST(test_a_refused_drive_low_fails_the_c6_check);
+    RUN_TEST(test_a_refused_pad_direction_fails_the_c6_check);
     RUN_TEST(test_a_program_failure_after_the_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_readback_still_restores_the_whole_sector);
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
+    RUN_TEST(test_a_pattern_that_reads_back_wrong_fails);
+    RUN_TEST(test_the_pattern_written_flips_each_saved_byte_by_its_own_mask);
     RUN_TEST(test_an_unreadable_sector_is_never_written);
     RUN_TEST(test_the_i2c_check_probes_the_empty_address);
     RUN_TEST(test_an_i2c_ack_at_the_empty_address_fails);
@@ -642,5 +859,6 @@ int main(void)
     RUN_TEST(test_a_wrong_pwm_duty_fails);
     RUN_TEST(test_a_tone_that_fails_to_start_or_stop_fails);
     RUN_TEST(test_an_unexpected_pulse_result_fails);
+    RUN_TEST(test_a_good_board_sets_up_settles_and_releases_each_peripheral_in_order);
     return UNITY_END();
 }

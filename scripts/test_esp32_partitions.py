@@ -6,7 +6,13 @@ They read each boards/<board>/partitions.csv as plain CSV, so they need no
 ESP-IDF: the rows do not overlap, start above the partition table, put the app
 slots on 64 KB and inside the flash (below 16 MB on esp32p4-poe), hold the four
 tfw_* labels src/hal/esp32/hal_esp32.h names, and give the offsets
-docs/boards/esp32p4-provisioning.md tells the operator to write (#23)."""
+docs/boards/esp32p4-provisioning.md tells the operator to write (#23).
+
+Four more checks tie the tables to the C sources (#48): the labels Layer 0
+(boot/hal/esp32/boot_hal_esp32.c) opens are each one data row, the tfw_eeprom
+row holds each board's TFW_EEPROM_SIZE, the ota_N app rows number
+TFW_OTA_SLOTS, and every row ends inside TFW_APP_REGION_SIZE with each data
+row on a 4 KB sector."""
 
 import os
 import re
@@ -18,6 +24,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOARDS = ("esp32p4-poe", "esp32-qemu")
 ARCH_SDKCONFIG = "mk/arch/esp32/sdkconfig.defaults"
 HAL_HEADER = "src/hal/esp32/hal_esp32.h"
+BOOT_HAL = "boot/hal/esp32/boot_hal_esp32.c"
 PROVISIONING = "docs/boards/esp32p4-provisioning.md"
 
 SECTOR = 0x1000
@@ -223,6 +230,86 @@ def hal_labels():
     return labels
 
 
+def _define(path, name):
+    for line in read(os.path.join(REPO, path)).splitlines():
+        m = re.match(r"\s*#\s*define\s+" + re.escape(name) + r"\s+(.*)$", line)
+        if m:
+            return m.group(1)
+    raise AssertionError(f"{path}: no #define {name}")
+
+
+def c_define(path, name):
+    """The integer of `#define NAME value`, its u/uL suffix and comment dropped."""
+    value = re.split(r"/\*|//", _define(path, name))[0].strip()
+    return int(re.sub(r"[uUlL]+$", "", value), 0)
+
+
+def c_string(path, name):
+    """The string of `#define NAME "label"`."""
+    m = re.match(r'"([^"]*)"', _define(path, name).strip())
+    if not m:
+        raise AssertionError(f"{path}: {name} is not a string")
+    return m.group(1)
+
+
+def board_profile(board):
+    return os.path.join("boards", board, "board_profile.h")
+
+
+def layer0_labels():
+    return [c_string(BOOT_HAL, name) for name in ("PLAT_LABEL", "AUTH_LABEL")]
+
+
+def check_layer0_labels(path, labels):
+    """Check 8: each label Layer 0 opens is one data row."""
+    problems = []
+    rows = parse_table(path)
+    for label in labels:
+        found = [r for r in rows if r[0] == label]
+        if len(found) != 1:
+            problems.append(f"{path}: Layer 0's {label} appears {len(found)} "
+                            "times, want once")
+        elif found[0][1] != "data":
+            problems.append(f"{path}: Layer 0's {label} is type "
+                            f"{found[0][1]}, want data")
+    return problems
+
+
+def check_eeprom_size(path, label, eeprom_size):
+    """Check 9: the EEPROM row holds the board's TFW_EEPROM_SIZE."""
+    found = [r for r in parse_table(path) if r[0] == label]
+    if len(found) != 1:
+        return [f"{path}: {label} appears {len(found)} times, want once"]
+    if found[0][4] < eeprom_size:
+        return [f"{path}: {label} is {found[0][4]:#x}, smaller than "
+                f"TFW_EEPROM_SIZE {eeprom_size:#x}"]
+    return []
+
+
+def check_ota_slots(path, slots):
+    """Check 10: the ota_N app rows number TFW_OTA_SLOTS."""
+    found = [r for r in parse_table(path)
+             if r[1] == "app" and re.fullmatch(r"ota_\d+", r[2])]
+    if len(found) != slots:
+        return [f"{path}: {len(found)} ota_N app rows, TFW_OTA_SLOTS is "
+                f"{slots}"]
+    return []
+
+
+def check_app_region(path, region):
+    """Check 11: every row ends inside TFW_APP_REGION_SIZE; data rows on 4 KB."""
+    problems = []
+    for r in parse_table(path):
+        end = r[3] + r[4]
+        if end > region:
+            problems.append(f"{path}: {r[0]} ends at {end:#x}, past "
+                            f"TFW_APP_REGION_SIZE {region:#x}")
+        if r[1] == "data" and r[3] % SECTOR:
+            problems.append(f"{path}: data {r[0]} at {r[3]:#x} is not 4 KB "
+                            "aligned")
+    return problems
+
+
 class PartitionTablesKeepTheirLayout(unittest.TestCase):
 
     def each_board(self, check):
@@ -253,6 +340,24 @@ class PartitionTablesKeepTheirLayout(unittest.TestCase):
     def test_provisioning_doc_offsets_are_the_tables(self):
         self.assertEqual(check_provisioning(os.path.join(REPO, PROVISIONING),
                                             table_path("esp32p4-poe")), [])
+
+    def test_layer0_labels_are_one_data_row_each(self):
+        self.each_board(lambda b: check_layer0_labels(table_path(b),
+                                                      layer0_labels()))
+
+    def test_eeprom_row_holds_tfw_eeprom_size(self):
+        label = c_string(HAL_HEADER, "TFW_ESP_PART_EEPROM")
+        self.each_board(lambda b: check_eeprom_size(
+            table_path(b), label,
+            c_define(board_profile(b), "TFW_EEPROM_SIZE")))
+
+    def test_ota_app_rows_match_tfw_ota_slots(self):
+        self.each_board(lambda b: check_ota_slots(
+            table_path(b), c_define(board_profile(b), "TFW_OTA_SLOTS")))
+
+    def test_rows_end_inside_the_app_region_data_rows_on_4k(self):
+        self.each_board(lambda b: check_app_region(
+            table_path(b), c_define(board_profile(b), "TFW_APP_REGION_SIZE")))
 
 
 class BadTablesAreReported(unittest.TestCase):
@@ -301,6 +406,41 @@ class BadTablesAreReported(unittest.TestCase):
         self.assertTrue(check_labels(path, hal_labels()))
         self.assertTrue(check_provisioning(
             os.path.join(REPO, PROVISIONING), path))
+
+    def test_layer0_tfw_auth_retyped_as_app(self):
+        path = self.mutated("esp32p4-poe", "tfw_auth,    data,",
+                            "tfw_auth,    app,")
+        self.assertTrue(check_layer0_labels(path, layer0_labels()))
+
+    def test_tfw_eeprom_below_tfw_eeprom_size(self):
+        path = self.mutated("esp32p4-poe", "0x13000,  0x1000,",
+                            "0x13000,  0x800,")
+        self.assertTrue(check_eeprom_size(
+            path, c_string(HAL_HEADER, "TFW_ESP_PART_EEPROM"),
+            c_define(board_profile("esp32p4-poe"), "TFW_EEPROM_SIZE")))
+
+    def test_ota_1_removed(self):
+        path = self.mutated("esp32p4-poe",
+                            "ota_1,       app,  ota_1,   0x620000, 0x600000,\n",
+                            "")
+        self.assertTrue(check_ota_slots(
+            path, c_define(board_profile("esp32p4-poe"), "TFW_OTA_SLOTS")))
+
+    def test_p4_ota_1_past_the_app_region(self):
+        path = self.mutated("esp32p4-poe", "0x620000, 0x600000",
+                            "0xA20000, 0x600000")
+        self.assertTrue(check_app_region(
+            path, c_define(board_profile("esp32p4-poe"),
+                           "TFW_APP_REGION_SIZE")))
+
+    def test_qemu_tfw_auth_off_its_sector(self):
+        # tfw_auth has free flash up to ota_0, so only the alignment breaks.
+        path = self.mutated("esp32-qemu", "0x16000,  0x1000,",
+                            "0x16800,  0x1000,")
+        self.assertEqual(check_order(path), [])
+        self.assertTrue(check_app_region(
+            path, c_define(board_profile("esp32-qemu"),
+                           "TFW_APP_REGION_SIZE")))
 
 
 if __name__ == "__main__":

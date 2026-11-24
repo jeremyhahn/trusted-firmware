@@ -23,23 +23,6 @@ const platformBootH = "../../include/tfw/boot.h"
 // bootloader's parser decodes.
 const platformBakedVectorC = "../../test/unit/boot/test_boot_platform.c"
 
-// platformHeaderDefine returns the value of `#define name <int>` in src. It
-// reads decimal and hex literals with the C suffixes u, U, l, L (such as
-// 0x52504654uL), and reports ok=false when name is not defined.
-func platformHeaderDefine(src []byte, name string) (uint64, bool) {
-	re := regexp.MustCompile(`(?m)^#define\s+` + regexp.QuoteMeta(name) +
-		`\s+(0x[0-9A-Fa-f]+|\d+)[uU]?[lL]?\b`)
-	m := re.FindSubmatch(src)
-	if m == nil {
-		return 0, false
-	}
-	v, err := strconv.ParseUint(string(m[1]), 0, 64)
-	if err != nil {
-		return 0, false
-	}
-	return v, true
-}
-
 // platformConstant pairs a boot.h macro with the Go value that copies it.
 type platformConstant struct {
 	macro string
@@ -51,7 +34,7 @@ func TestPlatformConstantsMatchBootH(t *testing.T) {
 	require.NoError(t, err)
 
 	platformDefine := func(name string) uint64 {
-		v, ok := platformHeaderDefine(src, name)
+		v, ok := protoHeaderDefine(src, name)
 		if !ok {
 			t.Fatalf("%s: #define %s not found; the SDK copy of the platform block cannot be checked", platformBootH, name)
 		}
@@ -136,15 +119,15 @@ func TestPlatformHeaderDefineSeesADrift(t *testing.T) {
 		"#define TFW_BOOT_EE_VERSION 3u\n" +
 		"#define TFW_BOOT_EE_MAGIC 0x52504654uL   /* 'T','F','P','R' */\n")
 
-	v, ok := platformHeaderDefine(platformHeader, "TFW_BOOT_EE_VERSION")
+	v, ok := protoHeaderDefine(platformHeader, "TFW_BOOT_EE_VERSION")
 	require.True(t, ok)
 	assert.Equal(t, uint64(3), v)
 	assert.NotEqual(t, uint64(platformVersion), v, "a drifted version must not match the SDK's")
 
-	v, ok = platformHeaderDefine(platformHeader, "TFW_BOOT_EE_MAGIC")
+	v, ok = protoHeaderDefine(platformHeader, "TFW_BOOT_EE_MAGIC")
 	require.True(t, ok)
 	assert.Equal(t, uint64(0x52504654), v)
 
-	_, ok = platformHeaderDefine(platformHeader, "TFW_BOOT_EE_O_CRC")
+	_, ok = protoHeaderDefine(platformHeader, "TFW_BOOT_EE_O_CRC")
 	assert.False(t, ok)
 }

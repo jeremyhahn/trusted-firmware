@@ -21,11 +21,16 @@ const (
 	protoConfigH   = "../../include/tfw/config.h"
 )
 
-// protoHeaderDefine returns the numeric value of `#define name <number>[u][l]`
-// in src. The match is anchored at a line start only, so a default inside an
-// #ifndef block is found as well.
+// protoHeaderDefine returns the value of `#define name <literal>` in src. The
+// whole replacement text must be one decimal or hex literal with an optional
+// C suffix (u, l, ll and their mixes, such as 0x52504654uL), optionally
+// followed by a comment (a block comment may run on to the next line); an expression (`2u + 1u`, `(2u)`, `X | Y`, a cast)
+// or any other non-literal value reports ok=false, as does an undefined name.
+// The match is anchored at a line start only, so a default inside an #ifndef
+// block is found as well.
 func protoHeaderDefine(src []byte, name string) (uint64, bool) {
-	re := regexp.MustCompile(`(?m)^#define\s+` + regexp.QuoteMeta(name) + `\s+(0x[0-9A-Fa-f]+|\d+)[uU]?[lL]?\b`)
+	re := regexp.MustCompile(`(?m)^#define[ \t]+` + regexp.QuoteMeta(name) +
+		`[ \t]+(0x[0-9A-Fa-f]+|\d+)(?:[uU](?:[lL]{1,2})?|[lL]{1,2}[uU]?)?[ \t]*(?:/\*(?:[^*\n]|\*+[^*/\n])*\*+/[ \t]*|/\*(?:[^*\n]|\*+[^*/\n])*\**|//.*)?$`)
 	m := re.FindSubmatch(src)
 	if m == nil {
 		return 0, false
@@ -35,6 +40,25 @@ func protoHeaderDefine(src []byte, name string) (uint64, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// protoUnmirroredCmds returns, sorted, every TFW_CMD_* macro defined in
+// protocolH (found by name, whatever its value's spelling) that is neither in
+// tabled nor given a protoUnmirrored reason.
+func protoUnmirroredCmds(protocolH []byte, tabled map[string]bool) []string {
+	var missing []string
+	for _, m := range regexp.MustCompile(`(?m)^#define[ \t]+(TFW_CMD_\w+)\b`).FindAllSubmatch(protocolH, -1) {
+		name := string(m[1])
+		if tabled[name] {
+			continue
+		}
+		if _, ok := protoUnmirrored[name]; ok {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func protoReadHeaders(t *testing.T) (protocolH, configH []byte) {
@@ -166,19 +190,9 @@ func TestProtocolCommandIDsMatchTheHeader(t *testing.T) {
 		protoTabled[c.macro] = true
 	}
 
-	// Every numeric command id in the header has a Go Cmd or a stated reason.
-	var missing []string
-	for _, m := range regexp.MustCompile(`(?m)^#define\s+(TFW_CMD_\w+)\s+0x`).FindAllStringSubmatch(string(protocolH), -1) {
-		name := m[1]
-		if protoTabled[name] {
-			continue
-		}
-		if _, ok := protoUnmirrored[name]; ok {
-			continue
-		}
-		missing = append(missing, name)
-	}
-	sort.Strings(missing)
+	// Every command id in the header, in any spelling, has a Go Cmd or a
+	// stated reason.
+	missing := protoUnmirroredCmds(protocolH, protoTabled)
 	require.Emptyf(t, missing, "%s has command ids with no SDK Cmd and no protoUnmirrored reason: %v", protoProtocolH, missing)
 }
 
@@ -200,4 +214,50 @@ func TestProtoHeaderDefineSeesADrift(t *testing.T) {
 	// A prefix of a defined name is not that name.
 	_, ok = protoHeaderDefine(src, "TFW_CMD_PIN")
 	require.False(t, ok)
+
+	// Only a whole literal is a value: an expression is not read as its
+	// first number.
+	for _, value := range []string{
+		"2u + 1u",
+		"2 + 1",
+		"(2u)",
+		"2u << 1",
+		"0x10u | 0x01u",
+		"TFW_OTHER",
+		"2u /* c */ + 1u",
+		"2u /* a */ + /* b */",
+		"2u+1u",
+		"(uint8_t)2u",
+	} {
+		_, ok := protoHeaderDefine([]byte("#define TFW_PROTO_VERSION_MAJOR "+value+"\n"), "TFW_PROTO_VERSION_MAJOR")
+		require.Falsef(t, ok, "%q is not a literal", value)
+	}
+
+	// A literal with a C suffix, a trailing comment or trailing spaces is.
+	for value, want := range map[string]uint64{
+		"2u /* c */":   2,
+		"2u // c":      2,
+		"0x10 /* c */": 0x10,
+		"2uL":          2,
+		"2UL":          2,
+		"2ull":         2,
+		"2LU":          2,
+		"0x52504654uL": 0x52504654,
+		"2u   ":        2,
+		// A comment that continues on the next line.
+		"0x01u  /* sent once at startup; an unexpected": 1,
+		"7": 7,
+	} {
+		got, ok := protoHeaderDefine([]byte("#define TFW_PROTO_VERSION_MAJOR "+value+"\n"), "TFW_PROTO_VERSION_MAJOR")
+		require.Truef(t, ok, "%q is a literal", value)
+		require.Equalf(t, want, got, "%q", value)
+	}
+}
+
+func TestProtoCommandScanFindsADecimalCommand(t *testing.T) {
+	src := []byte("#define TFW_CMD_PING 0x01u\n" +
+		"#define TFW_CMD_NEW 7u\n" +
+		"#define TFW_CMD_DEC 12\n")
+	missing := protoUnmirroredCmds(src, map[string]bool{"TFW_CMD_PING": true})
+	require.Equal(t, []string{"TFW_CMD_DEC", "TFW_CMD_NEW"}, missing)
 }

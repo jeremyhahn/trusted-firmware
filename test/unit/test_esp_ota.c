@@ -11,6 +11,7 @@
  */
 #include <string.h>
 #include "unity.h"
+#include "uECC.h"
 #include "tfw/config.h"
 #include "tfw/protocol.h"
 #include "tfw/boot.h"
@@ -23,6 +24,8 @@
 #include "dispatch.h"
 #include "sys.h"
 #include "hal_mock.h"
+#include "sha256.h"
+#include "boot_verify.h"
 
 /* The application's half of the trial, whose deadline resets an unconfirmed
  * ESP32 image into ESP-IDF's rollback: compiled in here, as this link carries
@@ -36,6 +39,10 @@
 static uint8_t img[MOCK_ESP_SLOT_LEN];
 static uint8_t running[MOCK_ESP_SLOT_LEN];
 static uint8_t sig[TFW_OTA_AUTH_SIG_LEN];
+
+/* ES256, the image key's algorithm, for the Sig_structure boot_cose.c builds:
+ * this link carries no verifier, whose file would define it. */
+const uint8_t tfw_boot_cose_alg = 0x26u;
 
 void setUp(void)
 {
@@ -463,6 +470,18 @@ static void test_info_refuses_a_third_slot_and_an_unreadable_one(void)
     TEST_ASSERT_EQUAL(TFW_OK, info(1u, out));                  /* the session needs none */
 }
 
+/* OTA_INFO with no running partition found answers an internal error for
+ * either slot: slot 1's answer reads nothing of the running image, so only
+ * the check names the fault. */
+static void test_info_with_no_running_partition_is_internal(void)
+{
+    uint8_t out[INFO_LEN];
+
+    mock_esp.no_running = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(1u, out));
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(0u, out));
+}
+
 /* -------------------------------------------------- through the dispatcher */
 
 static tfw_status_t dispatch(uint8_t cmd, const uint8_t *in, uint8_t n, uint8_t *out, uint8_t cap)
@@ -653,6 +672,22 @@ static void test_a_second_activate_while_pending_is_a_retry_or_refused(void)
     TEST_ASSERT_EQUAL_UINT(boots, mock_esp.set_boots);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+}
+
+/* m1100 (3): a retry carries the mode byte of the pending activation, so after
+ * a mode 1 activate the retry is mode 1 and a mode 0 one is refused. */
+static void test_a_retry_after_a_mode_1_activate_matches_mode_1(void)
+{
+    unsigned writes, boots;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(1u));
+    writes = mock_esp.auth_writes;
+    boots  = mock_esp.set_boots;
+    TEST_ASSERT_EQUAL(TFW_OK, activate(1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(0u));
+    TEST_ASSERT_EQUAL_UINT(writes, mock_esp.auth_writes);
+    TEST_ASSERT_EQUAL_UINT(boots, mock_esp.set_boots);
 }
 
 static void test_activate_mode_1_resets_once_the_reply_is_out(void)
@@ -865,6 +900,17 @@ static void test_an_image_with_no_room_for_its_trailer_is_refused(void)
     expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
 }
 
+/* An image ESP-IDF reports with no digest appended: its end is not the
+ * digest's, so the trailer is not where layer 0 reads it. */
+static void test_an_image_with_no_appended_digest_is_refused(void)
+{
+    stage_signed(2u);
+    mock_esp.no_hash = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
 static void test_a_slot_whose_digest_cannot_be_read_is_internal(void)
 {
     stage_signed(2u);
@@ -917,6 +963,54 @@ static void test_info_on_an_ended_session_with_no_description_is_internal(void)
 }
 
 /* ------------------------------------------------- OTA_CONFIRM and the trial */
+
+/* A key that is not the image key: its ES256 signature over the running
+ * image's confirm Sig_structure (tfw_boot_cose_confirm), into sig. */
+static void sign_confirm_by_another_key(uint32_t version)
+{
+    static const uint8_t other[32] = {
+        0x6Bu, 0x1Fu, 0x3Cu, 0x52u, 0x09u, 0xE4u, 0x77u, 0xA0u,
+        0x18u, 0xC9u, 0x2Du, 0x84u, 0x5Eu, 0xB3u, 0x41u, 0x0Fu,
+        0x93u, 0x6Au, 0xD7u, 0x25u, 0xFCu, 0x80u, 0x3Bu, 0x1Eu,
+        0x47u, 0xA9u, 0x62u, 0x0Du, 0xC5u, 0x38u, 0x74u, 0x11u,
+    };
+    uint8_t tbs[TFW_BOOT_COSE_CONFIRM_MAX];
+    uint8_t digest[32];
+    uint8_t n = tfw_boot_cose_confirm(tbs, &img[APP_LEN - 32u], version);
+
+    tfw_sha256(tbs, n, digest);
+    TEST_ASSERT_EQUAL_INT(1, uECC_sign(other, digest, sizeof digest, sig, uECC_secp256r1()));
+}
+
+/* Item 6 (docs/ota/engineering.md): an OTA_AUTH whose 64 bytes do not verify
+ * as the image key's signature over the running image's measurement and
+ * version confirms nothing -- TFW_ERR_CRYPTO, the verify-failure status, and
+ * the trial runs on to its deadline. */
+static void test_a_confirm_with_a_bad_signature_is_refused_and_the_trial_stays(void)
+{
+    stage_signed(4u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    boot_the_trial();
+
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, authorized_confirm());
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.marks);
+    TEST_ASSERT_EQUAL(ESP_OTA_IMG_PENDING_VERIFY, mock_esp.state[1]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
+}
+
+static void test_a_confirm_signed_by_another_key_is_refused(void)
+{
+    stage_signed(4u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    boot_the_trial();
+
+    sign_confirm_by_another_key(4u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, authorized_confirm());
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.marks);
+    TEST_ASSERT_EQUAL(ESP_OTA_IMG_PENDING_VERIFY, mock_esp.state[1]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
+}
 
 static void test_confirm_ends_the_trial(void)
 {
@@ -1092,6 +1186,7 @@ int main(void)
     RUN_TEST(test_a_refused_begin_keeps_the_session_in_flight);
     RUN_TEST(test_init_gives_an_open_handle_back);
     RUN_TEST(test_info_refuses_a_third_slot_and_an_unreadable_one);
+    RUN_TEST(test_info_with_no_running_partition_is_internal);
     RUN_TEST(test_activate_writes_the_record_then_sets_the_boot_slot);
     RUN_TEST(test_install_pending_follows_activate);
     RUN_TEST(test_begin_is_refused_while_an_activation_is_pending);
@@ -1099,6 +1194,7 @@ int main(void)
     RUN_TEST(test_begin_works_again_after_the_reset);
     RUN_TEST(test_begin_past_the_budget_is_refused_until_reset);
     RUN_TEST(test_a_second_activate_while_pending_is_a_retry_or_refused);
+    RUN_TEST(test_a_retry_after_a_mode_1_activate_matches_mode_1);
     RUN_TEST(test_activate_mode_1_resets_once_the_reply_is_out);
     RUN_TEST(test_activate_from_slot_1_names_slot_0);
     RUN_TEST(test_activate_at_the_floor_passes);
@@ -1116,11 +1212,14 @@ int main(void)
     RUN_TEST(test_an_image_that_ends_inside_its_digest_is_refused);
     RUN_TEST(test_an_image_that_ends_past_the_slot_is_refused);
     RUN_TEST(test_an_image_with_no_room_for_its_trailer_is_refused);
+    RUN_TEST(test_an_image_with_no_appended_digest_is_refused);
     RUN_TEST(test_a_slot_whose_digest_cannot_be_read_is_internal);
     RUN_TEST(test_a_slot_with_no_app_description_is_internal);
     RUN_TEST(test_stage_activate_with_no_ended_image_sets_no_boot_slot);
     RUN_TEST(test_info_on_a_running_slot_with_no_digest_is_internal);
     RUN_TEST(test_info_on_an_ended_session_with_no_description_is_internal);
+    RUN_TEST(test_a_confirm_with_a_bad_signature_is_refused_and_the_trial_stays);
+    RUN_TEST(test_a_confirm_signed_by_another_key_is_refused);
     RUN_TEST(test_confirm_ends_the_trial);
     RUN_TEST(test_confirm_needs_an_ota_auth_just_before);
     RUN_TEST(test_confirm_off_trial_is_bad_state);

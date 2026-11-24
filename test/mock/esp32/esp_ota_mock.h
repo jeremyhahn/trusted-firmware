@@ -36,11 +36,13 @@ typedef struct {
     esp_ota_img_states_t state[2];     /* otadata; UNDEFINED = no entry */
     uint8_t              running;      /* 0 or 1 */
     uint8_t              no_next;      /* no update partition at all */
+    uint8_t              no_running;   /* no running partition found */
     uint32_t             secure_version;
     esp_err_t            begin_err;    /* returned instead, when set */
     esp_err_t            write_err;
     esp_err_t            end_err;
     esp_err_t            metadata_err;
+    uint8_t              no_hash;      /* metadata: no digest appended */
     esp_err_t            set_boot_err;
     esp_err_t            mark_err;
     tfw_status_t         auth_err;     /* tfw_esp_part_write's answer, when set */

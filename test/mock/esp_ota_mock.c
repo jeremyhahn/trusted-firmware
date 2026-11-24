@@ -96,7 +96,7 @@ static int held(esp_ota_handle_t h)
 
 const esp_partition_t *esp_ota_get_running_partition(void)
 {
-    return &slots[mock_esp.running];
+    return mock_esp.no_running ? NULL : &slots[mock_esp.running];
 }
 
 const esp_partition_t *esp_ota_get_boot_partition(void)
@@ -309,7 +309,7 @@ esp_err_t esp_image_get_metadata(const esp_partition_pos_t *part, esp_image_meta
     memset(metadata, 0, sizeof *metadata);
     metadata->start_addr          = part->offset;
     metadata->image.magic         = MOCK_ESP_IMG_MAGIC;
-    metadata->image.hash_appended = 1u;
+    metadata->image.hash_appended = (uint8_t)(mock_esp.no_hash == 0u);
     metadata->image_len           = image_end((uint8_t)i);
     return ESP_OK;
 }

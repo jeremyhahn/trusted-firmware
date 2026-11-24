@@ -358,6 +358,12 @@ On the row branch of #53, before any bench read:
 - **The simulator jig.** The tfwsim provisioning jig keeps the default slot map
   (`mk/host.mk`) until `tfwprov`'s plan is the TrustFLEX one end to end.
 
+Not yet applied, this row's next step: the slot-6 lock CRC is of a UDS the host
+never sees, so `--commit` refuses a TrustFLEX part before writing anything
+until the firmware computes that CRC inside `PROV_SLOT_LOCK` from the boot's
+`PROV_SEED_UDS` (no new wire field). `PROV_PUBKEY` reading slot 15, and the
+jig taking the TrustFLEX map, follow with it.
+
 Nothing here has run on a part. The bench questions below run first; a "no"
 on any of them sends the row to the fallbacks above.
 

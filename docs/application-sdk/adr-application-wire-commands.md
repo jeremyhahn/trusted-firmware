@@ -1,6 +1,6 @@
 # ADR: application-defined wire commands
 
-> **Status: PROPOSED** · Row: `application-sdk` · Scope: trusted-firmware
+> **Status: ACCEPTED (owner ruling 1243, 2026-11-24)** · Row: `application-sdk` · Scope: trusted-firmware
 > (device and `sdk/go`) · Last verified: 2026-10-20, against
 > `include/tfw/protocol.h`, `src/core/commands.def`, `src/core/dispatch.c`,
 > `src/proto/transport.c`, `src/proto/link_eth.c` and `src/core/app_runner.c`
@@ -195,18 +195,25 @@ pin its request and reply, the `BAD_STATE` and `UNSUPPORTED` refusals and the
 ## Open questions for the owner
 
 1. Decision 1: one id with a sub-op byte (A), a block of ids (B), or a wider
-   OP (C)? Recommended: A, at `0x07`.
+   OP (C)? Recommended: A, at `0x07`. **Answered (owner ruling 1243):**
+   A, at `0x07`.
 2. Decision 6: is `APP_CMD` admitted over Ethernet? If it is, it is admitted
    for every application, or per application by a second `app.mk` knob that
    links one of two `.c` files. The BMC needs it on the network.
+   **Answered (owner ruling 1243):** serial only; `APP_CMD` is not on the
+   Ethernet allow-list.
 3. Decision 5: does the application decide per sub-op (b), or is every
-   `APP_CMD` gated on the element tier (c)? Recommended: b.
+   `APP_CMD` gated on the element tier (c)? Recommended: b. **Answered
+   (owner ruling 1243):** b, through `tfw_app_session_ok()`.
 4. Should the device answer a `0x7F` request at all? Today it answers with OP
    `0xFF`, which reads as an event. Ignoring it, as it ignores a request with
-   the response bit set, would be a wire change with a vector.
+   the response bit set, would be a wire change with a vector. **Open:**
+   ruling 1243 does not decide it; the device's answer to `0x7F` is
+   unchanged.
 5. Decision 3: does a stopped or failed application answer
    `TFW_ERR_BAD_STATE` (19, widened), or a new status code (20)? Recommended:
-   19.
+   19. **Answered (owner ruling 1243):** `TFW_ERR_BAD_STATE` (19), its
+   comment widened; no new code.
 
 The pin reservation, the row's other proposed follow-up, is a separate
 decision and is not taken here.

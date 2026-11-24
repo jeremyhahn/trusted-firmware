@@ -9,4 +9,8 @@
   trial boot. All now say what `src/core/ota_trial.c` does: on the trial boot
   of a newly installed image a refused init or descriptor resets into the
   bootloader at once, which rolls back (open question 1 of
-  `docs/application-sdk/engineering.md`, decided A). Comments and docs only.
+  `docs/application-sdk/engineering.md`, decided A). The firmware-only
+  paragraph of `docs/application-sdk/engineering.md` now says the same, and
+  the `include/tfw/app.h` line citations in it and in
+  `docs/application-sdk/adr-application-pin-reservation.md` follow the moved
+  lines. Comments and docs only.

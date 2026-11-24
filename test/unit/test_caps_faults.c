@@ -213,17 +213,6 @@ static void test_a_failed_rearm_keeps_the_first_deadline(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
-/* Kills sched.c's tfw_hal_gpio_mode status check being dropped in TIMER_SET. */
-static void test_a_timer_on_a_pin_the_hal_cannot_make_an_output_is_not_armed(void)
-{
-    tfw_mock_gpio_mode_fails_once(TFW_ERR_TIMEOUT);
-    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, timer_set(PIN, 1u, 5000u));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
-    TEST_ASSERT_EQUAL_UINT8(0u, w.pos);
-    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_is_output(PIN_PORT, PIN_BIT));
-}
-
 /* Kills sched.c's tfw_hal_gpio_mode status check being dropped on a re-arm. */
 static void test_a_rearm_the_hal_cannot_make_an_output_keeps_the_first_deadline(void)
 {
@@ -331,7 +320,6 @@ int main(void)
     RUN_TEST(test_a_timer_on_a_pin_the_hal_cannot_drive_is_not_armed);
     RUN_TEST(test_a_timer_on_a_pin_the_hal_cannot_make_an_output_is_not_armed);
     RUN_TEST(test_a_failed_rearm_keeps_the_first_deadline);
-    RUN_TEST(test_a_timer_on_a_pin_the_hal_cannot_make_an_output_is_not_armed);
     RUN_TEST(test_a_rearm_the_hal_cannot_make_an_output_keeps_the_first_deadline);
     RUN_TEST(test_a_cancel_that_cannot_apply_the_final_level_keeps_the_timer);
     RUN_TEST(test_every_capability_refuses_a_payload_outside_its_bounds);

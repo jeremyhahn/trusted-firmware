@@ -18,6 +18,9 @@ extern uint32_t rp_nor_erases[RP_NOR_MAX_ERASES];
 extern unsigned rp_nor_n_erases;
 /* Nonzero: the next program flips the sector's last byte. */
 extern int      rp_nor_corrupt_next;
+/* Refuse the next sector write as the ROM refuses one it lacks a function for:
+ * TFW_ERR_UNSUPPORTED, nothing erased or programmed. */
+extern int      rp_nor_refuse_next;
 /* Microseconds one sector write takes, TIMER0's count and SysTick's phase
  * both advancing by it while interrupts are masked. */
 extern uint32_t rp_nor_write_us;

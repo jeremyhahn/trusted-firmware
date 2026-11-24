@@ -44,6 +44,7 @@ void SysTick_Handler(void);
 uint32_t rp_nor_erases[RP_NOR_MAX_ERASES];
 unsigned rp_nor_n_erases;
 int      rp_nor_corrupt_next;
+int      rp_nor_refuse_next;
 uint32_t rp_nor_write_us;
 uint32_t rp_nor_after_cvr_us;
 static uint32_t after_cvr_due;
@@ -134,6 +135,10 @@ tfw_status_t tfw_rp_flash_sector_write(uint32_t off, const uint8_t *buf)
 
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(1u, masked, "the sector write runs masked");
     TEST_ASSERT_EQUAL_UINT32(0u, off % TFW_RP_FLASH_SECTOR);
+    if (rp_nor_refuse_next) {
+        rp_nor_refuse_next = 0;
+        return TFW_ERR_UNSUPPORTED;
+    }
     TEST_ASSERT_TRUE(rp_nor_n_erases < RP_NOR_MAX_ERASES);
     rp_nor_erases[rp_nor_n_erases++] = off;
     memset(&FLASH[off], 0xFF, TFW_RP_FLASH_SECTOR);
@@ -176,6 +181,7 @@ void rp_nor_model_reset(void)
            TFW_RP_FLASH_SECTOR);
     rp_nor_n_erases     = 0u;
     rp_nor_corrupt_next = 0;
+    rp_nor_refuse_next  = 0;
     rp_nor_write_us     = 0u;
     rp_nor_after_cvr_us = 0u;
     after_cvr_due       = 0u;

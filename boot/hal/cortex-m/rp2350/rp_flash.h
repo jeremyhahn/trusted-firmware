@@ -9,7 +9,7 @@
  * the one value that release does not give is cited from pico-sdk.
  *
  *   rp_flash.c      the read-modify-write over 4 KiB sectors, which the host
- *                   test drives (test/unit/boot/test_boot_rp2350_flash.c)
+ *                   test drives (boot/hal/cortex-m/rp2350/test/test_boot_rp2350_flash.c)
  *   rp_flash_rom.c  one sector's read through XIP and its erase and program
  *                   through the ROM, the sequence run from SRAM, which the
  *                   host test drives over a ROM table model

@@ -113,6 +113,42 @@ static void test_pwm_bad_slice_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CC(2u)));
 }
 
+/* hal_pwm.c tfw_hal_pwm_stop clears slice_on and pin_on (lines 89, 94), so
+ * the next write runs the slice setup and the pad write again (lines 43-71).
+ * The model does not apply the clear alias: zero the registers by hand. */
+static void test_pwm_write_after_stop_sets_the_slice_up_again(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&gp2, 128u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&gp2));
+    tfw_rp_model_poke(TFW_RP_PWM_CSR(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PWM_DIV(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PWM_TOP(1u), 0u);
+    tfw_rp_model_poke(TFW_RP_PADS_GPIO(2u), 0u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&gp2, 50u));
+    TEST_ASSERT_EQUAL_HEX32((46u << 4) | 14u, reg(TFW_RP_PWM_DIV(1u)));
+    TEST_ASSERT_EQUAL_HEX32(255u, reg(TFW_RP_PWM_TOP(1u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_PWM_CSR_EN, reg(TFW_RP_PWM_CSR(1u)));
+    TEST_ASSERT_EQUAL_HEX32(tfw_rp_pad_value(0u), reg(TFW_RP_PADS_GPIO(2u)));
+    TEST_ASSERT_EQUAL_HEX32(50u, reg(TFW_RP_PWM_CC(1u)) & 0xFFFFu);
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_PWM, reg(0x40028000u + 0x004u + 8u * 2u));
+    tfw_hal_pwm_stop(&gp2);
+}
+
+/* hal_pwm.c tfw_hal_pwm_stop clears EN only on a slice that is on (line 87);
+ * the pin still goes back to SIO, driven low (lines 91-93). */
+static void test_pwm_stop_on_a_slice_never_written(void)
+{
+    const tfw_pwmref_t gp4 = { 2u, 0u, 0u, 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&gp4));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CSR(2u) + 0x3000u));
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CSR(2u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_SIO, reg(0x40028000u + 0x004u + 8u * 4u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 4, reg(TFW_RP_SIO_BASE + 0x020u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 4, reg(TFW_RP_SIO_BASE + 0x038u));
+}
+
 /* The board lookups PWM_WRITE makes, for logical pin 2 = GPIO2 (slice 1,
  * channel A). The suite supplies them so the command handler runs against
  * the RP2350 HAL alone. */
@@ -278,6 +314,8 @@ int main(void)
     RUN_TEST(test_pwm_channel_a_and_b);
     RUN_TEST(test_pwm_stop);
     RUN_TEST(test_pwm_bad_slice_refused);
+    RUN_TEST(test_pwm_write_after_stop_sets_the_slice_up_again);
+    RUN_TEST(test_pwm_stop_on_a_slice_never_written);
     RUN_TEST(test_pwm_cmd_successive_writes_keep_pwm_function);
     RUN_TEST(test_gpio_mode_refuses_bad_pin);
     RUN_TEST(test_gpio_mode_refuses_unsupported_mode);

@@ -27,6 +27,8 @@ static unsigned n_cells;
 static uint8_t  fifo[128];
 static unsigned fifo_len;
 static unsigned fifo_pos;
+/* The transmit side's FR bits (TXFF, TXFE, BUSY), ORed into each FR read. */
+static uint32_t fr_tx;
 
 static volatile uint32_t *cell(uintptr_t addr)
 {
@@ -48,7 +50,7 @@ static volatile uint32_t *reg(uintptr_t addr)
     volatile uint32_t *c = cell(addr);
 
     if (addr == TFW_RP_UART0_BASE + 0x018u) {
-        *c = fifo_pos < fifo_len ? 0u : TFW_RP_UART_FR_RXFE;
+        *c = (fifo_pos < fifo_len ? 0u : TFW_RP_UART_FR_RXFE) | fr_tx;
     } else if (addr == TFW_RP_UART0_BASE + 0x000u && fifo_pos < fifo_len) {
         *c = fifo[fifo_pos++];
     }
@@ -74,6 +76,7 @@ void setUp(void)
     n_cells       = 0u;
     fifo_len      = 0u;
     fifo_pos      = 0u;
+    fr_tx         = 0u;
     nvic_enabled  = 0u;
     nvic_disabled = 0u;
     nvic_last_irq = 0u;
@@ -180,6 +183,58 @@ static void test_the_ring_wraps_by_its_mask(void)
     TEST_ASSERT_EQUAL_UINT8(16u, rx_tail);
 }
 
+/* DR is preset to a value no byte write gives, so a write shows in its cell
+ * and its absence leaves the cell as it was. With the receive FIFO empty, a
+ * DR read leaves the cell alone. */
+#define DR_ADDR      (TFW_RP_UART0_BASE + 0x000u)
+#define DR_UNTOUCHED 0xDEADBEEFu
+
+/* TXFF clear: the byte goes to DR and the call reports it sent. */
+static void test_tx_try_writes_the_byte_when_the_fifo_has_room(void)
+{
+    *cell(DR_ADDR) = DR_UNTOUCHED;
+    fr_tx          = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, peek(DR_ADDR));
+}
+
+/* TXFF set: the call reports nothing sent and DR is not written, so the
+ * caller's retry on the next poll does not send the byte twice. */
+static void test_tx_try_refuses_a_full_fifo_and_writes_nothing(void)
+{
+    *cell(DR_ADDR) = DR_UNTOUCHED;
+    fr_tx          = TFW_RP_UART_FR_TXFF;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_try(0xA5u));
+    TEST_ASSERT_EQUAL_HEX32(DR_UNTOUCHED, peek(DR_ADDR));
+}
+
+/* Idle is TXFE with BUSY clear: an empty FIFO with the shifter still sending
+ * its last byte is not idle, or the deferred reset would cut that byte off. */
+static void test_tx_idle_needs_txfe_and_not_busy(void)
+{
+    fr_tx = TFW_RP_UART_FR_TXFE;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    fr_tx = TFW_RP_UART_FR_TXFE | TFW_RP_UART_FR_BUSY;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+    fr_tx = TFW_RP_UART_FR_BUSY;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+    fr_tx = 0u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+}
+
+/* Init empties the ring: bytes received before a re-init are not handed out
+ * after it. */
+static void test_init_empties_the_ring(void)
+{
+    uint8_t b;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_uart_init(115200u));
+    feed(0x30u, 5u);
+    tfw_cm_irq33();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -187,5 +242,9 @@ int main(void)
     RUN_TEST(test_init_pulses_reset_and_writes_the_pads_function_and_divisors);
     RUN_TEST(test_the_interrupt_fills_the_ring_and_drops_past_63);
     RUN_TEST(test_the_ring_wraps_by_its_mask);
+    RUN_TEST(test_tx_try_writes_the_byte_when_the_fifo_has_room);
+    RUN_TEST(test_tx_try_refuses_a_full_fifo_and_writes_nothing);
+    RUN_TEST(test_tx_idle_needs_txfe_and_not_busy);
+    RUN_TEST(test_init_empties_the_ring);
     return UNITY_END();
 }

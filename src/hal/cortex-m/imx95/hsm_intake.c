@@ -50,6 +50,19 @@ uint8_t tfw_imx95_hsm_intake_sense(struct tfw_imx95_hsm_intake *in)
     return s;
 }
 
+/* S2 as one edge per pass: a fetched event is reported only when the bit was
+ * low last pass, otherwise it waits one pass, so the loop sees a new rise. */
+static uint8_t report_s2(struct tfw_imx95_hsm_intake *in)
+{
+    uint8_t s = (in->s2_pending != 0u && in->s2_high == 0u) ? 1u : 0u;
+
+    if (s != 0u) {
+        in->s2_pending = 0u;
+    }
+    in->s2_high = s;
+    return (s != 0u) ? SIG_BIT(TFW_HSM_SIG_AHAB_FAILURE) : 0u;
+}
+
 uint8_t tfw_imx95_hsm_poll(struct tfw_imx95_hsm_intake *in, const struct tfw_ele_chan *c,
                            const struct tfw_ele_event_layout *l,
                            const struct tfw_imx95_hsm_intake_ids *ids, uint8_t mu_irq)
@@ -62,19 +75,20 @@ uint8_t tfw_imx95_hsm_poll(struct tfw_imx95_hsm_intake *in, const struct tfw_ele
         return 0u;
     }
     if (in->session == 0u && tfw_ele_session_open(c, mu_irq, &in->session, NULL) != 0) {
-        return 0u;
+        return report_s2(in);
     }
     rc = tfw_ele_get_event(c, l, in->session, ev, TFW_ELE_EVENTS_MAX, &n, NULL);
     if (rc == TFW_ELE_E_SESSION) {
         in->session = 0u;
     }
     if (rc != 0) {
-        return 0u;
+        return report_s2(in);
     }
     for (i = 0u; i < n; i++) {
         if (ev[i] == ids->s2_event) {
-            return SIG_BIT(TFW_HSM_SIG_AHAB_FAILURE);
+            in->s2_pending = 1u;
+            break;
         }
     }
-    return 0u;
+    return report_s2(in);
 }

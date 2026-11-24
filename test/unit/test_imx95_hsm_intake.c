@@ -324,6 +324,24 @@ static void test_s2_back_to_back_events_raise_two_signals(void)
     TEST_ASSERT_EQUAL_UINT32(5u, ele_n);          /* one SESSION_OPEN, four get_events */
 }
 
+/* Pins that a deferred S2 event is still raised on a pass whose get_event
+ * the enclave refuses: the event was fetched already, the refusal is not
+ * a reason to drop it, and a refusal other than a lost session keeps it. */
+static void test_s2_a_deferred_event_survives_a_refused_fetch(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    fail_at     = 4u;                             /* pass 3's get_event */
+    fail_status = 0x00000029u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, in.session);
+}
+
 static void test_s2_other_events_raise_nothing(void)
 {
     events[0] = 0x11u;
@@ -439,6 +457,7 @@ int main(void)
     RUN_TEST(test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes);
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
     RUN_TEST(test_s2_back_to_back_events_raise_two_signals);
+    RUN_TEST(test_s2_a_deferred_event_survives_a_refused_fetch);
     RUN_TEST(test_s2_other_events_raise_nothing);
     RUN_TEST(test_s2_session_the_enclave_lost_is_opened_again);
     RUN_TEST(test_s2_refused_session_is_retried_and_nothing_polled);

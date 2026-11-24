@@ -58,6 +58,12 @@ static void put32(uint8_t *p, uint32_t v)
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
+/* tfw_write_u32's byte order: least significant first. */
+static uint32_t get32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
 /* A body of image_len bytes, erased padding, and the 128-byte v1 trailer. */
 static void build(uint32_t total, uint32_t image_len)
 {
@@ -311,22 +317,50 @@ static void test_info_reports_the_block_and_the_marked_image(void)
     TEST_ASSERT_EQUAL_UINT8(0x05u, out[2]);
     TEST_ASSERT_EQUAL_UINT8(7u, out[3]);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, out[7]);
+    TEST_ASSERT_EQUAL_UINT32(0u, get32(&out[8]));            /* slot 0: no version */
+    TEST_ASSERT_EACH_EQUAL_UINT8(0u, &out[12], 32u);          /* nor the block's bytes */
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ctl(tfw_otactl_cmd_info, &s9, 1u, out, &n));
 
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, out[7]);      /* nothing marked */
+    TEST_ASSERT_EQUAL_UINT32(0u, get32(&out[8]));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0u, &out[12], 32u);
     build(512u, 200u);
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
     stream(0u, 512u);
     TEST_ASSERT_EQUAL(TFW_OK, end());
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, out[7]);      /* ended, not activated */
+    TEST_ASSERT_EQUAL_UINT32(0u, get32(&out[8]));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0u, &out[12], 32u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(0x00u, out[2]);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, out[7]);
+    TEST_ASSERT_EQUAL_UINT32(3u, get32(&out[8]));            /* build()'s image version */
     TEST_ASSERT_EQUAL_MEMORY(meas, &out[12], TFW_BOOT_MEASURE_LEN);
+}
+
+static void test_info_reports_no_measurement_for_a_mark_the_stage_does_not_match(void)
+{
+    uint8_t             s1 = 1u, out[44], n, blk[TFW_BOOT_EE_BLOCK_LEN];
+    tfw_boot_platform_t p;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
+    tfw_nor_model_corrupt(TFW_OTA_STORE_MARK_ADDR + 8u);      /* the MARK's hash */
+    get_block(blk);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(blk, &p));
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(44u, n);
+    TEST_ASSERT_EQUAL_UINT8(p.ota_state, out[7]);
+    TEST_ASSERT_EQUAL_UINT32(0u, get32(&out[8]));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0u, &out[12], 32u);           /* not the trailer's meas */
 }
 
 /* ADR decision 8: flags bit 1 tells a fall-back after a refusal at evaluation
@@ -1253,6 +1287,7 @@ int main(void)
     RUN_TEST(test_init_parks_selects_before_any_transfer);
     RUN_TEST(test_info_reports_the_block_and_the_marked_image);
     RUN_TEST(test_info_tells_a_refusal_from_a_fall_back);
+    RUN_TEST(test_info_reports_no_measurement_for_a_mark_the_stage_does_not_match);
     RUN_TEST(test_activate_takes_a_verified_image_and_resets_on_mode_1);
     RUN_TEST(test_activate_tells_the_application_of_the_update_it_resets_into);
     RUN_TEST(test_a_reset_after_activate_mode_0_is_an_update);

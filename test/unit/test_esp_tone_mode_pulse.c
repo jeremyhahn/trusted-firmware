@@ -173,7 +173,8 @@ static void test_mode_on_another_pin_after_notone_keeps_the_pin(void)
 
 /* #48: MODE's tone release past the plain running-tone case. The release
  * after NOTONE is test_mode_input_after_notone_takes_the_pin_back (it kills
- * `if (running && owned_gpio == gpio)` and an inner `if (1)`). The two below:
+ * `if (running && owned_gpio == gpio)`; an inner `if (1)` is equivalent, as
+ * tfw_hal_tone_stop checks `running` itself). The two below:
  * - a tone moved to another pin is released only on the pin it now owns:
  *   kills a release that drops the `owned_gpio == gpio` compare (MODE on the
  *   old pin would stop the tone) or keys it on the first pin the tone took;

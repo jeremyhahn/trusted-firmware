@@ -126,6 +126,12 @@ func Decode(b []byte) (Frame, int, error) {
 		f.Status = Status(body[0])
 		f.Payload = body[1:]
 	} else {
+		// A request's body is its payload, so a LEN past MaxPayload+2 is a
+		// payload no sender may build. The C framer refuses it after the CRC
+		// (src/proto/frame.c); Decode refuses the same frame (#640).
+		if bodyLen > MaxPayload+2 {
+			return Frame{}, 0, &FrameError{Reason: "request longer than the maximum payload"}
+		}
 		f.Payload = body
 	}
 	return f, total, nil

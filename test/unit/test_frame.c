@@ -279,24 +279,18 @@ static void test_encoder_refuses_an_oversize_payload(void)
 }
 
 /* LEN may reach TFW_MAX_LEN because a response carries a STATUS byte. A
- * request of that LEN, built by hand with a good CRC, would hand the
- * dispatcher TFW_MAX_PAYLOAD + 1 bytes, which no encoder produces. */
+ * request of that LEN with a good CRC (the shared vector, which the Go
+ * SDK's Decode refuses too) would hand the dispatcher TFW_MAX_PAYLOAD + 1
+ * bytes, which no encoder produces. */
 static void test_a_request_longer_than_the_maximum_payload_is_refused(void)
 {
     uint8_t  pay[TFW_MAX_PAYLOAD];
     uint8_t  wire[TFW_MAX_LEN + 4u];
-    uint16_t crc;
     uint16_t n;
+    /* The shared vector: LEN 67, 65 payload bytes, CRC valid (#640). */
+    static const uint8_t over[] = TFWV_FRAME_PING_OVERSIZE_REQ;
 
-    wire[0] = TFW_SOF;
-    wire[1] = TFW_MAX_LEN;
-    wire[2] = 1u;
-    wire[3] = TFW_CMD_PING;
-    memset(&wire[4], 0x5Au, TFW_MAX_PAYLOAD + 1u);
-    crc = tfw_crc16(&wire[1], (uint16_t)(TFW_MAX_LEN + 1u));
-    wire[TFW_MAX_LEN + 2u] = (uint8_t)(crc & 0xFFu);
-    wire[TFW_MAX_LEN + 3u] = (uint8_t)(crc >> 8);
-    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(wire, sizeof wire));
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(over, sizeof over - 1u));
     TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
 
     /* A response of the same LEN is the full payload plus its STATUS. */

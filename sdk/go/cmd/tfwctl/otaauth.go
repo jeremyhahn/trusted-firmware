@@ -30,7 +30,9 @@ func takeOTASig(args []string) (sig [tfw.OTAAuthSigLen]byte, rest []string, foun
 			if rerr != nil {
 				return sig, nil, false, fmt.Errorf("%s: %w", a, rerr)
 			}
-			if len(raw) == tfw.OTAAuthSigLen {
+			// 64 hex digits are half the authorization, not raw: a raw r||s
+			// of 64 hex-digit bytes has odds (22/256)^64.
+			if _, herr := hex.DecodeString(strings.TrimSpace(string(raw))); len(raw) == tfw.OTAAuthSigLen && herr != nil {
 				text = hex.EncodeToString(raw)
 			} else {
 				text = string(raw)

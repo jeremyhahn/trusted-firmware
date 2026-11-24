@@ -244,6 +244,61 @@ if [ "$rc" -ne 2 ]; then fail "a class with an empty pattern exited $rc, want 2:
 else case "$out" in *"empty pattern for lab-host"*) ;; *) fail "a class with an empty pattern: no class named in: $out" ;; esac
 fi
 
+# A list with no rules fails: an empty file, or one of only comments and blank
+# lines, would scan nothing and pass every tree.
+for list in empty comments; do
+  checks=$((checks + 1)); fresh
+  printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+  case $list in
+    empty) : > "$tmp/norules.patterns" ;;
+    comments) printf '# a comment\n\n#\tanother\n' > "$tmp/norules.patterns" ;;
+  esac
+  git -C "$t" add -A
+  rc=0
+  out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/norules.patterns "$gate" 2>&1) || rc=$?
+  if [ "$rc" -ne 2 ]; then fail "a list with no rules ($list) exited $rc, want 2: $out"
+  else case "$out" in *"no rules in $tmp/norules.patterns"*) ;; *) fail "a list with no rules ($list): list not named in: $out" ;; esac
+  fi
+done
+
+# One real rule after comments and blank lines still scans.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                   # lab-string-ok: plant
+printf '# a comment\n\nlab-host\t(^|[.])example\\.internal\n' > "$tmp/onerule.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/onerule.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 1 ]; then fail "a rule after comments exited $rc, want 1: $out"
+else case "$out" in *"doc.md:1: lab-host"*) ;; *) fail "a rule after comments: no doc.md:1: lab-host in: $out" ;; esac
+fi
+
+# A missing list fails with exit 2, not 1: 1 is a finding.
+checks=$((checks + 1)); fresh
+printf 'neutral text\n' > "$t/doc.md"
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/missing.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a missing list exited $rc, want 2: $out"
+else case "$out" in *"cannot read pattern list $tmp/missing.patterns"*) ;; *) fail "a missing list: list not named in: $out" ;; esac
+fi
+
+# A published file grep cannot read fails: it would never be scanned.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "note: skipping the unreadable-file case as root, which reads a mode 000 file"
+else
+  checks=$((checks + 1)); fresh
+  printf 'neutral text\n' > "$t/doc.md"
+  printf 'host build.example.internal\n' > "$t/secret.md"              # lab-string-ok: plant
+  git -C "$t" add -A
+  chmod 000 "$t/secret.md"
+  rc=0
+  out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$fixture "$gate" 2>&1) || rc=$?
+  chmod 644 "$t/secret.md"
+  if [ "$rc" -ne 2 ]; then fail "an unreadable published file exited $rc, want 2: $out"
+  else case "$out" in *"cannot read secret.md"*) ;; *) fail "an unreadable published file: file not named in: $out" ;; esac
+  fi
+fi
+
 # This tree passes its own list.
 checks=$((checks + 1))
 rc=0

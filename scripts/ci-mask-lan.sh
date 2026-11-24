@@ -16,10 +16,15 @@
 # off) are left.
 # v1.53 (Tenant Agent on go-quicbaas #2667): every variable whose name ends
 # in _REGISTRY is scanned (CI_REGISTRY, CI_IMAGE_REGISTRY, RELEASE_REGISTRY,
-# a copy's IT_REGISTRY), and the template's mask step sets
-# VARS_CI_IMAGE_REGISTRY from the repository variable, because a registry a
-# later step takes from `vars` is not in this step's environment otherwise. A
-# _REGISTRY_OWNER or other non-host name is not scanned.
+# a copy's IT_REGISTRY). A _REGISTRY_OWNER or other non-host name is not
+# scanned.
+# #611 (handbook public-hygiene.md, internal values are configuration
+# inputs): a registry a later step needs comes from an Actions secret, never
+# a repository variable, which run logs print. The mask step sets
+# SECRETS_<NAME> from secrets.<NAME>; every SECRETS_*_REGISTRY entry is masked
+# whatever its host. CI_MASK_REQUIRE names (space-separated) the SECRETS_*
+# variables the job needs: one that is empty or unset fails the step with an
+# ::error naming the secret.
 #
 #   usage: scripts/ci-mask-lan.sh
 set -euo pipefail
@@ -34,6 +39,14 @@ private() {
 	return 0
 }
 
+missing=0
+for v in ${CI_MASK_REQUIRE:-}; do
+	[ -n "${!v:-}" ] && continue
+	echo "::error::secret ${v#SECRETS_} is not set; this job needs it (Settings > Secrets and variables > Actions > Secrets)"
+	missing=1
+done
+[ "$missing" = 0 ] || exit 1
+
 for v in $(compgen -e); do
 	case $v in
 	DEVCACHE_* | GOPROXY | *_REGISTRY | GITHUB_SERVER_URL) ;;
@@ -44,7 +57,10 @@ for v in $(compgen -e); do
 		hostport=${entry#*://}
 		hostport=${hostport%%/*}
 		host=${hostport%%:*}
-		private "$host" || continue
+		case $v in
+		SECRETS_*) [ -n "$host" ] || continue ;;
+		*) private "$host" || continue ;;
+		esac
 		echo "::add-mask::$entry"
 		[ "$hostport" = "$entry" ] || echo "::add-mask::$hostport"
 		[ "$host" = "$hostport" ] || echo "::add-mask::$host"

@@ -1,0 +1,1 @@
+- The repository runs code-review.yml v5.12.12's gate and handoff against a fake forge, the handbook's v5.12.10 to v5.12.12 tests (Codex round 1 P1 on #1046).

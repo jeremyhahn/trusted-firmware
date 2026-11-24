@@ -40,12 +40,14 @@ HOST_BOARD ?= $(HOST_BOARD_DEFAULT)
 # compiles the command out, so it takes the alias certificate back out
 # (TFWSIM_SOFT_OFF below).
 #
-# ATTEST_CSR is NOT turned on here. The host build takes the 328P's profile,
-# which says 0 for want of flash, so this build's dispatcher has no ATTEST_CSR
-# entry and answers it TFW_ERR_UNKNOWN_CMD exactly as the 328P image does --
-# test_dispatch pins that. A -D here would also be a macro redefinition of the
-# profile's 0. tfw_csr_cmd itself is tested by test_csr, and served by
-# tfwsim-atecc608a through its overlay profile.
+# ATTEST_CSR is not turned on here: the host build takes the 328P's profile,
+# which since owner ruling 1243 (#53, the flash budget is the application
+# region) carries it wherever ALIAS_CERT is, so this build's dispatcher has an
+# ATTEST_CSR entry exactly as the 328P image does -- test_dispatch pins that,
+# and csr.c is in HOST_SRCS. A -D here would be redundant with the profile's.
+# The soft tfwsim drops it with the alias certificate (TFWSIM_SOFT_OFF below).
+# tfw_csr_cmd itself is tested by test_csr, and served by tfwsim-atecc608a
+# through its overlay profile.
 HOST_EXTRA_DEFS_DEFAULT := -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
 HOST_EXTRA_DEFS ?= $(HOST_EXTRA_DEFS_DEFAULT)
 
@@ -2532,9 +2534,8 @@ TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c src/core/update_request
 # atmega328p profile it otherwise takes (which says 0 for want of flash, a
 # constraint that does not exist on a host). The element tier is the only tier
 # that can verify an operator signature, and the simulator exists to let a host
-# exercise exactly what that tier does. ATTEST_CSR is on in it for the same
-# reason: the profile's 0 is the 328P's flash, and the element tier is the tier
-# that serves it. The override is an overlay
+# exercise exactly what that tier does. ATTEST_CSR is on in it as it is in the
+# 328P's element image, the tier that serves it. The override is an overlay
 # profile, tools/tfwsim/element/board_profile.h, found first on the include path;
 # no firmware source or board profile is touched, and no AVR image sees it.
 TFWSIM_ELEMENT_INC := -Itools/tfwsim/element

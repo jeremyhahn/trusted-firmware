@@ -81,9 +81,14 @@
  * builder fits in it. A 328P can now prove possession of its DeviceID key at
  * ACME finalize; CAPS reports bit 15 set.
  *
- * mk/firmware.mk reads this 1 as "not off" and links src/caps/csr.c beside the
- * alias builder, whose template it reads its headers from. */
-#define TFW_FEATURE_ATTEST_CSR 1
+ * It rides beside the alias certificate, whose template it reads its headers
+ * from, so it is on wherever ALIAS_CERT is: the element image (where
+ * mk/firmware.mk, finding no 0 here, links src/caps/csr.c and passes the -D
+ * this guard defers to) and the host build, and off in the soft tfwsim, which
+ * takes the alias builder back out as a CRYPTO=soft image does. */
+#ifndef TFW_FEATURE_ATTEST_CSR
+#define TFW_FEATURE_ATTEST_CSR TFW_FEATURE_ALIAS_CERT
+#endif
 
 /* The application region, by owner ruling 1243 (option (a) of the Ethernet
  * ADR): 28 672 bytes, 32 KB less the 4 KB boot section, so the gate stops where

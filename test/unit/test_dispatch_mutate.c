@@ -68,10 +68,12 @@ static const seed_t seeds[] = {
 
 /* Commands that cannot answer TFW_OK against the mock whatever the payload:
  * the pulse pair wait for an edge the mock pin never makes, ATTEST needs a
- * provisioned identity and ATTEST_CERT an asymmetric key this build lacks.
+ * provisioned identity, and ATTEST_CERT and ATTEST_CSR (in this build since
+ * the 328P's profile carries it, #53) an asymmetric key this build lacks.
  * Their decoding is still reached -- each must still get past the arity check. */
 static const uint8_t never_ok_on_the_mock[] = {
     TFW_CMD_PULSE_IN, TFW_CMD_PULSE_CAPTURE, TFW_CMD_ATTEST, TFW_CMD_ATTEST_CERT,
+    TFW_CMD_ATTEST_CSR,
 };
 
 typedef struct {

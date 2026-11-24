@@ -10,19 +10,29 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/jeremyhahn/trusted-firmware/xkms/tfmdice"
 )
 
-func main() {
-	devPub := flag.String("deviceid-pub", "", "DeviceID public key X||Y, hex")
-	aliasPub := flag.String("alias-pub", "", "alias public key X||Y, hex")
-	certPath := flag.String("cert", "", "alias certificate DER file")
-	nonce := flag.String("nonce", "", "the nonce the certificate was asked over, hex")
-	digest := flag.String("digest", "", "the digest the alias key signed, hex")
-	sig := flag.String("sig", "", "the alias signature r||s, hex")
-	flag.Parse()
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run is the command: it parses args, reports to stdout and stderr, and
+// returns the exit code (0 the evidence holds, 1 a check fails, 2 bad
+// arguments).
+func run(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("tfm-dice-check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	devPub := fs.String("deviceid-pub", "", "DeviceID public key X||Y, hex")
+	aliasPub := fs.String("alias-pub", "", "alias public key X||Y, hex")
+	certPath := fs.String("cert", "", "alias certificate DER file")
+	nonce := fs.String("nonce", "", "the nonce the certificate was asked over, hex")
+	digest := fs.String("digest", "", "the digest the alias key signed, hex")
+	sig := fs.String("sig", "", "the alias signature r||s, hex")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	var in tfmdice.Input
 	for _, f := range []struct {
@@ -38,21 +48,22 @@ func main() {
 	} {
 		b, err := hex.DecodeString(f.val)
 		if err != nil || len(b) == 0 {
-			fmt.Fprintf(os.Stderr, "tfm-dice-check: -%s: want non-empty hex\n", f.name)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "tfm-dice-check: -%s: want non-empty hex\n", f.name)
+			return 2
 		}
 		*f.dst = b
 	}
 	der, err := os.ReadFile(*certPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tfm-dice-check: -cert: %v\n", err)
-		os.Exit(2)
+		fmt.Fprintf(stderr, "tfm-dice-check: -cert: %v\n", err)
+		return 2
 	}
 	in.CertDER = der
 
 	if err := tfmdice.Check(in); err != nil {
-		fmt.Fprintln(os.Stderr, "tfm-dice-check:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "tfm-dice-check:", err)
+		return 1
 	}
-	fmt.Println("tfm-dice-check: alias evidence ok")
+	fmt.Fprintln(stdout, "tfm-dice-check: alias evidence ok")
+	return 0
 }

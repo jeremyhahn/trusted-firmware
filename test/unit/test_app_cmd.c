@@ -8,6 +8,7 @@
  * docs/application-sdk/adr-application-wire-commands.md (decisions 1-4).
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "unity.h"
 #include "dispatch.h"
@@ -234,6 +235,69 @@ static void test_overruns_through_app_cmd_stop_at_0xffff(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
 }
 
+/* A call that starts just before the millisecond-counter wrap is timed by
+ * difference, as a run is: each start k ms before the wrap, each call length. */
+static void test_a_call_across_the_millisecond_wrap_is_timed_by_difference(void)
+{
+    static const uint8_t req[] = { 0x00u };
+    tfw_ms_t             k;
+    tfw_ms_t             run;
+
+    for (k = 0u; k <= 2u * TFW_APP_RUN_BUDGET_MS + 2u; k++) {
+        for (run = 0u; run <= 2u * TFW_APP_RUN_BUDGET_MS + 1u; run++) {
+            uint16_t     want = (run > TFW_APP_RUN_BUDGET_MS) ? 1u : 0u;
+            tfw_status_t st;
+
+            tfw_mock_reset();
+            tfw_mock_app_reset();
+            tfw_app_runner_reset_state();
+            tfw_mock_set_millis((tfw_ms_t)(0u - k));
+            tfw_mock_app_set_command_ms(run);
+            tfw_app_runner_start();
+            st = app_cmd(req, (uint8_t)sizeof req);
+            if (st != TFW_OK || tfw_app_runner_state() != TFW_APP_STATE_RUNNING ||
+                tfw_app_runner_overruns() != want) {
+                printf("start %lu ms before the wrap, call %lu ms: status %d, state %d, overruns %u, want %u\n",
+                       (unsigned long)k, (unsigned long)run, (int)st, (int)tfw_app_runner_state(),
+                       (unsigned)tfw_app_runner_overruns(), (unsigned)want);
+                TEST_FAIL_MESSAGE("an APP_CMD call across the millisecond-counter wrap is timed wrongly");
+            }
+        }
+    }
+}
+
+/* The budget holds whatever the hook answers: a slow call it refuses still
+ * overran. */
+static void test_a_slow_call_the_hook_refuses_counts_one_overrun(void)
+{
+    static const uint8_t req[] = { 0x01u };
+
+    tfw_mock_app_set_command(TFW_ERR_UNSUPPORTED, NULL, 0u);
+    tfw_mock_app_set_command_ms(TFW_APP_RUN_BUDGET_MS + 1u);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, app_cmd(req, (uint8_t)sizeof req));
+    TEST_ASSERT_EQUAL_STRING("ic", tfw_mock_app_log());
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_app_runner_overruns());
+    TEST_ASSERT_EQUAL_UINT16(1u, app_info_overruns());
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+}
+
+/* APP_CMD and run count into the one overrun count APP_INFO reports. */
+static void test_app_cmd_and_run_share_the_overrun_count(void)
+{
+    static const uint8_t req[] = { 0x00u };
+
+    tfw_mock_app_set_command_ms(TFW_APP_RUN_BUDGET_MS + 1u);
+    tfw_mock_app_set_run_ms(TFW_APP_RUN_BUDGET_MS + 1u);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_cmd(req, (uint8_t)sizeof req));
+    tfw_app_runner_poll();
+    TEST_ASSERT_EQUAL_UINT16(2u, app_info_overruns());
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_cmd(req, (uint8_t)sizeof req));
+    TEST_ASSERT_EQUAL_UINT16(3u, app_info_overruns());
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+}
+
 /* ---------------------------------------------- the session view (dec. 5) */
 
 /* The host library links the permissive gate, so the view says open. */
@@ -260,6 +324,9 @@ int main(void)
     RUN_TEST(test_a_call_at_the_budget_counts_none);
     RUN_TEST(test_a_refused_call_counts_no_overrun);
     RUN_TEST(test_overruns_through_app_cmd_stop_at_0xffff);
+    RUN_TEST(test_a_call_across_the_millisecond_wrap_is_timed_by_difference);
+    RUN_TEST(test_a_slow_call_the_hook_refuses_counts_one_overrun);
+    RUN_TEST(test_app_cmd_and_run_share_the_overrun_count);
     RUN_TEST(test_session_ok_follows_the_auth_gate);
     return UNITY_END();
 }

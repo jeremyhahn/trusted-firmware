@@ -30,6 +30,12 @@ const (
 // record.
 type template struct {
 	Name string
+	// Plan is "" for the blank-part plan (write config, lock config, generate
+	// the DeviceID, seed the UDS, lock data) or planTrustFLEX for a
+	// pre-locked ATECC608C-TFLXTLS, where Microchip has already locked both
+	// zones and the per-slot SlotLock takes their place
+	// (docs/device-provisioning/adr-trustflex-608c-slot-map.md, (a1)).
+	Plan string
 	// Blocks 2..3 of the config zone, keyed by block index. Blocks 0 and 1 are
 	// absent because the device refuses them: they hold the serial number, the
 	// revision and the OTP mode, which are not ours to set.
@@ -40,6 +46,9 @@ type template struct {
 	ConfigLockCRC uint16
 	DataLockCRC   uint16
 }
+
+// planTrustFLEX names the TrustFLEX plan in a template's `plan` key.
+const planTrustFLEX = "trustflex"
 
 // A deliberately small parser: `key = value`, with hex blocks.
 //
@@ -85,6 +94,13 @@ func loadTemplate(path string) (*template, error) {
 		switch {
 		case key == "name":
 			t.Name = val
+		case key == "plan":
+			// One spelling only: absent is the blank-part plan.
+			if val != planTrustFLEX {
+				return nil, fmt.Errorf("%s:%d: plan %q is not known; the only plan is %q (absent: the blank-part plan)",
+					path, line, val, planTrustFLEX)
+			}
+			t.Plan = val
 		case key == "config_lock_crc" || key == "data_lock_crc":
 			n, err := strconv.ParseUint(strings.TrimPrefix(val, "0x"), 16, 16)
 			if err != nil {
@@ -121,6 +137,21 @@ func loadTemplate(path string) (*template, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
+	}
+	if t.Plan == planTrustFLEX {
+		// Microchip locked both zones: a config block or a zone CRC in this
+		// template is a step that cannot run, so the template is not what
+		// its author thinks it is.
+		if len(t.Blocks) > 0 {
+			return nil, errors.New("a trustflex template writes no config blocks: Microchip locked the config zone")
+		}
+		if t.ConfigLockCRC != 0 || t.DataLockCRC != 0 {
+			return nil, errors.New("a trustflex template carries no zone lock CRCs: Microchip locked both zones; SlotLock CRCs come from the slot contents")
+		}
+		if t.Name == "" {
+			return nil, errors.New("template must carry a name; a nameless template cannot be matched to its review")
+		}
+		return t, nil
 	}
 	if len(t.Blocks) == 0 {
 		return nil, errors.New("template writes no config blocks")

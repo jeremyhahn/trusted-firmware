@@ -31,9 +31,9 @@
    fork's head to the hosted default with a ::notice.
 8. Codex round 1 P1 on #1042: the balancing decision is run against a fake
    API with run and job lists per URL: the lower of hosted use H/HS and
-   self-hosted use max(S1/C1, S2/C2) wins and a tie goes hosted; one full
-   pool sends the run to the other, both full take the shorter queue and
-   equal queues go hosted; uncounted jobs stay uncounted; a fork's head
+   self-hosted use max(S1/C1, S2/C2) wins and a tie goes self-hosted; one
+   full pool sends the run to the other, both full take the shorter queue
+   and equal queues go self-hosted; uncounted jobs stay uncounted; a fork's head
    stays hosted where self-hosted would win. Both self-hosted label lists
    are asserted exactly, and each test also asserts the self-hosted side
    of its boundary.
@@ -391,7 +391,7 @@ class OverflowShortList(unittest.TestCase):
         out, outputs = self.select(event="pull_request", head="o/r")
         self.assertNotIn("::warning::", out)
         self.assertIn("::notice::runner selection: use hosted 0/12", out)
-        self.assert_hosted(outputs)
+        self.assertEqual(outputs, SELF_OUT, out)
 
 
 @unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
@@ -443,7 +443,7 @@ class BalancedPool(unittest.TestCase):
         for s in says:
             self.assertIn(s, out)
 
-    # A. balance: hosted H/HS against max(S1/C1, S2/C2); a tie goes hosted.
+    # A. balance: hosted H/HS against max(S1/C1, S2/C2); a tie goes self-hosted.
 
     def test_self_hosted_outputs_are_the_two_label_lists(self):
         out, outputs, _ = self.balance(pool(h=5, s1=2, s2=2))
@@ -458,19 +458,20 @@ class BalancedPool(unittest.TestCase):
         self.assert_pick("hosted", pool(h=2, s2=5))
         self.assert_pick("self", pool(h=5, s2=2))
 
-    def test_tie_goes_hosted(self):
-        self.assert_pick("hosted", pool(h=3, s2=3), ["use hosted 3/10, bigdisk 0/10, bigdisk-docker 3/10"])
-        self.assert_pick("self", pool(h=3, s2=2))
-        self.assert_pick("hosted", pool(h=1, s1=1))
-        self.assert_pick("self", pool(h=1))
-        self.assert_pick("hosted", pool(), ["hosted 0 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+    def test_tie_goes_self_hosted(self):
+        self.assert_pick("self", pool(h=3, s2=3), ["use hosted 3/10, bigdisk 0/10, bigdisk-docker 3/10"])
+        self.assert_pick("hosted", pool(h=3, s2=4))
+        self.assert_pick("self", pool(h=1, s1=1))
+        self.assert_pick("hosted", pool(h=1, s1=2))
+        self.assert_pick("self", pool(), ["hosted 0 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+        self.assert_pick("hosted", pool(s1=1))
 
     def test_tie_by_cross_multiplication(self):
         # 2/10 against 4/20, and 4/20 against 3/15 with HS=20, C2=15.
-        self.assert_pick("hosted", pool(h=2, s1=4), c1="20")
-        self.assert_pick("self", pool(h=2, s1=3), c1="20")
-        self.assert_pick("hosted", pool(h=4, s2=3), hs="20", c2="15")
-        self.assert_pick("self", pool(h=4, s2=2), hs="20", c2="15")
+        self.assert_pick("self", pool(h=2, s1=4), c1="20")
+        self.assert_pick("hosted", pool(h=2, s1=5), c1="20")
+        self.assert_pick("self", pool(h=4, s2=3), hs="20", c2="15")
+        self.assert_pick("hosted", pool(h=4, s2=4), hs="20", c2="15")
 
     def test_larger_self_hosted_kind_decides(self):
         # S2/C2 3/6 is above hosted 4/20 though S1 is 0; 9/20 is above 1/6 and 1/6.
@@ -485,18 +486,19 @@ class BalancedPool(unittest.TestCase):
 
     def test_uncounted_jobs(self):
         # Completed, unlabelled and other self-hosted jobs, and a self-hosted
-        # job naming a hosted image, count nowhere; one hosted job makes it self.
+        # job naming a hosted image, count nowhere: with one hosted job or none
+        # the run goes self-hosted, which one counted self-hosted job would stop.
         extra = ([jobj(101, "completed", SH_DOCKER) for _ in range(30)]
                  + [jobj(101, "in_progress", []) for _ in range(5)]
                  + [jobj(101, "in_progress", ["self-hosted", "linux", "x64", "release"])]
                  + [jobj(101, "in_progress", ["self-hosted", "ubuntu-latest"])])
         self.assert_pick("self", pool(h=1, extra=extra), ["hosted 1 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
-        self.assert_pick("hosted", pool(extra=extra), ["hosted 0 of", "bigdisk 0 of"])
+        self.assert_pick("self", pool(extra=extra), ["hosted 0 of", "bigdisk 0 of"])
 
     def test_bigdisk_docker_job_counts_as_s2_only(self):
         both = [jobj(101, "in_progress", ["self-hosted", "bigdisk", "bigdisk-docker"])]
         self.assert_pick("self", pool(h=5, extra=both), ["bigdisk 0 of", "bigdisk-docker 1 of"])
-        self.assert_pick("hosted", pool(h=1, extra=both), ["bigdisk-docker 1 of"])
+        self.assert_pick("hosted", pool(extra=both), ["bigdisk-docker 1 of"])
 
     def test_this_runs_jobs_are_not_read(self):
         mine = [["runs/100/jobs", 200, jobs(*[jobj(100, "in_progress", SH_DOCKER) for _ in range(50)])]]
@@ -523,7 +525,7 @@ class BalancedPool(unittest.TestCase):
 
     def test_hosted_full_goes_self_hosted(self):
         self.assert_pick("self", pool(h=10, s1=9, s2=9), ["the hosted pool is full (10 of 10)"])
-        self.assert_pick("hosted", pool(h=9, s1=9, s2=9))
+        self.assert_pick("hosted", pool(h=8, s1=9, s2=9))
 
     def test_self_hosted_full_goes_hosted(self):
         self.assert_pick("hosted", pool(h=9, s1=10, s2=10), ["the self-hosted pool is full"])
@@ -547,12 +549,12 @@ class BalancedPool(unittest.TestCase):
                          ["both pools full: hosted 1 queued, self-hosted 2 queued"])
 
     def test_both_full_self_hosted_queue_counts_both_kinds(self):
-        self.assert_pick("hosted", pool(h=8, hq=2, s1=8, s1q=1, s2=9, s2q=1), ["self-hosted 2 queued"])
+        self.assert_pick("hosted", pool(h=9, hq=1, s1=8, s1q=1, s2=9, s2q=1), ["hosted 1 queued, self-hosted 2 queued"])
         self.assert_pick("self", pool(h=8, hq=2, s1=8, s1q=1, s2=10), ["self-hosted 1 queued"])
 
-    def test_both_full_equal_queues_go_hosted(self):
-        self.assert_pick("hosted", pool(h=12, s1=12), ["both pools full: hosted 0 queued, self-hosted 0 queued"])
-        self.assert_pick("self", pool(h=12, hq=1, s1=12), ["both pools full: hosted 1 queued, self-hosted 0 queued"])
+    def test_both_full_equal_queues_go_self_hosted(self):
+        self.assert_pick("self", pool(h=12, s1=12), ["both pools full: hosted 0 queued, self-hosted 0 queued"])
+        self.assert_pick("hosted", pool(h=12, s1=12, s1q=1), ["both pools full: hosted 0 queued, self-hosted 1 queued"])
 
     # E. a fork's head stays hosted even where self-hosted would win.
 

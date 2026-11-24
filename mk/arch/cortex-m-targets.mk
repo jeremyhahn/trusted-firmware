@@ -428,7 +428,7 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 	@echo "built $@"
 
 # ---------------------------------------------------------------------------
-# TZ=1: the TrustZone-M secure/non-secure split (#590, docs/plans/590.md).
+# TZ=1: the TrustZone-M secure/non-secure split (#590).
 # Two images, neither tfw-boot nor the application: a secure image built
 # with -mcmse, whose link writes the import library of its NSC veneers
 # (--cmse-implib), and a non-secure image linked against that library. Only

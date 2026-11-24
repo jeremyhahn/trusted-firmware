@@ -237,6 +237,214 @@ static void test_independent_deadlines_fire_independently(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
 }
 
+/*
+ * A revert the HAL refused at the deadline must not drop the timer: the pin
+ * is still held, and the next sweep is the only thing left to drive it back.
+ */
+static void test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries(void)
+{
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(5000u);
+    tfw_mock_gpio_io_fails(TFW_ERR_TIMEOUT);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* still active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* still held high */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(0u, remaining);
+
+    tfw_mock_gpio_io_fails(TFW_OK);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+/*
+ * A revert the HAL keeps refusing for longer than 2^31 ms must still be
+ * retried: with the deadline left at its original value the signed
+ * difference flips and the slot reads as not yet due.
+ */
+static void test_a_revert_refused_past_2_31_ms_is_still_retried(void)
+{
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(5000u);
+    tfw_mock_gpio_io_fails(TFW_ERR_TIMEOUT);
+    tfw_sched_poll();
+    tfw_mock_advance(0x40000000u);
+    tfw_sched_poll();
+    tfw_mock_advance(0x40000000u);
+    tfw_sched_poll();
+    tfw_mock_advance(1u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* still active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* still held high */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(0u, remaining);
+
+    tfw_mock_gpio_io_fails(TFW_OK);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+/* api.md gives level as (0|1) and ms as [1, 0x7FFFFFFF]: level 2 would drive
+ * the pin high and ms 0 would fire on the next sweep, a timer nobody asked
+ * for. Kills sched.c's `level > 1u` and `ms == 0u ||` refusals. */
+static void test_timer_set_refuses_a_level_above_one_and_a_zero_duration(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 2u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 0xFFu, 1000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+}
+
+/* api.md gives ms as [1, 0x7FFFFFFF]. One past the maximum is refused and arms
+ * nothing; the maximum itself is armed, queried and reverted on time, on both
+ * sides of a deadline that crosses the millisecond wrap. Kills sched.c's
+ * `ms > TFW_SCHED_MAX_MS` refusal and a `>=` that would refuse the maximum. */
+static void test_timer_set_accepts_the_maximum_duration_and_refuses_one_past_it(void)
+{
+    uint8_t p[1] = { PIN };
+    uint32_t remaining;
+
+    tfw_mock_set_millis(0xFFFFFF00u);            /* deadline crosses the wrap */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 1u, 0x80000000u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 1u, 0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, TFW_SCHED_MAX_MS));
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* held high */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(TFW_SCHED_MAX_MS, remaining);
+
+    tfw_mock_advance(TFW_SCHED_MAX_MS - 1u);     /* one millisecond early */
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    tfw_mock_advance(1u);                        /* exactly on time */
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+/* Every slot held by another pin: a new pin is told NO_SLOT, while a pin that
+ * already holds one still re-arms in place. Kills tfw_sched_cmd_set's NO_SLOT. */
+static void test_a_full_table_refuses_a_new_pin_with_no_slot(void)
+{
+    uint8_t i;
+
+    for (i = 0u; i < TFW_SCHED_SLOTS; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, timer_set((tfw_pin_t)(2u + i), 1u, 1000u));
+    }
+    TEST_ASSERT_EQUAL_UINT8(TFW_SCHED_SLOTS, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT,
+                      timer_set((tfw_pin_t)(2u + TFW_SCHED_SLOTS), 1u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));   /* extends */
+    TEST_ASSERT_EQUAL_UINT8(TFW_SCHED_SLOTS, tfw_sched_active());
+}
+
+/* A pin with no timer: CANCEL says NO_SLOT, QUERY answers inactive, low, zero
+ * remaining. Kills tfw_sched_cmd_cancel's NO_SLOT and tfw_sched_cmd_query's
+ * unarmed reply. */
+static void test_cancel_and_query_of_an_unarmed_pin(void)
+{
+    uint8_t i;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT,
+                      run(TFW_CMD_TIMER_CANCEL, (const uint8_t[]){ PIN, 0u }, 2u));
+
+    memset(outbuf, 0xAAu, sizeof outbuf);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, (const uint8_t[]){ PIN }, 1u));
+    for (i = 0u; i < 6u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, outbuf[i]);
+    }
+}
+
+static void test_rearming_with_the_other_level_flips_the_revert_level(void)
+{
+    uint8_t p[1] = { PIN };
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 0u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, outbuf[1]);      /* held low */
+
+    tfw_mock_advance(500u);
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);      /* active */
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[1]);      /* held high now */
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(1000u, remaining);
+
+    tfw_mock_advance(999u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+
+    tfw_mock_advance(1u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());    /* reverts low, not high */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+
+    /* The mirror: armed high, re-armed low, reverts high. */
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 0u, 1000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());
+    tfw_mock_advance(1000u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+static void test_rearming_to_a_shorter_duration_shortens_the_deadline(void)
+{
+    uint8_t p[1] = { PIN };
+    uint32_t remaining;
+
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 5000u));
+    tfw_mock_advance(100u);
+    TEST_ASSERT_EQUAL(TFW_OK, timer_set(PIN, 1u, 200u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
+    remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
+              | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
+    TEST_ASSERT_EQUAL_UINT32(200u, remaining);
+
+    tfw_mock_advance(199u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, level_now());
+
+    tfw_mock_advance(1u);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, level_now());    /* the shorter deadline won */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -251,5 +459,13 @@ int main(void)
     RUN_TEST(test_query_reports_the_remaining_time);
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);
+    RUN_TEST(test_a_revert_the_hal_refuses_keeps_the_timer_and_the_next_sweep_retries);
+    RUN_TEST(test_a_revert_refused_past_2_31_ms_is_still_retried);
+    RUN_TEST(test_timer_set_refuses_a_level_above_one_and_a_zero_duration);
+    RUN_TEST(test_timer_set_accepts_the_maximum_duration_and_refuses_one_past_it);
+    RUN_TEST(test_a_full_table_refuses_a_new_pin_with_no_slot);
+    RUN_TEST(test_cancel_and_query_of_an_unarmed_pin);
+    RUN_TEST(test_rearming_with_the_other_level_flips_the_revert_level);
+    RUN_TEST(test_rearming_to_a_shorter_duration_shortens_the_deadline);
     return UNITY_END();
 }

@@ -8,6 +8,7 @@
  * has a boot section. test_sys_noboot covers the other side of the latter.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "unity.h"
 #include "sys.h"
@@ -133,6 +134,43 @@ static void test_sys_info_after_reset_state_reports_zero_framer_counters(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, outbuf, sizeof want);
 }
 
+static void test_sys_info_u16_free_ram_saturates_exactly_past_0xffff(void)
+{
+    static const struct {
+        uint32_t ram;
+        uint16_t want_u16;
+    } cases[] = {
+        { 0xFFFEu, 0xFFFEu },
+        { 0xFFFFu, 0xFFFFu },
+        { 0x10000u, 0xFFFFu },
+        { 0x10001u, 0xFFFFu },
+        { 0xFFFFFFFFu, 0xFFFFu },
+    };
+    char msg[32];
+    size_t i;
+
+    for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+        uint16_t got16;
+        uint32_t got32;
+
+        tfw_mock_reset();
+        tfw_sys_reset_state();
+        memset(outbuf, 0xEE, sizeof outbuf);
+        tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+        tfw_mock_set_free_ram(cases[i].ram);
+        snprintf(msg, sizeof msg, "ram 0x%08lX", (unsigned long)cases[i].ram);
+
+        args(NULL, 0u);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_sys_cmd_sys_info(&r, &w), msg);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(15u, tfw_writer_len(&w), msg);
+        got16 = (uint16_t)(outbuf[4] | ((uint16_t)outbuf[5] << 8));
+        got32 = (uint32_t)outbuf[11] | ((uint32_t)outbuf[12] << 8) |
+                ((uint32_t)outbuf[13] << 16) | ((uint32_t)outbuf[14] << 24);
+        TEST_ASSERT_EQUAL_HEX16_MESSAGE(cases[i].want_u16, got16, msg);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(cases[i].ram, got32, msg);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -141,5 +179,6 @@ int main(void)
     RUN_TEST(test_reset_state_clears_the_latch);
     RUN_TEST(test_sys_info_saturates_the_u16_and_appends_framer_counters_and_u32_ram);
     RUN_TEST(test_sys_info_after_reset_state_reports_zero_framer_counters);
+    RUN_TEST(test_sys_info_u16_free_ram_saturates_exactly_past_0xffff);
     return UNITY_END();
 }

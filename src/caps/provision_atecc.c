@@ -252,8 +252,8 @@ static uint8_t pubkey_slot_ok(uint8_t slot)
  * words, because the slot's third block holds only eight bytes. */
 #define PUBKEY_STORED_LEN 72u
 
-/* Data-zone address of word `word` of a slot: block in bits 8+, slot in bits
- * 3-6, word within the block in bits 0-2. */
+/* Reads a slot's stored public key, PUBKEY_STORED_LEN (72) bytes, through
+ * tfw_atecc_data_read. */
 static tfw_status_t pubkey_read(uint8_t slot, uint8_t stored[PUBKEY_STORED_LEN])
 {
     tfw_status_t st  = TFW_OK;

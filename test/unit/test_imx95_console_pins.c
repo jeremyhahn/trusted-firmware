@@ -128,6 +128,26 @@ static void test_a_reply_with_a_wrong_crc_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(1u, rings);
 }
 
+/* TX granted, RX refused: both are asked and RX's status comes back. */
+static void test_a_refused_rx_comes_back_after_tx(void)
+{
+    reply_status[1] = 0xFFFFFFFDu;                                /* DENIED */
+    TEST_ASSERT_EQUAL_INT32(-3, tfw_imx95_console_pins_set(&chan, &pins));
+    TEST_ASSERT_EQUAL_UINT32(2u, rings);
+}
+
+/* A channel without CRC (every older initializer): no CRC word at shm+0x0C
+ * on the request, and a reply whose CRC is wrong is not refused. Only the
+ * first request is checked: the platform writes shm+0x0C on each reply. */
+static void test_a_channel_without_crc_neither_writes_nor_checks_one(void)
+{
+    chan.crc      = 0u;
+    reply_crc_xor = 1u;
+    TEST_ASSERT_EQUAL_INT32(0, tfw_imx95_console_pins_set(&chan, &pins));
+    TEST_ASSERT_EQUAL_UINT32(2u, rings);
+    TEST_ASSERT_EQUAL_HEX32(0u, seen[0][0]);
+}
+
 /* No channel: nothing rung. */
 static void test_no_channel_sends_nothing(void)
 {
@@ -207,6 +227,8 @@ int main(void)
     RUN_TEST(test_a_pad_configuration_is_sent_after_the_mux);
     RUN_TEST(test_a_refused_tx_stops_before_rx);
     RUN_TEST(test_a_reply_with_a_wrong_crc_is_refused);
+    RUN_TEST(test_a_refused_rx_comes_back_after_tx);
+    RUN_TEST(test_a_channel_without_crc_neither_writes_nor_checks_one);
     RUN_TEST(test_no_channel_sends_nothing);
     RUN_TEST(test_the_crc_is_ieee_crc32);
     RUN_TEST(test_the_configs_maximum_fits_the_payload_and_one_more_is_refused);

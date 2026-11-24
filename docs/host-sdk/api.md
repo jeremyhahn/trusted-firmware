@@ -202,7 +202,8 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.SlotTrial` | `const SlotTrial uint8 = 1 << 2` | SlotInfo flag: the device is in TRIAL. |
 | `tfw.PlatformBlockLen`, `tfw.SerialLen`, `tfw.PubkeyHashLen`, `tfw.OperatorPubkeyLen` | `const` 192, 16, 32, 64 | The platform-reserved EEPROM block, [0x000, 0x0C0) on the device, mirroring include/tfw/boot.h. |
 | `tfw.ZoneConfig`, `tfw.ZoneData` | `const uint8` 0x00, 0x01 | Element zones, for Lock. |
-| `tfw.SlotDeviceID`, `tfw.SlotUDS` | `const uint8` 0, 6 | Slot assignments: the TrustFLEX map (adr-trustflex-608c-slot-map.md, (a1)) every board profile builds, TFW_ATECC_SLOT_UDS in board_profile.h. |
+| `tfw.SlotDeviceID`, `tfw.SlotUDS` | `const uint8` 0, 1 | Slot assignments: the blank-part map, the default TFW_ATECC_SLOT_UDS in include/tfw/config.h, which the blank-part `tfwprov --commit` plan seeds. |
+| `tfw.SlotTrustFLEXUDS` | `const uint8` 6 | The UDS slot of the TrustFLEX map (adr-trustflex-608c-slot-map.md, (a1)) every board profile builds, TFW_ATECC_SLOT_UDS in board_profile.h: the DeviceID stays in slot 0, as a pre-locked ATECC608C-TFLXTLS ships it, and the UDS takes over slot 6. `tfwprov --commit` with a `plan = trustflex` template seeds it and slot-locks it with `ProvSlotLockUDS`. |
 | `tfw.SlotSecureBootKey` | `const uint8` 15 | The slot ProvWritePubKey writes: the image-signing public key, the TrustFLEX part's secure-boot key slot (DS40002515B table 3-16). |
 | `tfw.SlotImageSigning` | `const uint8` 2 | Deprecated: the old blank-part map's image slot, which no shipped image accepts. Use `tfw.SlotSecureBootKey`. |
 | `tfw.ApplicationEvidenceLen` | `const ApplicationEvidenceLen = 32` | The width of the value in the measurements claim (273): one sha-256 hash-entry. |

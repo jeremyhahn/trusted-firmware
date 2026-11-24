@@ -369,6 +369,10 @@
  * (16), no payload. */
 #define TFWV_FRAME_PROV_WRITE_PUBKEY_PROTECTED_RESP "\xa5\x03\x07\xfb\x10\x86\x47"
 
+/* TFW_CMD_PING, seq 1, LEN 67: 65 payload bytes of 0x5A, one past
+ * TFW_MAX_PAYLOAD, CRC valid; both decoders refuse it as a format error (#640). */
+#define TFWV_FRAME_PING_OVERSIZE_REQ "\xa5\x43\x01\x01\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x5a\x40\xbb"
+
 /* --------------------------------------------- application evidence (#51) */
 /* The claims set ATTEST_CERT and ATTEST_CSR carry, with and without an
  * application's evidence: the inputs of testdata/uccs_vectors.h, and as claim

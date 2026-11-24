@@ -194,12 +194,13 @@ class ReleaseAlpha(unittest.TestCase):
 
     def wrap_git(self, before_sign):
         """Patch release_alpha.git so that before_sign(n) runs ahead of the n-th
-        (1-based) `git tag --sign`, as another run in the same checkout would."""
+        (1-based) `git [-c k=v ...] tag --sign`, as another run in the same
+        checkout would."""
         real = release_alpha.git
         calls = []
 
         def side_effect(repo, *args):
-            if args[:2] == ("tag", "--sign"):
+            if ("tag", "--sign") in zip(args, args[1:]):
                 calls.append(args)
                 before_sign(len(calls))
             return real(repo, *args)

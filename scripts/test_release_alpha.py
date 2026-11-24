@@ -238,6 +238,42 @@ class ReleaseAlpha(unittest.TestCase):
                          git(self.repo, "rev-parse", "HEAD~1"))
         self.assertNotIn("v0.4.2-alpha", self.tags(self.dev))
 
+    def test_a_tag_replaced_before_its_ownership_is_read_is_not_deleted(self):
+        signer = os.path.join(self.tmp.name, "fake-gpg")
+        count = os.path.join(self.tmp.name, "fake-gpg-calls")
+        # The second signature fails, so the run cleans up what it cut.
+        write(signer, FAKE_SIGNER.replace("import sys\n", (
+            "import os, sys\n"
+            f"n = int(open({count!r}).read()) if os.path.exists({count!r}) else 0\n"
+            f"open({count!r}, 'w').write(str(n + 1))\n"
+            "if n >= 1:\n"
+            "    sys.exit(1)\n"), 1))
+        real = release_alpha.git
+        replaced = []
+
+        # The moment v0.4.2-alpha first exists in the checkout, before the run
+        # makes its next git call, another process moves it to HEAD~1.
+        def side_effect(repo, *args):
+            out = real(repo, *args)
+            if not replaced and subprocess.run(
+                    ["git", "-C", self.repo, "rev-parse", "--verify", "-q",
+                     "refs/tags/v0.4.2-alpha"], capture_output=True, check=False).returncode == 0:
+                replaced.append(True)
+                git(self.repo, "tag", "-f", "v0.4.2-alpha", "HEAD~1")
+            return out
+
+        with unittest.mock.patch.object(release_alpha, "git", side_effect=side_effect):
+            self.assertIn("tag", self.refused())
+        self.assertEqual(replaced, [True])
+        with open(count) as f:
+            self.assertEqual(f.read(), "2")
+        self.assertIn("v0.4.2-alpha", self.tags(self.repo))
+        self.assertEqual(git(self.repo, "rev-parse", "refs/tags/v0.4.2-alpha^{commit}"),
+                         git(self.repo, "rev-parse", "HEAD~1"))
+        dev = self.tags(self.dev)
+        self.assertNotIn("v0.4.2-alpha", dev)
+        self.assertNotIn("sdk/go/v0.4.2-alpha", dev)
+
 
 class Precedence(unittest.TestCase):
     def test_semver_precedence(self):

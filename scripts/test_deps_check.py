@@ -288,6 +288,33 @@ class GoAnswer(unittest.TestCase):
         rep.check("go", (1, 27, 4), (), "")
         self.assertEqual(rep.failed, 1)
         self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in upstream's answer\n")
+
+    def test_report_check_refuses_an_empty_pin(self):
+        rep = dc.Report()
+        rep.check("go", (), (1, 27, 4), "")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in the pin\n")
+
+    def test_report_check_refuses_both_empty(self):
+        # The pin is checked first, so it is the side named.
+        rep = dc.Report()
+        rep.check("go", (), (), "")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in the pin\n")
+        self.assertNotIn("  ok      go", self.out.getvalue())
+
+    def test_a_pin_with_no_number_fails_and_the_run_goes_on(self):
+        pins = dict(dc.load_pins.return_value, GO_VERSION="latest")
+        self.assertEqual(dc.numbers(pins["GO_VERSION"]), ())
+        with mock.patch.object(dc, "load_pins", return_value=pins):
+            rep, out = self.toolchain("go1.27.4\n")
+        self.assertEqual(rep.failed, 1)
+        self.assertIn("FAILED  go: no version number in the pin", out)
+        self.assertNotIn("  ok      go ", out)
+        self.assertIn("  ok      trivy ", out)
 
 
 if __name__ == "__main__":

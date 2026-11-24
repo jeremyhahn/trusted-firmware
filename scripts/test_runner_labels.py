@@ -533,6 +533,51 @@ class RunnerLabelsTest(unittest.TestCase):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
             self.assertEqual(found, [], value)
 
+    def test_a_hash_in_a_quoted_expression_label_is_kept(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: [self-hosted, "
+            "\"${{ contains(' # ', inputs.x) && 'linux' || 'x64' }}\", qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_hash_in_a_single_quoted_expression_label_is_kept(self):
+        found = self.check(
+            "jobs:\n  build:\n    runs-on: [self-hosted, "
+            "'${{ contains('' # '', inputs.x) }}', qwne]\n"
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_hash_in_a_quoted_label_is_one_label(self):
+        found = self.check('jobs:\n  build:\n    runs-on: [self-hosted, "a #b"]\n')
+        self.assertEqual(found, ["w.yml:3: a #b"])
+
+    def test_a_comment_after_a_flow_list_is_stripped(self):
+        found = self.check("jobs:\n  build:\n    runs-on: [self-hosted, qwne] # note\n")
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_an_expression_end_in_an_open_quote_does_not_close_a_mapping(self):
+        found = self.check(
+            'jobs:\n  build:\n    runs-on: {group: "${{\n'
+            '      inputs.group }}\n      ", labels: qwne}\n'
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_bracket_in_an_open_quote_does_not_close_a_list(self):
+        found = self.check(
+            'jobs:\n  build:\n    runs-on: [self-hosted, "${{\n'
+            '      matrix.os[0]\n      }}", qwne]\n'
+        )
+        self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def test_a_hash_in_an_expression_on_a_continuation_line_is_kept(self):
+        for value in (
+            "[self-hosted,\n      \"${{ contains(' # ', inputs.x) }}\",\n      qwne]",
+            "[self-hosted, \"${{\n      contains(' # ', inputs.x) }}\",\n      qwne]",
+            "[self-hosted, # note\n      qwne]",
+        ):
+            found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")
+            self.assertEqual(found, ["w.yml:3: qwne"], value)
+
     def test_a_builtin_label_in_any_case_is_accepted(self):
         for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

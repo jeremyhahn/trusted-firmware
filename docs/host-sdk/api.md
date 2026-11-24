@@ -109,7 +109,7 @@ reaches for by task.
 | buses | `I2CTransfer`, `SetI2CClock`, `SPITransfer`, `ConfigureSPI`, `OneWireReset/Write/Read` |
 | attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)`, `AttestCSR(ctx, b [32]byte) ([64]byte, error)` |
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
-| provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`, `ProvWritePubKey`, `ProvSlotLock`, `ProvConfigRead` |
+| provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`, `ProvWritePubKey`, `ProvSlotLock`, `ProvSlotLockUDS`, `ProvConfigRead` |
 | network block | `ReadNetConfig`, `WriteNetConfig`, `tfw.DerivedMAC` ([ethernet-transport](../ethernet-transport/api.md)) |
 | OTA | `tfw.ParseImage` to check a stream's structure; `Upload` (resumes from `OTA_STATUS`), `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate` (or `Activate`), `OTAConfirm` (or `Confirm`) ([ota](../ota/api.md)) |
 | accept Ethernet devices | `tfw.Listen(addr, opts...) (*Listener, error)`, `(*Listener) Accept() (*TCPDevice, error)`; a `*TCPDevice` is a `*Device` |
@@ -202,9 +202,9 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.SlotTrial` | `const SlotTrial uint8 = 1 << 2` | SlotInfo flag: the device is in TRIAL. |
 | `tfw.PlatformBlockLen`, `tfw.SerialLen`, `tfw.PubkeyHashLen`, `tfw.OperatorPubkeyLen` | `const` 192, 16, 32, 64 | The platform-reserved EEPROM block, [0x000, 0x0C0) on the device, mirroring include/tfw/boot.h. |
 | `tfw.ZoneConfig`, `tfw.ZoneData` | `const uint8` 0x00, 0x01 | Element zones, for Lock. |
-| `tfw.SlotDeviceID`, `tfw.SlotUDS` | `const uint8` 0, 1 | Slot assignments, mirroring TFW_ATECC_SLOT_* in src/crypto/atecc608a/atecc.h. |
-| `tfw.SlotTrustFLEXUDS` | `const uint8` 6 | The UDS slot on a pre-locked ATECC608C-TFLXTLS (adr-trustflex-608c-slot-map.md, (a1)); the DeviceID stays in slot 0. |
-| `tfw.SlotImageSigning`, `tfw.SlotSecureBootKey` | `const uint8` 2, 15 | The slots ProvWritePubKey writes: the boot image-signing public key and the TrustFLEX part's secure-boot public key (DS40002515B table 3-16). |
+| `tfw.SlotDeviceID`, `tfw.SlotUDS` | `const uint8` 0, 6 | Slot assignments: the TrustFLEX map (adr-trustflex-608c-slot-map.md, (a1)) every board profile builds, TFW_ATECC_SLOT_UDS in board_profile.h. |
+| `tfw.SlotSecureBootKey` | `const uint8` 15 | The slot ProvWritePubKey writes: the image-signing public key, the TrustFLEX part's secure-boot key slot (DS40002515B table 3-16). |
+| `tfw.SlotImageSigning` | `const uint8` 2 | Deprecated: the old blank-part map's image slot, which no shipped image accepts. Use `tfw.SlotSecureBootKey`. |
 | `tfw.ApplicationEvidenceLen` | `const ApplicationEvidenceLen = 32` | The width of the value in the measurements claim (273): one sha-256 hash-entry. |
 | `tfw.AuthNonceLen` | `const AuthNonceLen = 16` | The challenge's width. |
 | `tfw.CSRSigLen` | `const CSRSigLen = 64` | The length of the ATTEST_CSR response: a P-256 signature as raw r\|\|s (TFW_SIG_LEN). |
@@ -332,9 +332,10 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.ProvGenKey` | `func (d *Device) ProvGenKey(ctx context.Context, slot uint8) ([]byte, error)` | Generates the DeviceID keypair inside the element and returns the public point. |
 | `tfw.Device.ProvInfo` | `func (d *Device) ProvInfo(ctx context.Context) (*ElementInfo, error)` | Reads the element's identity and lock state. |
 | `tfw.Device.ProvLock` | `func (d *Device) ProvLock(ctx context.Context, zone uint8, summaryCRC uint16) error` | Locks a zone. |
-| `tfw.Device.ProvPubKey` | `func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error)` | Recomputes the public point from the private key already in the slot. |
+| `tfw.Device.ProvPubKey` | `func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error)` | Slot 0: recomputes the public point from the private key already there. The image slot (15): reads back the stored public key. |
 | `tfw.Device.ProvSeedUDS` | `func (d *Device) ProvSeedUDS(ctx context.Context, slot uint8) error` | Fills the UDS slot from the element's own TRNG. |
-| `tfw.Device.ProvSlotLock` | `func (d *Device) ProvSlotLock(ctx context.Context, slot uint8, crc uint16) error` | Locks one data slot of a part whose zones are already locked, checked against the CRC-16 of the slot's contents; a zero CRC is refused before sending. Irreversible. |
+| `tfw.Device.ProvSlotLock` | `func (d *Device) ProvSlotLock(ctx context.Context, slot uint8, crc uint16) error` | Locks one data slot of a part whose zones are already locked, checked against the CRC-16 of the slot's contents; a zero CRC is refused before sending, and the UDS slot takes a non-zero one as `StatusErrBadArgc`. Irreversible. |
+| `tfw.Device.ProvSlotLockUDS` | `func (d *Device) ProvSlotLockUDS(ctx context.Context, slot uint8) error` | Locks the UDS slot (sends `[slot,0,0]`): the firmware takes the CRC of the UDS this boot's ProvSeedUDS drew; no seed this boot is `StatusErrBadState`. Irreversible. |
 | `tfw.Device.ProvWriteConfig` | `func (d *Device) ProvWriteConfig(ctx context.Context, block uint8, data []byte) error` | Writes one 32-byte block of the element's config zone. |
 | `tfw.Device.ProvWritePubKey` | `func (d *Device) ProvWritePubKey(ctx context.Context, slot uint8, key []byte) error` | Writes an uncompressed P-256 public key, X\|\|Y, into a data slot and checks the slot's read-back; a mismatch is a *ReadBackError. |
 | `tfw.Device.PulseCapture` | `func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, maxEdges uint8, timeout time.Duration) ([]uint16, error)` | Records edge-to-edge intervals and returns them in microseconds. |

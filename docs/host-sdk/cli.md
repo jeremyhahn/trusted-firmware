@@ -196,4 +196,9 @@ the same options. Started without `--provision-element` its element is blank,
 so `tfwprov --commit` runs the real `PROV_*` sequence against the model. A
 `RESET` restarts the firmware in place with the EEPROM and the element kept,
 and from that boot on `ATTEST` signs with the key `PROV_GENKEY` made. Go tests
-start it with `tfwsim.StartProvisioningWith`.
+start it with `tfwsim.StartProvisioningWith`. Its slot map is the boards'
+(UDS slot 6, image key slot 15).
+
+| Option | Effect |
+|---|---|
+| `--trustflex-element` | off by default. The element is a pre-locked ATECC608C-TFLXTLS, so `tfwprov --commit` runs the TrustFLEX template's plan: both zones locked, the TEST DeviceID key in slot 0, slots 6 and 15 slot-lockable and not slot-locked (config bytes 88-89), slot 6 secret. The config bit positions are the ADR's assumptions (adr-trustflex-608c-slot-map.md), not bench facts. |

@@ -92,13 +92,15 @@ blank-part plan. `--dry-run` prints the seven steps. `--commit --image-key
 4. leaves the HMAC check keyed by slot 6 to the firmware, which runs it inside
    step 6 before the lock;
 5. writes the key to slot 15 (`PROV_WRITE_PUBKEY`);
-6. slot-locks slots 6 and 15 (`PROV_SLOT_LOCK`). **Irreversible.**
+6. slot-locks slot 6, then slot 15 (`PROV_SLOT_LOCK`). **Irreversible.**
 
 It stops at the first failure and sends no later step. The slot-15 lock CRC is
 the element's CRC-16 of the slot as `PROV_WRITE_PUBKEY` stores it
-(`pad4‖X‖pad4‖Y`). The slot-6 CRC is of a UDS the host never sees, and
-`PROV_SLOT_LOCK` has no way for the firmware to supply it, so until the wire
-carries it `--commit` refuses a TrustFLEX part before writing anything.
+(`pad4‖X‖pad4‖Y`); a zero one is refused before either lock. The slot-6 CRC is
+of a UDS the host never sees, so step 6 sends slot 6's lock with a CRC of 0
+(`Device.ProvSlotLockUDS`) and the firmware uses the CRC of the UDS this boot's
+`PROV_SEED_UDS` drew. Without a seed this boot it answers `BAD_STATE` and the
+slot-15 lock is not sent.
 
 `--verify` (step 7) reads the config zone and the public points and writes
 nothing. It names every problem: zones not locked, slot 6 readable (SlotConfig

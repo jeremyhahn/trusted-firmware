@@ -121,7 +121,7 @@ static void test_a_config_write_the_eeprom_refuses_returns_the_eeprom_status(voi
     uint16_t lo;
     uint16_t hi;
 
-    tfw_mock_eeprom_write_fails(1u);
+    tfw_mock_eeprom_write_fails(TFW_ERR_TIMEOUT);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_app_config_write(0u, &b, 1u));
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_eeprom_written(&lo, &hi));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[TFW_APP_CONFIG_BASE]);

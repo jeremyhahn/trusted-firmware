@@ -14,8 +14,14 @@
 uint32_t tfw_mps2_model_led;
 unsigned tfw_mps2_model_led_accesses;
 unsigned tfw_mps2_model_stray;
+unsigned tfw_mps2_model_led_unmasked;
 
 static uint32_t scratch;
+
+/* hal_gpio.c's read-modify-write of the LED word runs with interrupts
+ * masked (row/mps2-tone: the tone's TIMER0 handler writes the same word).
+ * The host has no PRIMASK: a flag stands in for it. */
+static uint32_t irq_masked;
 
 uint32_t tfw_mps2_model_led_addr(void)
 {
@@ -27,22 +33,32 @@ void tfw_mps2_model_reset(uint32_t led)
     tfw_mps2_model_led          = led;
     tfw_mps2_model_led_accesses = 0u;
     tfw_mps2_model_stray        = 0u;
+    tfw_mps2_model_led_unmasked = 0u;
+    irq_masked                  = 0u;
+}
+
+uint32_t tfw_mps2_model_irq_masked(void)
+{
+    return irq_masked;
+}
+
+void tfw_mps2_model_irq_mask(void)
+{
+    (void)tfw_cm_irq_save();
 }
 
 volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
 {
     if (addr == tfw_mps2_model_led_addr()) {
         tfw_mps2_model_led_accesses++;
+        if (irq_masked == 0u) {
+            tfw_mps2_model_led_unmasked++;
+        }
         return (volatile uint32_t *)&tfw_mps2_model_led;
     }
     tfw_mps2_model_stray++;
     return (volatile uint32_t *)&scratch;
 }
-
-/* hal_gpio.c's read-modify-write of the LED word runs with interrupts
- * masked (row/mps2-tone: the tone's TIMER0 handler writes the same word).
- * The host has no PRIMASK: a flag stands in for it. */
-static uint32_t irq_masked;
 
 uint32_t tfw_cm_irq_save(void)
 {

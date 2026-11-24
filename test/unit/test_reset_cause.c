@@ -63,6 +63,18 @@ static void test_brownout_wins_over_external(void)
         tfw_avr_reset_decode(TFW_MCUSR_BORF | TFW_MCUSR_EXTRF));
 }
 
+/* hal_reset_decode.h's priority is BORF, EXTRF, PORF: a reset-pin press while
+ * the power-on flag is still latched is a button reset, not a power-on. */
+static void test_external_wins_over_power_on(void)
+{
+    TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
+        tfw_avr_reset_decode(TFW_MCUSR_EXTRF | TFW_MCUSR_PORF));
+    TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
+        tfw_avr_reset_decode(TFW_MCUSR_WDRF | TFW_MCUSR_EXTRF | TFW_MCUSR_PORF));
+    TEST_ASSERT_EQUAL(TFW_RESET_BROWNOUT,
+        tfw_avr_reset_decode(TFW_MCUSR_BORF | TFW_MCUSR_EXTRF | TFW_MCUSR_PORF));
+}
+
 /* Bits the decoder does not name (the JTAG reset flag on the parts that have
  * one, reserved bits) say nothing about why the part restarted. */
 static void test_bits_it_does_not_know_are_ignored(void)
@@ -152,6 +164,7 @@ int main(void)
     RUN_TEST(test_no_bit_set_is_unknown);
     RUN_TEST(test_watchdog_alongside_another_cause_is_not_a_watchdog_reset);
     RUN_TEST(test_brownout_wins_over_external);
+    RUN_TEST(test_external_wins_over_power_on);
     RUN_TEST(test_bits_it_does_not_know_are_ignored);
     RUN_TEST(test_the_enum_values_are_the_wire_values);
     RUN_TEST(test_the_handoff_carries_the_abstract_cause_at_offset_76);

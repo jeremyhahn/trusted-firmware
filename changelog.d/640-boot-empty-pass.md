@@ -6,4 +6,6 @@
   the 77 cycles `boot/hal/avr/boot_tick.h` counts on whatever the rest of
   `serve` compiles to. Before, avr-gcc kept the counter in registers, the pass
   fell to about 64 cycles and the window closed at about 8.3 s, before the
-  simavr "drip of valid OTA frames" case sent its frame at 8 s.
+  simavr "drip of valid OTA frames" case sent its frame at 8 s. The volatile
+  counter applies to AVR images (and the host build, which mirrors the
+  328P); a Cortex-M image's loop is unchanged.

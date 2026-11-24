@@ -41,7 +41,8 @@ Total on the wire is `LEN + 4`. `LEN` bounds: `TFW_LEN_MIN` (2) to
 `TFW_MAX_LEN` (`TFW_MAX_PAYLOAD + 3`, default 67). A request carries no STATUS
 byte, so its LEN is at most `TFW_MAX_PAYLOAD + 2` (`TFW_MAX_LEN - 1`, default
 66): a CRC-valid request of LEN `TFW_MAX_LEN` is refused as a format error and
-counted in `err_format`, never dispatched. A response or event may use the
+counted in `err_format`, never dispatched; the Go SDK's `Decode` refuses the
+same frame with `ErrBadFormat` (vector `TFWV_FRAME_PING_OVERSIZE_REQ`). A response or event may use the
 full `TFW_MAX_LEN`. CRC-16/CCITT-FALSE, poly `0x1021`, init `0xFFFF`, check
 value `0x29B1`.
 

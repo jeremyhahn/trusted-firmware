@@ -181,7 +181,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
-                            test/unit/test_app_none.c test/unit/test_app_cmd.c test/unit/test_app_cmd_none.c \
+                            test/unit/test_app_none.c test/unit/test_app_cmd.c test/unit/test_app_cmd_none.c test/unit/test_app_cmd_gate.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
@@ -1134,6 +1134,13 @@ $(HOST_DIR)/test_app_none: test/unit/test_app_none.c \
 $(HOST_DIR)/test_app_cmd_none: test/unit/test_app_cmd_none.c \
                         $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
                         src/core/app_cmd_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_app_cmd_gate: the application's session view with a gate that closes.
+# The test file is the gate, so the permissive one is left out of the link.
+$(HOST_DIR)/test_app_cmd_gate: test/unit/test_app_cmd_gate.c \
+                        $(filter-out src/core/auth_session_none.c,$(HOST_LIB_SRCS)) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

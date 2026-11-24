@@ -99,9 +99,10 @@ void setUp(void)
     memset(zero_len, 0, sizeof zero_len);
     memset(zero_before, 0, sizeof zero_before);
     memset(zero_after_ok, 0, sizeof zero_after_ok);
+    uECC_set_rng(0);
 }
 
-void tearDown(void) {}
+void tearDown(void) { uECC_set_rng(0); }
 
 static void test_the_only_algorithm_is_es256(void)
 {
@@ -201,6 +202,55 @@ static void test_no_uds_is_not_provisioned_and_writes_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, zero_calls);
 }
 
+/* A blinding RNG that refuses its first call and then fills bytes, as a
+ * PSA RNG that fails transiently does (test_deviceid_p256.c). */
+static unsigned flaky_calls;
+static uint8_t  flaky_byte;
+
+static int flaky_rng(uint8_t *dest, unsigned size)
+{
+    if (flaky_calls++ == 0u) {
+        return 0;
+    }
+    while (size-- > 0u) {
+        *dest++ = (uint8_t)(++flaky_byte | 0x01u);
+    }
+    return 1;
+}
+
+static void flaky_arm(void)
+{
+    flaky_calls = 0u;
+    flaky_byte  = 0u;
+    uECC_set_rng(flaky_rng);
+}
+
+static void test_a_failing_blinding_rng_refuses_sign_and_pubkey_and_then_gives_the_same_key(void)
+{
+    uint8_t pub[64], sig[64];
+    uint8_t alg = 0xA5u;
+    static const uint8_t zero[64];
+
+    flaky_arm();
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_soft_id_sign(CDI, DIGEST, sig, &alg));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, sig, 64);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, alg);
+
+    flaky_arm();
+    memset(pub, 0xA5, sizeof pub);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_soft_id_pubkey(pub));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, pub, 64);
+
+    /* The RNG has recovered: the same key and the same RFC 6979 signature. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_soft_id_pubkey(pub));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED_PUB, pub, 64);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_soft_id_sign(CDI, DIGEST, sig, &alg));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED_SIG, sig, 64);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, alg);
+    uECC_set_rng(0);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -212,5 +262,6 @@ int main(void)
     RUN_TEST(test_pubkey_zeroes_the_seed_and_the_scalar);
     RUN_TEST(test_sign_zeroes_the_seed_and_the_scalar);
     RUN_TEST(test_no_uds_is_not_provisioned_and_writes_nothing);
+    RUN_TEST(test_a_failing_blinding_rng_refuses_sign_and_pubkey_and_then_gives_the_same_key);
     return UNITY_END();
 }

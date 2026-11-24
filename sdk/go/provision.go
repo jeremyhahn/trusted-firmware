@@ -31,6 +31,8 @@ const (
 	CmdProvPubKey      Cmd = 0x74
 	CmdProvSeedUDS     Cmd = 0x75
 	CmdProvWritePubKey Cmd = 0x7B // [slot:1][half:1][coordinate:32] -> X||Y read back
+	CmdProvSlotLock    Cmd = 0x7D // [slot:1][crc:2 LE] -> empty
+	CmdProvConfigRead  Cmd = 0x7E // [block:1] 0..3 -> the 32 bytes of that block
 )
 
 // Element zones, for Lock. Locking is irreversible on the part; see
@@ -47,6 +49,12 @@ const (
 const (
 	SlotDeviceID uint8 = 0
 	SlotUDS      uint8 = 1
+
+	// SlotTrustFLEXUDS is the UDS slot on a pre-locked ATECC608C-TFLXTLS,
+	// whose shipped I/O-protection slot gives up that role
+	// (docs/device-provisioning/adr-trustflex-608c-slot-map.md, (a1)). The
+	// DeviceID stays in slot 0, as shipped.
+	SlotTrustFLEXUDS uint8 = 6
 )
 
 // The slots ProvWritePubKey writes: the boot image-signing public key
@@ -150,6 +158,42 @@ func (d *Device) ProvLock(ctx context.Context, zone uint8, summaryCRC uint16) er
 	binary.LittleEndian.PutUint16(payload[1:], summaryCRC)
 	_, err := d.Do(ctx, CmdProvLock, payload)
 	return err
+}
+
+// ProvSlotLock locks one data slot of a part whose zones are already locked,
+// the element's Lock in SlotLock mode. THIS CANNOT BE UNDONE.
+//
+// crc is the CRC-16 of the slot's contents, and like ProvLock's summary CRC it
+// is mandatory: the element locks only if the slot holds what the host
+// believes it holds. The firmware accepts only the board's UDS slot and
+// image-signing slot (StatusErrRange otherwise) and refuses a slot already
+// locked (StatusErrBadState). For the UDS slot it first checks that an HMAC
+// keyed by the slot works and returns the element's error if it does not.
+func (d *Device) ProvSlotLock(ctx context.Context, slot uint8, crc uint16) error {
+	if crc == 0 {
+		return &ArgRangeError{Cmd: CmdProvSlotLock, Arg: "crc", Value: 0, Min: 1, Max: 0xFFFF, Unit: ""}
+	}
+	payload := []byte{slot, 0, 0}
+	binary.LittleEndian.PutUint16(payload[1:], crc)
+	_, err := d.Do(ctx, CmdProvSlotLock, payload)
+	return err
+}
+
+// ProvConfigRead reads one 32-byte block, 0 to 3, of the element's config
+// zone. It writes nothing.
+func (d *Device) ProvConfigRead(ctx context.Context, block uint8) ([]byte, error) {
+	if block > 3 {
+		return nil, &ArgRangeError{Cmd: CmdProvConfigRead, Arg: "block", Value: int64(block), Min: 0, Max: 3, Unit: ""}
+	}
+	f, err := d.Do(ctx, CmdProvConfigRead, []byte{block})
+	if err != nil {
+		return nil, err
+	}
+	const need = 32
+	if len(f.Payload) != need {
+		return nil, &ShortReplyError{Cmd: CmdProvConfigRead, Got: len(f.Payload), Need: need}
+	}
+	return append([]byte(nil), f.Payload...), nil
 }
 
 // ProvGenKey generates the DeviceID keypair inside the element and returns the

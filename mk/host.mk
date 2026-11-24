@@ -180,7 +180,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
-                            test/unit/test_app_none.c \
+                            test/unit/test_app_none.c test/unit/test_app_cmd.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \

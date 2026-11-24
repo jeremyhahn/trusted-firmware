@@ -304,6 +304,26 @@ static void test_s2_event_raises_the_ahab_signal_on_one_session(void)
     TEST_ASSERT_EQUAL_HEX32(0x101u, ele_w1[3]);
 }
 
+/* Pins the header's "late, but never lost" for S2: an AHAB event fetched
+ * on the pass right after another is one more edge, raised one pass late,
+ * not folded into the first (hsm_get_event has drained it already). */
+static void test_s2_back_to_back_events_raise_two_signals(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT32(5u, ele_n);          /* one SESSION_OPEN, four get_events */
+}
+
 static void test_s2_other_events_raise_nothing(void)
 {
     events[0] = 0x11u;
@@ -418,6 +438,7 @@ int main(void)
     RUN_TEST(test_one_signal_held_high_does_not_delay_the_other);
     RUN_TEST(test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes);
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
+    RUN_TEST(test_s2_back_to_back_events_raise_two_signals);
     RUN_TEST(test_s2_other_events_raise_nothing);
     RUN_TEST(test_s2_session_the_enclave_lost_is_opened_again);
     RUN_TEST(test_s2_refused_session_is_retried_and_nothing_polled);

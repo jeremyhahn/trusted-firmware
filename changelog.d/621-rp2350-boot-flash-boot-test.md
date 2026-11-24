@@ -1,0 +1,1 @@
+- `make boot-test` runs the RP2350 boot flash suite again after its move beside the SoC's sources, and `scripts/test_boot_test_bins_mk.py` fails when a HAL-local boot suite is left out of `BOOT_TEST_BINS`.

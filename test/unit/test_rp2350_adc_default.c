@@ -6,7 +6,8 @@
  * (board_profile.h). src/main.c still calls
  * tfw_hal_adc_init on every image, and it must leave PLL_USB, clk_adc, the
  * resets and the converter as the register model (adc_model.h) starts them;
- * a read is a channel beyond the board.
+ * set_ref answers as the analog row does and a read on every channel, 0 to
+ * 255, is a channel beyond the board, neither touching a register.
  */
 #include <stdint.h>
 #include <string.h>
@@ -55,10 +56,37 @@ static void test_a_read_is_refused_untouched(void)
     TEST_ASSERT_EQUAL_MEMORY(&at_reset, tfw_rp2350_model_get(), sizeof at_reset);
 }
 
+static void test_set_ref_answers_without_touching_the_model(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_set_ref(TFW_ADC_REF_VCC));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_set_ref(TFW_ADC_REF_EXTERNAL));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_set_ref(TFW_ADC_REF_INTERNAL));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_set_ref((tfw_adc_ref_t)7));
+    TEST_ASSERT_EQUAL_MEMORY(&at_reset, tfw_rp2350_model_get(), sizeof at_reset);
+}
+
+static void test_every_channel_is_refused_untouched(void)
+{
+    /* ADC1 and ADC2 of the analog row, and the uint8_t top that the +1u
+     * widening keeps from wrapping to zero. */
+    static const uint8_t channels[] = { 1u, 2u, 255u };
+    size_t i;
+
+    for (i = 0; i < sizeof channels; i++) {
+        uint16_t raw = 0x5555u;
+
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(channels[i], &raw));
+        TEST_ASSERT_EQUAL_HEX16(0x5555u, raw);
+        TEST_ASSERT_EQUAL_MEMORY(&at_reset, tfw_rp2350_model_get(), sizeof at_reset);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_touches_no_pll_clock_reset_or_converter);
     RUN_TEST(test_a_read_is_refused_untouched);
+    RUN_TEST(test_set_ref_answers_without_touching_the_model);
+    RUN_TEST(test_every_channel_is_refused_untouched);
     return UNITY_END();
 }

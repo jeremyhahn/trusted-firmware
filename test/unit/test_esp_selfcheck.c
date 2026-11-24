@@ -161,6 +161,8 @@ static const esp_partition_t g_part = {
     .size = PART_SIZE, .erase_size = PART_SIZE, .label = "tfw_eeprom",
 };
 static uint8_t g_flash[PART_SIZE];
+/* The flash as the pattern write (program 1) left it. */
+static uint8_t g_after_pattern[PART_SIZE];
 static unsigned g_reads, g_erases, g_programs;
 static unsigned g_fail_read_at;
 static unsigned g_fail_erase_at;     /* the sector is erased, then it fails */
@@ -205,6 +207,7 @@ esp_err_t esp_partition_write(const esp_partition_t *p, size_t off, const void *
     if (g_programs == g_fail_program_at) n = size / 2u;
     for (size_t i = 0u; i < n; i++) g_flash[off + i] &= b[i];
     if (g_programs == g_stuck_program_at) g_flash[off + g_stuck_off] = 0x00u;
+    if (g_programs == 1u) memcpy(g_after_pattern, g_flash, sizeof g_after_pattern);
     return g_programs == g_fail_program_at ? ESP_FAIL : ESP_OK;
 }
 
@@ -464,6 +467,7 @@ void setUp(void)
     g_adc_pin_asked = g_pwm_pin_asked = g_adc_ch_read = -1;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
     memcpy(g_before, g_flash, sizeof g_before);
+    memset(g_after_pattern, 0, sizeof g_after_pattern);
 }
 
 void tearDown(void) {}
@@ -772,6 +776,25 @@ static void test_a_pattern_that_reads_back_wrong_fails(void)
     TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
 }
 
+static void test_the_pattern_written_flips_each_saved_byte_by_its_own_mask(void)
+{
+    /* The read-back compare passes for any pattern the flash stores, so the
+     * bytes the pattern write left are checked one by one: each of the 16
+     * differs from the saved byte by its own mask, and the rest of the
+     * sector is written back as it was. The sector base is 0 here. */
+    const size_t at = TFW_EEPROM_SIZE - 16u;
+    tfw_esp_selfcheck();
+    for (unsigned i = 0u; i < 16u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xa5u ^ (i * 0x11u) ^ g_before[at + i]),
+                               g_after_pattern[at + i]);
+        TEST_ASSERT_NOT_EQUAL(g_before[at + i], g_after_pattern[at + i]);
+    }
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_after_pattern, at);
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "PASS"));
+    TEST_ASSERT_EQUAL_MEMORY(g_before, g_flash, sizeof g_before);
+}
+
 static void test_an_unreadable_sector_is_never_written(void)
 {
     g_fail_read_at = 1u;
@@ -821,6 +844,7 @@ int main(void)
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
     RUN_TEST(test_a_pattern_that_reads_back_wrong_fails);
+    RUN_TEST(test_the_pattern_written_flips_each_saved_byte_by_its_own_mask);
     RUN_TEST(test_an_unreadable_sector_is_never_written);
     RUN_TEST(test_the_i2c_check_probes_the_empty_address);
     RUN_TEST(test_an_i2c_ack_at_the_empty_address_fails);

@@ -88,6 +88,26 @@ const (
 	AppInfoRefusedReply   = "\x03\x00\x00\x01\x02\x02\x03\x05\x04\x02\x01\x01\x00\x00\x80\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f\x00\x62\x6d\x63\x2f\x65\x73\x70\x33\x32\x2d\x70\x34\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 )
 
+// APP_CMD (0x07, #635), mirroring TFWV_APPCMD_* in testdata/vectors.h. A
+// request is the payload after the command id: the app_op byte, then its
+// arguments. AppCmdBlinkReply is test/app/example's op 0x00, the blink count,
+// after 3 toggles: the u16 count 3, low byte first. AppCmdTrailingRequest is
+// op 0x00 with a stray byte (TFW_ERR_BAD_ARGC); AppCmdUnknownRequest is op
+// 0x01, which the example does not define (TFW_ERR_UNSUPPORTED). The blink
+// request to an application not RUNNING answers AppCmdStoppedStatus
+// (TFW_ERR_BAD_STATE); to an image with no application, AppCmdNoappStatus
+// (TFW_ERR_UNKNOWN_CMD).
+const (
+	AppCmdBlinkRequest    = "\x00"
+	AppCmdBlinkReply      = "\x03\x00"
+	AppCmdTrailingRequest = "\x00\x01"
+	AppCmdTrailingStatus  = 5
+	AppCmdUnknownRequest  = "\x01"
+	AppCmdUnknownStatus   = 7
+	AppCmdStoppedStatus   = 19
+	AppCmdNoappStatus     = 4
+)
+
 // Application evidence (#51), mirroring TFWV_APPEV_* in testdata/vectors.h.
 // AppEvWithUccs is the 151-byte claims set the alias certificate carries when
 // a running application supplies AppEvExample, test/app/example's 32 bytes, as

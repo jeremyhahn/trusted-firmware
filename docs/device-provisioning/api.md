@@ -65,8 +65,11 @@ identity** — this is the command `--commit` calls once, never `--verify`.
 
 ### `PROV_PUBKEY`
 
-Recomputes the public point from the key already in `slot` (must be `0`).
-Generates nothing. This is what `--verify` calls, and the reason it is safe to
+Returns the public point (`X‖Y`) of the key already in `slot`, and generates
+nothing. Slot `0` (the DeviceID slot) is recomputed from its private key by
+`GenKey` in public mode. Slots `2` (the boot image-signing key) and `15` (the
+TrustFLEX secure-boot key) are read back from the element's stored
+`pad4‖X‖pad4‖Y` form. Any other slot is `TFW_ERR_RANGE`. This is what `--verify` calls, and the reason it is safe to
 run against an already-provisioned part.
 
 ### `PROV_SEED_UDS`
@@ -94,12 +97,26 @@ fails unless it matches ([cli](cli.md)). The config zone must be locked
 
 Request `[slot:1][crc:2 LE]`, reply empty; `Device.ProvSlotLock`. Locks one
 data slot of a pre-locked ATECC608C-TFLXTLS with the element's `Lock` in
-SlotLock mode. **Irreversible.** `crc` is the CRC-16 of the slot's contents and
-is mandatory: the SDK refuses `0` before sending. Only the board's UDS slot
-(`6`) and image slot (`15`) are accepted (`TFW_ERR_RANGE` otherwise); a slot
-already slot-locked is `TFW_ERR_BAD_STATE`. For the UDS slot the firmware first
-checks that an HMAC keyed by the slot works, and returns the element's error
-if it does not. `tfwprov`'s TrustFLEX plan ([cli](cli.md)) calls it last.
+SlotLock mode. **Irreversible.** Only the board's UDS slot (`6`) and image slot
+(`15`) are accepted (`TFW_ERR_RANGE` otherwise); a slot whose SlotLocked bit is
+already clear is `TFW_ERR_PROTECTED_REGION`. Who supplies the CRC depends on
+the slot:
+
+- **UDS slot (`6`)**: `crc` must be `0`, meaning "the firmware's own". The
+  firmware uses the CRC-16 of the 32 bytes that `PROV_SEED_UDS` wrote in this
+  boot; the host never sees the UDS, so it cannot compute the CRC. A non-zero
+  `crc` is `TFW_ERR_BAD_ARGC`. If no `PROV_SEED_UDS` succeeded in this boot (or
+  the last one failed or was refused), or the slot was already slot-locked in
+  this boot, the answer is `TFW_ERR_BAD_STATE`. Both are answered before
+  anything is sent to the element. The firmware then checks that an HMAC keyed
+  by the slot works, returns the element's error if it does not, and sends the
+  `Lock` with its own CRC.
+- **Image slot (`15`)**: `crc` is the host's CRC-16 of the slot's contents and
+  must be non-zero: a zero `crc` is `TFW_ERR_BAD_ARGC`, with nothing sent.
+
+Whether the real part's SlotLock CRC covers the 32 written bytes or the full
+36-byte slot is an open bench question. `tfwprov`'s TrustFLEX plan
+([cli](cli.md)) calls this command last.
 
 ### `PROV_CONFIG_READ` (`0x7E`)
 

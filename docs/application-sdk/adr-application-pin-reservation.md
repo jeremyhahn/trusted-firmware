@@ -246,7 +246,7 @@ constant expressions, so a `_Static_assert` in the application cannot read
 them, and which rows carry `IN_USE` depends on the image's features
 (`TFW_PIN_ETH`, `TFW_PIN_OTA_STORE`). The bound alone is a constant: an
 application may check `pin < TFW_PIN_COUNT` at compile time as
-`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:127-135`),
+`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:131-139`),
 and the runner checks it again at boot for one that does not.
 
 Refusing the application, not the one pin, keeps the runner's rule that an

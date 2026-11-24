@@ -18,7 +18,9 @@ change that vendors the files, so it cannot vouch for them; this check can
 Exit 0 with "PASS" when every file matches. Exit 1 with "FAIL" naming each
 difference. When the upstream host cannot be reached, exit 0 with a
 "SKIP (<reason>)" summary: nothing was compared, and the line says so. A host
-that answers but lacks the commit is a FAIL, not a skip.
+that answers but lacks the commit is a FAIL, not a skip. A vendored dir with
+no file under src/ is a FAIL, found before any network is tried, so it is
+never a SKIP.
 """
 import hashlib
 import io
@@ -46,6 +48,8 @@ def vendored_files(root):
         dirs.sort()
         for name in sorted(files):
             out.append(os.path.relpath(os.path.join(base, name), root))
+    if len(out) == len(TOP_FILES):
+        raise ValueError("%s holds no file: nothing vendored to compare" % os.path.join(root, "src"))
     return [p.replace(os.sep, "/") for p in out]
 
 
@@ -137,6 +141,11 @@ def compare(root, paths, blobs, where):
 def main_archive(root, url, want):
     """Archive mode: the release archive at url, its SHA-256 want."""
     try:
+        paths = vendored_files(root)
+    except ValueError as e:
+        print("lwip-upstream-check: FAIL: %s" % e)
+        return 1
+    try:
         data = fetch_archive(url)
     except (OSError, urllib.error.URLError) as e:
         print("lwip-upstream-check: SKIP (no network: %s: %s); nothing compared" % (url, e))
@@ -145,7 +154,6 @@ def main_archive(root, url, want):
     if got != want:
         print("lwip-upstream-check: FAIL: %s has SHA-256 %s, want %s" % (url, got, want))
         return 1
-    paths = vendored_files(root)
     try:
         blobs = archive_blobs(data, paths)
     except ValueError as e:
@@ -168,6 +176,11 @@ def main(argv):
         print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
         return 2
     root, url, commit = argv[1], argv[2], argv[3].lower()
+    try:
+        paths = vendored_files(root)
+    except ValueError as e:
+        print("lwip-upstream-check: FAIL: %s" % e)
+        return 1
     with tempfile.TemporaryDirectory(prefix="lwip-upstream-") as repo:
         env_ok = git(repo, "init", "-q")
         if env_ok.returncode != 0:
@@ -195,7 +208,6 @@ def main(argv):
         if head.returncode != 0 or got != commit:
             print("lwip-upstream-check: FAIL: fetched commit %s, want %s" % (got, commit))
             return 1
-        paths = vendored_files(root)
         blobs = upstream_blobs(repo, commit, paths)
         bad = compare(root, paths, blobs, "upstream")
         if bad:

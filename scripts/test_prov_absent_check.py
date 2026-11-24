@@ -5,11 +5,13 @@ gate itself (row device-provisioning). Needs make, no toolchain, no network."""
 
 import importlib.util
 import os
+import tempfile
 import unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("prov_absent_check", os.path.join(HERE, "prov-absent-check.py"))
+SCRIPT = os.environ.get("PROV_ABSENT_CHECK_SCRIPT", os.path.join(HERE, "prov-absent-check.py"))
+spec = importlib.util.spec_from_file_location("prov_absent_check", SCRIPT)
 pac = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pac)
 
@@ -136,6 +138,38 @@ class Plan(unittest.TestCase):
                                ["BOARD=m", "CRYPTO=soft", "APP_DIR=test/app/example", "PROVISION=0"],
                                ["BOARD=m", "CRYPTO=soft", "APP_DIR=test/app/example", "PROVISION=1"],
                                ["BOARD=m", "CRYPTO=optiga", "ETH=1", "PROVISION=0"]])
+
+
+class Sweep(unittest.TestCase):
+    def sweep(self, b_tiers):
+        """sweep() over a tree of boards a and b, make faked: a builds soft, b
+        prints b_tiers for board-tiers, and every image is a plain jig answer."""
+        with tempfile.TemporaryDirectory() as root:
+            for board in ("a", "b"):
+                os.makedirs(os.path.join(root, "boards", board))
+                open(os.path.join(root, "boards", board, "profile.mk"), "w").close()
+
+            def fake(args, root=None):
+                if args[0] == "board-tiers":
+                    return b_tiers if "BOARD=b" in args else "soft\n"
+                if args[0] == "board-eth-chip":
+                    return "\n"
+                if args[0] == "firmware-matrix-list":
+                    return ""
+                if args[0] == "provision-backend":
+                    return "yes\n"
+                return "src/main.c src/caps/provision.c\n-DTFW_FEATURE_PROVISION=1\nboot/boot_main.c\n"
+
+            with mock.patch.object(pac, "make", fake):
+                return pac.sweep(root)
+
+    def test_a_board_make_gives_no_tier_is_an_error_not_skipped(self):
+        with self.assertRaisesRegex(RuntimeError, "BOARD=b.*no tier"):
+            self.sweep("\n")
+
+    def test_every_board_with_a_tier_is_asked(self):
+        got = self.sweep("soft\n")
+        self.assertEqual({label.split()[0] for label, *_ in got}, {"BOARD=a", "BOARD=b"})
 
 
 class Tree(unittest.TestCase):

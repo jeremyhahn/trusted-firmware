@@ -78,13 +78,18 @@ in the secret's source in platform-configs.
 `scripts/releasability.sh` lists the tracked files, drops the `export-ignore`
 ones, skips binary files, and prints `file:line: class` for each line that
 matches a pattern. It exits 1 on any. The export-ignored files are listed as
-`file: strip-at-publish`, which is information and not a finding.
+`file: strip-at-publish`, which is information and not a finding. A tracked
+symlink is published by `git archive` as its target text, so that text is
+checked against each pattern and a match is reported as
+`link: class (symlink target)`; a link has no comment, so it cannot be waived.
 
 `scripts/releasability-test.sh` runs it on throwaway repositories and has no skip
 guard. Its plants are generic shapes with reference names and no internal value.
-It proves that a hit on each public pattern fails, that RFC 5737 addresses,
-`192.168.1.x`, reference names and waived lines pass, that an export-ignored file
-is not scanned, that an unknown class is an error, that this tree passes its own
+It proves that a hit on each public pattern fails, in upper case too, that RFC
+5737 addresses, `192.168.1.x`, reference names and waived lines pass, that a
+waiver two lines above a hit, or on the line below it, does not waive it, that a path
+holding a colon is reported whole, that a symlink's target is scanned, that an
+export-ignored file is not scanned, that an unknown class is an error, that this tree passes its own
 list, and that `git archive` of a tree carrying this repository's
 `.gitattributes` holds none of the stripped files. It also checks the real
 index: every file below is export-ignored, and no other is.

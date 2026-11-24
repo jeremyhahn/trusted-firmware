@@ -11,7 +11,8 @@
 # A clean copy is `git archive HEAD`: tracked files at the commit, so no
 # build/, no untracked file and no uncommitted edit reaches it, and an image a
 # previous build left behind cannot satisfy the check. SOURCE_DATE_EPOCH is the
-# commit time, so anything time-derived is pinned to the source.
+# commit time, so anything time-derived is pinned to the source. A --dir is
+# removed and refilled, so one that is, or holds, the source tree is refused.
 #
 #   repro_build.py --image REL.hex --dir A --dir B [--src DIR] [--make MAKE]
 #                  [--app-dir APP_DIR] -- ARGS...
@@ -86,8 +87,13 @@ def main(argv):
                    help="an application directory (APP_DIR), passed to both builds")
     p.add_argument("args", nargs="*", help="make arguments, after --")
     a = p.parse_args(argv)
-    if len(a.dir) != 2 or os.path.abspath(a.dir[0]) == os.path.abspath(a.dir[1]):
+    if len(a.dir) != 2 or os.path.realpath(a.dir[0]) == os.path.realpath(a.dir[1]):
         p.error("--dir names two different directories")
+    src_abs = os.path.realpath(a.src)
+    for d in a.dir:
+        d_abs = os.path.realpath(d)
+        if os.path.commonpath([d_abs, src_abs]) == d_abs:
+            p.error(f"--dir {d} is or holds the source tree {a.src}")
 
     args = list(a.args)
     in_copy = None

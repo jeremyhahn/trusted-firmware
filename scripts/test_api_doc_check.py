@@ -12,7 +12,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-spec = importlib.util.spec_from_file_location("api_doc_check", os.path.join(HERE, "api-doc-check.py"))
+spec = importlib.util.spec_from_file_location("api_doc_check", os.environ.get("API_DOC_CHECK_SCRIPT", os.path.join(HERE, "api-doc-check.py")))
 adc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adc)
 
@@ -237,6 +237,14 @@ class TestMissing(FixtureTree):
     def test_missing_page_fails(self):
         os.remove(self.path("docs/host-sdk/api.md"))
         self.assertFails("docs/host-sdk/api.md: No such file")
+
+    def test_two_packages_with_one_name_fail(self):
+        self.write("sdk/go/a/tfwsim/hidden.go", "package tfwsim\n\n// Hidden is never read.\nfunc Hidden() {}\n")
+        self.assertFails("two public packages are named tfwsim", "sdk/go/a/tfwsim", "sdk/go/tfwsim")
+
+    def test_two_main_packages_are_not_a_clash(self):
+        self.write("sdk/go/cmd/tfwprov/main.go", "package main\n\nfunc main() {}\n")
+        self.assertEqual([], adc.check(self.root))
 
 
 class TestStale(FixtureTree):

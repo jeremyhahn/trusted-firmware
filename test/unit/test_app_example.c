@@ -179,6 +179,78 @@ static void test_a_pin_the_hal_refuses_leaves_the_heartbeat_failed_and_dark(void
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_mock_pin_is_output(led.port, led.bit));
 }
 
+/* One APP_CMD request through the dispatcher, as the wire delivers it. */
+static tfw_status_t app_cmd(const char *req, uint8_t req_len, uint8_t *out, uint8_t *out_len)
+{
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    tfw_reader_init(&r, (const uint8_t *)req, req_len);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    st       = tfw_dispatch(TFW_CMD_APP_CMD, &r, &w);
+    *out_len = tfw_writer_len(&w);
+    return st;
+}
+
+/* Three toggles (t=0, 500, 1000 ms), then op 0x00 answers the count. */
+static void test_the_blink_count_answers_the_toggles_so_far(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+    uint8_t len = 0u;
+
+    tfw_app_runner_start();
+    for (uint8_t i = 0u; i < 3u; i++) {
+        if (i != 0u) {
+            tfw_mock_advance(500u);
+        }
+        tfw_app_runner_poll();
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_cmd(TFWV_APPCMD_BLINK_REQUEST, TFWV_APPCMD_BLINK_REQUEST_LEN,
+                                          out, &len));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_APPCMD_BLINK_REPLY_LEN, len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_APPCMD_BLINK_REPLY, out,
+                                 TFWV_APPCMD_BLINK_REPLY_LEN);
+}
+
+static void test_the_blink_count_refuses_a_trailing_byte(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+    uint8_t len = 0u;
+
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFWV_APPCMD_TRAILING_STATUS,
+                          app_cmd(TFWV_APPCMD_TRAILING_REQUEST, TFWV_APPCMD_TRAILING_REQUEST_LEN,
+                                  out, &len));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_ARGC, TFWV_APPCMD_TRAILING_STATUS);
+}
+
+static void test_an_op_the_example_does_not_define_is_unsupported(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+    uint8_t len = 0u;
+
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_INT(TFWV_APPCMD_UNKNOWN_STATUS,
+                          app_cmd(TFWV_APPCMD_UNKNOWN_REQUEST, TFWV_APPCMD_UNKNOWN_REQUEST_LEN,
+                                  out, &len));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, TFWV_APPCMD_UNKNOWN_STATUS);
+}
+
+/* Not started: the runner answers before the example is called. */
+static void test_the_blink_count_needs_a_running_heartbeat(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+    uint8_t len = 0u;
+
+    tfw_app_runner_reset_state();          /* idle: a prior test left it running */
+    TEST_ASSERT_EQUAL_INT(TFWV_APPCMD_STOPPED_STATUS,
+                          app_cmd(TFWV_APPCMD_BLINK_REQUEST, TFWV_APPCMD_BLINK_REQUEST_LEN,
+                                  out, &len));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, TFWV_APPCMD_STOPPED_STATUS);
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -190,5 +262,9 @@ int main(void)
     RUN_TEST(test_app_info_reports_the_example);
     RUN_TEST(test_the_example_supplies_its_evidence);
     RUN_TEST(test_a_pin_the_hal_refuses_leaves_the_heartbeat_failed_and_dark);
+    RUN_TEST(test_the_blink_count_answers_the_toggles_so_far);
+    RUN_TEST(test_the_blink_count_refuses_a_trailing_byte);
+    RUN_TEST(test_an_op_the_example_does_not_define_is_unsupported);
+    RUN_TEST(test_the_blink_count_needs_a_running_heartbeat);
     return UNITY_END();
 }

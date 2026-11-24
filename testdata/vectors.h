@@ -175,6 +175,27 @@
 #define TFWV_APPINFO_REFUSED_REPLY "\x03\x00\x00\x01\x02\x02\x03\x05\x04\x02\x01\x01\x00\x00\x80\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f\x00\x62\x6d\x63\x2f\x65\x73\x70\x33\x32\x2d\x70\x34\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 #define TFWV_APPINFO_REFUSED_REPLY_LEN 63u
 
+/* APP_CMD (0x07), #635: a request is the payload after the command id (the
+ * app_op byte, then its arguments). BLINK is test/app/example's op 0x00, the
+ * blink count, asked after 3 toggles (polls at t=0, 500 and 1000 ms): the u16
+ * count 3, low byte first. TRAILING is op 0x00 with a stray argument byte
+ * (TFW_ERR_BAD_ARGC 5); UNKNOWN is op 0x01, which the example does not define
+ * (TFW_ERR_UNSUPPORTED 7). STOPPED is the BLINK request to an application that
+ * is not RUNNING (TFW_ERR_BAD_STATE 19); NOAPP is it to an image built with no
+ * application, which has no APP_CMD entry (TFW_ERR_UNKNOWN_CMD 4). */
+#define TFWV_APPCMD_BLINK_REQUEST "\x00"
+#define TFWV_APPCMD_BLINK_REQUEST_LEN 1u
+#define TFWV_APPCMD_BLINK_REPLY "\x03\x00"
+#define TFWV_APPCMD_BLINK_REPLY_LEN 2u
+#define TFWV_APPCMD_TRAILING_REQUEST "\x00\x01"
+#define TFWV_APPCMD_TRAILING_REQUEST_LEN 2u
+#define TFWV_APPCMD_TRAILING_STATUS 5u
+#define TFWV_APPCMD_UNKNOWN_REQUEST "\x01"
+#define TFWV_APPCMD_UNKNOWN_REQUEST_LEN 1u
+#define TFWV_APPCMD_UNKNOWN_STATUS 7u
+#define TFWV_APPCMD_STOPPED_STATUS 19u
+#define TFWV_APPCMD_NOAPP_STATUS 4u
+
 /* ------------------------------------------------------- image trailer v1 */
 /* The signed span of the boot image trailer (#76), bytes [0, 48), laid out
  * from include/tfw/boot.h and docs/ota/architecture.md:

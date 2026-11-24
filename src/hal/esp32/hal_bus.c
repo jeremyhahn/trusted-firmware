@@ -126,7 +126,7 @@ tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
     if (mode > 3u || clkdiv > 3u || lsb_first > 1u) {
         return TFW_ERR_RANGE;
     }
-    if (spi_dev != NULL) {
+    if (spi_dev != NULL && (mode != spi_mode || clkdiv != spi_clkdiv || lsb_first != spi_lsb)) {
         (void)spi_bus_remove_device(spi_dev);
         spi_dev = NULL;
     }

@@ -8,6 +8,8 @@
  * reset, and touches no WWDT0 register; tfw_cm_soc_watchdog_arm marks the
  * reset, runs the 1 MHz FRO into WWDT0, loads TC and MOD and feeds 0xAA then
  * 0x55; tfw_cm_soc_watchdog_pet is the feed alone. A board has not run them.
+ * tfw_cm_soc_reset_cause decodes CMC0's SRS, the firmware's request only
+ * behind its own marker.
  *
  * test/model/cortex-m/mcxn_soc_model.h compiles hal_soc.c against the
  * register file and keeps each WWDT0 and divider write in order (a feed is
@@ -36,6 +38,17 @@
 #define WWDT_MOD           WWDT(0x00u)
 #define WWDT_TC            WWDT(0x04u)
 #define WWDT_FEED          WWDT(0x08u)
+
+/* CMC0's SRS at the manual's address, not soc_regs.h's (soc_reset.c lines
+ * 4-6: offset 0x80, MCXN947_cm33_core0.h line 10970, from CMC0_BASE
+ * 0x50048000, line 12329), and the bits the suite sets (soc_reset.c lines
+ * 13-23). */
+#define CMC_SRS            ((uintptr_t)0x50048080u)
+#define SRS_POR            (1u << 1)
+#define SRS_WARM           (1u << 4)
+#define SRS_PIN            (1u << 8)
+#define SRS_WWDT0          (1u << 13)
+#define SRS_SW             (1u << 14)
 
 /* A divider write halts and resets it first (CLOCK_SetClkDiv), then the
  * count goes in: DIV 0 divides by 1. */
@@ -203,6 +216,49 @@ void test_pet_is_the_feed_alone(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(AHBCLKCTRLSET0));
 }
 
+/* SRS through soc_regs.h's name, which must be the manual's word. */
+static void seed_srs(uint32_t v)
+{
+    TFW_MCXN_CMC_SRS = v;
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(v, regfile_model_peek(CMC_SRS), "SRS is not at the manual's address");
+}
+
+void test_reset_cause_is_cmc0_srs_decoded(void)
+{
+    static const uint32_t marks[] = {0u, TFW_CM_MARK_WATCHDOG};
+    unsigned i;
+
+    for (i = 0u; i < sizeof marks / sizeof marks[0]; i++) {
+        seed_srs(SRS_POR);
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_POWER_ON, model_soc_reset_cause(marks[i]));
+        seed_srs(SRS_PIN | SRS_WARM);
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_EXTERNAL, model_soc_reset_cause(marks[i]));
+        seed_srs(SRS_WWDT0);
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, model_soc_reset_cause(marks[i]));
+    }
+}
+
+void test_a_reset_request_is_software_only_after_the_firmwares_marker(void)
+{
+    static const uint32_t others[] = {TFW_CM_MARK_WATCHDOG, TFW_CM_MARK_PANIC, 0u, 0xFFFFFFFFu};
+    unsigned i;
+
+    seed_srs(SRS_SW);
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_SOFTWARE, model_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    for (i = 0u; i < sizeof others / sizeof others[0]; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_UNKNOWN, model_soc_reset_cause(others[i]));
+    }
+}
+
+void test_reset_cause_writes_nothing(void)
+{
+    seed_srs(SRS_SW);
+    (void)model_soc_reset_cause(TFW_CM_MARK_RESETREQ);
+    TEST_ASSERT_EQUAL_UINT(0u, model_wlog_n);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_reset_mark);
+    TEST_ASSERT_EQUAL_HEX32(SRS_SW, regfile_model_peek(CMC_SRS));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -216,5 +272,8 @@ int main(void)
     RUN_TEST(test_arm_runs_the_1mhz_fro_into_wwdt0);
     RUN_TEST(test_arm_loads_tc_and_mod_then_feeds);
     RUN_TEST(test_pet_is_the_feed_alone);
+    RUN_TEST(test_reset_cause_is_cmc0_srs_decoded);
+    RUN_TEST(test_a_reset_request_is_software_only_after_the_firmwares_marker);
+    RUN_TEST(test_reset_cause_writes_nothing);
     return UNITY_END();
 }

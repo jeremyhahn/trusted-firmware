@@ -101,6 +101,32 @@ void test_input_pullup_enables_the_pull_up(void)
     TEST_ASSERT_EQUAL_HEX32(~(1u << 23), peek(GPIO_PDDR(0u)));
 }
 
+void test_input_pullup_replaces_another_function(void)
+{
+    /* hal_gpio.c line 50 stores the PCR whole, as the output and input
+     * modes do: a pin left on function 4 becomes a GPIO input with a pull. */
+    TFW_MCXN_PORT_PCR(0u, 23u) = 4u << 8;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&sw2, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(PCR_IBE | PCR_PE | PCR_PS, peek(PORT_PCR(0u, 23u)));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(PORT_PCR(0u, 23u)) & PCR_MUX);
+}
+
+void test_inputs_on_port_1_use_port1_and_gpio1(void)
+{
+    /* P1_2 as a coordinate: both input modes reach PORT1 and GPIO1 only. */
+    TFW_MCXN_GPIO_PDDR(0u) = 0xFFFFFFFFu;
+    TFW_MCXN_GPIO_PDDR(1u) = 0xFFFFFFFFu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&led_blue, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_HEX32(PCR_IBE, peek(PORT_PCR(1u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(~(1u << 2), peek(GPIO_PDDR(1u)));
+    TFW_MCXN_GPIO_PDDR(1u) = 0xFFFFFFFFu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&led_blue, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(PCR_IBE | PCR_PE | PCR_PS, peek(PORT_PCR(1u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(~(1u << 2), peek(GPIO_PDDR(1u)));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(PORT_PCR(0u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, peek(GPIO_PDDR(0u)));
+}
+
 void test_an_unknown_mode_is_unsupported_and_writes_nothing(void)
 {
     TFW_MCXN_GPIO_PDDR(0u) = 1u << 10;
@@ -206,6 +232,8 @@ int main(void)
     RUN_TEST(test_output_on_port_1_uses_port1_and_gpio1);
     RUN_TEST(test_input_clears_only_its_pddr_bit_no_pull);
     RUN_TEST(test_input_pullup_enables_the_pull_up);
+    RUN_TEST(test_input_pullup_replaces_another_function);
+    RUN_TEST(test_inputs_on_port_1_use_port1_and_gpio1);
     RUN_TEST(test_an_unknown_mode_is_unsupported_and_writes_nothing);
     RUN_TEST(test_write_1_is_one_psor_store);
     RUN_TEST(test_write_0_is_one_pcor_store);

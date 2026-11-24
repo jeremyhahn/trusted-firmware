@@ -18,7 +18,8 @@
  *
  * hal_bus.c drives the bus over these; pl022.c is the only file that touches
  * the registers, so the host suite (test/unit/test_mps2_bus.c) links hal_bus.c
- * against a modelled PL022 in its place, as it does for the SBCon (sbcon.h).
+ * and pl022.c over a register model (test/model/mps2_bus_model.h) whose PL022
+ * is the suite's, as it does for the SBCon (sbcon.h).
  */
 #ifndef TFW_CM_MPS2_PL022_H
 #define TFW_CM_MPS2_PL022_H

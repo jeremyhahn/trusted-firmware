@@ -216,6 +216,16 @@ static void test_a_sample_is_clamped_to_twelve_bits(void)
     TEST_ASSERT_EQUAL_UINT16(4095u, tfw_nrf54l_saadc_raw(4100));
 }
 
+static void test_the_clamp_edges_are_minus_one_and_4096(void)
+{
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_nrf54l_saadc_raw(-1));           /* the first sample below ground */
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_nrf54l_saadc_raw(INT16_MIN));    /* the most negative word */
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_nrf54l_saadc_raw(1));            /* the first sample above ground */
+    TEST_ASSERT_EQUAL_UINT16(4094u, tfw_nrf54l_saadc_raw(4094));      /* the last sample below full scale */
+    TEST_ASSERT_EQUAL_UINT16(4095u, tfw_nrf54l_saadc_raw(4096));      /* the first sample past twelve bits */
+    TEST_ASSERT_EQUAL_UINT16(4095u, tfw_nrf54l_saadc_raw(INT16_MAX)); /* the most positive word */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -234,5 +244,6 @@ int main(void)
     RUN_TEST(test_a_channel_past_the_table_is_refused_and_writes_nothing);
     RUN_TEST(test_saadc_pselp_puts_the_port_in_bits_8_to_11_and_connects_analog);
     RUN_TEST(test_a_sample_is_clamped_to_twelve_bits);
+    RUN_TEST(test_the_clamp_edges_are_minus_one_and_4096);
     return UNITY_END();
 }

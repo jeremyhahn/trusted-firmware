@@ -10,6 +10,8 @@
  *   - every esp_reset_reason_t decoded, and one past the last;
  *   - the reset cause a handoff carries winning over the chip's, but for
  *     SOFTWARE, which the chip's reason refines and only an unknown one keeps;
+ *   - a handed-off cause past the known values passed on as is, since the
+ *     values extend (include/tfw/types.h);
  *   - the restart each chip takes: the system reset on the ESP32
  *     (test_esp_sys_mutate), esp_restart() on the later chips
  *     (test_esp_sys_mutate_c3);
@@ -194,6 +196,23 @@ static void test_a_handoff_cause_wins_over_the_chip(void)
     }
 }
 
+static void test_a_handed_off_cause_past_the_known_values_passes_through(void)
+{
+    static const uint8_t handed[] = {
+        (uint8_t)TFW_RESET_PANIC + 1u, 0x80u, 0xFFu,
+    };
+    unsigned i, j;
+
+    handoff_present = 1u;
+    for (i = 0u; i < sizeof handed; i++) {
+        handoff_cause = handed[i];
+        for (j = 0u; j < NDECODE; j++) {
+            reason = decode[j].esp;
+            TEST_ASSERT_EQUAL_INT(handed[i], tfw_hal_reset_cause());
+        }
+    }
+}
+
 static void test_a_handed_off_software_reset_is_refined_by_the_chip(void)
 {
     unsigned i;
@@ -295,6 +314,7 @@ int main(void)
     RUN_TEST(test_every_reason_decodes);
     RUN_TEST(test_with_no_handoff_the_chip_says);
     RUN_TEST(test_a_handoff_cause_wins_over_the_chip);
+    RUN_TEST(test_a_handed_off_cause_past_the_known_values_passes_through);
     RUN_TEST(test_a_handed_off_software_reset_is_refined_by_the_chip);
     RUN_TEST(test_the_reset_is_the_one_this_chip_takes);
     RUN_TEST(test_millis_is_microseconds_over_1000_wrapped);

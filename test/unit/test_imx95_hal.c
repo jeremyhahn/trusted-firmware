@@ -17,7 +17,9 @@
  *   WDOG32 CS    UPDATE 0x20, EN 0x80, CLK=LPO 0x100, PRES 0x1000,
  *                CMD32EN 0x2000, FLG 0x4000
  *   WDOG32 TOVAL 8 s of 32 kHz / 256 = 1000 = 0x3E8
- *   NVIC         interrupt 64 is bit 0 of the third ISER/ICPR word
+ *   NVIC         interrupt 68 (LPUART7) is bit 4 of the third ISER/ICPR word
+ *   console      LPUART7 at 0x42690000 (owner ruling 1243, #474): the model
+ *                answers only there (imx95_model.c)
  */
 #include <stdint.h>
 #include <string.h>
@@ -25,6 +27,7 @@
 #include "unity.h"
 #include "tfw/hal.h"
 #include "imx95_model.h"
+#include "soc_regs.h"
 
 static struct tfw_imx95_model *m;
 
@@ -49,7 +52,23 @@ static void uart_up(void)
     m->lpuart.ctrl_unmasked = 0u;
 }
 
-/* ---------------------------------------------------------------- LPUART3 */
+/* ---------------------------------------------------------------- LPUART7 */
+
+/* The FRDM-i.MX95's console port is LPUART7 (owner ruling 1243, #474; PR #449
+ * bench record sections 14 and 15): base 0x42690000, interrupt 68. The model
+ * decodes only that base, so a byte the HAL sends must land there. */
+static void test_the_console_is_lpuart7_at_0x42690000_on_interrupt_68(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x42690000u, TFW_IMX95_LPUART7_BASE);
+    TEST_ASSERT_EQUAL_UINT32(68u, TFW_IMX95_LPUART7_IRQ);
+    uart_up();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    tfw_imx95_model_uart_interrupt();
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, m->lpuart.tx[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);
+}
 
 static void test_uart_init_programs_the_divisor_and_enables(void)
 {
@@ -58,8 +77,8 @@ static void test_uart_init_programs_the_divisor_and_enables(void)
     TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
     TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->lpuart.global);    /* out of reset */
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
-    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.iser[2]);
-    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.icpr[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);   /* 68: bit 4 */
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.icpr[2]);
     TEST_ASSERT_EQUAL_HEX32(0u, m->nvic.iser[0] | m->nvic.iser[1]);
 }
 
@@ -354,6 +373,7 @@ static void test_reset_cause_is_the_marker_decoded(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_console_is_lpuart7_at_0x42690000_on_interrupt_68);
     RUN_TEST(test_uart_init_programs_the_divisor_and_enables);
     RUN_TEST(test_uart_init_resets_before_the_divisor);
     RUN_TEST(test_uart_init_clears_a_latched_overrun);

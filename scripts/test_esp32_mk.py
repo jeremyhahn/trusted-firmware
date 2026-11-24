@@ -61,6 +61,58 @@ class Esp32QemuTestRunsOneSessionAtATime(unittest.TestCase):
         self.assertRegex(command, r"exit \$rc$")
 
 
+def qemu_runs():
+    """Each qemu_test.py run of the dry run: {target: [its arguments]}."""
+    runs = {}
+    for session in qemu_command().split(QEMU_TEST)[1:]:
+        args = session.split("||")[0].split()
+        runs[args[1]] = args
+    return runs
+
+
+def build_lines():
+    """The esp32-build sub-make lines of the dry run, their variables split."""
+    rc, out = make("-n", "esp32-qemu-test")
+    if rc != 0:
+        raise AssertionError(f"make -n esp32-qemu-test: {out}")
+    return [line.split()[3:] for line in out.splitlines()
+            if re.match(r"\S*make --no-print-directory esp32-build ", line)]
+
+
+class Esp32QemuTestBootsTheExampleApplication(unittest.TestCase):
+    """The esp32c3 run boots the example application's image (qemu_test.py's
+    step 7): its build directory is the sixth argument, and only the plain
+    esp32c3 build keeps ESP_APP_EXAMPLE, so that image is built. The
+    esp32-qemu-test job runs on no PR, so these hold it on a PR."""
+
+    def test_esp32c3_run_gets_the_example_build_directory(self):
+        rc, image = make("app-image", "APP_DIR=test/app/example",
+                         "BOARD=esp32-qemu", "ESP_TARGET=esp32c3")
+        self.assertEqual(rc, 0, image)
+        want = os.path.dirname(os.path.dirname(image.strip()))
+        self.assertTrue(want.endswith("-esp32c3-hmac-p256-app-heartbeat"), want)
+        args = qemu_runs()["esp32c3"]
+        self.assertEqual(len(args), 6, args)
+        self.assertEqual(args[5], want)
+
+    def test_esp32_run_gets_no_prov_or_app_directory(self):
+        args = qemu_runs()["esp32"]
+        self.assertEqual(len(args), 4, args)
+
+    def test_only_the_plain_esp32c3_build_keeps_the_example(self):
+        builds = {" ".join(v for v in line if v != "ESP_APP_EXAMPLE=0"): line
+                  for line in build_lines()}
+        want = {
+            "BOARD=esp32-qemu ESP_TARGET=esp32c3": False,
+            "BOARD=esp32-qemu ESP_TARGET=esp32c3 PROVISION=1": True,
+            "BOARD=esp32-qemu ESP_TARGET=esp32": True,
+        }
+        self.assertEqual(sorted(builds), sorted(want))
+        for key, skips in want.items():
+            with self.subTest(build=key):
+                self.assertEqual("ESP_APP_EXAMPLE=0" in builds[key], skips)
+
+
 MAIN_CMAKE = "mk/arch/esp32/main/CMakeLists.txt"
 STATIC_IP_IF = "if(CONFIG_TFW_ETH_STATIC_IP)"
 

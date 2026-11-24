@@ -5,14 +5,16 @@
 > `include/tfw/protocol.h`, `src/core/commands.def`, `src/core/dispatch.c`,
 > `src/proto/transport.c`, `src/proto/link_eth.c` and `src/core/app_runner.c`
 >
-> Nothing in the code changes until the owner rules. Every decision below is a
-> recommendation with its alternatives. The open questions are listed at the
-> end.
+> Owner ruling 1243 accepted decisions 1-6 as recommended, with the answers
+> recorded under the open questions at the end. The code implements them in
+> `src/core/commands.def`, `src/core/dispatch.c`, `src/core/app_runner.c` and
+> `src/core/app_cmd_none.c`.
 
 ## The question
 
-The `application-sdk` row names application-defined wire commands as a
-proposed follow-up ([architecture.md](architecture.md#what-it-does-not-do)).
+The `application-sdk` row named application-defined wire commands as a
+follow-up ([architecture.md](architecture.md#what-it-does-not-do)), now
+decided here.
 Today an application can read its configuration region and report its 32
 bytes of evidence, but a host cannot ask it anything. The first application,
 the secure BMC, needs that: power control and sensor reads are its own
@@ -54,7 +56,7 @@ preprocessor conditionals stay in the four places.
   EEPROM reads. Every other tier links the permissive gate. The application
   may include only `include/tfw/*.h` and has no interface to the auth session.
 
-## Decisions proposed
+## Decisions
 
 ### 1. One firmware id, `APP_CMD` `0x07`, with the application's own sub-op
 

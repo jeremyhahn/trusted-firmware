@@ -603,6 +603,56 @@ static void test_h5_provider_returns_a_working_pka_answer_and_keeps_it(void)
     TEST_ASSERT_FALSE(m.fault);
 }
 
+/* A fresh model, as setUp leaves it before its own PKA init: nothing pending,
+ * EN clear, the RAM filled. */
+static void h5_model_reset(void)
+{
+    memset(&m, 0, sizeof m);
+    for (uint32_t i = 0; i < RAM_WORDS; i++)
+        m.ram[i] = FILL;
+}
+
+/* Each tfw_crypto_init re-decides the PKA: one that timed out before the
+ * last init is used again once it starts, not left off for good. */
+static void test_h5_provider_uses_the_pka_again_after_init(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    h5_model_reset();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(2, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+/* A PKA that started at one init and misses INITOK at the next is left to
+ * the soft code, never started without INITOK. */
+static void test_h5_provider_drops_a_pka_that_no_longer_starts_at_init(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    h5_model_reset();
+    m.no_initok = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(0, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
 /* The model decodes with ST's facts (h5_vendor_facts.h), not the driver's;
  * every PKA and RCC fact the driver uses equals its ST literal, so a wrong
  * operand offset, mode, result code or bit in h5_crypto_regs.h fails here. */
@@ -686,5 +736,7 @@ int main(void)
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
     RUN_TEST(test_h5_provider_leaves_a_timed_out_pka_alone);
     RUN_TEST(test_h5_provider_returns_a_working_pka_answer_and_keeps_it);
+    RUN_TEST(test_h5_provider_uses_the_pka_again_after_init);
+    RUN_TEST(test_h5_provider_drops_a_pka_that_no_longer_starts_at_init);
     return UNITY_END();
 }

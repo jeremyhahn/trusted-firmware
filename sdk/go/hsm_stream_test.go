@@ -196,16 +196,21 @@ func TestHSMRecordReadAllFollowsARecordThatGrowsWhileRead(t *testing.T) {
 	}
 }
 
+// The record shrank under the read: the second reply's count is below the
+// index read (1), or has fallen to just the entries already read (2). Either
+// stops the read there, with no third read sent.
 func TestHSMRecordReadAllStopsWhenTheCountFallsBelowTheIndexRead(t *testing.T) {
-	link := &recordLink{entries: [][]byte{
-		hsmRecordEntryWithCount(3, 1),
-		hsmRecordEntryWithCount(1, 2), // the record shrank under the read
-		hsmRecordEntryWithCount(3, 3),
-	}}
-	got, err := New(link).HSMRecordReadAll(context.Background())
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Len(t, link.sent, 2)
+	for _, count := range []byte{1, 2} {
+		link := &recordLink{entries: [][]byte{
+			hsmRecordEntryWithCount(3, 1),
+			hsmRecordEntryWithCount(count, 2),
+			hsmRecordEntryWithCount(3, 3),
+		}}
+		got, err := New(link).HSMRecordReadAll(context.Background())
+		require.NoError(t, err, "second count %d", count)
+		require.Len(t, got, 2, "second count %d", count)
+		assert.Len(t, link.sent, 2, "second count %d", count)
+	}
 }
 
 func TestHSMRecordReadAllReturnsAShortReplyWithTheEntriesBeforeIt(t *testing.T) {

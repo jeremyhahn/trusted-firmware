@@ -221,28 +221,27 @@ static next_t answer(tfw_boot_platform_t *plat,
 }
 
 /*
- * One received byte into the framer. Kept out of line for the same reason as
- * answer() above: an empty pass never reaches it, so it must not shape the
- * pass. tfw_framer_push has one caller in tfw-boot, here, so under -flto GCC
- * may inline it into serve, and whether it does follows the size of its body.
- * When the framer gained the oversize-request refusal (#640) the 2560 OTA
- * image's empty pass drifted from 77 to about 62 cycles, and the session idled
- * out near 8 s, not 10 s. Out of line, serve's empty pass is the loop
- * boot_tick.h's TFW_BOOT_POLL_CYCLES describes, whatever the framer grows.
+ * Where serve keeps total_polls. On AVR the empty pass IS the clock
+ * (boot/hal/avr/boot_tick.h), and TFW_BOOT_POLL_CYCLES is its cost with
+ * total_polls in SRAM: four loads and four stores a pass. Left to the
+ * register allocator, the counter moves between SRAM and registers as the
+ * rest of serve changes size. When the framer gained the oversize-request
+ * refusal (#640) it moved into registers, the 2560 OTA image's empty pass
+ * fell from 77 to about 64 cycles, and the session idled out near 8.3 s, not
+ * 10 s, before the simavr drip case's frame at 8 s arrived. volatile pins it
+ * to SRAM, so the pass costs what boot_tick.h says whatever serve grows. It
+ * is volatile on every architecture (a per-arch qualifier would be a
+ * conditional outside config.h): Cortex-M's TFW_BOOT_POLL_CYCLES is not
+ * measured yet (boot/hal/cortex-m/boot_tick.h), and a row that measures it
+ * measures this loop, the counter in memory, as it is.
  */
-static tfw_frame_event_t push(uint8_t byte) __attribute__((noinline));
-
-static tfw_frame_event_t push(uint8_t byte)
-{
-    return tfw_framer_push(&framer, byte);
-}
 
 static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
                   const tfw_boot_session_limits_t *lim)
 {
     uint32_t idle        = 0u;
     uint32_t bytes       = 0u;
-    uint32_t total_polls = 0u;
+    volatile uint32_t total_polls = 0u;
     uint32_t total_bytes = 0u;
 
     cur = plat;
@@ -277,7 +276,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
         if (lim && lim->max_bytes != 0u && ++total_bytes >= lim->max_bytes) {
             return;
         }
-        if (push(byte) != TFW_FRAME_READY) {
+        if (tfw_framer_push(&framer, byte) != TFW_FRAME_READY) {
             continue;
         }
 

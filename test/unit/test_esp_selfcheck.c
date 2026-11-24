@@ -239,6 +239,14 @@ static int g_i2c_addr;
 static int g_i2c_probe;
 static int g_spi_cs_at_xfer;
 static int g_spi_xfers;
+/* Set-up steps the bus checks take before their probe: the status each
+ * driver init, 1-Wire reset and read returns, and a logical pin the board
+ * refuses to resolve (-1: none). */
+static tfw_status_t g_i2c_init_st;
+static tfw_status_t g_spi_init_st;
+static tfw_status_t g_ow_reset_st;
+static tfw_status_t g_ow_read_st;
+static int g_pin_refuse;
 
 /* The PoE board's own pin rows, copied from boards/esp32p4-poe/board.c lines
  * 21-37: the file cannot be #included here, since the dependency file then
@@ -273,6 +281,7 @@ tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
     if (g_pins_n < sizeof g_pins_asked / sizeof g_pins_asked[0]) g_pins_asked[g_pins_n] = pin;
     g_pins_n++;
     memset(out, 0, sizeof *out);
+    if ((int)pin == g_pin_refuse) return TFW_ERR_UNSUPPORTED;
     return TFW_OK;
 }
 
@@ -378,7 +387,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     trace("i2c_init ", 0u);
     (void)hz;
-    return TFW_OK;
+    return g_i2c_init_st;
 }
 
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
@@ -396,7 +405,7 @@ tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
     (void)mode;
     (void)clkdiv;
     (void)lsb_first;
-    return TFW_OK;
+    return g_spi_init_st;
 }
 
 tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
@@ -416,7 +425,7 @@ tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
     trace("ow_reset ", 0u);
     (void)p;
     *out_presence = g_ow_presence;
-    return TFW_OK;
+    return g_ow_reset_st;
 }
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
@@ -424,7 +433,7 @@ tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
     trace("ow_read ", 0u);
     (void)p;
     memset(buf, g_ow_byte, len);
-    return TFW_OK;
+    return g_ow_read_st;
 }
 
 /* ------------------------------------------------------------------ tests */
@@ -463,6 +472,8 @@ void setUp(void)
     g_i2c_probe = 0;
     g_spi_cs_at_xfer = 0;
     g_spi_xfers = 0;
+    g_i2c_init_st = g_spi_init_st = g_ow_reset_st = g_ow_read_st = TFW_OK;
+    g_pin_refuse = -1;
     g_pins_n = 0u;
     g_adc_pin_asked = g_pwm_pin_asked = g_adc_ch_read = -1;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
@@ -575,6 +586,64 @@ static void test_an_i2c_driver_error_fails(void)
     g_i2c_st = TFW_ERR_INTERNAL;
     tfw_esp_selfcheck();
     TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
+}
+
+/* The probe would PASS (g_i2c_st is a NACK), so only the refused init can
+ * fail the check, and nothing is probed on a bus that never came up. */
+static void test_a_refused_i2c_init_fails_and_probes_nothing(void)
+{
+    g_i2c_init_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
+    TEST_ASSERT_EQUAL_INT(-1, g_i2c_addr);
+    TEST_ASSERT_NULL(strstr(g_trace, "i2c_init i2c "));
+}
+
+static void test_a_refused_spi_init_fails_transfers_nothing_and_releases_the_chip_select(void)
+{
+    g_spi_init_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_EQUAL_INT(0, g_spi_xfers);
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "spi_init mode:0 "));
+}
+
+/* The chip select is the GPIO check's pin, so that check fails too. No mode
+ * call sits between the I2C probe and the 1-Wire reset: the pin the board
+ * never resolved is neither driven nor released. */
+static void test_a_chip_select_the_board_cannot_resolve_fails_and_drives_nothing(void)
+{
+    g_pin_refuse = 11;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "spi_init"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "i2c ow_reset "));
+}
+
+/* The 1-Wire pin is the pulse check's pin, so that check fails too. */
+static void test_a_1wire_pin_the_board_cannot_resolve_fails_and_resets_nothing(void)
+{
+    g_pin_refuse = 12;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "ow_reset"));
+}
+
+/* No presence and an idle byte would PASS: only the refused reset fails it. */
+static void test_a_refused_1wire_reset_fails_and_reads_nothing(void)
+{
+    g_ow_reset_st = TFW_ERR_TIMEOUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "ow_read"));
+}
+
+static void test_a_refused_1wire_read_fails_though_the_line_looks_idle(void)
+{
+    g_ow_read_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
 }
 
 static void test_a_gpio_readback_that_differs_fails(void)
@@ -854,6 +923,12 @@ int main(void)
     RUN_TEST(test_a_presence_pulse_on_the_free_pin_fails);
     RUN_TEST(test_a_1wire_line_that_reads_low_fails);
     RUN_TEST(test_an_i2c_driver_error_fails);
+    RUN_TEST(test_a_refused_i2c_init_fails_and_probes_nothing);
+    RUN_TEST(test_a_refused_spi_init_fails_transfers_nothing_and_releases_the_chip_select);
+    RUN_TEST(test_a_chip_select_the_board_cannot_resolve_fails_and_drives_nothing);
+    RUN_TEST(test_a_1wire_pin_the_board_cannot_resolve_fails_and_resets_nothing);
+    RUN_TEST(test_a_refused_1wire_reset_fails_and_reads_nothing);
+    RUN_TEST(test_a_refused_1wire_read_fails_though_the_line_looks_idle);
     RUN_TEST(test_a_gpio_readback_that_differs_fails);
     RUN_TEST(test_an_adc_value_out_of_range_fails);
     RUN_TEST(test_a_wrong_pwm_duty_fails);

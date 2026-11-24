@@ -389,6 +389,37 @@ static void test_a_failed_attach_register_or_start_stops(void)
     TEST_ASSERT_EQUAL_UINT(seq, start_at);
 }
 
+static void test_a_failed_start_says_so_once(void)
+{
+    unsigned knob;
+
+    for (knob = 0u; knob < 10u; knob++) {
+        setUp();
+        switch (knob) {
+        case 0u: init_err = ESP_FAIL; break;
+        case 1u: loop_err = ESP_FAIL; break;
+        case 2u: netif_null = 1; break;
+        case 3u: mac_null = 1; break;
+        case 4u: phy_null = 1; break;
+        case 5u:
+            if (!CONFIG_TFW_ETH_STATIC_IP) {
+                continue;
+            }
+            set_ip_err = ESP_FAIL;
+            break;
+        case 6u: install_err = ESP_FAIL; break;
+        case 7u: attach_err = ESP_FAIL; break;
+        case 8u: register_err = ESP_FAIL; break;
+        default: start_err = ESP_FAIL; break;
+        }
+        TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_esp_eth_start());
+        TEST_ASSERT_EQUAL_UINT(1u, logs);
+        TEST_ASSERT_EQUAL_CHAR('W', log_level);
+        TEST_ASSERT_EQUAL_STRING("tfw-eth", log_tag);
+        TEST_ASSERT_EQUAL_STRING("no link: Ethernet did not start, no wire on tcp/21574", log_line);
+    }
+}
+
 static void test_the_link_starts_as_the_board_says(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_esp_eth_start());
@@ -476,6 +507,14 @@ static void test_a_second_start_does_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, seq);
 }
 
+/* The good start itself logs nothing (test_the_link_starts_as_the_board_says,
+ * logs == 0); one start per binary, so the one after it is the other case. */
+static void test_a_start_that_works_logs_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_esp_eth_start());
+    TEST_ASSERT_EQUAL_UINT(0u, logs);
+}
+
 /* The handler the start registered, kept past setUp. */
 static esp_event_handler_t got_ip;
 
@@ -518,8 +557,10 @@ int main(void)
     RUN_TEST(test_an_address_not_taken_stops);
     RUN_TEST(test_a_failed_driver_install_stops);
     RUN_TEST(test_a_failed_attach_register_or_start_stops);
+    RUN_TEST(test_a_failed_start_says_so_once);
     RUN_TEST(test_the_start_then_the_handler);
     RUN_TEST(test_a_second_start_does_nothing);
+    RUN_TEST(test_a_start_that_works_logs_nothing);
     RUN_TEST(test_link_up_logs_the_netifs_address);
     return UNITY_END();
 }

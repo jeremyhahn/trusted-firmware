@@ -88,7 +88,9 @@ static inline uint32_t tfw_rp_xosc_startup(uint32_t xosc_hz)
  *
  * The divisor is clk / (16 * baud) as a 16.6 fixed-point number, rounded to
  * nearest: 64 * clk / (16 * baud) = 4 * clk / baud. The integer part must be
- * 1..65535; 0 means the clock is too slow for the rate. Returns 0 for a rate
+ * 1..65535, and the fraction 0 at 65535 (§12.1.7.1's uart_set_baudrate
+ * listing, lines 164-166, sets FBRD 0 there); 0 means the clock is too slow
+ * for the rate. Returns 0 for a rate
  * the part cannot make, 1 with both divisors set otherwise. 4 * clk fits 32
  * bits for any clk_peri up to 1 GHz. [RP-DS] release 8 §12.1.7.1: its worked
  * example, 125 MHz at 115200 baud, is BRDI 67 and m 52, as this gives; the
@@ -103,7 +105,7 @@ static inline uint8_t tfw_rp_uart_divisors(uint32_t clk_hz, uint32_t baud,
         return 0u;
     }
     div = (4u * clk_hz + baud / 2u) / baud;
-    if ((div >> 6) == 0u || (div >> 6) > 0xFFFFu) {
+    if ((div >> 6) == 0u || div > (0xFFFFu << 6)) {
         return 0u;
     }
     *ibrd = div >> 6;

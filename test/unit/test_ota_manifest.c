@@ -20,6 +20,7 @@
 #include "boot_platform.h"
 #include "dispatch.h"
 #include "tfw/protocol.h"
+#include "suit.h"
 #include "suit_vectors.h"
 
 #define TOTAL      512u
@@ -346,6 +347,94 @@ static void test_every_failed_store_read_is_returned_and_marks_nothing(void)
     TEST_ASSERT_GREATER_THAN_UINT8(3u, n);   /* trailer, length, envelope */
 }
 
+/* The first failed store transfer at which manifest() stops answering BUSY:
+ * one past the number of reads it makes before it decides. */
+static uint8_t reads_before_answer(void)
+{
+    tfw_status_t st;
+    uint8_t      n;
+
+    for (n = 1u; n < 255u; n++) {
+        tfw_nor_model_fail_xfer(n);
+        st = manifest();
+        tfw_nor_model_fail_xfer(0u);
+        TEST_ASSERT_FALSE(marked());
+        if (st != TFW_ERR_BUSY) {
+            break;
+        }
+    }
+    return n;
+}
+
+static void test_an_envelope_longer_than_its_buffer_is_refused_where_the_padding_would_hold_it(void)
+{
+    static uint8_t image[32];
+    uint8_t        digest[TFW_SHA256_LEN];
+    uint32_t       programs;
+    uint8_t        at_max;
+    uint8_t        past_max;
+
+    /* 512 - 128 - 32 = 352 bytes of padding: room for 2 + 350, past the
+     * 320-byte envelope buffer, so only the buffer's bound can refuse 321. */
+    memset(image, 0x5A, sizeof image);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(image, (uint16_t)sizeof image, digest));
+    build(image, sizeof image, digest, NULL, 0u, 7u);
+    img[sizeof image]      = (uint8_t)(TFW_SUIT_ENVELOPE_MAX + 1u);
+    img[sizeof image + 1u] = (uint8_t)((TFW_SUIT_ENVELOPE_MAX + 1u) >> 8);
+    stage();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, manifest());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_FALSE(marked());
+    past_max = reads_before_answer();
+
+    /* Exactly the buffer's size passes the bound and reaches the envelope read. */
+    img[sizeof image]      = (uint8_t)TFW_SUIT_ENVELOPE_MAX;
+    img[sizeof image + 1u] = (uint8_t)(TFW_SUIT_ENVELOPE_MAX >> 8);
+    stage();
+    at_max = reads_before_answer();
+
+    /* 321 answers after the length read; 320 goes on to read the envelope. */
+    TEST_ASSERT_EQUAL_UINT8(7u, past_max);
+    TEST_ASSERT_EQUAL_UINT8(17u, at_max);
+    TEST_ASSERT_GREATER_THAN_UINT8(past_max, at_max);
+}
+
+static void test_an_envelope_that_exactly_fills_the_padding_reaches_the_envelope_read(void)
+{
+    uint32_t programs;
+    uint8_t  past;
+    uint8_t  fits;
+
+    /* 512 - 128 - 64 = 320 bytes of padding: room for 2 + 318 exactly. */
+    build(SUIT_IMAGE, sizeof SUIT_IMAGE, SUIT_IMAGE_DIGEST, NULL, 0u, 7u);
+    img[sizeof SUIT_IMAGE]      = 0x3Fu;
+    img[sizeof SUIT_IMAGE + 1u] = 0x01u;
+    stage();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, manifest());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_FALSE(marked());
+    past = reads_before_answer();
+
+    /* 318 fills the padding to the trailer and passes the room bound. The
+     * 0xFF padding is no valid envelope, so the status alone cannot say which
+     * check refused it: the read counts are the proof. */
+    img[sizeof SUIT_IMAGE]      = 0x3Eu;
+    img[sizeof SUIT_IMAGE + 1u] = 0x01u;
+    stage();
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, manifest());
+    TEST_ASSERT_FALSE(marked());
+    fits = reads_before_answer();
+
+    /* 319 answers after the trailer and length reads (7 transfers); 318
+     * goes on to read its 318 envelope bytes as five TFW_STORE_CHUNK
+     * (64-byte) chunks, ten more transfers. */
+    TEST_ASSERT_EQUAL_UINT8(7u, past);
+    TEST_ASSERT_EQUAL_UINT8(17u, fits);
+    TEST_ASSERT_GREATER_THAN_UINT8(past, fits);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -364,5 +453,7 @@ int main(void)
     RUN_TEST(test_an_image_that_leaves_no_room_for_the_length_is_refused);
     RUN_TEST(test_an_image_len_raised_past_the_trailer_after_ota_end_is_refused);
     RUN_TEST(test_every_failed_store_read_is_returned_and_marks_nothing);
+    RUN_TEST(test_an_envelope_longer_than_its_buffer_is_refused_where_the_padding_would_hold_it);
+    RUN_TEST(test_an_envelope_that_exactly_fills_the_padding_reaches_the_envelope_read);
     return UNITY_END();
 }

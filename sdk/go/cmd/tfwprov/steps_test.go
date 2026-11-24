@@ -32,9 +32,11 @@ type element struct {
 	// config is the 128-byte config zone PROV_CONFIG_READ answers, and
 	// slotLocks the [slot][crc] of every PROV_SLOT_LOCK; a slot-lock clears
 	// the slot's bit in config bytes 88-89, as the element does. pub15, if
-	// set, is what PROV_PUBKEY answers for slot 15.
+	// set, is what PROV_PUBKEY answers for slot 15. seeds is the payload of
+	// every PROV_SEED_UDS.
 	config    [128]byte
 	slotLocks [][]byte
+	seeds     [][]byte
 	pub15     []byte
 
 	mu   sync.Mutex
@@ -73,7 +75,10 @@ func (e *element) answer(f tfw.Frame) (tfw.Status, []byte) {
 		s := f.Payload[0]
 		e.config[88+int(s)/8] &^= 1 << (s % 8)
 		return tfw.StatusOK, nil
-	case tfw.CmdProvWriteConfig, tfw.CmdProvLock, tfw.CmdProvSeedUDS:
+	case tfw.CmdProvSeedUDS:
+		e.seeds = append(e.seeds, append([]byte(nil), f.Payload...))
+		return tfw.StatusOK, nil
+	case tfw.CmdProvWriteConfig, tfw.CmdProvLock:
 		return tfw.StatusOK, nil
 	case tfw.CmdProvWritePubKey:
 		copy(e.slot[int(f.Payload[1])*32:], f.Payload[2:])
@@ -415,6 +420,31 @@ func TestTrustFLEXCommitRunsEveryStepInOrder(t *testing.T) {
 	}
 	if !bytes.Equal(pub, e.pub) || !bytes.Equal(e.slot[:], tm.ImageKey) {
 		t.Fatalf("point %x, slot 15 %x", pub, e.slot)
+	}
+}
+
+// The blank-part plan seeds the blank-part map's UDS slot (SlotUDS, 1) and the
+// TrustFLEX plan seeds and slot-locks the TrustFLEX map's (SlotTrustFLEXUDS,
+// 6): seeding the other map's slot is refused by the firmware after the
+// irreversible steps before it.
+func TestEachPlanSeedsItsMapsUDSSlot(t *testing.T) {
+	blank := &element{pub: bytes.Repeat([]byte{0x11}, 64)}
+	if _, err := runCommit(context.Background(), startElement(t, blank), testTemplate(), &tfw.ElementInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(blank.seeds) != 1 || len(blank.seeds[0]) == 0 || blank.seeds[0][0] != 1 {
+		t.Fatalf("blank-part seeds = %x, want slot 1", blank.seeds)
+	}
+
+	tf := trustflexElement()
+	if _, err := runCommitTrustFLEX(context.Background(), startElement(t, tf), trustflexTemplate(), lockedPart, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(tf.seeds) != 1 || len(tf.seeds[0]) == 0 || tf.seeds[0][0] != 6 {
+		t.Fatalf("TrustFLEX seeds = %x, want slot 6", tf.seeds)
+	}
+	if len(tf.slotLocks) == 0 || tf.slotLocks[0][0] != 6 {
+		t.Fatalf("TrustFLEX first slot lock = %x, want slot 6", tf.slotLocks)
 	}
 }
 

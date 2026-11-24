@@ -186,7 +186,7 @@ func TestProvisionRefusals(t *testing.T) {
 	// The UDS slot lock's refusals are the firmware's: no seed this boot,
 	// and a request that carried a CRC.
 	for _, st := range []Status{StatusErrBadState, StatusErrBadArgc} {
-		err = New(&cannedLink{status: st}).ProvSlotLockUDS(ctx, SlotUDS)
+		err = New(&cannedLink{status: st}).ProvSlotLockUDS(ctx, SlotTrustFLEXUDS)
 		require.Equal(t, st, asStatus(t, err))
 	}
 }

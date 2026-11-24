@@ -47,15 +47,21 @@ const (
 // firmware other than the one that will run on it, and the element cannot be
 // unlocked to correct it.
 //
-// Every board's map is the TrustFLEX one (boards/*/board_profile.h,
-// docs/device-provisioning/adr-trustflex-608c-slot-map.md, (a1)): the DeviceID
-// in slot 0, as a pre-locked ATECC608C-TFLXTLS ships it, and the UDS in slot
-// 6, whose shipped I/O-protection role it takes over. SlotTrustFLEXUDS, the
-// name slot 6 had while the blank-part plan still seeded slot 1, is gone:
-// SlotUDS is slot 6.
+// Two maps sit beside each other, and the slot-map ADR
+// (docs/device-provisioning/adr-trustflex-608c-slot-map.md) has SlotDeviceID
+// and SlotUDS keep their values:
+//   - SlotDeviceID and SlotUDS (0, 1) are the blank-part map, the default
+//     TFW_ATECC_SLOT_UDS in include/tfw/config.h, which tfwprov's blank-part
+//     plan seeds.
+//   - SlotTrustFLEXUDS (6) is the TrustFLEX map every board profile builds
+//     (boards/*/board_profile.h TFW_ATECC_SLOT_UDS, (a1)): the DeviceID in
+//     slot 0, as a pre-locked ATECC608C-TFLXTLS ships it, and the UDS in slot
+//     6, whose shipped I/O-protection role it takes over. tfwprov's TrustFLEX
+//     plan seeds and slot-locks it.
 const (
-	SlotDeviceID uint8 = 0
-	SlotUDS      uint8 = 6
+	SlotDeviceID     uint8 = 0
+	SlotUDS          uint8 = 1
+	SlotTrustFLEXUDS uint8 = 6
 )
 
 // The slots ProvWritePubKey writes. SlotSecureBootKey, 15, is the image

@@ -41,7 +41,7 @@ func TestE2ETrustFLEXCommitSlotLocksSlots6And15(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []uint8{tfw.SlotUDS, tfw.SlotSecureBootKey} {
+	for _, s := range []uint8{tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey} {
 		if !cfgSlotIsLocked(cfg, s) {
 			t.Fatalf("slot %d is not slot-locked after --commit (config 88-89 = %x)", s, cfg[88:90])
 		}

@@ -275,7 +275,7 @@ func readConfigZone(ctx context.Context, dev *tfw.Device) ([]byte, error) {
 // trustflexStops is step 1's stop conditions, from the config zone alone.
 func trustflexStops(cfg []byte) []string {
 	var stops []string
-	for _, s := range []uint8{tfw.SlotUDS, tfw.SlotSecureBootKey} {
+	for _, s := range []uint8{tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey} {
 		if cfgWord(cfg, cfgKeyConfig+2*int(s))&keyConfigLockable == 0 {
 			stops = append(stops, fmt.Sprintf("slot %d is permanent (option 2): it cannot be written and slot-locked", s))
 		}
@@ -294,10 +294,10 @@ func planTrustFLEXSteps(t *template, info *tfw.ElementInfo) {
 	fmt.Println("  1. read the config zone into the record; stop if slot 6 or 15 is permanent,")
 	fmt.Println("     slot 0 is latched, or slot 6 or 15 is already slot-locked")
 	fmt.Printf("  2. read the DeviceID point  slot %d, into the record\n", tfw.SlotDeviceID)
-	fmt.Printf("  3. seed UDS from the element's TRNG  slot %d\n", tfw.SlotUDS)
-	fmt.Printf("  4. check HMAC keyed by slot %d  (the firmware, before the lock in step 6)\n", tfw.SlotUDS)
+	fmt.Printf("  3. seed UDS from the element's TRNG  slot %d\n", tfw.SlotTrustFLEXUDS)
+	fmt.Printf("  4. check HMAC keyed by slot %d  (the firmware, before the lock in step 6)\n", tfw.SlotTrustFLEXUDS)
 	fmt.Printf("  5. write the image-signing key (--image-key)  slot %d\n", tfw.SlotSecureBootKey)
-	fmt.Printf("  6. slot-lock slots %d and %d   IRREVERSIBLE\n", tfw.SlotUDS, tfw.SlotSecureBootKey)
+	fmt.Printf("  6. slot-lock slots %d and %d   IRREVERSIBLE\n", tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey)
 	fmt.Println("  7. then run --verify: slot 0 holds a key, slot 6 is not readable, slot 15 holds")
 	fmt.Println("     the key, and slots 6 and 15 are slot-locked")
 	fmt.Println()
@@ -346,7 +346,7 @@ func runCommitTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info 
 	}
 
 	fmt.Println("  3. seeding the UDS from the element's TRNG")
-	if err := dev.ProvSeedUDS(ctx, tfw.SlotUDS); err != nil {
+	if err := dev.ProvSeedUDS(ctx, tfw.SlotTrustFLEXUDS); err != nil {
 		return nil, fmt.Errorf("seed UDS: %w", err)
 	}
 
@@ -364,8 +364,8 @@ func runCommitTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info 
 		return nil, &commitError{"slot 15's lock CRC is zero, which would lock without checking; nothing locked"}
 	}
 	fmt.Println("  6. slot-locking slots 6 and 15 (irreversible)")
-	if err := dev.ProvSlotLockUDS(ctx, tfw.SlotUDS); err != nil {
-		return nil, fmt.Errorf("slot-lock slot %d: %w", tfw.SlotUDS, err)
+	if err := dev.ProvSlotLockUDS(ctx, tfw.SlotTrustFLEXUDS); err != nil {
+		return nil, fmt.Errorf("slot-lock slot %d: %w", tfw.SlotTrustFLEXUDS, err)
 	}
 	if err := dev.ProvSlotLock(ctx, tfw.SlotSecureBootKey, keyCRC); err != nil {
 		return nil, fmt.Errorf("slot-lock slot %d: %w", tfw.SlotSecureBootKey, err)
@@ -404,10 +404,10 @@ func runVerifyTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info 
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("config zone unreadable: %v", err))
 	} else {
-		if cfgWord(cfg, cfgSlotConfig+2*int(tfw.SlotUDS))&slotConfigIsSecret == 0 {
+		if cfgWord(cfg, cfgSlotConfig+2*int(tfw.SlotTrustFLEXUDS))&slotConfigIsSecret == 0 {
 			problems = append(problems, "slot 6 is readable: its SlotConfig is not secret")
 		}
-		for _, s := range []uint8{tfw.SlotUDS, tfw.SlotSecureBootKey} {
+		for _, s := range []uint8{tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey} {
 			if !cfgSlotIsLocked(cfg, s) {
 				problems = append(problems, fmt.Sprintf("slot %d is not slot-locked", s))
 			}

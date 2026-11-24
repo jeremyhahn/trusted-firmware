@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "release_alpha.py")
@@ -156,6 +157,123 @@ class ReleaseAlpha(unittest.TestCase):
         # The next run increments past the tags it just cut.
         _, out = self.run_main("--dry-run")
         self.assertIn("would cut v0.4.3-alpha sdk/go/v0.4.3-alpha", out)
+
+    def test_a_refused_push_leaves_no_tag_and_the_next_run_cuts_the_same_version(self):
+        hook = os.path.join(self.dev, "hooks", "pre-receive")
+        write(hook, "#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        before = self.tags(self.repo)
+        self.assertIn("push", self.refused())
+        self.assertEqual(self.tags(self.repo), before)
+        os.remove(hook)
+        _, out = self.run_main("--dry-run")
+        self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
+
+    def test_a_failed_second_signature_deletes_the_first_tag_and_pushes_nothing(self):
+        signer = os.path.join(self.tmp.name, "fake-gpg")
+        count = os.path.join(self.tmp.name, "fake-gpg-calls")
+        # Signs as FAKE_SIGNER does on the first call; the second call fails with
+        # nothing on stdout, after v0.4.2-alpha already exists.
+        write(signer, FAKE_SIGNER.replace("import sys\n", (
+            "import os, sys\n"
+            f"n = int(open({count!r}).read()) if os.path.exists({count!r}) else 0\n"
+            f"open({count!r}, 'w').write(str(n + 1))\n"
+            "if n >= 1:\n"
+            "    sys.exit(1)\n"), 1))
+        before = self.tags(self.repo)
+        self.assertIn("tag", self.refused())
+        with open(count) as f:
+            self.assertEqual(f.read(), "2")
+        self.assertEqual(self.tags(self.repo), before)
+        dev = self.tags(self.dev)
+        self.assertNotIn("v0.4.2-alpha", dev)
+        self.assertNotIn("sdk/go/v0.4.2-alpha", dev)
+        write(signer, FAKE_SIGNER)
+        _, out = self.run_main("--dry-run")
+        self.assertIn("would cut v0.4.2-alpha sdk/go/v0.4.2-alpha", out)
+
+    def wrap_git(self, before_sign):
+        """Patch release_alpha.git so that before_sign(n) runs ahead of the n-th
+        (1-based) `git [-c k=v ...] tag --sign`, as another run in the same
+        checkout would."""
+        real = release_alpha.git
+        calls = []
+
+        def side_effect(repo, *args):
+            if ("tag", "--sign") in zip(args, args[1:]):
+                calls.append(args)
+                before_sign(len(calls))
+            return real(repo, *args)
+
+        return unittest.mock.patch.object(release_alpha, "git", side_effect=side_effect), calls
+
+    def test_a_competing_run_that_cut_the_version_first_keeps_its_tags(self):
+        theirs = {}
+
+        def compete(n):
+            if n == 1:
+                for t in ("v0.4.2-alpha", "sdk/go/v0.4.2-alpha"):
+                    git(self.repo, "tag", t)
+                    theirs[t] = git(self.repo, "rev-parse", f"refs/tags/{t}")
+
+        patch, calls = self.wrap_git(compete)
+        with patch:
+            self.assertIn("tag", self.refused())
+        self.assertEqual(len(calls), 1)
+        for t, oid in theirs.items():
+            with self.subTest(t):
+                self.assertEqual(git(self.repo, "rev-parse", f"refs/tags/{t}"), oid)
+                self.assertNotIn(t, self.tags(self.dev))
+
+    def test_a_tag_replaced_after_this_run_cut_it_is_not_deleted(self):
+        def replace(n):
+            if n == 2:
+                git(self.repo, "tag", "-f", "v0.4.2-alpha", "HEAD~1")
+                git(self.repo, "tag", "sdk/go/v0.4.2-alpha")
+
+        patch, calls = self.wrap_git(replace)
+        with patch:
+            self.assertIn("tag", self.refused())
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(git(self.repo, "rev-parse", "refs/tags/v0.4.2-alpha"),
+                         git(self.repo, "rev-parse", "HEAD~1"))
+        self.assertNotIn("v0.4.2-alpha", self.tags(self.dev))
+
+    def test_a_tag_replaced_before_its_ownership_is_read_is_not_deleted(self):
+        signer = os.path.join(self.tmp.name, "fake-gpg")
+        count = os.path.join(self.tmp.name, "fake-gpg-calls")
+        # The second signature fails, so the run cleans up what it cut.
+        write(signer, FAKE_SIGNER.replace("import sys\n", (
+            "import os, sys\n"
+            f"n = int(open({count!r}).read()) if os.path.exists({count!r}) else 0\n"
+            f"open({count!r}, 'w').write(str(n + 1))\n"
+            "if n >= 1:\n"
+            "    sys.exit(1)\n"), 1))
+        real = release_alpha.git
+        replaced = []
+
+        # The moment v0.4.2-alpha first exists in the checkout, before the run
+        # makes its next git call, another process moves it to HEAD~1.
+        def side_effect(repo, *args):
+            out = real(repo, *args)
+            if not replaced and subprocess.run(
+                    ["git", "-C", self.repo, "rev-parse", "--verify", "-q",
+                     "refs/tags/v0.4.2-alpha"], capture_output=True, check=False).returncode == 0:
+                replaced.append(True)
+                git(self.repo, "tag", "-f", "v0.4.2-alpha", "HEAD~1")
+            return out
+
+        with unittest.mock.patch.object(release_alpha, "git", side_effect=side_effect):
+            self.assertIn("tag", self.refused())
+        self.assertEqual(replaced, [True])
+        with open(count) as f:
+            self.assertEqual(f.read(), "2")
+        self.assertIn("v0.4.2-alpha", self.tags(self.repo))
+        self.assertEqual(git(self.repo, "rev-parse", "refs/tags/v0.4.2-alpha^{commit}"),
+                         git(self.repo, "rev-parse", "HEAD~1"))
+        dev = self.tags(self.dev)
+        self.assertNotIn("v0.4.2-alpha", dev)
+        self.assertNotIn("sdk/go/v0.4.2-alpha", dev)
 
 
 class Precedence(unittest.TestCase):

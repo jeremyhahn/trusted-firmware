@@ -80,7 +80,7 @@ static inline void tfw_imx95_tpm_period(uint32_t clk_hz, uint32_t freq_hz,
     uint32_t ticks = (freq_hz == 0u) ? 0u : clk_hz / freq_hz;
     uint32_t p     = 0u;
 
-    while ((ticks >> p) > TFW_IMX95_TPM_MOD_MAX + 1u && p < TFW_IMX95_TPM_PS_MAX) {
+    while ((ticks >> p) > TFW_IMX95_TPM_MOD_MAX && p < TFW_IMX95_TPM_PS_MAX) {
         p++;
     }
     ticks >>= p;

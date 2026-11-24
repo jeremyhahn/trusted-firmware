@@ -20,6 +20,8 @@ g_vals=$(sed -n 's/^\tCRC\([A-Za-z]*\) *= *0x\([0-9A-Fa-f]*\).*$/\1 \2/p' "$G" \
          | sed 's/^Check /CHECK /; s/^Empty /EMPTY /; s/^Zero /ZERO /; s/^ZeroZero /ZEROZERO /; s/^FF /FF /; s/^OrderA /ORDER_A /; s/^OrderB /ORDER_B /' \
          | tr 'a-z' 'A-Z' | sed 's/ \([0-9A-F]*\)$/ \L\1/' | sort)
 
+if [ -z "$c_vals" ]; then echo "no CRC result vectors found in $C"; fail=1; fi
+
 # Compare the value sets. Names differ by language convention; the VALUES are
 # the contract, and a value present on one side and absent on the other is the
 # failure this exists to catch.
@@ -39,6 +41,7 @@ fi
 c_frames=$(sed -n 's/^#define TFWV_FRAME_[A-Z0-9_]* "\(.*\)"$/\1/p' "$C" | sort)
 g_frames=$(sed -n 's/^\tFrame[A-Za-z0-9]* *= *"\(.*\)"/\1/p' "$G" | sort)
 
+if [ -z "$c_frames" ]; then echo "no wire frame vectors found in $C"; fail=1; fi
 cf_only=$(comm -23 <(echo "$c_frames") <(echo "$g_frames"))
 gf_only=$(comm -13 <(echo "$c_frames") <(echo "$g_frames"))
 if [ -n "$cf_only" ]; then
@@ -60,6 +63,7 @@ fi
 c_str=$(sed -n 's/^#define TFWV_SYSINFO_\([A-Z_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | sort)
 g_str=$(sed -n 's/^\tSysInfo\([A-Za-z]*\) *= *"\(.*\)"$/\1 \2/p' "$G" | sort)
 
+if [ -z "$c_str" ]; then echo "no SYS_INFO reply vectors found in $C"; fail=1; fi
 c_str_only=$(comm -23 <(echo "$c_str" | awk '{print $2}' | sort -u) <(echo "$g_str" | awk '{print $2}' | sort -u))
 g_str_only=$(comm -13 <(echo "$c_str" | awk '{print $2}' | sort -u) <(echo "$g_str" | awk '{print $2}' | sort -u))
 
@@ -69,7 +73,7 @@ fi
 if [ -n "$g_str_only" ]; then
   echo "string vector(s) in $G with no counterpart in $C:"; echo "$g_str_only"; fail=1
 fi
-if [ -z "$c_str_only" ] && [ -z "$g_str_only" ]; then
+if [ -n "$c_str" ] && [ -z "$c_str_only" ] && [ -z "$g_str_only" ]; then
   echo "SYS_INFO reply vectors agree: $(echo "$c_str" | wc -l) values, both languages"
 fi
 

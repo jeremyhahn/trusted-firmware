@@ -14,7 +14,9 @@ package is not main) and fails, naming the symbol, when
   - an exported function, type, method, constant or variable is not a row;
   - a row, or a `pkg.Name` or `pkg.Name(...)` anywhere on the page, names a
     symbol that does not exist;
-  - a symbol has two rows.
+  - a symbol has two rows;
+  - two public packages share a name, which a `pkg.Name` row cannot tell
+    apart (nothing else is checked then).
 
 Every non-test .go file counts, whatever its build constraint: a symbol behind
 the tfwsim or codec_json tag, or for one GOOS, is still part of the API a
@@ -120,8 +122,9 @@ def parse(src):
     return package, symbols
 
 
-def public_packages(root):
-    """{package name: sorted directory} for every public package of sdk/go."""
+def package_dirs(root):
+    """{package name: [directory, ...] in walk order} for every public package
+    directory of sdk/go; a name with two directories is a clash."""
     found = {}
     base = os.path.join(root, SDK)
     for d, dirs, files in os.walk(base):
@@ -131,9 +134,14 @@ def public_packages(root):
                 with open(os.path.join(d, f), encoding="utf-8") as fh:
                     package, _ = parse(fh.read())
                 if package and package != "main":
-                    found[package] = d
+                    found.setdefault(package, []).append(d)
                 break
     return found
+
+
+def public_packages(root):
+    """{package name: sorted directory} for every public package of sdk/go."""
+    return {package: dirs[-1] for package, dirs in package_dirs(root).items()}
 
 
 def exports(root):
@@ -184,6 +192,12 @@ def check(root):
         return ["%s: %s" % (PAGE, e.strerror)]
     if SECTION not in text.split("\n"):
         return ["%s: no %r section" % (PAGE, SECTION)]
+    for package, dirs in sorted(package_dirs(root).items()):
+        if len(dirs) > 1:
+            errors.append("%s: two public packages are named %s: %s; a `pkg.Name` row cannot tell them apart"
+                          % (SDK, package, " and ".join(os.path.relpath(d, root) for d in dirs)))
+    if errors:
+        return errors
     have = exports(root)
     packages = set(public_packages(root))
     rows, refs = page_names(text)

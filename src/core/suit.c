@@ -230,12 +230,10 @@ static tfw_status_t tbs_hash(const cur_t *payload, uint8_t h[TFW_SHA256_LEN])
     uint16_t n = sizeof prefix;
 
     memcpy(tbs, prefix, sizeof prefix);
-    if (payload->n < 24u) {
-        tbs[n++] = (uint8_t)(0x40u | payload->n);
-    } else {
-        tbs[n++] = 0x58u;
-        tbs[n++] = (uint8_t)payload->n;
-    }
+    /* payload is the digest wrapper suit_digest() accepted, 36 to
+     * SUIT_DIGEST_MAX bytes, so its bstr head is 0x58 and one length byte. */
+    tbs[n++] = 0x58u;
+    tbs[n++] = (uint8_t)payload->n;
     memcpy(&tbs[n], payload->p, payload->n);
     n = (uint16_t)(n + payload->n);
 

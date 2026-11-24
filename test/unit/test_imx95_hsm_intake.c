@@ -342,6 +342,38 @@ static void test_s2_a_deferred_event_survives_a_refused_fetch(void)
     TEST_ASSERT_EQUAL_HEX32(0x101u, in.session);
 }
 
+/* Pins that an S2 event deferred one pass is raised when the get_event that
+ * follows loses the session, and that the refused re-open after it clears
+ * the edge: the next S2 event, fetched on the session opened after that, is
+ * raised on its own pass and not deferred again. */
+static void test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reopen(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    fail_at     = 4u;                             /* pass 3's get_event */
+    fail_status = 0x00000729u;                    /* failure, unknown handle */
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    TEST_ASSERT_EQUAL_HEX32(0u, in.session);
+    fail_at     = 5u;                             /* pass 4's SESSION_OPEN */
+    fail_status = 0x00000029u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT32(5u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(0u, in.session);
+    tfw_hsm_loop_poll();                          /* opened, the event fetched */
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[2]);
+    TEST_ASSERT_EQUAL_UINT32(7u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[5]);
+    TEST_ASSERT_EQUAL_HEX32(0x106u, in.session);
+}
+
 static void test_s2_other_events_raise_nothing(void)
 {
     events[0] = 0x11u;
@@ -458,6 +490,7 @@ int main(void)
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
     RUN_TEST(test_s2_back_to_back_events_raise_two_signals);
     RUN_TEST(test_s2_a_deferred_event_survives_a_refused_fetch);
+    RUN_TEST(test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reopen);
     RUN_TEST(test_s2_other_events_raise_nothing);
     RUN_TEST(test_s2_session_the_enclave_lost_is_opened_again);
     RUN_TEST(test_s2_refused_session_is_retried_and_nothing_polled);

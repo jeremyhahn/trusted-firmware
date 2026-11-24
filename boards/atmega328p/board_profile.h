@@ -60,8 +60,9 @@
  * tier with TFW_FEATURE_AUTH_SESSION on is 16 676 / 16 384 bytes, 292 over.
  * The element-side cost itself is small (a Verify command and a handful of
  * state), but there is no headroom left on this board to spend it in --
- * TFW_FLASH_BUDGET below is already the tightest of the three boards that
- * carry an element.
+ * TFW_FLASH_BUDGET was then the tightest of the three boards that carry an
+ * element. That figure is against the old 16 384-byte budget; owner ruling 1243
+ * raised the budget for ATTEST_CSR and did not reopen this exclusion.
  *
  * WHAT IS LOST: a host asking for AUTH_CHALLENGE/AUTH_RESPONSE on this board
  * gets TFW_ERR_UNKNOWN_CMD and CAPS reports the feature bit clear, so it learns
@@ -71,24 +72,22 @@
  * board either; see docs/security/threat-model.md. */
 #define TFW_FEATURE_AUTH_SESSION 0
 
-/* ATTEST_CSR (issue #30) does not fit either. Measured by CI on ac493c8: the
- * atecc608a tier with it on is 16 884 / 16 384 bytes, 500 over -- the request
- * builder is small, but it lands on an image that had no room left to give.
- * The owner's ruling on #6 was that the 328P is excluded from ACME enrolment if
- * the command puts it over budget, the same way the ATmega32U4 is; it does.
+/* ATTEST_CSR (issue #30) is on. Against the old half-the-part budget it did not
+ * fit (16 884 / 16 384 bytes on ac493c8, 500 over), and the owner's ruling on #6
+ * left it out. Owner ruling 1243 (issue #53, 2026-11-24) approved the DICE-only
+ * enrolment seam's T3, which applies the Ethernet ADR's option (a)
+ * (docs/ethernet-transport/adr-wire-protocol-over-w5x00.md, "The 328P budget"):
+ * TFW_FLASH_BUDGET below becomes the whole application region, and the request
+ * builder fits in it. A 328P can now prove possession of its DeviceID key at
+ * ACME finalize; CAPS reports bit 15 set.
  *
- * The alias certificate stays on: this excludes the possession signature only.
- *
- * WHAT IS LOST: a 328P cannot prove possession of its DeviceID key at ACME
- * finalize. A host asking for ATTEST_CSR gets TFW_ERR_UNKNOWN_CMD and CAPS
- * reports bit 15 clear. Only the ATmega2560's element tier carries it.
- *
- * mk/firmware.mk's MEASURE_SOFT_CSR=1 measurement (#53 T3) once built a soft
- * image of this part with it on; it measures the ATmega2560's soft row now and
- * is refused here, as CRYPTO=soft is (owner ruling 2026-10-17, m522). */
-#define TFW_FEATURE_ATTEST_CSR 0
+ * mk/firmware.mk reads this 1 as "not off" and links src/caps/csr.c beside the
+ * alias builder, whose template it reads its headers from. */
+#define TFW_FEATURE_ATTEST_CSR 1
 
-/* Half the part, each. The budget is a gate, not an estimate: `make size-check`
+/* The application region, by owner ruling 1243 (option (a) of the Ethernet
+ * ADR): 28 672 bytes, 32 KB less the 4 KB boot section, so the gate stops where
+ * tfw-boot starts. The budget is a gate, not an estimate: `make size-check`
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and
  * finds there is no room. */
@@ -136,7 +135,7 @@
 #define TFW_OTA_STORE_PREV_ADDR   0x008000ul
 #define TFW_OTA_STORE_MARK_ADDR   0x00F000ul
 
-#define TFW_FLASH_BUDGET 16384u
+#define TFW_FLASH_BUDGET 28672u
 #define TFW_RAM_BUDGET   1024u
 
 /*

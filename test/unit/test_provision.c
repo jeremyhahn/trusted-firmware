@@ -23,7 +23,9 @@ static uint8_t     outbuf[TFW_MAX_PAYLOAD + 8u];
 static tfw_reader_t r;
 static tfw_writer_t w;
 
-void setUp(void)    { tfw_model_reset(); }
+/* The out-of-range seed resets the firmware's per-boot UDS CRC and sends
+ * nothing: the range check refuses it before the wake. */
+void setUp(void)    { tfw_model_reset(); (void)tfw_prov_seed_uds(0xFFu); }
 void tearDown(void) {}
 
 static void prep(const uint8_t *p, uint8_t n)
@@ -540,27 +542,31 @@ static void test_a_slot_lock_with_the_wrong_crc_is_the_elements_refusal(void)
     TEST_ASSERT_EQUAL_HEX16(0xFFFFu, slot_unlocked_bits());
 }
 
+static void seed(void);
+
 static void test_the_uds_slot_is_locked_only_after_an_hmac_keyed_by_it(void)
 {
     const tfw_model_cmd_t *e;
-    uint8_t                mac[32], i;
+    uint8_t                mac[32], i, base;
     static const uint8_t   zeros[32] = { 0u };
 
-    tfw_model_provision();
-    TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, tfw_model_slot_crc(TFW_ATECC_SLOT_UDS)));
+    seed();
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
     /* Read block 2, then HMAC Start keyed by the slot, End over 32 zeros, then
      * the Lock. */
-    TEST_ASSERT_EQUAL_UINT8(4u, tfw_model_log_count());
-    e = tfw_model_log(1u);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(base + 4u), tfw_model_log_count());
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_READ, tfw_model_log(base)->opcode);
+    e = tfw_model_log((uint8_t)(base + 1u));
     TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_SHA, e->opcode);
     TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_SHA_HMAC_START, e->p1);
     TEST_ASSERT_EQUAL_HEX16(TFW_ATECC_SLOT_UDS, e->p2);
-    e = tfw_model_log(2u);
+    e = tfw_model_log((uint8_t)(base + 2u));
     TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_SHA_HMAC_END, e->p1);
     TEST_ASSERT_EQUAL_UINT8(32u, e->dlen);
     TEST_ASSERT_EACH_EQUAL_HEX8(0u, e->data, 32u);
-    e = tfw_model_log(3u);
+    e = tfw_model_log((uint8_t)(base + 3u));
     TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, e->opcode);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(TFW_ATECC_LOCK_SLOT | (TFW_ATECC_SLOT_UDS << 2)), e->p1);
     TEST_ASSERT_EQUAL_HEX16((uint16_t)(0xFFFFu & ~(1u << TFW_ATECC_SLOT_UDS)), slot_unlocked_bits());
@@ -575,13 +581,134 @@ static void test_the_uds_slot_is_locked_only_after_an_hmac_keyed_by_it(void)
 
 static void test_a_uds_slot_whose_hmac_fails_is_not_locked(void)
 {
-    /* A part with no UDS: the model's HMAC Start answers an execution error. */
+    /* A seeded slot whose HMAC Start answers an error: the block-2 Read passes
+     * and the next command fails. */
+    seed();
+    tfw_model_fail_commands_after(1u);
     memset(outbuf, 0, sizeof outbuf);
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, tfw_model_slot_crc(TFW_ATECC_SLOT_UDS)));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    /* Let the config reads below through. */
+    tfw_model_fail_commands_after(0xFFu);
     TEST_ASSERT_EQUAL_UINT8(0u, sent(TFW_ATECC_OP_LOCK));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
     TEST_ASSERT_EACH_EQUAL_HEX8(0u, outbuf, sizeof outbuf);
     TEST_ASSERT_EQUAL_HEX16(0xFFFFu, slot_unlocked_bits());
+}
+
+/* PROV_SEED_UDS of the UDS slot, as the seeding test sends it. */
+static void seed(void)
+{
+    const uint8_t p[1] = { TFW_ATECC_SLOT_UDS };
+
+    prep(p, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_seed_uds(&r, &w));
+}
+
+static void test_a_uds_slot_lock_after_a_seed_carries_the_firmwares_crc(void)
+{
+    const tfw_model_cmd_t *lock;
+    uint8_t                base;
+
+    seed();
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    TEST_ASSERT_TRUE(tfw_model_log_count() > base);
+    lock = tfw_model_log((uint8_t)(tfw_model_log_count() - 1u));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, lock->opcode);
+    TEST_ASSERT_EQUAL_HEX16(tfw_model_slot_crc(TFW_ATECC_SLOT_UDS), lock->p2);
+    TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(slot_unlocked_bits() & (1u << TFW_ATECC_SLOT_UDS)));
+}
+
+static void test_a_uds_slot_lock_with_no_seed_this_boot_sends_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_uds_slot_lock_with_a_host_crc_sends_nothing(void)
+{
+    uint8_t base;
+
+    seed();
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC,
+                      slot_lock(TFW_ATECC_SLOT_UDS, tfw_model_slot_crc(TFW_ATECC_SLOT_UDS)));
+    TEST_ASSERT_EQUAL_UINT8(base, tfw_model_log_count());
+}
+
+static void test_a_second_uds_slot_lock_sends_nothing(void)
+{
+    uint8_t base;
+
+    seed();
+    TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    TEST_ASSERT_EQUAL_UINT8(base, tfw_model_log_count());
+}
+
+static void test_a_failed_seed_leaves_no_crc_to_lock_with(void)
+{
+    const uint8_t p[1] = { TFW_ATECC_SLOT_UDS };
+    uint8_t       base;
+
+    seed();
+    tfw_model_fail_commands_after(0u);
+    prep(p, 1u);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_seed_uds(&r, &w));
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, slot_lock(TFW_ATECC_SLOT_UDS, 0u));
+    TEST_ASSERT_EQUAL_UINT8(base, tfw_model_log_count());
+}
+
+static void test_an_image_slot_lock_with_a_zero_crc_sends_nothing(void)
+{
+    uint8_t base;
+
+    lock_config();
+    base = tfw_model_log_count();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, slot_lock(TFW_ATECC_SLOT_IMAGE, 0u));
+    TEST_ASSERT_EQUAL_UINT8(base, tfw_model_log_count());
+}
+
+/* Opcode count in the log from entry `from` on. */
+static uint8_t sent_from(uint8_t from, uint8_t opcode)
+{
+    uint8_t i, n = 0u;
+
+    for (i = from; i < tfw_model_log_count(); i++) {
+        if (tfw_model_log(i)->opcode == opcode) { n++; }
+    }
+    return n;
+}
+
+static void test_pubkey_of_slot_15_reads_the_stored_key(void)
+{
+    const uint8_t p[1] = { 15u };
+    uint8_t       key[64];
+    uint8_t       base;
+
+    test_key(key);
+    lock_config();
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(15u, 0u, key, 34u));
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(15u, 1u, key, 34u));
+    base = tfw_model_log_count();
+    memset(outbuf, 0, sizeof outbuf);
+    prep(p, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(key, outbuf, 64u);
+    /* A stored key is read, never recomputed by GenKey. */
+    TEST_ASSERT_EQUAL_UINT8(0u, sent_from(base, TFW_ATECC_OP_GENKEY));
+}
+
+static void test_pubkey_of_slot_1_is_still_out_of_range(void)
+{
+    const uint8_t p[1] = { 1u };
+
+    prep(p, 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_pubkey(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
 }
 
 /* ----------------------------------------------- PROV_CONFIG_READ (0x7E) */
@@ -644,6 +771,14 @@ int main(void)
     RUN_TEST(test_a_slot_lock_with_the_wrong_crc_is_the_elements_refusal);
     RUN_TEST(test_the_uds_slot_is_locked_only_after_an_hmac_keyed_by_it);
     RUN_TEST(test_a_uds_slot_whose_hmac_fails_is_not_locked);
+    RUN_TEST(test_a_uds_slot_lock_after_a_seed_carries_the_firmwares_crc);
+    RUN_TEST(test_a_uds_slot_lock_with_no_seed_this_boot_sends_nothing);
+    RUN_TEST(test_a_uds_slot_lock_with_a_host_crc_sends_nothing);
+    RUN_TEST(test_a_second_uds_slot_lock_sends_nothing);
+    RUN_TEST(test_a_failed_seed_leaves_no_crc_to_lock_with);
+    RUN_TEST(test_an_image_slot_lock_with_a_zero_crc_sends_nothing);
+    RUN_TEST(test_pubkey_of_slot_15_reads_the_stored_key);
+    RUN_TEST(test_pubkey_of_slot_1_is_still_out_of_range);
     RUN_TEST(test_every_config_block_is_read);
     RUN_TEST(test_a_config_block_past_the_zone_is_refused);
     RUN_TEST(test_locking_out_of_order_is_refused_by_the_element);

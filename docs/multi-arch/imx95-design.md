@@ -385,12 +385,13 @@ Each names the document that answers it; none is guessed here.
     provisional. Four row branches now claim `0x41`: stm32h5, nrf54l15, rp2350
     and imx95. The owner allocates board ids (ref ADR Q3); each branch takes
     its id from that allocation before it merges.
-21. **The M7 agent's SCMI channel.** The SCMI client (section 9.6) names no
-    instance, because no document held here gives one. It needs: the MU
-    instance and its base on the M7's map; the doorbell (the GCR bit); the
-    shared memory area's address and length; the agent id; the SCMI clock id
-    of LPUART3's root; and the power, reset and logical-machine ids the M7 may
-    use (question 15). So the console's clock is not enabled through SCMI yet.
+21. **The M7 agent's SCMI channel.** Partly answered for the console's pad
+    request (#474, owner ruling 1243): `board_profile.h` names MU5_MUA at
+    `0x44610000`, its SRAM area at `0x44611000` (`0x80` bytes), doorbell 0
+    and the CRC-32 imx-sm checks, from the public NXP sources it lists. Still
+    open: the agent id; the SCMI clock id of LPUART7's root; and the power,
+    reset and logical-machine ids the M7 may use (question 15). So the
+    console's clock is not enabled through SCMI yet.
     The System Manager configuration (trusted-imx95) and the System Manager
     interface document answer the ids. IMX95RM, the MU chapter, answers the
     GCR's offset, `0x114` in `scmi_mu.h`. It is unconfirmed: no document
@@ -453,14 +454,16 @@ The table does not settle who starts the M7; the ref ADR says Linux never does
 
 `src/hal/cortex-m/imx95/` drives three blocks:
 
-- LPUART3, on interrupt 64, as the byte link;
+- LPUART7, on interrupt 68, as the byte link;
 - the RGPIO banks GPIO1 to GPIO5;
 - WDOG5, as the watchdog both images share.
 
-It sets no pin mux, clock or power: NXP's System Manager on the M33 owns those.
+It writes no pin mux, clock or power register: NXP's System Manager on the M33
+owns those. The console's pads, GPIO_IO36/37 at ALT2, are asked of it over
+SCMI pin control (`console_pins.c`) before the LPUART reset.
 The divisor search and the bank table are `soc_calc.c`, which has no register
 access, so `test/unit/test_imx95_soc_calc.c` tests on the host the same file
-the image links. The vector table carries 80 external interrupts for LPUART3,
+the image links. The vector table carries 80 external interrupts for LPUART7,
 so the code region needs a 512-byte alignment, and `imx95.ld` asserts it.
 
 ### 9.4 SoC facts, checked 2026-10-20
@@ -473,7 +476,7 @@ the file that states it.
 
 | Fact | Where | Value | Result |
 |---|---|---|---|
-| The M7's UART | `board_profile.h`, `soc_regs.h` | LPUART3 at `0x42570000`, interrupt 64 | unverifiable. UM12527 §2.19 says J22's channel-to-core mapping is not fixed (question 13) |
+| The M7's UART | `board_profile.h`, `soc_regs.h` | LPUART7 at `0x42690000`, interrupt 68, on GPIO_IO36/37 at ALT2 | owner ruling 1243 (#474), from the PR #449 bench record, sections 14 and 15 |
 | The watchdog | `soc_regs.h`, `hal_soc.c` | WDOG5 at `0x424B0000`, WDOG32 on the 32 kHz LPO | unverifiable (question 17) |
 | The start address | `profile.mk` | ITCM at M7 `0x00000000` = A55 `0x203C0000`, application at `0x00008000` | unverifiable. SPSDK loads `cortex_m7_app` at `0x303C0000` (d12); whether that is the other alias of the same TCM is open |
 | The clock | `board_profile.h` | the M7 at 800 MHz, the LPUART root at 24 MHz | unverifiable. 800 MHz agrees with IMX95CEC Table 1 as section 2.1 cites it, a datasheet `docs/reference/` does not hold |
@@ -491,7 +494,7 @@ SoC's map, not which blocks the System Manager gives the M7.
 
 | Fact | Board read | Result |
 |---|---|---|
-| LPUART3 at `0x42570000` | `serial@42570000` in the device tree, GIC SPI 64 | base confirmed; the M7's NVIC line 64 TO CONFIRM |
+| LPUART7 at `0x42690000` | the PR #449 bench record, sections 14 and 15; owner ruling 1243 | base and NVIC line 68 as the bench record gives them |
 | WDOG5 at `0x424B0000` | no node there (the only watchdog node is `0x42490000`) | TO CONFIRM |
 | GPIO1 to GPIO5 | `gpio@47400000` (disabled for Linux), `gpio@43810000`, `gpio@43820000`, `gpio@43840000`, `gpio@43850000` | bases confirmed |
 | The six TPM bases (`tpm.h`) | `pwm@44310000`, `44320000`, `424e0000`, `424f0000`, `42500000`, `42510000` | bases confirmed |
@@ -1080,7 +1083,7 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The board as data, id `0x41` (provisional, question 20), in the Cortex-M range | done | `boards/frdm-imx95-m7/` | `test/unit/test_board_frdm-imx95-m7.c` |
 | The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
 | The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
-| LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
+| LPUART7, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
 | Pulse timing, PULSE_IN and PULSE_CAPTURE | built, not yet run on the board | `src/hal/cortex-m/hal_pulse.c`, the one Cortex-M pulse timer, on `TFW_FEATURE_PULSE 1` in `boards/frdm-imx95-m7/board_profile.h`: the pin's level as `tfw_hal_gpio_read` reads it (RGPIO PDIR), the time on SysTick at the processor clock, 800 MHz. SysTick reloads every 1 ms (`TFW_CM_TICK_RELOAD`; the 24-bit counter alone would wrap every 21 ms), and `hal_pulse.c` counts across the reloads | `test/unit/test_cm_pulse.c` (the timer on its model, `test/model/cortex-m/cm_pulse_model.h`) |
 | The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/image.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
 | The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
@@ -1121,10 +1124,10 @@ on the M7, because QEMU has no i.MX 95 and no slice has reached the bench.
 | R1 | A board of the `cortex-m` port, our firmware core on the M7 | done (built, not run) | `boards/frdm-imx95-m7/profile.mk` (`ARCH := cortex-m`, `CPU := cortex-m7`), `mk/arch/cortex-m.mk` | `make build`'s `firmware-matrix` (`mk/stages.mk`, `mk/firmware.mk`), every `BOARD_TIERS` and `BOARD_ROWS` row of the board |
 | R2 | The board as data, `boards/frdm-imx95-m7`, id `0x41` in the Cortex-M range `0x40`–`0x7F`, provisional | done; the id stays provisional until the owner allocates it (question 20) | `boards/frdm-imx95-m7/board_profile.h` (`TFW_BOARD_ID`), `board.c`, `sdk/go/boardid.go` (`BoardFRDMIMX95M7`), `docs/boards/board-id-registry.md` | `test/unit/test_board_frdm-imx95-m7.c`: `test_the_board_is_the_next_provisional_cortex_m_id`; `sdk/go/boardid_test.go`: `TestBoardIDsAreThePublishedValues`, `TestBoardIDEveryValue`; `scripts/test_board_check.py`: `test_id_outside_its_family_range_fails` |
 | R3 | The M7's TCM map and the addresses the A55 loads it at | partial: linked and asserted at the M7's addresses; the A55's aliases are a comment in `profile.mk`, and both are TO CONFIRM (question 1, section 9.4) | `boards/frdm-imx95-m7/profile.mk`, `mk/arch/cortex-m/imx95.ld`, `src/hal/cortex-m/imx95/rsc_table.c` | `imx95.ld`'s `ASSERT`s (512-byte vector alignment, the resource table's size and alignment) under `firmware-matrix`; `test/unit/test_imx95_rsc_table.c`: `test_linux_takes_the_images_table` |
-| R4 | LPUART3, RGPIO and WDOG5 under `src/hal/cortex-m/imx95/` | done on the host against the register model; not run | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`, `soc_calc.c`, `soc_regs.h`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_programs_the_divisor_and_enables`, `test_gpio_output_drives_psor_and_pcor`, `test_arm_marks_and_sets_eight_seconds`; `test/unit/test_imx95_soc_calc.c`: `test_9600_is_exact`, `test_the_gpio_banks` |
+| R4 | LPUART7, RGPIO and WDOG5 under `src/hal/cortex-m/imx95/` | done on the host against the register model; not run | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`, `soc_calc.c`, `soc_regs.h`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_programs_the_divisor_and_enables`, `test_gpio_output_drives_psor_and_pcor`, `test_arm_marks_and_sets_eight_seconds`; `test/unit/test_imx95_soc_calc.c`: `test_9600_is_exact`, `test_the_gpio_banks` |
 | R5 | The soft root, until the enclave tier | partial: the board builds at `soft` with `TFW_FEATURE_ATTEST`, but its UDS sits in tfw-boot's region and its CDI is handed over by tfw-boot, which this board does not build (question 19), so nothing derives it on the M7 | `boards/frdm-imx95-m7/profile.mk` (`BOARD_TIERS := soft`), `board_profile.h` (`TFW_FEATURE_ATTEST`, `TFW_BOOT_REGION_*`) | `firmware-matrix`'s `frdm-imx95-m7 soft` row; the soft path itself runs only on `mps2-an505`, under `make integration-test-cortex-m` (`mk/arch/cortex-m-targets.mk`) |
 | R6 | Built in CI but not run | done | `mk/stages.mk` (`build: ... firmware-matrix`), `mk/firmware.mk` (`firmware-matrix`, `firmware-matrix-list`) | `make build` in CI; the host tests under `make host-test` (`mk/host.mk`'s `test_imx95_*` and `test_board_frdm-imx95-m7` binaries) |
-| R7 | Every SoC fact confirmed against NXP IMX95RM | partial: IMX95RM is not held. The board read (section 9.4.1) confirms the LPUART3, GPIO1–GPIO5 and TPM bases; WDOG5's base, the M7's interrupt lines, the clocks, the ITCM alias and the pads stay TO CONFIRM | the "TO CONFIRM" marks in `boards/frdm-imx95-m7/` and `src/hal/cortex-m/imx95/soc_regs.h` | none: a document check, sections 9.4 and 9.4.1; the register model pins the layouts as stated, not as the silicon has them |
+| R7 | Every SoC fact confirmed against NXP IMX95RM | partial: IMX95RM is not held. The board read (section 9.4.1) confirms the LPUART3, GPIO1–GPIO5 and TPM bases, and the PR #449 bench record gives the console's, LPUART7 at `0x42690000` (#474); WDOG5's base, the M7's interrupt lines, the clocks, the ITCM alias and the pads stay TO CONFIRM | the "TO CONFIRM" marks in `boards/frdm-imx95-m7/` and `src/hal/cortex-m/imx95/soc_regs.h` | none: a document check, sections 9.4 and 9.4.1; the register model pins the layouts as stated, not as the silicon has them |
 | R8 | The key tier is the EdgeLock enclave: the DICE root and keys held there, no key leaves it in the clear | partial: the M7's half of the enclave's messaging and one P-256 key's life (generate, sign, export the public half, verify) are built on the host; the tier value 5, the provider behind `crypto.h` and the DICE root in the enclave are not started | `src/hal/cortex-m/imx95/ele_mu.c`, `ele_mu.h` | `test/unit/test_imx95_ele_mu.c`: `test_get_info_is_four_words_through_tr0_to_tr3`, `test_a_generated_key_signs_exports_and_verifies` |
 | R9 | AHAB secure boot verifies the M7 image as a signed container before it runs | not started here, and not ours to build: the container and its signing are trusted-imx95's (section 6). Whether our gate adds a verify is question 19 (and 6, 12); the bench board's SRK hashes are not fused (bench record) | none in this repository | none |
 | R10 | Clocks, power and resources through SCMI to NXP's System Manager on the M33 | partial: the client and its MU transport are built on the host; not called, because the M7 agent's channel and ids are open (question 21) | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c` | `test/unit/test_imx95_scmi.c`: `test_clock_rate_get_is_the_clock_id`, `test_power_state_set_is_flags_domain_state`; `test/unit/test_imx95_scmi_mu.c`: `test_a_wrong_token_is_refused` |
@@ -1153,7 +1156,7 @@ on the M7, because QEMU has no i.MX 95 and no slice has reached the bench.
    (tfw-boot on the M7); proven by `firmware-matrix` and, for tfw-boot, the
    boot size check. Needs the owner's ruling on question 19.
 5. **SCMI on the board.** Fill `TFW_IMX95_SCMI_*` in `board_profile.h` and
-   enable LPUART3's clock through `scmi.c` at start-up; proven by
+   enable LPUART7's clock through `scmi.c` at start-up; proven by
    `test/unit/test_imx95_scmi.c` with the board's ids, then the console on the
    bench. Needs trusted-imx95's System Manager configuration (question 21).
 6. **SoC facts on silicon.** Confirm WDOG5, the M7's interrupt lines, the

@@ -40,7 +40,7 @@ and on the i.MX 95 that world is the BSP's.
 | SoC | i.MX 95, MIMX9596AVZXNAC; its silicon revision is open | UM12527 §1.2 Table 1; the design, question 16 |
 | Cores | up to six Cortex-A55, one Cortex-M33, one Cortex-M7; the M7 and M33 are two independent real-time domains | the design, section 2.1 (UM12527 §1.2 Table 1, §2.1) |
 | The M7 | up to 800 MHz; 512 kB of TCM with ECC; 32 kB + 32 kB I/D cache, FPU, MPU and NVIC | the design, section 2.1 (IMX95CEC Table 1, Figure 3) |
-| Console | LPUART3, interrupt 64, on one of the CH9114F channels on J22, whose core mapping is not fixed | the design, sections 3 and 9.4, question 13; **to confirm against IMX95RM** |
+| Console | LPUART7 at `0x42690000`, interrupt 68, on GPIO_IO36/37 at ALT2, routed by an SCMI pin-control request to the System Manager | owner ruling 1243 (#474); the PR #449 bench record, sections 14 and 15 |
 | Watchdog | WDOG5, WDOG32 on the 32 kHz LPO | the design, section 9.4, question 17; **to confirm against IMX95RM** |
 | Ethernet | two RGMII Gigabit ports and a 10 GbE SlimSAS, every PHY on ENET2's MDIO; which the M7 may own is open | the design, section 3 (UM12527 §2.18), question 14 |
 
@@ -90,7 +90,7 @@ exists off the board. A row that is not this board's says why.
 
 | Row | SPEC | Status | Date | Evidence | Issue |
 |---|---|---|---|---|---|
-| `wire-protocol` | shipped | not run | 2026-11-20 | over LPUART3 only; LPUART host-tested on the register model | #49 |
+| `wire-protocol` | shipped | not run | 2026-11-20 | over LPUART7 only; LPUART host-tested on the register model | #49 |
 | `device-capabilities` | shipped | not run | 2026-11-20 | GPIO, UART, watchdog and pulse timing (`PULSE_IN`, `PULSE_CAPTURE`, on SysTick) linked by default; PWM on a TPM, the SAR ADC, I²C on an LPI2C and tone on a GPT built only in their opt-in rows (`soft:PWM=1`, `soft:ADC=1`, `soft:I2C=1`, `soft:TONE=1`), host-tested on register models, and answering unsupported until their bases are known (PWM also until the pad handoff, `TFW_IMX95_PWM_PAD_HANDOFF`) (the design, question 17); EEPROM, SPI and 1-Wire not linked | #49 |
 | `boards` | shipped | not run | 2026-11-20 | `test/unit/test_board_frdm-imx95-m7.c`; `make board-sweep` | #49 |
 | `dice-attestation` | shipped | not run | 2026-11-20 | soft tier only; the enclave tier's message layer built and host-tested (`test/unit/test_imx95_ele_mu.c`), not called until questions 3 and 4 are answered | #49 |

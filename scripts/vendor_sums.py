@@ -7,7 +7,8 @@
 relative to <dir>), summed from a fresh fetch of the upstream commit its
 VERSION names. The check fails on a file whose bytes differ, a listed file
 that is missing, and a file in <dir> the list does not name (VERSION, README.tfw.md and
-SHA256SUMS themselves aside). third_party/lwip is checked by make lwip-check
+SHA256SUMS themselves aside). A symlink to a directory counts as a file the
+list must name and that can never match. third_party/lwip is checked by make lwip-check
 and by scripts-test (test_vendor_sums.py).
 """
 
@@ -37,8 +38,11 @@ def read_sums(path):
 def tree_files(root):
     """Return the relative paths of every file under root but OURS."""
     out = set()
-    for d, _, files in os.walk(root):
-        for name in files:
+    for d, dirs, files in os.walk(root):
+        # os.walk neither descends into nor lists a symlink to a directory:
+        # count it as a file, so it must be named and can never match.
+        links = [n for n in dirs if os.path.islink(os.path.join(d, n))]
+        for name in files + links:
             rel = os.path.relpath(os.path.join(d, name), root)
             if rel not in OURS:
                 out.add(rel.replace(os.sep, "/"))

@@ -258,7 +258,8 @@ the probe read nothing.
   firmware boundary rather than as an opaque element execution error.
 - **`ProvGenKey` and `ProvPubKey` are separate commands, not modes of one.**
   `ProvGenKey` replaces the DeviceID; `ProvPubKey` only recomputes the public
-  point from the key already in the slot. This split is what makes
+  point from the key already in the slot (slot 0) or reads it back (slots 2
+  and 15). This split is what makes
   `tfwprov --verify` safe to run against an already-provisioned part — no
   verify path can regenerate the identity it is checking.
 - **`ProvSeedUDS` takes a slot and no key material.** The UDS comes
@@ -268,7 +269,8 @@ the probe read nothing.
   (`tfw_prov_seed_uds`, `src/caps/provision_atecc.c`); the SRAM copy is scrubbed with `memset` whether
   or not the write succeeded.
 - **Both slot constants are fixed, not caller-supplied policy.** `ProvGenKey`
-  and `ProvPubKey` reject any `slot != SlotDeviceID` (`TFW_ERR_RANGE`);
+  rejects any `slot != SlotDeviceID` (`TFW_ERR_RANGE`); `ProvPubKey` accepts
+  only slot 0 and the public-key slots 2 and 15, which it reads back;
   `ProvSeedUDS` rejects any `slot != SlotUDS`. A template cannot redirect the
   DeviceID key or the UDS into a slot the rest of the firmware never reads
   from.
@@ -315,10 +317,10 @@ step doing both keeps `tfwprov`'s pre-flash sequence a single operation.
 | Status | Meaning here | Raised by |
 |---|---|---|
 | `TFW_ERR_NACK` (10) | the element did not answer the wake | every ATECC backend `tfw_prov_*` (`src/caps/provision_atecc.c`) on `tfw_atecc_wake()` failure — not reported as "no element," since a miswired or overclocked bus is indistinguishable from an absent part |
-| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | the ATECC backend: `tfw_prov_write_config` (block ≥ 4), `tfw_prov_lock` (unknown zone), `tfw_prov_genkey`/`tfw_prov_pubkey` (slot ≠ `SlotDeviceID`), `tfw_prov_seed_uds` (slot ≠ `SlotUDS`), `tfw_prov_write_pubkey` (slot not 2 or 15, half > 1) |
-| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, or a zero summary CRC | `tfw_prov_cmd_write_config` (no data), `tfw_prov_lock` (CRC == 0, ATECC backend), `tfw_prov_cmd_write_pubkey` (not 34 bytes) |
-| `TFW_ERR_BAD_STATE` (19) | a data-zone write before the config zone is locked | `tfw_prov_write_pubkey` (ATECC backend) |
-| `TFW_ERR_PROTECTED_REGION` (16) | write targets config block 0 or 1, or a slot whose SlotLocked bit is clear | `tfw_prov_cmd_write_config`, `tfw_prov_cmd_write_pubkey` |
+| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | the ATECC backend: `tfw_prov_write_config` (block ≥ 4), `tfw_prov_lock` (unknown zone), `tfw_prov_genkey` (slot ≠ `SlotDeviceID`), `tfw_prov_pubkey` (slot not 0, 2 or 15), `tfw_prov_seed_uds` (slot ≠ `SlotUDS`), `tfw_prov_write_pubkey` (slot not 2 or 15, half > 1) |
+| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, a zero summary CRC, or a slot-lock CRC the slot does not take | `tfw_prov_cmd_write_config` (no data), `tfw_prov_lock` (CRC == 0, ATECC backend), `tfw_prov_cmd_write_pubkey` (not 34 bytes), `tfw_prov_slot_lock` (non-zero CRC for slot 6, zero CRC for slot 15) |
+| `TFW_ERR_BAD_STATE` (19) | a data-zone write before the config zone is locked, or a UDS slot lock with no seed this boot | `tfw_prov_write_pubkey` (ATECC backend), `tfw_prov_slot_lock` (slot 6 with no successful `PROV_SEED_UDS` this boot, or already slot-locked this boot) |
+| `TFW_ERR_PROTECTED_REGION` (16) | write targets config block 0 or 1, or a slot whose SlotLocked bit is clear | `tfw_prov_cmd_write_config`, `tfw_prov_cmd_write_pubkey`, `tfw_prov_slot_lock` (slot already slot-locked) |
 | `TFW_ERR_UNSUPPORTED` (7) | a public-key slot write on the UDS backend, which has no element | `tfw_prov_cmd_write_pubkey` |
 | `TFW_ERR_UNKNOWN_CMD` (4) | production image — no provisioning handler compiled in | any `0x70`–`0x75` or `0x7B` command against a device built with `TFW_FEATURE_PROVISION=0` |
 | `TFW_ERR_NOT_PROVISIONED` (15) | attestation attempted on an element with no UDS | not raised by this package; raised by the attestation path when steps 4–5 of `--commit` never completed — see `docs/security/threat-model.md` |

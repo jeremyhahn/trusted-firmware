@@ -90,6 +90,9 @@ typedef struct {
     uint32_t restarts;           /* repeated STARTs */
     uint32_t stops;              /* STOP conditions sent */
     uint32_t tasks_resume;
+    uint32_t task_seq;           /* STOP/RESUME writes so far, for order */
+    uint32_t resume_seq;         /* task_seq at the first RESUME, 0 none */
+    uint32_t stop_seq;           /* task_seq at the first STOP, 0 none */
     uint32_t p1_pin_cnf[32];     /* P1 PIN_CNF[n] as last written */
     uint32_t enable_at_config;   /* ENABLE, OR'd, at each PSEL or FREQUENCY write */
 } twim_model_t;
@@ -214,8 +217,16 @@ static void model_write(uintptr_t addr, uint32_t v)
     }
     off = (uint32_t)(addr - TWIM_BASE);
     switch (off) {
-    case O_TASKS_STOP:   s_twim.tasks_stop++; bus_stop(); break;
-    case O_TASKS_RESUME: s_twim.tasks_resume++; break;
+    case O_TASKS_STOP:
+        if (s_twim.stop_seq == 0u) {
+            s_twim.stop_seq = ++s_twim.task_seq;
+        }
+        s_twim.tasks_stop++; bus_stop(); break;
+    case O_TASKS_RESUME:
+        if (s_twim.resume_seq == 0u) {
+            s_twim.resume_seq = ++s_twim.task_seq;
+        }
+        s_twim.tasks_resume++; break;
     case O_TASKS_TX:     s_twim.tasks_starttx++; bus_write(); break;
     case O_TASKS_RX:     s_twim.tasks_startrx++; bus_read(); break;
     case O_ERRORSRC:     s_twim.errorsrc &= ~v; break;
@@ -548,6 +559,9 @@ static void test_twim_data_nack_resumes_before_the_stop(void)
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, 0u));
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_resume);
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_NOT_EQUAL_UINT32(0u, s_twim.resume_seq);
+    TEST_ASSERT_NOT_EQUAL_UINT32(0u, s_twim.stop_seq);
+    TEST_ASSERT_TRUE(s_twim.resume_seq < s_twim.stop_seq);
 }
 
 /* A write whose STOP never takes: the TWIM is disabled and both EasyDMA counts

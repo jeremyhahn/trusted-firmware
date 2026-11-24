@@ -23,6 +23,7 @@
 #include "sys.h"
 #include "hal_mock.h"
 #include "ota_stage.h"
+#include "ota_trial.h"
 #include "esp_ota_mock.h"
 #include "lwip_mock.h"
 #include "hal_esp32.h"
@@ -249,6 +250,36 @@ static void test_an_activate_from_a_host_not_authenticated_is_refused_at_the_gat
     TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, ask(a, TFW_CMD_OTA_ACTIVATE, &mode, 1u));
 }
 
+/* OTA_CONFIRM is gated on the operator session as well as on OTA_AUTH. Until the
+ * host authenticates, the confirm is refused at the gate: it marks nothing, the
+ * trial stays on, and the signature it took is spent. Once the host authenticates
+ * and sends a new OTA_AUTH, the confirm ends the trial (the signature itself is
+ * not verified yet: the owner-gated item 6, docs/plans/618.md). */
+static void test_a_confirm_from_a_host_not_authenticated_is_refused_at_the_gate(void)
+{
+    uint8_t      sig[TFW_OTA_AUTH_SIG_LEN];
+    mock_conn_t *a;
+
+    mock_esp.state[0] = ESP_OTA_IMG_PENDING_VERIFY;    /* slot 0 runs, on trial */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
+    a = host();
+
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_AUTH_REQUIRED, ask(a, TFW_CMD_OTA_CONFIRM, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.marks);
+    TEST_ASSERT_EQUAL_INT(ESP_OTA_IMG_PENDING_VERIFY, mock_esp.state[0]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_trial_on());
+
+    authenticate(a);                               /* the refused confirm spent it */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_AUTH_REQUIRED, ask(a, TFW_CMD_OTA_CONFIRM, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.marks);
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, ask(a, TFW_CMD_OTA_CONFIRM, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_esp.marks);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -257,5 +288,6 @@ int main(void)
     RUN_TEST(test_a_host_that_dials_in_after_a_hangup_must_authenticate);
     RUN_TEST(test_a_challenge_left_pending_cannot_be_answered_by_the_next_host);
     RUN_TEST(test_an_activate_from_a_host_not_authenticated_is_refused_at_the_gate);
+    RUN_TEST(test_a_confirm_from_a_host_not_authenticated_is_refused_at_the_gate);
     return UNITY_END();
 }

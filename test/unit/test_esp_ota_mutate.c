@@ -12,8 +12,8 @@
  *   - OTA_DATA's last byte exactly, and one past it;
  *   - the activate check's image end at each bound of its range (the
  *     digest, the slot, the trailer's room), a slot-filling image, an
- *     unreadable digest or description, and a measurement wrong in its last
- *     byte only;
+ *     unreadable digest, description or trailer, an image with no appended
+ *     SHA-256, and a measurement wrong in its last byte only;
  *   - the trailer outside the uploaded stream: a session that sent no
  *     trailer, with an earlier session's left on the slot past its digest;
  *   - the uploaded stream's bound on each side: a session one byte short of
@@ -368,6 +368,25 @@ static void test_an_unreadable_description_is_internal(void)
     expect_nothing_activated();
 }
 
+static void test_an_image_with_no_appended_digest_is_range(void)
+{
+    stage_signed(2u);
+    mock_esp.no_hash = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    mock_esp.no_hash = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+}
+
+static void test_an_unreadable_trailer_is_internal(void)
+{
+    stage_signed(2u);
+    mock_esp.read_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, authorized_activate(0u));
+    expect_nothing_activated();
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.auth_writes);
+}
+
 static void test_a_measurement_wrong_in_its_last_byte_is_crypto(void)
 {
     signed_image(APP_LEN, 2u, 2u);
@@ -466,6 +485,8 @@ int main(void)
     RUN_TEST(test_an_upload_that_stops_before_the_digest_is_range);
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);
+    RUN_TEST(test_an_image_with_no_appended_digest_is_range);
+    RUN_TEST(test_an_unreadable_trailer_is_internal);
     RUN_TEST(test_a_measurement_wrong_in_its_last_byte_is_crypto);
     RUN_TEST(test_a_repeated_activate_answers_by_the_mode_it_was_given);
     RUN_TEST(test_activate_while_receiving_is_bad_state);

@@ -56,6 +56,13 @@ exactly one mode is required
   --verify     read the part back and compare against the template
   --commit     write. IRREVERSIBLE. requires --yes-i-mean-it
 
+a template with plan = trustflex (a pre-locked ATECC608C-TFLXTLS):
+
+  --commit --image-key <file>   seed the UDS into slot 6, write the key to
+                slot 15 and slot-lock both; the file is the raw 64-byte X||Y
+                or a PEM PUBLIC KEY
+  --verify [--image-key <file>]   check slots 0, 6 and 15 and their locks
+
 a separate mode, taking no port and no --config:
 
   --bake-eeprom --serial <hex16> --out <file.eep>   write a platform-block .eep image
@@ -89,7 +96,7 @@ See docs/device-provisioning/user.md.
 // bakeWireFlags are the wire-mode flags the bake modes refuse: a bake opens
 // no port and reads no template, so taking one silently would let a record
 // look template-checked when no template was read.
-var bakeWireFlags = map[string]bool{"config": true, "yes-i-mean-it": true, "baud": true, "timeout": true}
+var bakeWireFlags = map[string]bool{"config": true, "yes-i-mean-it": true, "baud": true, "timeout": true, "image-key": true}
 
 func main() {
 	var (
@@ -110,6 +117,7 @@ func main() {
 		recordPath = flag.String("record", "", "--bake-eeprom: start a provisioning record (JSON: EAT ueid); --commit/--verify: join the DeviceID point to it (cnf.jwk)")
 		writeKey   = flag.String("write-pubkey", "", "write a P-256 public key into an element slot: a file of the raw 64-byte X||Y or a PEM PUBLIC KEY; with --slot")
 		slot       = flag.Int("slot", -1, "--write-pubkey: the slot to write (2: image signing, 15: secure boot)")
+		imageKey   = flag.String("image-key", "", "--commit/--verify with a trustflex template: the image-signing P-256 public key for slot 15, raw 64-byte X||Y or PEM PUBLIC KEY")
 		nf         netblockFlags
 	)
 	flag.StringVar(&nf.mac, "mac", "", "--bake-netblock: the device's MAC, aa:bb:cc:dd:ee:ff (unicast)")
@@ -221,6 +229,9 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if err := applyImageKey(tmpl, *imageKey, *commit, *dryRun); err != nil {
+		fail(err)
+	}
 
 	link, err := serialport.Open(flag.Arg(0), *baud)
 	if err != nil {
@@ -270,6 +281,30 @@ func provision(ctx context.Context, dev *tfw.Device, tmpl *template, mode, recor
 	default:
 		return fmt.Errorf("unknown mode %q", mode)
 	}
+	return nil
+}
+
+// applyImageKey loads --image-key into a TrustFLEX template. --commit on that
+// plan requires it; a blank-part template and --dry-run refuse it, since
+// neither writes slot 15.
+func applyImageKey(t *template, path string, commit, dryRun bool) error {
+	if path == "" {
+		if commit && t.Plan == planTrustFLEX {
+			return errors.New("--commit with a trustflex template requires --image-key: the key it writes to slot 15")
+		}
+		return nil
+	}
+	if t.Plan != planTrustFLEX {
+		return errors.New("--image-key belongs to a trustflex template; the blank-part plan writes no slot 15")
+	}
+	if dryRun {
+		return errors.New("--image-key is read by --commit and --verify; --dry-run writes nothing")
+	}
+	key, err := readPubKey(path)
+	if err != nil {
+		return fmt.Errorf("--image-key: %w", err)
+	}
+	t.ImageKey = key
 	return nil
 }
 

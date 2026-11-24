@@ -36,6 +36,10 @@ type template struct {
 	// zones and the per-slot SlotLock takes their place
 	// (docs/device-provisioning/adr-trustflex-608c-slot-map.md, (a1)).
 	Plan string
+	// ImageKey is the image-signing public key, X||Y, the TrustFLEX plan
+	// writes to slot 15. It is not a template key: main sets it from
+	// --image-key, so one reviewed template serves every key.
+	ImageKey []byte
 	// Blocks 2..3 of the config zone, keyed by block index. Blocks 0 and 1 are
 	// absent because the device refuses them: they hold the serial number, the
 	// revision and the OTP mode, which are not ours to set.

@@ -283,6 +283,51 @@ def _flow_runs_on(line):
     return False
 
 
+LINE = re.compile(r"^(\s*)((?:-(?:\s+|$))*)(.*)$")
+# A block mapping or flow mapping key, bare or quoted, and its raw value.
+KEY = re.compile(
+    r"""^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#&*!|>%@`\[\]{},][^#]*?)"""
+    r"""\s*:(?:\s+(.*))?$"""
+)
+BLOCK_SCALAR = re.compile(r"[|>][1-9+-]*")
+
+
+def _line_node(line):
+    """Return (column, value) for a block mapping entry or list item on line:
+    its raw value and the column of its key, or of its last `-` when the item
+    has no key (`      - run: |` is column 8, `  - |` column 2); (None, None)
+    for any other line."""
+    m = LINE.match(line)
+    key = KEY.match(m.group(3))
+    if key:
+        return len(m.group(1)) + len(m.group(2)), key.group(2) or ""
+    if m.group(2):
+        return len((m.group(1) + m.group(2)).rstrip()) - 1, m.group(3)
+    return None, None
+
+
+def _indent(line):
+    return len(line) - len(line.lstrip())
+
+
+def _block_scalars(lines):
+    """Return the indexes of the content lines of every block scalar: the
+    lines after a `|` or `>` header (with any indentation or chomping
+    indicator, anchor, tag or ` # comment`) that are blank or deeper than the
+    column of the header's key or `-`."""
+    skip, i = set(), 0
+    while i < len(lines):
+        col, value = _line_node(lines[i])
+        i += 1
+        if value is not None and BLOCK_SCALAR.fullmatch(_node(value) or ""):
+            while i < len(lines) and (
+                not lines[i].strip() or _indent(lines[i]) > col
+            ):
+                skip.add(i)
+                i += 1
+    return skip
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
@@ -315,7 +360,10 @@ def plain_labels(text):
     test fails closed on it.
     """
     lines = text.splitlines()
+    skip = _block_scalars(lines)
     for i, line in enumerate(lines):
+        if i in skip:
+            continue
         key = RUNS_ON.match(line)
         if not key:
             if _flow_runs_on(line):
@@ -337,7 +385,7 @@ def plain_labels(text):
             # The last line of a flow value already read.
             last = i
             for j in range(i + 1, len(lines)):
-                if j <= last:
+                if j <= last or j in skip:
                     continue
                 if not lines[j].strip() or lines[j].lstrip().startswith("#"):
                     continue

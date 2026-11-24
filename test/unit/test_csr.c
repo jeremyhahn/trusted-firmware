@@ -13,6 +13,7 @@
  * parse as another.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "unity.h"
 #include "csr.h"
@@ -378,6 +379,54 @@ static void test_a_window_past_the_end_is_refused(void)
 
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_csr_cri(&p, TFWV_CSR_CRI_LEN, buf,
                                                (uint8_t)sizeof buf, &total, &got));
+}
+
+/* Every window from offset 300 to 370 at caps 1, 59 and 60: one that starts
+ * inside the 365 bytes yields what is left of them, up to the last byte; one
+ * that starts at or past the end is refused and writes neither length. */
+static void test_every_window_at_the_tail_and_past_it(void)
+{
+    static const uint8_t caps[] = { 1u, 59u, 60u };
+    tfw_alias_parts_t    p = pinned();
+    uint8_t              buf[60];
+    uint16_t             total;
+    uint8_t              got;
+    char                 msg[32];
+    unsigned             off;
+    size_t               i;
+
+    for (off = 300u; off <= 370u; off++) {
+        for (i = 0; i < sizeof caps; i++) {
+            unsigned want = TFWV_CSR_CRI_LEN - off;
+
+            (void)snprintf(msg, sizeof msg, "off %u cap %u", off, caps[i]);
+            total = 0xA5A5u;
+            got   = 0x5Au;
+            if (off < TFWV_CSR_CRI_LEN) {
+                if (want > caps[i]) {
+                    want = caps[i];
+                }
+                TEST_ASSERT_EQUAL_MESSAGE(TFW_OK,
+                    tfw_csr_cri(&p, (uint16_t)off, buf, caps[i], &total, &got),
+                    msg);
+                TEST_ASSERT_EQUAL_UINT16_MESSAGE(TFWV_CSR_CRI_LEN, total, msg);
+                TEST_ASSERT_EQUAL_UINT8_MESSAGE(want, got, msg);
+                TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(&CRI[off], buf, got, msg);
+            } else {
+                TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_RANGE,
+                    tfw_csr_cri(&p, (uint16_t)off, buf, caps[i], &total, &got),
+                    msg);
+                TEST_ASSERT_EQUAL_HEX16_MESSAGE(0xA5A5u, total, msg);
+                TEST_ASSERT_EQUAL_HEX8_MESSAGE(0x5Au, got, msg);
+            }
+        }
+    }
+    total = 0xA5A5u;
+    got   = 0x5Au;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_csr_cri(&p, 0xFFFFu, buf,
+                                               (uint8_t)sizeof buf, &total, &got));
+    TEST_ASSERT_EQUAL_HEX16(0xA5A5u, total);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, got);
 }
 
 /* ----------------------------------------------------------- confusion */
@@ -752,6 +801,7 @@ int main(void)
     RUN_TEST(test_the_ueid_is_named_in_lowercase_hex);
     RUN_TEST(test_b_changes_the_digest_and_nothing_else_about_the_shape);
     RUN_TEST(test_a_window_past_the_end_is_refused);
+    RUN_TEST(test_every_window_at_the_tail_and_past_it);
     RUN_TEST(test_the_request_info_parses_as_nothing_else);
     RUN_TEST(test_the_alias_tbs_parses_as_nothing_else);
     RUN_TEST(test_the_evidence_frame_parses_as_nothing_else);

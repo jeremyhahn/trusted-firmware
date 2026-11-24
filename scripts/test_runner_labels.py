@@ -159,20 +159,69 @@ def _unquote(text):
 
 def _node(text):
     """Return a raw value stripped of its trailing ` # comment`, its blanks and
-    a leading anchor (`&r`) and tag (`!!str`); None for an unquoted alias
-    (`*r`), whose labels are read where its anchor is. Quotes are kept, so a
-    quoted scalar stays one scalar (`"*r"`, `"[a]"`, `"&a b"` are text, not
-    an alias, flow or anchor) and _node is idempotent: _label unquotes it
+    a leading anchor (`&r`) and tag (`!!str`); an unquoted alias (`*r`) is
+    returned as written, for _alias to read at its anchor. Quotes are kept,
+    so a quoted scalar stays one scalar (`"*r"`, `"[a]"`, `"&a b"` are text,
+    not an alias, flow or anchor) and _node is idempotent: _labels unquotes it
     once, at the end."""
-    text = PROPS.sub("", _strip_comment(text).strip(), count=1)
-    return None if text.startswith("*") else text
+    return PROPS.sub("", _strip_comment(text).strip(), count=1)
 
 
-def _label(text):
-    """Return the label a raw flow item or scalar names: its node unquoted
-    once, as written between the quotes; None for an alias."""
-    text = _node(text)
-    return None if text is None else _unquote(text)
+UNRESOLVED = "<unresolved alias {}>"
+
+
+def _alias(node, anchors, i):
+    """Return the node an unquoted alias on line i names: the node of the
+    last anchor of that name on line i or before it. An alias with no such
+    anchor, or whose anchor marks a block node (a block list or mapping on
+    later lines, or a block scalar), is the quoted label
+    `<unresolved alias *r>`, which no allowlist accepts, so the test fails
+    closed on a label it cannot check. Any other node is returned as is."""
+    if not node.startswith("*"):
+        return node
+    found = [n for line, n in anchors.get(node[1:], ()) if line <= i]
+    if found and found[-1] is not None:
+        return found[-1]
+    return '"' + UNRESOLVED.format(node) + '"'
+
+
+def _anchor(text, i, anchors, lines=None):
+    """Record in anchors the anchor of a raw node on line i, and those of the
+    items of a flow node, as {name: [(line, node)]}; return the last line the
+    node takes. In a block (lines given) a flow node may span lines, and an
+    empty node or a block scalar header anchors a block node, recorded as
+    None; in a flow an empty node is an empty scalar."""
+    text = _strip_comment(text).strip()
+    props = PROPS.match(text)
+    names = re.findall(r"(?:^|\s)&(\S+)", props.group(0)) if props else []
+    node, last = text[props.end() if props else 0 :].strip(), i
+    if lines is not None and node.startswith(("[", "{")):
+        node, last = _flow(lines, i, node)
+        if node is None:
+            last = i
+    if lines is not None and node is not None:
+        if not node or BLOCK_SCALAR.fullmatch(node):
+            node = None
+    if node and node[0] + node[-1] in ("[]", "{}"):
+        for part in _split_flow(node[1:-1]):
+            pair = KEY.match(part.strip())
+            _anchor((pair.group(2) or "") if pair else part, i, anchors)
+    for name in names:
+        anchors.setdefault(name, []).append((i, node))
+    return last
+
+
+def _anchors(lines, skip):
+    """Return the anchors of every mapping value and list item in lines (see
+    _anchor), outside block scalar content (skip)."""
+    anchors, last = {}, -1
+    for i, line in enumerate(lines):
+        if i <= last or i in skip:
+            continue
+        _, value = _line_node(line)
+        if value is not None:
+            last = _anchor(value, i, anchors, lines)
+    return anchors
 
 
 def allowlist(path):
@@ -208,30 +257,32 @@ def _split_flow(inner):
     return parts
 
 
-def _labels(value):
-    """Yield the labels of a scalar or flow-list value, skipping any label with
-    a `${{ ... }}` expression anywhere in it. The value and its items are raw
-    text (see _node): a quoted scalar is one label, read as written."""
-    value = _node(value)
-    if value is None:
-        return
+def _labels(value, anchors, i):
+    """Yield the labels of a scalar or flow-list value on line i, skipping any
+    label with a `${{ ... }}` expression anywhere in it. The value and its
+    items are raw text (see _node): a quoted scalar is one label, read as
+    written; an alias, as a value or an item, is read at its anchor (see
+    _alias)."""
+    value = _alias(_node(value), anchors, i)
     items = [value]
     if value.startswith("[") and value.endswith("]"):
         items = _split_flow(value[1:-1])
     for label in items:
-        label = _label(label) or ""
+        label = _unquote(_alias(_node(label), anchors, i))
         if label and not 0 <= label.find("${{") < label.find("}}"):
             yield label
 
 
-def _value_labels(value):
-    """Yield the labels of a scalar, flow-list or flow-mapping value; of a
-    flow mapping only its `labels:` entry counts."""
+def _value_labels(value, anchors, i):
+    """Yield the labels of a scalar, flow-list or flow-mapping value on line
+    i, an alias read at its anchor; of a flow mapping only its `labels:`
+    entry counts."""
+    value = _alias(_node(value), anchors, i)
     if value.startswith("{") and value.endswith("}"):
         entries = (FLOW_ENTRY.match(e) for e in _split_flow(value[1:-1]))
         values = [e.group(1) for e in entries if e]
         value = values[0] if values else ""
-    yield from _labels(value)
+    yield from _labels(value, anchors, i)
 
 
 def _flow(lines, i, value):
@@ -361,6 +412,7 @@ def plain_labels(text):
     """
     lines = text.splitlines()
     skip = _block_scalars(lines)
+    anchors = _anchors(lines, skip)
     for i, line in enumerate(lines):
         if i in skip:
             continue
@@ -369,13 +421,11 @@ def plain_labels(text):
             if _flow_runs_on(line):
                 yield i + 1, FLOW_RUNS_ON
             continue
-        value = _node(key.group(2))
-        if value is not None:
-            value, _ = _flow(lines, i, value)
+        value, _ = _flow(lines, i, _node(key.group(2)))
         if value is None:
             continue
         if value:
-            for label in _value_labels(value):
+            for label in _value_labels(value, anchors, i):
                 yield i + 1, label
         else:
             indent = len(key.group(1))
@@ -392,17 +442,15 @@ def plain_labels(text):
                 item = ITEM.match(lines[j])
                 listed = list_indent is not None
                 if item and listed and len(item.group(1)) >= list_indent:
-                    for label in _labels(item.group(2)):
+                    for label in _labels(item.group(2), anchors, j):
                         yield j + 1, label
                     continue
                 entry = ENTRY.match(lines[j])
                 depth = len(lines[j]) - len(lines[j].lstrip())
                 if listed and not item and not entry and depth > list_indent:
                     # The value of the empty key, on the next line.
-                    value = _node(lines[j])
-                    if value is not None:
-                        value, last = _flow(lines, j, value)
-                    for label in _value_labels(value or ""):
+                    value, last = _flow(lines, j, _node(lines[j]))
+                    for label in _value_labels(value or "", anchors, j):
                         yield j + 1, label
                     list_indent = None
                     continue
@@ -410,13 +458,11 @@ def plain_labels(text):
                     break
                 list_indent = None
                 if entry.group(2) == "labels":
-                    value = _node(entry.group(3) or "")
-                    if value is not None:
-                        value, last = _flow(lines, j, value)
+                    value, last = _flow(lines, j, _node(entry.group(3) or ""))
                     if value is None:
                         break
                     if value:
-                        for label in _labels(value):
+                        for label in _labels(value, anchors, j):
                             yield j + 1, label
                     else:
                         list_indent = len(entry.group(1))
@@ -621,16 +667,28 @@ class RunnerLabelsTest(unittest.TestCase):
         ):
             self.assertEqual(self.check(head + value), want, value)
 
-    def test_an_alias_value_is_skipped(self):
+    def test_an_unresolved_alias_fails_closed(self):
         head = "jobs:\n  build:\n    runs-on:"
         for value, want in (
-            (" *r\n", []),
-            (" [*r, qwne]\n", ["w.yml:3: qwne"]),
-            ("\n      *r\n", []),
-            ("\n      - *r\n      - qwne\n", ["w.yml:5: qwne"]),
-            ("\n      group: g\n      labels: *l\n", []),
+            (" *r\n", ["w.yml:3: <unresolved alias *r>"]),
+            (" [*r, qwne]\n", ["w.yml:3: <unresolved alias *r>", "w.yml:3: qwne"]),
+            ("\n      *r\n", ["w.yml:4: <unresolved alias *r>"]),
+            (
+                "\n      - *r\n      - qwne\n",
+                ["w.yml:4: <unresolved alias *r>", "w.yml:5: qwne"],
+            ),
+            ("\n      group: g\n      labels: *l\n", ["w.yml:5: <unresolved alias *l>"]),
         ):
             self.assertEqual(self.check(head + value), want, value)
+        for workflow, want in (
+            # An anchor on a block list.
+            ("x: &r\n  - codex\n" + head + " *r\n", ["w.yml:5: <unresolved alias *r>"]),
+            # An anchor on a block scalar.
+            ("x: &r |\n  codex\n" + head + " *r\n", ["w.yml:5: <unresolved alias *r>"]),
+            # An alias before its anchor.
+            (head + " *r\nx: &r codex\n", ["w.yml:3: <unresolved alias *r>"]),
+        ):
+            self.assertEqual(self.check(workflow), want, workflow)
 
     def test_a_block_scalar_runs_on_line_is_not_a_key(self):
         body = (

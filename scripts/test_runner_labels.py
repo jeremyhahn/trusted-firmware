@@ -584,6 +584,47 @@ class RunnerLabelsTest(unittest.TestCase):
         ):
             self.assertEqual(self.check(head + value), want, value)
 
+    def test_a_block_scalar_runs_on_line_is_not_a_key(self):
+        body = (
+            "          runs-on: qwne\n"
+            "          runs-on: [self-hosted, qwne]\n"
+            "\n"
+            "          jobs: {b: {runs-on: qwne}}\n"
+        )
+        after = "  next:\n    runs-on: qwne\n"
+        for header in ("|", ">-", "|2", "|2-", ">+", "&s |", "!!str >", "| # sh"):
+            head = (
+                "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n"
+                f"      - run: {header}\n"
+            )
+            self.assertEqual(self.check(head + body), [], header)
+            found = self.check(head + body + after)
+            self.assertEqual(found, ["w.yml:11: qwne"], header)
+        # A sibling key at the owning key's column ends the scalar.
+        found = self.check(
+            "jobs:\n  build:\n    steps:\n      - run: |\n          echo\n"
+            "        shell: bash\n        runs-on: qwne\n"
+        )
+        self.assertEqual(found, ["w.yml:7: qwne"])
+
+    def test_an_alias_resolves_to_its_anchor(self):
+        job = "jobs:\n  build:\n    runs-on:"
+        for workflow, want in (
+            ("env: {RUNNER: &runner qwne}\n" + job + " *runner\n", ["w.yml:4: qwne"]),
+            ("env:\n  RUNNER: &runner qwne\n" + job + " *runner\n", ["w.yml:5: qwne"]),
+            ("env:\n  RUNNER: &runner codex\n" + job + " *runner\n", []),
+            ("x: &l [self-hosted, qwne]\n" + job + " *l\n", ["w.yml:4: qwne"]),
+            (
+                "x: &l [self-hosted, qwne]\n" + job + "\n      group: g\n"
+                "      labels: *l\n",
+                ["w.yml:6: qwne"],
+            ),
+            ("x:\n  - &a qwne\n" + job + " [*a, linux]\n", ["w.yml:5: qwne"]),
+            ("x: [&a qwne, b]\n" + job + "\n      - *a\n", ["w.yml:5: qwne"]),
+            ("x: &r 'qwne'  # c\n" + job + "\n      *r\n", ["w.yml:5: qwne"]),
+        ):
+            self.assertEqual(self.check(workflow), want, workflow)
+
     def test_an_embedded_expression_label_is_skipped(self):
         for value in ("runner-${{ matrix.n }}", '[self-hosted, "x-${{ inputs.h }}"]'):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

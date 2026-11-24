@@ -23,13 +23,50 @@
  * sees what TXDRDY held when the driver started a transmit. */
 static uint32_t txdrdy_at_tx_start;
 
+/* Set once TX.START has been reached: from then on the TXDRDY seam below
+ * counts each use of TXDRDY. */
+static uint8_t tx_started;
+
 static volatile uint32_t *tx_start_reg(void)
 {
     txdrdy_at_tx_start |= TFW_NRF_UARTE_TXDRDY;
+    tx_started = 1u;
     return &TFW_NRF_UARTE_TX_START;
 }
+
+/* Uses of TXDRDY after TX.START, and which of them (1-based, 0 for none)
+ * first found it raised once the model's lookup returned. The model raises a
+ * late task's event on a lookup of its address, so the cleanup write's lookup
+ * raises it too; only these counts tell the driver's wait (the use passed to
+ * event_wait) from that cleanup. Defined after tx_start_reg, which keeps the
+ * plain register. */
+static unsigned txdrdy_uses;
+static unsigned txdrdy_first_raised;
+
+static volatile uint32_t *txdrdy_reg(void)
+{
+    volatile uint32_t *r = &TFW_NRF_UARTE_TXDRDY;
+
+    if (tx_started != 0u) {
+        txdrdy_uses++;
+        if (txdrdy_first_raised == 0u && *r != 0u) {
+            txdrdy_first_raised = txdrdy_uses;
+        }
+    }
+    return r;
+}
+
+static void txdrdy_seam_reset(void)
+{
+    tx_started          = 0u;
+    txdrdy_uses         = 0u;
+    txdrdy_first_raised = 0u;
+}
+
 #undef TFW_NRF_UARTE_TX_START
 #define TFW_NRF_UARTE_TX_START (*tx_start_reg())
+#undef TFW_NRF_UARTE_TXDRDY
+#define TFW_NRF_UARTE_TXDRDY (*txdrdy_reg())
 
 #include "../boot_uart.c"
 
@@ -239,12 +276,25 @@ static void test_init_drops_a_stale_rx_end(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_uart_rx(&b));
 }
 
+/* A send waits for TXDRDY before it clears it: after TX.START, TXDRDY is used
+ * exactly twice, by the wait and then by the cleanup, and it is first seen
+ * raised on the wait's use, not the cleanup's. Without the wait, the cleanup
+ * write's lookup would raise TXDRDY and end the task, and the asserts on the
+ * registers alone would still hold. TX.START, TXDRDY and TX.END end at 0. */
 static void test_tx_waits_for_txdrdy_and_clears_its_events(void)
 {
+    unsigned uses;
+    unsigned first_raised;
+
     tfw_boot_uart_init(BAUD);
     tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_TX_START, &TFW_NRF_UARTE_TXDRDY, 0u, NULL);
     TFW_NRF_UARTE_TX_END = 1u;
+    txdrdy_seam_reset();
     tfw_boot_uart_tx(0x5Au);
+    uses         = txdrdy_uses;         /* before the asserts below use TXDRDY */
+    first_raised = txdrdy_first_raised;
+    TEST_ASSERT_EQUAL_UINT(2u, uses);
+    TEST_ASSERT_EQUAL_UINT(1u, first_raised);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_START);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TXDRDY);
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_TX_END);

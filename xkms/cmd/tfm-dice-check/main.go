@@ -48,22 +48,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	} {
 		b, err := hex.DecodeString(f.val)
 		if err != nil || len(b) == 0 {
-			fmt.Fprintf(stderr, "tfm-dice-check: -%s: want non-empty hex\n", f.name)
+			_, _ = fmt.Fprintf(stderr, "tfm-dice-check: -%s: want non-empty hex\n", f.name)
 			return 2
 		}
 		*f.dst = b
 	}
 	der, err := os.ReadFile(*certPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "tfm-dice-check: -cert: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "tfm-dice-check: -cert: %v\n", err)
 		return 2
 	}
 	in.CertDER = der
 
 	if err := tfmdice.Check(in); err != nil {
-		fmt.Fprintln(stderr, "tfm-dice-check:", err)
+		_, _ = fmt.Fprintln(stderr, "tfm-dice-check:", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "tfm-dice-check: alias evidence ok")
+	_, _ = fmt.Fprintln(stdout, "tfm-dice-check: alias evidence ok")
 	return 0
 }

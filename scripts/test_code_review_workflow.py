@@ -21,6 +21,9 @@ class CodeReviewWorkflowTests(unittest.TestCase):
     def test_only_code_on_a_row_pr_is_reviewed(self):
         self.run_suite("code-review-v51214-tests.py")
 
+    def test_an_incomplete_review_is_not_a_finding(self):
+        self.run_suite("code-review-v51215-tests.py")
+
 
 if __name__ == "__main__":
     unittest.main()

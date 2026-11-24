@@ -7,8 +7,9 @@
  * Processor Reference Manual"), which this project does not hold: every SoC
  * fact here and in src/hal/cortex-m/imx95/ is TO CONFIRM against it.
  *
- * The byte link is LPUART3, the M7's debug UART on NXP's i.MX 95 boards (TO
- * CONFIRM against UM12527, the debug UART section). The pins are four RGPIO
+ * The byte link is LPUART7, the M7 console on port 2 of the board, on
+ * GPIO_IO36/37 at ALT2 (owner ruling 1243, #474; PR #449 bench record
+ * section 14). The pins are four RGPIO
  * lines, GPIO2_IO00 to GPIO2_IO03 (board.c): two GPIO pins and the two that
  * carry the TPM's PWM channels. Pulse timing and attestation (the soft root)
  * are on; analog, PWM, tone and I2C only in their profile.mk rows; every other
@@ -96,7 +97,7 @@
  * sheet; TO CONFIRM against the configuration trusted-imx95 ships). */
 #define TFW_CM_CPU_HZ 800000000uL
 
-/* LPUART3's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
+/* LPUART7's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
  * System Manager configuration sets the root). The baud divisor counts it. */
 #define TFW_IMX95_LPUART_CLK_HZ 24000000uL
 
@@ -114,7 +115,7 @@
  * base), and which one the System Manager gives the M7 is open
  * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
  * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
- * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
+ * register. Its clock root, the 24 MHz oscillator as LPUART7's, is TO
  * CONFIRM: the System Manager configuration sets it. No image overrides the
  * base; mk/host.mk's test_board_frdm-imx95-m7_pwm_base passes a stand-in one
  * so the board's PWM pin mapping is checked as it will be once it is known. */

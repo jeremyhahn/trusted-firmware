@@ -8,7 +8,7 @@
  * the same blocks, the register layouts those of NXP's LPUART, RGPIO and
  * WDOG32 blocks as other i.MX parts document them.
  *
- *   LPUART3  the byte link, the M7's debug UART on NXP's i.MX 95 boards
+ *   LPUART7  the byte link, the M7 console on port 2 of the FRDM-IMX95-PRO
  *   GPIO1-5  RGPIO banks; their addresses are in soc_calc.c, which the host
  *            tests link
  *   WDOG5    the watchdog the System Manager configuration gives the M7
@@ -22,16 +22,18 @@
 #include "cm_regs.h"
 #include "soc_calc.h"
 
-/* ---- LPUART3 */
-/* Base confirmed on the board (2026-11-14, live device tree, A55 view):
- * serial@42570000, the third LPUART; docs/development/bench/frdm-imx95.md.
- * The offsets below stay TO CONFIRM. */
-#define TFW_IMX95_LPUART3_BASE  0x42570000u
-#define TFW_IMX95_LPUART_GLOBAL TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x08u)
-#define TFW_IMX95_LPUART_BAUD   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x10u)
-#define TFW_IMX95_LPUART_STAT   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x14u)
-#define TFW_IMX95_LPUART_CTRL   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x18u)
-#define TFW_IMX95_LPUART_DATA   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x1Cu)
+/* ---- LPUART7 */
+/* The M7 console (owner ruling 1243, #474). On the FRDM-IMX95-PRO port 2 is
+ * LPUART7 on GPIO_IO36/37 (PR #449 bench record section 14: the vendor M7
+ * demo prints there; the third LPUART's pads do not reach it). Base from the board's
+ * live device tree (A55 view): serial@42690000, the seventh LPUART. The
+ * offsets below stay TO CONFIRM. */
+#define TFW_IMX95_LPUART7_BASE  0x42690000u
+#define TFW_IMX95_LPUART_GLOBAL TFW_CM_REG(TFW_IMX95_LPUART7_BASE + 0x08u)
+#define TFW_IMX95_LPUART_BAUD   TFW_CM_REG(TFW_IMX95_LPUART7_BASE + 0x10u)
+#define TFW_IMX95_LPUART_STAT   TFW_CM_REG(TFW_IMX95_LPUART7_BASE + 0x14u)
+#define TFW_IMX95_LPUART_CTRL   TFW_CM_REG(TFW_IMX95_LPUART7_BASE + 0x18u)
+#define TFW_IMX95_LPUART_DATA   TFW_CM_REG(TFW_IMX95_LPUART7_BASE + 0x1Cu)
 
 #define TFW_IMX95_LPUART_GLOBAL_RST 0x00000002u
 #define TFW_IMX95_LPUART_STAT_TDRE  0x00800000u
@@ -43,9 +45,14 @@
 #define TFW_IMX95_LPUART_CTRL_TE    0x00080000u
 #define TFW_IMX95_LPUART_CTRL_RE    0x00040000u
 
-/* The board's device tree gives serial@42570000 GIC SPI 64 (A55). That the
- * M7's NVIC line is the same number stays TO CONFIRM. */
-#define TFW_IMX95_LPUART3_IRQ 64u
+/* The M7's NVIC line of LPUART7: 68. The board's live device tree gives
+ * serial@42690000 GIC SPI 0x44 (PR #449 bench record section 15), and the
+ * M7's line numbers the LPUARTs as the GIC's (the third is 64 on both, NXP
+ * mcux-sdk devices/MIMX9596/MIMX9596_cm7.h). */
+#define TFW_IMX95_LPUART7_IRQ 68u
+
+_Static_assert(TFW_IMX95_LPUART7_BASE == 0x42690000u && TFW_IMX95_LPUART7_IRQ == 68u,
+               "the i.MX 95 M7 console is LPUART7 (owner ruling 1243, #474)");
 
 /* ---- RGPIO: the port registers, offsets from a bank's base */
 #define TFW_IMX95_GPIO_PSOR 0x44u   /* set */

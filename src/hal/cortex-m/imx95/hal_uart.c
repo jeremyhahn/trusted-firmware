@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The byte link on LPUART3 (soc_regs.h; TO CONFIRM against NXP IMX95RM, the
+ * The byte link on LPUART7, the M7 console (soc_regs.h; TO CONFIRM against NXP IMX95RM, the
  * LPUART chapter): interrupt-driven, with the two single-producer/single-
  * consumer rings src/hal/cortex-m/mps2/hal_uart.c has and for its reasons.
  *
@@ -33,7 +33,7 @@ _Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
 _Static_assert(TFW_UART_RX_RING <= 256u && TFW_UART_TX_RING <= 256u,
                "ring indices must fit in a uint8_t");
 
-void tfw_cm_irq64(void);
+void tfw_cm_irq68(void);
 
 static volatile uint8_t rx_buf[TFW_UART_RX_RING];
 static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writes. */
@@ -58,11 +58,11 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     rx_head = rx_tail = tx_head = tx_tail = 0u;
     TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE | TFW_IMX95_LPUART_CTRL_RE |
                             TFW_IMX95_LPUART_CTRL_RIE;
-    tfw_cm_nvic_enable(TFW_IMX95_LPUART3_IRQ);
+    tfw_cm_nvic_enable(TFW_IMX95_LPUART7_IRQ);
     return TFW_OK;
 }
 
-void tfw_cm_irq64(void)
+void tfw_cm_irq68(void)
 {
     while ((TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_RDRF) != 0u) {
         uint8_t d    = (uint8_t)TFW_IMX95_LPUART_DATA;

@@ -54,6 +54,7 @@ none.
 
 | `--write-pubkey` | `""` | write a P-256 public key into an element slot through `PROV_WRITE_PUBKEY` ([api](api.md#prov_write_pubkey)). The file is the raw 64-byte X‖Y or a PEM `PUBLIC KEY` (a SubjectPublicKeyInfo, RFC 5480) holding a P-256 key; anything else — a private key, another PEM type, another algorithm or curve, a point off P-256, a second block — is refused naming why, before the port opens. Sends X, then Y, and exits 1 unless the slot reads back as the key. Its own mode: takes `--slot`, `--baud` and `--timeout` and refuses every other flag by name |
 | `--slot` | none | `--write-pubkey`: the slot, 0–15; the element takes `2` (the boot image-signing key) and `15` (the TrustFLEX secure-boot key) and answers `RANGE` for any other |
+| `--image-key` | `""` | `--commit`/`--verify` with a `plan = trustflex` template: the image-signing P-256 public key the plan writes to slot 15, in the file forms `--write-pubkey` takes. Required by a TrustFLEX `--commit`; optional on `--verify`, where it is compared with slot 15. Refused with a blank-part template, with `--dry-run` and beside a bake mode |
 
 A flag of one bake mode given without that mode is refused, never ignored:
 `--serial` without `--bake-eeprom`, or `--mac` or `--dhcp` without `--bake-netblock`.
@@ -68,6 +69,41 @@ data-zone write before it (`BAD_STATE`), and none into a slot whose SlotLocked
 bit is clear (`PROTECTED_REGION`). The slot stays writable until it is
 slot-locked, so a second `--write-pubkey` replaces the first. It sends no
 `PROV_INFO` and reads no template.
+
+## The TrustFLEX plan
+
+A template with `plan = trustflex`
+([`atecc608a-trustflex.conf`](../../sdk/go/templates/atecc608a-trustflex.conf))
+provisions a pre-locked ATECC608C-TFLXTLS by the (a1) steps of
+[adr-trustflex-608c-slot-map.md](adr-trustflex-608c-slot-map.md). Microchip
+locked both zones, so the template carries no config blocks and no zone lock
+CRCs, and is refused if it has either; a template without `plan` is the
+blank-part plan. `--dry-run` prints the seven steps. `--commit --image-key
+<file>`:
+
+1. reads the config zone (`PROV_CONFIG_READ`) and stops, with nothing
+   written, if slot 6 or 15 is permanent (KeyConfig Lockable clear), slot 0 is
+   tied to the Persistent Latch, or config bytes 88–89 show slot 6 or 15
+   already slot-locked; a part whose zones are not both locked is refused too;
+2. reads the slot-0 DeviceID point, and with `--record` joins it (`cnf.jwk`)
+   and the config zone (`tfw_element_config`, base64url) to the record before
+   anything is written; a record naming another point or config is refused;
+3. seeds the UDS into slot 6;
+4. leaves the HMAC check keyed by slot 6 to the firmware, which runs it inside
+   step 6 before the lock;
+5. writes the key to slot 15 (`PROV_WRITE_PUBKEY`);
+6. slot-locks slots 6 and 15 (`PROV_SLOT_LOCK`). **Irreversible.**
+
+It stops at the first failure and sends no later step. The slot-15 lock CRC is
+the element's CRC-16 of the slot as `PROV_WRITE_PUBKEY` stores it
+(`pad4‖X‖pad4‖Y`). The slot-6 CRC is of a UDS the host never sees, and
+`PROV_SLOT_LOCK` has no way for the firmware to supply it, so until the wire
+carries it `--commit` refuses a TrustFLEX part before writing anything.
+
+`--verify` (step 7) reads the config zone and the public points and writes
+nothing. It names every problem: zones not locked, slot 6 readable (SlotConfig
+IsSecret clear), slot 6 or 15 not slot-locked, no key in slot 0, and slot 15
+empty or, with `--image-key`, holding another key.
 
 Every invocation of `--dry-run`/`--verify`/`--commit` first calls `ProvInfo`
 and prints the element's revision, serial, and lock state. This is the same

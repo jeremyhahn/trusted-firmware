@@ -3,7 +3,7 @@
 > **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
-Seven command ids, `0x70`–`0x75` and `0x7B`, reserved permanently on the wire (see
+Nine command ids, `0x70`–`0x75`, `0x7B`, `0x7D` and `0x7E`, reserved permanently on the wire (see
 `docs/wire-protocol/architecture.md` for the frame format). Every one of them is
 answered `TFW_ERR_UNKNOWN_CMD` by a production image — see
 [`architecture.md`](architecture.md) for why the gate is file selection, not a
@@ -20,6 +20,8 @@ runtime check.
 | `0x74` | `PROV_PUBKEY` | 1 byte: `slot[1]` | 64 bytes: `public_point[64]` (X‖Y) |
 | `0x75` | `PROV_SEED_UDS` | 1 byte: `slot[1]` | none |
 | `0x7B` | `PROV_WRITE_PUBKEY` | 34 bytes: `slot[1]` + `half[1]` + `coordinate[32]` | 64 bytes: the slot's `X‖Y` as read back |
+| `0x7D` | `PROV_SLOT_LOCK` | 3 bytes: `slot[1]` + `crc[2]` (little-endian) | none |
+| `0x7E` | `PROV_CONFIG_READ` | 1 byte: `block[1]` | 32 bytes: the config block |
 
 `TFW_CMD_ENTRY` in `src/core/commands.def` fixes both the min and max payload
 size per command (e.g. `PROV_WRITE_CONFIG` is exactly 33 bytes both ways); a
@@ -87,6 +89,24 @@ fails unless it matches ([cli](cli.md)). The config zone must be locked
 (`TFW_ERR_PROTECTED_REGION` otherwise); any other slot or half is
 `TFW_ERR_RANGE`. Element tier only: the UDS backend answers
 `TFW_ERR_UNSUPPORTED`.
+
+### `PROV_SLOT_LOCK` (`0x7D`)
+
+Request `[slot:1][crc:2 LE]`, reply empty; `Device.ProvSlotLock`. Locks one
+data slot of a pre-locked ATECC608C-TFLXTLS with the element's `Lock` in
+SlotLock mode. **Irreversible.** `crc` is the CRC-16 of the slot's contents and
+is mandatory: the SDK refuses `0` before sending. Only the board's UDS slot
+(`6`) and image slot (`15`) are accepted (`TFW_ERR_RANGE` otherwise); a slot
+already slot-locked is `TFW_ERR_BAD_STATE`. For the UDS slot the firmware first
+checks that an HMAC keyed by the slot works, and returns the element's error
+if it does not. `tfwprov`'s TrustFLEX plan ([cli](cli.md)) calls it last.
+
+### `PROV_CONFIG_READ` (`0x7E`)
+
+Request `[block:1]`, `0`–`3`; reply the 32 bytes of that config block;
+`Device.ProvConfigRead`. A block past `3` is `TFW_ERR_RANGE`, and the SDK
+refuses it before sending. Writes nothing: the TrustFLEX plan's commit and
+`--verify` read the whole zone with it.
 
 ## Status codes specific to this surface
 

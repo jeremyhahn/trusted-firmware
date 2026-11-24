@@ -4,6 +4,7 @@
 package tfw
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -105,4 +106,45 @@ func TestProvWriteConfigRefusesAWrongSizedBlock(t *testing.T) {
 	for _, n := range []int{0, 31, 33} {
 		require.Error(t, d.ProvWriteConfig(context.Background(), 2, make([]byte, n)))
 	}
+}
+
+func TestProvSlotLockSendsTheSlotAndItsCRC(t *testing.T) {
+	link := &recordingLink{}
+	require.NoError(t, New(link).ProvSlotLock(context.Background(), SlotTrustFLEXUDS, 0xBEEF))
+	assert.Equal(t, CmdProvSlotLock, link.cmd)
+	assert.Equal(t, []byte{SlotTrustFLEXUDS, 0xEF, 0xBE}, link.payload)
+}
+
+func TestProvSlotLockRefusesAZeroCRCBeforeSending(t *testing.T) {
+	link := &recordingLink{}
+	err := New(link).ProvSlotLock(context.Background(), SlotSecureBootKey, 0)
+	var rangeErr *ArgRangeError
+	require.ErrorAs(t, err, &rangeErr)
+	assert.Equal(t, Cmd(0), link.cmd, "nothing may reach the wire")
+}
+
+func TestProvConfigReadReturnsTheBlock(t *testing.T) {
+	block := bytes.Repeat([]byte{0xA5}, 32)
+	link := &recordingLink{cannedLink: cannedLink{payload: block}}
+	got, err := New(link).ProvConfigRead(context.Background(), 2)
+	require.NoError(t, err)
+	assert.Equal(t, CmdProvConfigRead, link.cmd)
+	assert.Equal(t, []byte{2}, link.payload)
+	assert.Equal(t, block, got)
+}
+
+func TestProvConfigReadRefusesABlockPastThreeBeforeSending(t *testing.T) {
+	link := &recordingLink{}
+	_, err := New(link).ProvConfigRead(context.Background(), 4)
+	var rangeErr *ArgRangeError
+	require.ErrorAs(t, err, &rangeErr)
+	assert.Equal(t, Cmd(0), link.cmd, "nothing may reach the wire")
+}
+
+func TestProvConfigReadRefusesAShortReply(t *testing.T) {
+	link := &cannedLink{payload: make([]byte, 31)}
+	_, err := New(link).ProvConfigRead(context.Background(), 0)
+	var short *ShortReplyError
+	require.ErrorAs(t, err, &short)
+	assert.Equal(t, 32, short.Need)
 }

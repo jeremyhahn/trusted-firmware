@@ -99,6 +99,21 @@ static void test_app_info_is_unknown_without_an_application(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
+/* APP_CMD (0x07) exists only in an image with an application: here it is an
+ * unknown command, whatever sub-op it names, and nothing is written. */
+static void test_app_cmd_is_unknown_without_an_application(void)
+{
+    uint8_t      in[1] = { 0x00u };
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, in, (uint8_t)sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNKNOWN_CMD, tfw_dispatch(TFW_CMD_APP_CMD, &r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
 /* Claim 273 with no application: the empty runner has no evidence, so the
  * image attests the firmware hash (attest.c), not what the buffer held --
  * running, and after the runner is stopped. */
@@ -126,6 +141,7 @@ int main(void)
     RUN_TEST(test_the_empty_runner_never_refuses_a_trial);
     RUN_TEST(test_a_reset_still_resets);
     RUN_TEST(test_app_info_is_unknown_without_an_application);
+    RUN_TEST(test_app_cmd_is_unknown_without_an_application);
     RUN_TEST(test_without_an_application_the_measurement_is_the_firmware_hash);
     return UNITY_END();
 }

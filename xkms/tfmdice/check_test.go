@@ -63,6 +63,24 @@ func aliasCert(t *testing.T, signer *ecdsa.PrivateKey, alias *ecdsa.PublicKey, n
 	return der
 }
 
+// rawCert is an alias certificate signer signs over alias with the given
+// signature algorithm and extensions, so a case can drop the UCCS evidence or
+// pick a digest other than SHA-256.
+func rawCert(t *testing.T, signer *ecdsa.PrivateKey, alias *ecdsa.PublicKey, alg x509.SignatureAlgorithm, exts []pkix.Extension) []byte {
+	t.Helper()
+	tmpl := &x509.Certificate{
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "alias"},
+		SignatureAlgorithm: alg,
+		ExtraExtensions:    exts,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, alias, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
 func rs(t *testing.T, k *ecdsa.PrivateKey, digest []byte) []byte {
 	t.Helper()
 	r, s, err := ecdsa.Sign(rand.Reader, k, digest)
@@ -135,6 +153,25 @@ func TestCheckRefuses(t *testing.T) {
 		}, "alias signature"},
 		{"short nonce", func(t *testing.T, f *fixture) {
 			f.in.Nonce = f.in.Nonce[:31]
+		}, "nonce"},
+		{"short alias key", func(t *testing.T, f *fixture) {
+			f.in.AliasPub = f.in.AliasPub[:63]
+		}, "alias public key"},
+		{"alias key off the curve", func(t *testing.T, f *fixture) {
+			f.in.AliasPub = make([]byte, 64)
+		}, "alias public key"},
+		{"short digest", func(t *testing.T, f *fixture) {
+			f.in.Digest = f.in.Digest[:31]
+		}, "digest"},
+		{"cert signed with ECDSA-SHA384", func(t *testing.T, f *fixture) {
+			ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: f.in.Nonce})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.in.CertDER = rawCert(t, f.dev, &f.alias.PublicKey, x509.ECDSAWithSHA384, []pkix.Extension{ext})
+		}, "certificate signature: algorithm"},
+		{"cert with no UCCS evidence", func(t *testing.T, f *fixture) {
+			f.in.CertDER = rawCert(t, f.dev, &f.alias.PublicKey, x509.ECDSAWithSHA256, nil)
 		}, "nonce"},
 	}
 	for _, c := range cases {

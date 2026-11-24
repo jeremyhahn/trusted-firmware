@@ -37,6 +37,8 @@ static size_t slurp(const char *path, uint8_t *buf, size_t cap)
     if (!feof(f) && fgetc(f) != EOF) {
         fprintf(stderr, "suit-emit: %s is larger than %zu bytes\n", path, cap);
         n = 0u;
+    } else if (n == 0u) {
+        fprintf(stderr, "suit-emit: %s is empty\n", path);
     }
     fclose(f);
     return n;
@@ -109,7 +111,10 @@ static int cmd_envelope(char **argv)
         fprintf(stderr, "suit-emit: %s must be exactly 64 bytes, r||s\n", argv[3]);
         return 1;
     }
-    en = mn ? tfw_suit_emit_envelope(env, sizeof env, man, mn, sig) : 0u;
+    if (mn == 0u) {
+        return 1;
+    }
+    en = tfw_suit_emit_envelope(env, sizeof env, man, mn, sig);
     if (en == 0u) {
         fprintf(stderr, "suit-emit: encoding overflowed\n");
         return 1;

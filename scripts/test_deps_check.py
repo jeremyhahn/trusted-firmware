@@ -15,7 +15,8 @@ import urllib.error
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("deps_check", os.path.join(HERE, "deps-check.py"))
+spec = importlib.util.spec_from_file_location(
+    "deps_check", os.environ.get("DEPS_CHECK_SCRIPT", os.path.join(HERE, "deps-check.py")))
 dc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dc)
 
@@ -240,6 +241,80 @@ class RecentRelease(unittest.TestCase):
         mock.patch("builtins.open", mock.mock_open(read_data="".join(self.GOMOD))).start()
         with mock.patch.dict(os.environ, {"DEPS_SEED_GOMODCACHE": ""}):
             self.assertEqual(dc.main(["deps-check.py", "go", "sdk/go"]), 0)
+
+
+class GoAnswer(unittest.TestCase):
+    """go.dev's VERSION answer must name a release; an answer with no version is a failed lookup, never "ok go"."""
+
+    def setUp(self):
+        mock.patch.object(dc.time, "sleep").start()
+        self.out = mock.patch("sys.stdout", new_callable=io.StringIO).start()
+        self.addCleanup(mock.patch.stopall)
+        pins = dc.load_pins(os.path.join(HERE, "tool-pins.sh"))
+        self.codename = pins["BASE_IMAGE"].split(":", 1)[1].split("-", 1)[0]
+        mock.patch.object(dc, "DOCKERFILE_PINS", []).start()
+        mock.patch.object(dc, "load_pins", return_value=pins).start()
+        mock.patch.object(dc, "latest_tag", return_value=(0,)).start()
+        mock.patch.object(dc, "dpkg_version", return_value=(999,)).start()
+        mock.patch.object(dc, "base_digest", return_value=pins["BASE_DIGEST"]).start()
+
+    def toolchain(self, go_body):
+        def fetch(url, *args, **kwargs):
+            if url.startswith("https://go.dev/"):
+                return go_body, {}
+            return f"Codename: {self.codename}\n", {}
+        with mock.patch.object(dc, "fetch", side_effect=fetch):
+            return dc.toolchain(), self.out.getvalue()
+
+    def test_no_version_in_the_answer_fails(self):
+        rep, out = self.toolchain("<!DOCTYPE html>\n<html>\n")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertIn("FAILED  go:", out)
+        self.assertNotIn("  ok      go ", out)
+
+    def test_an_empty_answer_fails_and_the_run_goes_on(self):
+        rep, out = self.toolchain("")
+        self.assertEqual(rep.failed, 1)
+        self.assertIn("  ok      trivy ", out)
+
+    def test_a_release_line_passes(self):
+        rep, out = self.toolchain("go1.27.4\ntime 2026-01-01T00:00:00Z\n")
+        self.assertEqual(rep.failed, 0)
+        self.assertIn("  ok      go 1.27.4", out)
+
+    def test_report_check_refuses_an_empty_latest(self):
+        rep = dc.Report()
+        rep.check("go", (1, 27, 4), (), "")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in upstream's answer\n")
+
+    def test_report_check_refuses_an_empty_pin(self):
+        rep = dc.Report()
+        rep.check("go", (), (1, 27, 4), "")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in the pin\n")
+
+    def test_report_check_refuses_both_empty(self):
+        # The pin is checked first, so it is the side named.
+        rep = dc.Report()
+        rep.check("go", (), (), "")
+        self.assertEqual(rep.failed, 1)
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(self.out.getvalue(), "  FAILED  go: no version number in the pin\n")
+        self.assertNotIn("  ok      go", self.out.getvalue())
+
+    def test_a_pin_with_no_number_fails_and_the_run_goes_on(self):
+        pins = dict(dc.load_pins.return_value, GO_VERSION="latest")
+        self.assertEqual(dc.numbers(pins["GO_VERSION"]), ())
+        with mock.patch.object(dc, "load_pins", return_value=pins):
+            rep, out = self.toolchain("go1.27.4\n")
+        self.assertEqual(rep.failed, 1)
+        self.assertIn("FAILED  go: no version number in the pin", out)
+        self.assertNotIn("  ok      go ", out)
+        self.assertIn("  ok      trivy ", out)
 
 
 if __name__ == "__main__":

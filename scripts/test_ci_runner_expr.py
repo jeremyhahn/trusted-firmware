@@ -15,10 +15,11 @@
    where exactly [self-hosted, linux, x64, bigdisk] passes too, and set to
    the fallback `"ubuntu-latest"`, where it must give a standard image; the
    schedule guard's AGENT_TOKEN is passed off github.com only.
-4. ci-template v1.50 and v1.51 (DS-9792): a short queued list is a lower
-   bound for the overflow, and every runs-on is also read under
-   pull_request_target.
-5. ci-template v1.52 (DS-9857, DS-9862, DS-9887): a
+4. ci-template v1.50 and v1.51, code-review-template v5.12.8 (DS-9792): a
+   short queued list is a lower bound for the overflow, every runs-on is
+   also read under pull_request_target, and code-review.yml's new-head
+   cancel step cancels only older runs on another head.
+5. ci-template v1.52, code-review-template v5.12.10 (DS-9857, DS-9862, DS-9887): a
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
@@ -39,6 +40,19 @@
    request). Both self-hosted label lists
    are asserted exactly, and each test also asserts the self-hosted side
    of its boundary.
+9. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
+   handbook template byte for byte; the header names v5.12.11.
+10. #653 Codex round 2: a runs-on is read under every event the release
+   guard knows (workflow_run, merge_group, release, create, issue_comment,
+   repository_dispatch), so a format()-built `release`, an unwaived
+   `self-hosted` or a `codex` label gated on github.event_name cannot pass.
+11. #653 Codex round 3: a runs-on that computes a value (format, join, toJSON,
+   fromJSON of a literal) is refused unless waived, and a waived one is
+   checked as a release job.
+12. ci-template v1.54 and code-review-template v5.12.12 (DS-10252):
+   code-review.yml's scope job may take exactly the bigdisk pool literal,
+   fromJSON of ["self-hosted","linux","x64","bigdisk"], for a same-repository
+   head only.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -129,6 +143,29 @@ class RunnerExpression(unittest.TestCase):
         r = run_policy(job(ro, cond))
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_computed_ref_comparison_is_not_hosted(self):
+        # #653 Codex round 3: no literal names develop or release, so the
+        # sampled refs never select the computed value.
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="release"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && 'self-hosted' || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="self-hosted"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("(c)", r.stdout)
+
+    def test_waived_computed_ref_is_checked_as_release(self):
+        ro = (OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+              " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}   # self-hosted: hardware: bench")
+        r = run_policy(job(ro))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("names `release`", r.stdout)
+        cond = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+        r = run_policy(job(ro, cond))
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_known_operands_still_pass(self):
         for ro in ("ubuntu-latest",
                    OPEN + " github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}"):
@@ -140,6 +177,37 @@ class RunnerExpression(unittest.TestCase):
         r = subprocess.run(["python3", "-I", "-"], input=policy_script(), cwd=REPO,
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    # v1.54 (DS-10252): code-review.yml v5.12.12's scope job takes the bigdisk
+    # pool literal for a same-repository head only.
+    POOL = "fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]')"
+    SAME_REPO = "github.event.pull_request.head.repo.full_name == github.repository"
+
+    def test_guarded_pool_literal_passes_in_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_unguarded_pool_literal_is_refused(self):
+        ro = OPEN + " github.server_url == 'https://github.com' && (%s || 'ubuntu-latest') || 'bigdisk' }}" % self.POOL
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(c)", r.stdout)
+
+    def test_guarded_pool_literal_is_refused_outside_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+
+    def test_other_literal_is_still_computed(self):
+        pool = self.POOL.replace("bigdisk", "bigdisk-docker")
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, pool))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("format/join/toJSON/fromJSON", r.stdout)
 
 
 RELEASE_RO = "[self-hosted, release]   # self-hosted: hardware: bench"
@@ -202,6 +270,26 @@ class ReleaseGuardBranches(unittest.TestCase):
         ro = OPEN + " github.ref_name == 'develop' && format('{0}{1}', 'co', 'dex') || 'ubuntu-latest' }}"
         r = run_policy(job(ro))
         self.assertNotEqual(r.returncode, 0, r.stdout)
+
+    def test_runs_on_is_tried_on_every_guarded_event(self):
+        # #653 Codex round 2: a runs-on gated on an event the release guard
+        # knows is read under that event, not only under the hosted ones.
+        for ev in ("workflow_run", "merge_group", "release", "create",
+                   "issue_comment", "repository_dispatch"):
+            with self.subTest(event=ev):
+                head = "on:\n  %s:\n" % ev
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 're', 'lease') || 'ubuntu-latest' }}}}   # self-hosted: hardware: bench"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("release", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && 'self-hosted' || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                # Under release the event name itself names `release`: (b) first.
+                self.assertIn("(b) names `release`" if ev == "release" else "(c)", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 'co', 'dex') || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
 PRE_RO = (OPEN + " github.server_url == 'https://github.com' && ((github.event_name == 'push' && github.ref == 'refs/heads/main')"

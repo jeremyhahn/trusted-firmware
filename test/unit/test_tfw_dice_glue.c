@@ -8,7 +8,9 @@
  * partition core and service. Init with a locked SHA-256 measurement in
  * slot 3 starts the service; every refusal leaves it unprovisioned and still
  * lets TF-M boot; the UDS buffer is zero after init on every path; the SFN
- * hands the call's type and sizes to the dispatch as they are.
+ * hands the call's type and sizes to the dispatch as they are. The slot-3
+ * measurement is the alias certificate's claim 273 hash and moves the alias
+ * key, not the DeviceID.
  */
 #include <stdbool.h>
 #include <stddef.h>
@@ -93,6 +95,7 @@ static size_t mb_len;
 static uint32_t mb_algo;
 static uint8_t seen_index;
 static int mb_calls;
+static uint8_t mb_value[32]; /* the slot-3 measurement it hands out */
 
 /* The SPM stand-in. */
 static uint8_t in_vec[PSA_MAX_IOVEC][64];
@@ -184,6 +187,8 @@ psa_status_t tfm_measured_boot_read_measurement(uint8_t index,
     *sw_type_len = 2u;
     *measurement_algo = mb_algo;
     memset(measurement_value, 0x3C, mb_len);
+    memcpy(measurement_value, mb_value,
+           mb_len < sizeof(mb_value) ? mb_len : sizeof(mb_value));
     *measurement_value_len = mb_len;
     *is_locked = mb_locked;
     return PSA_SUCCESS;
@@ -233,6 +238,73 @@ static psa_status_t deviceid_pub(void)
     return tfw_dice_service_sfn(&m);
 }
 
+static void deviceid(uint8_t out[64])
+{
+    TEST_ASSERT_EQUAL(TFW_OK, deviceid_pub());
+    TEST_ASSERT_EQUAL(64u, out_len[0]);
+    memcpy(out, out_vec[0], 64u);
+}
+
+static void alias_pub(uint8_t out[64])
+{
+    psa_msg_t m = call(TFW_DICE_OP_ALIAS_PUB);
+
+    m.out_size[0] = 64u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_service_sfn(&m));
+    TEST_ASSERT_EQUAL(64u, out_len[0]);
+    memcpy(out, out_vec[0], 64u);
+}
+
+/* The whole alias certificate, paged as the client does it. */
+static uint32_t alias_cert(uint8_t *buf, uint32_t cap)
+{
+    uint32_t off = 0u, total = 0u;
+    psa_msg_t m;
+
+    do {
+        m = call(TFW_DICE_OP_ALIAS_CERT);
+        memset(in_vec[0], 0x4E, 32u); /* a fixed nonce */
+        memcpy(in_vec[1], &off, sizeof(off));
+        m.in_size[0] = 32u;
+        m.in_size[1] = sizeof(off);
+        m.out_size[0] = 255u;
+        m.out_size[1] = sizeof(total);
+        memset(out_len, 0, sizeof(out_len));
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_dice_service_sfn(&m));
+        TEST_ASSERT_EQUAL(sizeof(total), out_len[1]);
+        memcpy(&total, out_vec[1], sizeof(total));
+        TEST_ASSERT_TRUE(out_len[0] > 0u && total <= cap &&
+                         off + out_len[0] <= total);
+        memcpy(buf + off, out_vec[0], out_len[0]);
+        off += (uint32_t)out_len[0];
+    } while (off < total);
+    return total;
+}
+
+static int contains(const uint8_t *hay, size_t n, const uint8_t *needle,
+                    size_t len)
+{
+    for (size_t i = 0u; i + len <= n; i++) {
+        if (memcmp(hay + i, needle, len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The claim 273 file-map hash entry src/caps/uccs.c writes for a
+ * measurement: {7: [1, bstr(32) hash], 24: "app"}. */
+#define HASH_ENTRY_LEN 43u
+static void hash_entry(uint8_t out[HASH_ENTRY_LEN], const uint8_t meas[32])
+{
+    static const uint8_t head[5] = {0x07, 0x82, 0x01, 0x58, 0x20};
+    static const uint8_t tail[6] = {0x18, 0x18, 0x63, 0x61, 0x70, 0x70};
+
+    memcpy(out, head, sizeof(head));
+    memcpy(out + 5, meas, 32u);
+    memcpy(out + 37, tail, sizeof(tail));
+}
+
 static void assert_uds_zero(void)
 {
     static const uint8_t zero[32];
@@ -259,6 +331,7 @@ void setUp(void)
     mb_algo = PSA_ALG_SHA_256;
     seen_index = 0xFF;
     mb_calls = 0;
+    memset(mb_value, 0x3C, sizeof(mb_value));
     memset(in_vec, 0, sizeof(in_vec));
     memset(out_vec, 0, sizeof(out_vec));
     memset(out_len, 0, sizeof(out_len));
@@ -294,6 +367,48 @@ static void test_locked_slot3_starts_the_service(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, deviceid_pub());
     TEST_ASSERT_EQUAL(64u, out_len[0]);
+    TEST_ASSERT_EQUAL(0, bad_handle);
+}
+
+/* Codex P1 (#900): the slot-3 value is what the alias evidence signs. Two
+ * boots with measurements one bit apart: the certificate carries each as its
+ * claim 273 hash, the alias key moves and the DeviceID does not. */
+static void test_the_slot3_measurement_reaches_the_alias_evidence(void)
+{
+    static uint8_t cert_a[2048], cert_b[2048];
+    uint8_t a[32], b[32], need_a[HASH_ENTRY_LEN], need_b[HASH_ENTRY_LEN];
+    uint8_t dev_a[64], dev_b[64], pub_a[64], pub_b[64];
+    uint32_t len_a, len_b, i;
+
+    for (i = 0u; i < 32u; i++) {
+        a[i] = (uint8_t)i;
+    }
+    memcpy(b, a, 32u);
+    b[31] ^= 0x01u;
+    hash_entry(need_a, a);
+    hash_entry(need_b, b);
+
+    memcpy(mb_value, a, 32u);
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
+    deviceid(dev_a);
+    alias_pub(pub_a);
+    len_a = alias_cert(cert_a, sizeof(cert_a));
+    TEST_ASSERT_TRUE(contains(cert_a, len_a, need_a, sizeof(need_a)));
+    TEST_ASSERT_TRUE(contains(cert_a, len_a, pub_a, 32u));
+    TEST_ASSERT_TRUE(contains(cert_a, len_a, pub_a + 32, 32u));
+
+    setUp();
+    memcpy(mb_value, b, 32u);
+    TEST_ASSERT_EQUAL(PSA_SUCCESS, tfw_dice_partition_init());
+    deviceid(dev_b);
+    alias_pub(pub_b);
+    len_b = alias_cert(cert_b, sizeof(cert_b));
+    TEST_ASSERT_EQUAL_MEMORY(dev_a, dev_b, 64u);
+    TEST_ASSERT_TRUE(memcmp(pub_a, pub_b, 64u) != 0);
+    TEST_ASSERT_TRUE(contains(cert_b, len_b, need_b, sizeof(need_b)));
+    TEST_ASSERT_TRUE(contains(cert_b, len_b, pub_b, 32u));
+    TEST_ASSERT_FALSE(contains(cert_b, len_b, a, 32u));
+    TEST_ASSERT_FALSE(contains(cert_b, len_b, need_a, sizeof(need_a)));
     TEST_ASSERT_EQUAL(0, bad_handle);
 }
 
@@ -419,6 +534,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_locked_slot3_starts_the_service);
+    RUN_TEST(test_the_slot3_measurement_reaches_the_alias_evidence);
     RUN_TEST(test_unlocked_slot_is_refused);
     RUN_TEST(test_wrong_length_measurement_is_refused);
     RUN_TEST(test_other_hash_algorithm_is_refused);

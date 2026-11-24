@@ -64,6 +64,9 @@ class ArchiveOneTopTest(unittest.TestCase):
             for name in ("README", "COPYING"):
                 with open(os.path.join(root, name), "wb") as f:
                     f.write(b"stray")
+            os.makedirs(os.path.join(root, "src"))
+            with open(os.path.join(root, "src", "a.c"), "wb") as f:
+                f.write(b"stray")
             out = io.StringIO()
             with mock.patch.object(luc, "fetch_archive", return_value=data), contextlib.redirect_stdout(out):
                 rc = luc.main_archive(root, "https://example.invalid/lwip.tar.gz", want)

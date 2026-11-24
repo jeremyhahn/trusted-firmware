@@ -29,6 +29,8 @@ An internal alpha is cut by the project agent whenever CI is green on `main`.
 4. cuts the annotated tags `vX.Y.Z-alpha` and `sdk/go/vX.Y.Z-alpha` on HEAD,
    signed with git's configured key (`git tag --sign`; no key path is named);
 5. pushes both to `dev` in one atomic push, never forced and never to `github`;
+   if the cut or the push fails, the tags this run cut are deleted, so the next
+   run cuts the same version;
 6. prints the post-tag step, which the coordinator runs (runbook step 12):
    `consumer-check github.com/jeremyhahn/trusted-firmware/sdk/go sdk/go/vX.Y.Z-alpha`.
 
@@ -44,7 +46,7 @@ post-tag step without cutting or pushing anything.
 the script against a scratch repository whose `dev` is a bare repository beside
 it, so no network is touched: a tag series, a dirty tree, a branch that is not
 `main`, a non-monotonic series, a HEAD behind `dev/main`, no alpha to
-increment, and a real cut, signed by a stand-in signer configured in the
+increment, a refused push, and a real cut, signed by a stand-in signer configured in the
 scratch repository alone.
 
 ## Publication

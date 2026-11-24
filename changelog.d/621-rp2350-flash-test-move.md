@@ -1,0 +1,1 @@
+- The RP2350 boot flash host suite now sits under boot/hal/cortex-m/rp2350/test/, so the arch-leak lint passes.

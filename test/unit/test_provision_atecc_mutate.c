@@ -226,7 +226,10 @@ static void test_each_key_command_takes_its_one_slot(void)
     for (s = 0u; s < 256u; s++) {
         TEST_ASSERT_EQUAL(s == TFW_ATECC_SLOT_DEVICEID ? TFW_ERR_NACK : TFW_ERR_RANGE,
                           tfw_prov_genkey((uint8_t)s, pub));
-        TEST_ASSERT_EQUAL(s == TFW_ATECC_SLOT_DEVICEID ? TFW_ERR_NACK : TFW_ERR_RANGE,
+        /* PROV_PUBKEY also reads the stored-key slots: the image slot and
+         * slot 15. */
+        TEST_ASSERT_EQUAL((s == TFW_ATECC_SLOT_DEVICEID || s == TFW_ATECC_SLOT_IMAGE || s == 15u)
+                              ? TFW_ERR_NACK : TFW_ERR_RANGE,
                           tfw_prov_pubkey((uint8_t)s, pub));
         TEST_ASSERT_EQUAL(s == TFW_ATECC_SLOT_UDS ? TFW_ERR_NACK : TFW_ERR_RANGE,
                           tfw_prov_seed_uds((uint8_t)s));

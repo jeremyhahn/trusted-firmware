@@ -495,21 +495,25 @@ static uint16_t slot_unlocked_bits(void)
 
 static void test_a_slot_lock_of_the_image_slot_clears_its_bit(void)
 {
-    uint8_t key[64];
-    const tfw_model_cmd_t *lock;
+    uint8_t key[64], base;
 
+    /* An empty slot's CRC is 0, which the firmware refuses: the slot holds a
+     * key first, as it does when the host locks it. */
+    test_key(key);
     lock_config();
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(TFW_ATECC_SLOT_IMAGE, 0u, key, 34u));
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(TFW_ATECC_SLOT_IMAGE, 1u, key, 34u));
+    base = tfw_model_log_count();
     TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_IMAGE, tfw_model_slot_crc(TFW_ATECC_SLOT_IMAGE)));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
-    lock = tfw_model_log((uint8_t)(tfw_model_log_count() - 1u));
-    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, lock->opcode);
-    TEST_ASSERT_EQUAL_HEX8((uint8_t)(TFW_ATECC_LOCK_SLOT | (TFW_ATECC_SLOT_IMAGE << 2)), lock->p1);
-    TEST_ASSERT_EQUAL_HEX16(tfw_model_slot_crc(TFW_ATECC_SLOT_IMAGE), lock->p2);
-    /* The image slot carries no secret, so no HMAC pre-check runs for it. */
-    TEST_ASSERT_EQUAL_UINT8(0u, sent(TFW_ATECC_OP_SHA));
+    /* The model's log is full by now, so the count and the last opcode say
+     * it: the SlotLocked read, then the Lock. The image slot carries no
+     * secret, so no HMAC pre-check runs between them. The model accepts a
+     * SlotLock only with the slot's CRC, and only this slot's bit clears. */
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(base + 2u), tfw_model_log_count());
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, tfw_model_last_opcode());
     TEST_ASSERT_EQUAL_HEX16((uint16_t)(0xFFFFu & ~(1u << TFW_ATECC_SLOT_IMAGE)), slot_unlocked_bits());
     /* And a slot-locked slot takes no key. */
-    test_key(key);
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, write_half(TFW_ATECC_SLOT_IMAGE, 0u, key, 34u));
 }
 
@@ -526,11 +530,22 @@ static void test_a_slot_lock_of_any_other_slot_sends_nothing(void)
 
 static void test_a_slot_already_slot_locked_is_refused_with_no_lock_sent(void)
 {
-    const uint16_t crc = tfw_model_slot_crc(TFW_ATECC_SLOT_IMAGE);
+    uint8_t  key[64], base;
+    uint16_t crc;
 
+    /* A slot with a key in it: an empty slot's CRC is 0, which is refused. */
+    test_key(key);
+    lock_config();
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(TFW_ATECC_SLOT_IMAGE, 0u, key, 34u));
+    TEST_ASSERT_EQUAL(TFW_OK, write_half(TFW_ATECC_SLOT_IMAGE, 1u, key, 34u));
+    crc = tfw_model_slot_crc(TFW_ATECC_SLOT_IMAGE);
     TEST_ASSERT_EQUAL(TFW_OK, slot_lock(TFW_ATECC_SLOT_IMAGE, crc));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, tfw_model_last_opcode());
+    base = tfw_model_log_count();
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, slot_lock(TFW_ATECC_SLOT_IMAGE, crc));
-    TEST_ASSERT_EQUAL_UINT8(1u, sent(TFW_ATECC_OP_LOCK));
+    /* Only the SlotLocked read went out: no second Lock. */
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(base + 1u), tfw_model_log_count());
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_READ, tfw_model_last_opcode());
 }
 
 static void test_a_slot_lock_with_the_wrong_crc_is_the_elements_refusal(void)
@@ -671,17 +686,6 @@ static void test_an_image_slot_lock_with_a_zero_crc_sends_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(base, tfw_model_log_count());
 }
 
-/* Opcode count in the log from entry `from` on. */
-static uint8_t sent_from(uint8_t from, uint8_t opcode)
-{
-    uint8_t i, n = 0u;
-
-    for (i = from; i < tfw_model_log_count(); i++) {
-        if (tfw_model_log(i)->opcode == opcode) { n++; }
-    }
-    return n;
-}
-
 static void test_pubkey_of_slot_15_reads_the_stored_key(void)
 {
     const uint8_t p[1] = { 15u };
@@ -698,8 +702,11 @@ static void test_pubkey_of_slot_15_reads_the_stored_key(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
     TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(key, outbuf, 64u);
-    /* A stored key is read, never recomputed by GenKey. */
-    TEST_ASSERT_EQUAL_UINT8(0u, sent_from(base, TFW_ATECC_OP_GENKEY));
+    /* A stored key is read, never recomputed by GenKey: the 72-byte read is
+     * four Reads and nothing else (the model's log is full by now, so the
+     * count and the last opcode say it). */
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(base + 4u), tfw_model_log_count());
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_READ, tfw_model_last_opcode());
 }
 
 static void test_pubkey_of_slot_1_is_still_out_of_range(void)

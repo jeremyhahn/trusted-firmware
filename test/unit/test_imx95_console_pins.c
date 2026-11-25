@@ -37,7 +37,7 @@ static uint32_t sent_crc[2];     /* the CRC word of each reply */
  * the header: the covered bytes are the header word and the payload, as they
  * lie little-endian in the area. The SM's M7 channel (configs/mx95evk.cfg
  * SCMI_AGENT0, db=0) is check=crc32. Deliberately independent of the
- * production tfw_scmi_crc32 (scmi_mu.c), which only the cross-check test calls. */
+ * production CRC (scmi_mu.c), which only the cross-check test calls. */
 static uint32_t sm_crc32(const uint8_t *addr, uint32_t size)
 {
     static const uint32_t t[16] = {

@@ -22,6 +22,7 @@
 #include "unity.h"
 #include "driver/ledc.h"
 #include "tfw/hal.h"
+#include "hal_esp32.h"
 
 static unsigned              n_timer, n_chan, n_stop;
 static ledc_timer_config_t   timer_seen;
@@ -63,6 +64,8 @@ void setUp(void)
     stop_chan = (ledc_channel_t)0x5A;
     stop_idle = 0x5Au;
     timer_err = chan_err = stop_err = ESP_OK;
+    tfw_esp_pwm_release(2);
+    tfw_esp_pwm_release(3);
 }
 
 void tearDown(void) {}
@@ -181,6 +184,62 @@ static void test_a_failed_stop_is_internal(void)
     }
 }
 
+/* #48: a write that LEDC accepted marks its pin driven, so the RMT capture
+ * loops it back; another pin stays undriven. */
+static void test_a_write_marks_its_pin_driven(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(2));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_pwm_drives(2));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(3));
+}
+
+/* ledc_stop leaves the pad routed to LEDC at idle: the pin stays driven. */
+static void test_a_stop_keeps_the_pin_driven(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&p));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_pwm_drives(2));
+}
+
+/* A refused timer or channel routes nothing: the pin is not marked. */
+static void test_a_failed_write_marks_nothing(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    timer_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(2));
+
+    timer_err = ESP_OK;
+    chan_err = ESP_ERR_INVALID_ARG;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(2));
+}
+
+/* hal_gpio.c's MODE releases the pin; pins outside the bitmap are ignored. */
+static void test_release_clears_the_pin(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+    const tfw_pwmref_t q = { 2u, 3u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&q, 9u));
+    tfw_esp_pwm_release(2);
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(2));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_pwm_drives(3));
+
+    tfw_esp_pwm_release(-1);
+    tfw_esp_pwm_release(64);
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_pwm_drives(3));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(-1));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(64));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -191,5 +250,9 @@ int main(void)
     RUN_TEST(test_a_channel_it_cannot_configure_fails);
     RUN_TEST(test_a_stop_is_the_channel_stopped_low);
     RUN_TEST(test_a_failed_stop_is_internal);
+    RUN_TEST(test_a_write_marks_its_pin_driven);
+    RUN_TEST(test_a_stop_keeps_the_pin_driven);
+    RUN_TEST(test_a_failed_write_marks_nothing);
+    RUN_TEST(test_release_clears_the_pin);
     return UNITY_END();
 }

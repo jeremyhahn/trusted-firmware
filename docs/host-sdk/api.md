@@ -356,8 +356,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.Tone` | `func (d *Device) Tone(ctx context.Context, pin uint8, hz uint16) error` | Drives a square wave on a pin. |
 | `tfw.Device.WriteNetConfig` | `func (d *Device) WriteNetConfig(ctx context.Context, c NetConfig) error` | Writes the block in EEPROMChunk-sized EEPROM_WRITEs. |
 | `tfw.ElementInfo` | `type ElementInfo struct` | What a provisioning jig can learn about the part before it writes anything. |
-| `tfw.DICEEvidence` | `type DICEEvidence struct` | What VerifyDICEAttestation proved: the alias and DeviceID certificates, the UEID and the firmware measurement. |
-| `tfw.DICERegistry` | `type DICERegistry func(ueid []byte) (*ecdsa.PublicKey, bool)` | The DeviceID key the provisioning record registered for a UEID, false when the UEID is not registered; mirrors device-attest-01's RegisteredDeviceVerifier. |
+| `tfw.DICEAttestation` | `type DICEAttestation struct` | A "dice" attestation object's fields as ParseDICEAttestationObject reads them: the alias and DeviceID certificates' DER, the nonce and the alias key's r‖s. |
 | `tfw.EvidenceError` | `type EvidenceError struct` | A certificate or claims set that is not the shape the device writes. |
 | `tfw.EvidenceError.Error` | `func (e *EvidenceError) Error() string` | Implements error. |
 | `tfw.EvidenceError.Is` | `func (e *EvidenceError) Is(target error) bool` | Reports whether target is ErrBadFormat. |
@@ -460,4 +459,6 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfwsim.TestDeviceIDPublicKey` | `func TestDeviceIDPublicKey() *ecdsa.PublicKey` | The public key the element-tier test identity signs with. |
 | `tfw.FormatDICE` | `const FormatDICE = "dice"` | The fmt of a device-attest-01 attestation object whose statement is a TCG DICE certificate chain. |
 | `tfw.DICEAttestationObject` | `func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, error)` | Assembles the device-attest-01 "dice" attestation object from the secure DICE service's alias certificate, a DeviceID certificate, the nonce and the alias key's r‖s over SHA-256(nonce). |
-| `tfw.VerifyDICEAttestation` | `func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, registered DICERegistry, measurement []byte) (*DICEEvidence, error)` | Checks a "dice" attestation object as device-attest-01 does: the DeviceID certificate under roots, the alias certificate under the DeviceID key, the alias certificate valid now and with no critical extension but tcg-dice-UCCS-evidence, the nonce, the alias signature and the TCB measurement; the UEID must be registered in registered with that DeviceID key. |
+| `tfw.ParseDICEAttestationObject` | `func ParseDICEAttestationObject(obj []byte) (*DICEAttestation, error)` | Reads the object DICEAttestationObject writes, and only that, back into its fields; a structural parse that checks no signature, chain, validity, freshness, registered identity or measurement. |
+
+sdk/go builds and parses DICE evidence only: verifying it is go-xkms's (docs/SPEC.md, device onboarding).

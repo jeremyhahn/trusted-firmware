@@ -71,8 +71,10 @@ int32_t tfw_scmi_xfer(const struct tfw_scmi_chan *c, const struct tfw_scmi_msg *
  * value all ones) over `n` bytes, as `seed` continues it: pass 0 to start.
  * With c->crc set, tfw_scmi_xfer writes it over the header and payload to
  * TFW_SCMI_SHM_CRC and checks the response's the same way, else
- * TFW_SCMI_E_CRC. The SM's polynomial is TO CONFIRM on the bench (the
- * standard one is assumed). */
+ * TFW_SCMI_E_CRC. It is the SM's own: imx-sm rel_imx_sm_2026q3
+ * components/crc/sm_crc.c CRC_Crc32, which sm/rpc/smt/rpc_smt.c computes over
+ * the header and payload, `length` bytes. Host tests pin imx-sm's vectors
+ * (test_imx95_console_pins.c); a bench exchange is still unrecorded. */
 uint32_t tfw_scmi_crc32(uint32_t seed, const uint8_t *p, uint32_t n);
 
 #endif /* TFW_CM_IMX95_SCMI_MU_H */

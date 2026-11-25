@@ -28,8 +28,9 @@ int32_t tfw_imx95_console_pins_set(struct tfw_scmi_chan *c,
                                    const struct tfw_imx95_console_pins *p);
 
 /* The board's channel and pins (board_profile.h). hal_uart.c calls it before
- * the console starts; the console starts whatever it returns, as the SM may
- * have routed the pads already. */
+ * the console starts; the console starts only when both pads were granted (0).
+ * Any other result is returned as a TFW_ERR_* and the LPUART is left off: a
+ * refusal does not establish that the pads were routed already. */
 int32_t tfw_imx95_console_route(void);
 
 #endif /* TFW_CM_IMX95_CONSOLE_PINS_H */

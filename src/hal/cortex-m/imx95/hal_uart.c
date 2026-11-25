@@ -23,6 +23,7 @@
 #include "tfw/config.h"
 #include "soc_regs.h"
 #include "console_pins.h"
+#include "scmi.h"
 
 #define TFW_UART_RX_RING 64u
 #define TFW_UART_TX_RING 64u
@@ -42,6 +43,26 @@ static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writ
 static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writes. */
 
+/* tfw_imx95_console_route's result as the HAL's status: the channel's own
+ * failures (scmi.h TFW_SCMI_E_*) and the SM's refusals (SCMI statuses). */
+static tfw_status_t route_status(int32_t rc)
+{
+    switch (rc) {
+    case 0:
+        return TFW_OK;
+    case TFW_SCMI_E_TIMEOUT:
+        return TFW_ERR_TIMEOUT;
+    case TFW_SCMI_E_CRC:
+        return TFW_ERR_CRC;
+    case TFW_SCMI_DENIED:
+    case TFW_SCMI_BUSY:
+    case TFW_SCMI_IN_USE:
+        return TFW_ERR_BUSY;
+    default:
+        return TFW_ERR_INTERNAL;
+    }
+}
+
 tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     uint32_t     reg;
@@ -51,9 +72,13 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
         return st;
     }
     /* The pads first: the SM owns the IOMUX and routes LPUART7 to them only
-     * when asked. A refusal leaves the console to start anyway, as the SM
-     * may have routed them already (console_pins.h). */
-    (void)tfw_imx95_console_route();
+     * when asked. The console starts only when both pads were granted; a
+     * refusal or a failed exchange comes back and the LPUART is left off, so
+     * a refused RX never leaves a TX-only console (console_pins.h). */
+    st = route_status(tfw_imx95_console_route());
+    if (st != TFW_OK) {
+        return st;
+    }
     /* A reset first: BAUD is written only with the transmitter and receiver
      * off, and whatever ran before (the ROM, a previous image) left them on. */
     TFW_IMX95_LPUART_GLOBAL = TFW_IMX95_LPUART_GLOBAL_RST;

@@ -59,6 +59,40 @@ static tfw_status_t power_off(struct tfw_scmi_chan *c, uint32_t domain)
     return send(c, &cmd);
 }
 
+/* A2's logical-machine stop: forceful, for the reason A5 is (shutdown):
+ * graceful waits on the A55's software, which A2 runs because it is not
+ * trusted. Its result is mapped by LMM_SHUTDOWN's own table, not send()'s. */
+static tfw_status_t lm_stop(struct tfw_scmi_chan *c, uint32_t lm_id)
+{
+    struct tfw_scmi_msg cmd;
+    struct tfw_scmi_msg rsp;
+    tfw_status_t        st;
+
+    st = tfw_scmi_lmm_shutdown(&cmd, tfw_scmi_token(c), lm_id, TFW_SCMI_LMM_FORCEFUL);
+    if (st != TFW_OK) {
+        return st;
+    }
+    return tfw_scmi_lmm_status(tfw_scmi_xfer(c, &cmd, &rsp));
+}
+
+/* A2: the LM stop where its id is set; the power domain off where its id is
+ * set and the stop was not sent or not acknowledged. */
+static tfw_status_t a55_off(struct tfw_scmi_chan *c, const struct tfw_imx95_hsm_ids *ids)
+{
+    tfw_status_t st = TFW_ERR_UNSUPPORTED;
+
+    if (ids->a55_lm != 0u) {
+        st = lm_stop(c, ids->a55_lm);
+        if (st == TFW_OK) {
+            return st;
+        }
+    }
+    if (ids->a55_power != 0u) {
+        return power_off(c, ids->a55_power);
+    }
+    return st;
+}
+
 static tfw_status_t reset_hold(struct tfw_scmi_chan *c, uint32_t domain)
 {
     struct tfw_scmi_msg cmd;
@@ -109,10 +143,10 @@ tfw_status_t tfw_imx95_hsm_act(struct tfw_scmi_chan *c, const struct tfw_imx95_h
         }
         return phys_off(c, ids);
     case TFW_HSM_ACT_POWER_OFF:
-        if (ids->a55_power == 0u) {
+        if (ids->a55_lm == 0u && ids->a55_power == 0u) {
             return TFW_ERR_UNSUPPORTED;
         }
-        return power_off(c, ids->a55_power);
+        return a55_off(c, ids);
     case TFW_HSM_ACT_SHUTDOWN:
         if (ids->shutdown == 0u) {
             return TFW_ERR_UNSUPPORTED;
@@ -278,7 +312,7 @@ static struct tfw_scmi_chan g_chan = {
 
 static const struct tfw_imx95_hsm_ids g_ids = {
     TFW_IMX95_HSM_PHY_RESET, TFW_IMX95_HSM_PHY_POWER, TFW_IMX95_HSM_A55_POWER,
-    TFW_IMX95_HSM_SHUTDOWN
+    TFW_IMX95_HSM_SHUTDOWN, TFW_IMX95_HSM_A55_LM
 };
 
 static const struct tfw_ele_chan g_ele = { TFW_IMX95_ELE_MU_BASE };

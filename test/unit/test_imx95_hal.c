@@ -171,6 +171,8 @@ static void test_a_failed_pad_request_leaves_the_console_off(void)
         TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x00AC0000u,
                                         "TE, RE, RIE and TIE clear");
         TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->nvic.iser[2] & 0x10u, "interrupt 68 disabled");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x10u, m->nvic.icpr[2] & 0x10u,
+                                        "interrupt 68 pending cleared");
         TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x0F000004u, m->lpuart.baud, "BAUD untouched");
     }
 }
@@ -185,6 +187,56 @@ static void test_a_granted_pad_request_starts_the_console(void)
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
     TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
     TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);     /* interrupt 68 */
+}
+
+/* With the console off, a byte has nowhere to go: tx drops it and says so
+ * (1, not 0: 0 is "full, retry", a retry that never ends), touches neither
+ * the ring nor CTRL, and tx_idle answers idle without STAT so a deferred
+ * reset is not held by a UART that cannot drain. */
+static void test_tx_after_a_failed_init_drops_and_touches_nothing(void)
+{
+    uint32_t i;
+
+    route_rc = TFW_SCMI_DENIED;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_uart_init(115200u));
+    m = tfw_imx95_model_get();
+    m->lpuart.ctrl_unmasked = 0u;
+    for (i = 0u; i < 100u; i++) {
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, tfw_hal_uart_tx_try(0x55u), "dropped, not full");
+    }
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl, "TIE never set");
+    TEST_ASSERT_EQUAL_UINT32(0u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.ctrl_unmasked, "CTRL not touched");
+    m->lpuart.busy = 1u;
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, tfw_hal_uart_tx_idle(), "idle without STAT");
+}
+
+static void test_a_failed_reinit_after_a_good_init_turns_tx_off(void)
+{
+    uint32_t ctrl;
+
+    uart_up();
+    route_rc = TFW_SCMI_E_TIMEOUT;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_uart_init(115200u));
+    m    = tfw_imx95_model_get();
+    ctrl = m->lpuart.ctrl;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x55u));
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(ctrl, m->lpuart.ctrl, "TIE not raised");
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+static void test_rx_after_a_failed_init_reads_nothing(void)
+{
+    static const uint8_t line[] = { 0x7Eu };
+    uint8_t              b      = 0u;
+
+    /* A byte the console took in before it went down stays unread. */
+    uart_up();
+    tfw_imx95_model_line_rx(line, sizeof line);
+    tfw_imx95_model_uart_interrupt();
+    route_rc = TFW_SCMI_DENIED;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
 }
 
 /* A transmission starts by enabling the empty-register interrupt, inside the
@@ -471,6 +523,9 @@ int main(void)
     RUN_TEST(test_uart_init_routes_the_pads_once_before_the_reset);
     RUN_TEST(test_a_failed_pad_request_leaves_the_console_off);
     RUN_TEST(test_a_granted_pad_request_starts_the_console);
+    RUN_TEST(test_tx_after_a_failed_init_drops_and_touches_nothing);
+    RUN_TEST(test_a_failed_reinit_after_a_good_init_turns_tx_off);
+    RUN_TEST(test_rx_after_a_failed_init_reads_nothing);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);

@@ -461,7 +461,7 @@ flashes the 2560 serial image that does, sends it `OTA_INFO`, `OTA_CONFIRM` and
 
 **The image.** `ota_ctl.c` links only where the board has `BOOT_AB` and the
 image stages (`mk/firmware.mk:320`), and a serial image stages only when asked
-(`mk/firmware.mk:230`). On the 2560 (`BOOT_AB := 1`, `boards/atmega2560/profile.mk:67`)
+(`mk/firmware.mk:230`). On the 2560 (`BOOT_AB := 1`, `boards/atmega2560/profile.mk:58`)
 that is:
 
 ```
@@ -474,7 +474,7 @@ make firmware BOARD=atmega2560 CRYPTO=soft ETH=0 OTA_STAGE=1
 
 It links `ota_ctl.o`, `ota_activate.o`, `ota_stage.o`, `ota_trial.o`,
 `ota_floor_eeprom.o`, `ota_prev_none.o` and the `spi_nor.o` store driver
-(`OTA_STORE := spi_nor`, `boards/atmega2560/profile.mk:62`). The bench has no
+(`OTA_STORE := spi_nor`, `boards/atmega2560/profile.mk:55`). The bench has no
 SPI NOR store and no tfw-boot. Neither stops the image: `tfw_stage_init`
 discards the store's init status (`src/core/ota_stage.c:129`), and the
 application is flashed at `0x00000` through the stock bootloader as the soft
@@ -711,7 +711,7 @@ and a `replace` to `sdk/go`, ran every step below on one connection through
 On the board, the gate refuses both unauthorized commands with 17.
 
 **Why the stager answers 7: this row stages into an SPI NOR the bench Mega does
-not have.** The 2560's `OTA_STORE` is `spi_nor` (`boards/atmega2560/profile.mk:70`),
+not have.** The 2560's `OTA_STORE` is `spi_nor` (`boards/atmega2560/profile.mk:55`),
 selected on D8 (`boards/atmega2560/board_profile.h:106`). No NOR is fitted on
 the board, so nothing drives MISO on that select. `tfwctl spi 8` on the factory
 image returned each request byte for byte: `03` with nine zero bytes, `05 00`,
@@ -766,7 +766,7 @@ It links `w5100.o`, `w5x00.o`, `netcfg.o`, `link_eth.o`, the stager
 
 | Enrolment prerequisite | State | Evidence |
 |---|---|---|
-| The soft DICE root as the runtime default (#130) | Met in the tree | `CRYPTO ?= auto` (`boards/atmega2560/profile.mk:56`): the element when one answers, else the soft root. But the soft root has no identity without tfw-boot: `attest` answers `TFW_ERR_NOT_PROVISIONED` (item 5) |
+| The soft DICE root as the runtime default (#130) | Met in the tree | `CRYPTO ?= auto` (`boards/atmega2560/profile.mk:44`): the element when one answers, else the soft root. But the soft root has no identity without tfw-boot: `attest` answers `TFW_ERR_NOT_PROVISIONED` (item 5) |
 | A production image signed with go-xkms's image key (go-xkms#1606) | Missing | This tree holds no image key, and none was made in its place |
 | tfw-boot installed | Missing | The boot section holds the stock bootloader (item 1). Installing tfw-boot needs ISP, and [the USBasp reaches only the upper 128 KB](../development/bench/mega2560.md#the-usbasp-cannot-see-the-low-128-kb) |
 | A reachable go-trusted-platform test control plane at the configured endpoint | Missing | Three TCP connects to the endpoint in the network block, 5 s each, all timed out. The endpoint is the documentation address (item 5) |
@@ -976,7 +976,7 @@ lists it as a board row for the soft tier.
 [testing.md](../development/testing.md) gives, runs the `TestEthernet*` rows
 with `TFW_HW_ETH=1`. `hw-test` takes `ETH` as the `ip:port` the board dials
 and says it has no default (`mk/go.mk:88`, `:95`, `:99`), but the 2560's
-profile sets `ETH ?= 1` for the firmware build (`boards/atmega2560/profile.mk:51`),
+profile sets `ETH ?= 1` for the firmware build (`boards/atmega2560/profile.mk:41`),
 and the two share the name.
 
 **Fixed.** A in 537f16b: the docs side with the image, so the soft `tfwsim`

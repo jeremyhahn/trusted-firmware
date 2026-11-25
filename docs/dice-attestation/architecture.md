@@ -363,7 +363,7 @@ never required on an AVR board. The Mega 2560 links both the element provider
 and the software DICE root, and at runtime runs the element when one answers,
 else the soft root. The boot side (`feat/130-soft-root`) is not this section's.
 
-Until now the tier was a build choice: `mk/firmware.mk:276`–`:450` picks one of
+Until now the tier was a build choice: `mk/firmware.mk:157`–`:268` picks one of
 `CRYPTO=soft|none|atecc608a`, and each tier's source list brings its own
 `tfw_crypto_init()` (`src/crypto/soft/provider.c:66`,
 `src/crypto/atecc608a/provider.c:72`). `CRYPTO=auto` is a fourth value, the

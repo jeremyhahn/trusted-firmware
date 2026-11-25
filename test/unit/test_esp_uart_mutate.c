@@ -370,6 +370,10 @@ void setUp(void)
     eth_starts = 0u;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
     k.warns = 0u;
+    /* The init closed the last test's listener, on whatever fd it was. */
+    for (i = 0u; i < NFD; i++) {
+        k.fd[i].closes = 0u;
+    }
 }
 
 void tearDown(void) {}
@@ -396,6 +400,7 @@ static void test_an_ethernet_failure_is_passed_up_before_any_socket(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_uart_init(0u));
     TEST_ASSERT_EQUAL_INT(0, k.backlog);
     TEST_ASSERT_EQUAL_INT(0, k.fd[9].reuse);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[LSN_FD].closes);   /* setUp's listener kept */
 }
 
 static void test_no_socket_is_internal_and_nothing_is_accepted(void)
@@ -410,14 +415,18 @@ static void test_no_socket_is_internal_and_nothing_is_accepted(void)
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
 }
 
+/* The new socket is fd 8, so setUp's listener (fd 7, closed by the re-init)
+ * and the refused one are counted apart. */
 static void check_listen_failure(void)
 {
+    k.socket_fd = 8;
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_uart_init(0u));
     TEST_ASSERT_EQUAL_UINT(1u, k.fd[LSN_FD].closes);
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[8].closes);
     TEST_ASSERT_EQUAL_UINT(1u, k.warns);
     TEST_ASSERT_EQUAL_STRING("tfw-wire: no wire: tcp/21574 would not bind or listen, errno 98",
                              k.last_warn);
-    TEST_ASSERT_EQUAL_HEX(OTHER_FL, k.fd[LSN_FD].fl);   /* never made non-blocking */
+    TEST_ASSERT_EQUAL_HEX(OTHER_FL, k.fd[8].fl);   /* never made non-blocking */
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.accepts);

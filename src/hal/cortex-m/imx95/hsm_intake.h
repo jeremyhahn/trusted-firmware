@@ -19,7 +19,12 @@
  *
  * Each interrupt bumps a counter its handler alone writes; the loop alone
  * writes what it last saw, so no interrupt lock is needed. A counter that
- * moved since the last pass is one rising edge: the next pass reads it low.
+ * moved since the last pass is one rising edge, reported high for one pass
+ * and low on the next. An edge that arrives while its bit is high is
+ * reported on the pass after that: late, but never lost.
+ *
+ * S2 follows the same rule: an AHAB event fetched on the pass right after
+ * another is reported one pass late, and several in one batch are one edge.
  */
 #ifndef TFW_CM_IMX95_HSM_INTAKE_H
 #define TFW_CM_IMX95_HSM_INTAKE_H
@@ -41,7 +46,10 @@ struct tfw_imx95_hsm_intake {
     volatile uint32_t s5_seen;  /* written by the pin's handler */
     uint32_t s1_last;           /* written by the loop */
     uint32_t s5_last;
+    uint8_t  high;              /* the bits sense reported last pass, written by the loop */
     uint32_t session;           /* the enclave session S2 polls on; 0 none */
+    uint8_t  s2_pending;        /* an S2 event fetched, not yet reported; loop-written */
+    uint8_t  s2_high;           /* poll reported S2 last pass; loop-written */
 };
 
 /* Take one SCMI message header from the channel's receiver: S1 counts when it

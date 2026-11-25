@@ -85,6 +85,7 @@ static struct {
     int      lose_at;     /* the data byte another master wins, -1 none */
     int      lose_late;   /* that loss reaches MSR only at the STOP */
     int      alf_held;    /* a late loss not yet in MSR */
+    int      fef_at;      /* the data byte the master takes as out of order, -1 none */
     unsigned lost_logn;   /* MTDR writes when ALF was raised */
     unsigned busy;        /* 1 between a START and its STOP */
     uint8_t  addressed;   /* the address byte of the last START */
@@ -118,6 +119,12 @@ static void run(void)
                 md.msr |= MSR_NDF;
             }
         } else if (op == CMD_TX) {
+            if (md.fef_at >= 0 && (unsigned)md.fef_at == md.gotn) {
+                /* A FIFO error: the byte is not sent, and MSR_HALT stops
+                 * the queue until the flush. */
+                md.msr |= MSR_FEF;
+                continue;
+            }
             if (md.lose_at >= 0 && (unsigned)md.lose_at == md.gotn) {
                 if (md.lose_late) {
                     md.alf_held = 1;
@@ -271,6 +278,7 @@ void setUp(void)
     memset(&md, 0, sizeof md);
     md.nack_at = -1;
     md.lose_at = -1;
+    md.fef_at  = -1;
     pending    = R_NONE;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_init(BASE, 24000000uL, 100000uL));
     sync();
@@ -476,6 +484,30 @@ static void test_lpi2c_arbitration_lost_at_the_stop(void)
     TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
 }
 
+/* The master takes the second of three bytes as out of order (FEF): INTERNAL,
+ * the FIFOs flushed, then a STOP, and the next transfer works. */
+static void test_lpi2c_fifo_error(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    md.fef_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 3u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[md.logn - 1u]);
+    TEST_ASSERT_EQUAL_UINT(1u, md.gotn);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.txn);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
+
+    md.fef_at = -1;
+    md.gotn   = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 3u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(2u, md.stops);
+    TEST_ASSERT_EQUAL_MEMORY(wr, md.got, 3u);
+}
+
 static void test_lpi2c_zero_length_touches_nothing(void)
 {
     unsigned before = md.accesses;
@@ -522,6 +554,20 @@ static void test_lpi2c_clock_refuses_a_rate_it_cannot_make(void)
 }
 
 /* The board's base is zero: every call refuses and no register is touched. */
+/* A rate init cannot make is refused before the reset: the running master,
+ * setUp's 24 MHz/100 kHz one, is left as it was and no register is touched. */
+static void test_lpi2c_init_refuses_a_rate_and_touches_nothing(void)
+{
+    unsigned before = md.accesses;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_init(BASE, 24000000uL, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_init(BASE, 1000000uL, 400000uL));
+    TEST_ASSERT_EQUAL_UINT(before, md.accesses);
+    sync();
+    TEST_ASSERT_EQUAL_HEX32(MCR_MEN, md.mcr);
+    TEST_ASSERT_EQUAL_HEX32(0x09131326u, md.mccr0);
+}
+
 static void test_base_zero_refuses(void)
 {
     static const uint8_t wr[] = { 0x01u };
@@ -549,10 +595,12 @@ int main(void)
     RUN_TEST(test_lpi2c_a_transfer_that_never_ends_times_out);
     RUN_TEST(test_lpi2c_arbitration_lost);
     RUN_TEST(test_lpi2c_arbitration_lost_at_the_stop);
+    RUN_TEST(test_lpi2c_fifo_error);
     RUN_TEST(test_lpi2c_zero_length_touches_nothing);
     RUN_TEST(test_lpi2c_clock_at_24mhz);
     RUN_TEST(test_lpi2c_clock_at_16mhz);
     RUN_TEST(test_lpi2c_clock_refuses_a_rate_it_cannot_make);
+    RUN_TEST(test_lpi2c_init_refuses_a_rate_and_touches_nothing);
     RUN_TEST(test_base_zero_refuses);
     return UNITY_END();
 }

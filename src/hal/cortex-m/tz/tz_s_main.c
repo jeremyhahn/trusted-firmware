@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The TZ=1 secure image's start-up (#590, docs/plans/590.md): the SoC's own
+ * The TZ=1 secure image's start-up (#590): the SoC's own
  * opening (tz_soc_open, mps2's MPC and PPC), the SAU from tz_sau_regions,
  * SecureFault enabled, then the Non-secure world's VTOR and MSP and a BLXNS
  * to its reset handler. Faults stay Secure (AIRCR.BFHFNMINS is left 0), so a

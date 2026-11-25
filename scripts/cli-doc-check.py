@@ -15,7 +15,9 @@ when
     the verb to: peripherals.go, hsm.go, ...), or one main compares
     `flag.Arg(0)` against (`ports`), has no row;
   - a row names a verb tfwctl does not dispatch;
-  - a flag main.go defines with `flag.<Type>("name", ...)` has no row, or a
+  - a flag main.go defines with any definer of the default FlagSet
+    (`flag.<Type>("name", ...)`, `flag.<Type>Var(&v, "name", ...)`,
+    `flag.Func`, `flag.BoolFunc`, `flag.TextVar`, `flag.Var`) has no row, or a
     row names a flag it does not define.
 """
 
@@ -33,7 +35,7 @@ SWITCH_RE = re.compile(r"^(\s*)switch cmd \{\s*$")
 CASE_RE = re.compile(r'^(\s*)case\s+("[^"]*"(?:\s*,\s*"[^"]*")*)\s*:')
 STRING_RE = re.compile(r'"([^"]*)"')
 ARG0_RE = re.compile(r'flag\.Arg\(0\)\s*==\s*"([^"]+)"')
-FLAG_RE = re.compile(r'\bflag\.(?:Bool|Int|Int64|Uint|Uint64|String|Duration|Float64|Func|Var|BoolVar|IntVar|StringVar|DurationVar)\(\s*(?:[^,()"]+,\s*)?"([^"]+)"')
+FLAG_RE = re.compile(r'\bflag\.(?:Bool|Int|Int64|Uint|Uint64|String|Duration|Float64|Func|Var|BoolVar|IntVar|StringVar|DurationVar|BoolFunc|Float64Var|Int64Var|TextVar|Uint64Var|UintVar)\(\s*(?:[^,()"]+,\s*)?"([^"]+)"')
 ROW_RE = re.compile(r"\|\s*`[^`]+`")
 NAME_RE = re.compile(r"`([^`]+)`")
 

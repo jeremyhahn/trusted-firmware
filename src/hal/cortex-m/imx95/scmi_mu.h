@@ -60,7 +60,8 @@ uint32_t tfw_scmi_token(struct tfw_scmi_chan *c);
  * TFW_IMX95_SCMI_POLLS before or after the send, TFW_SCMI_E_TOO_LONG when a
  * message either way is longer than the channel or than `rsp`, TFW_SCMI_E_SHORT
  * when the reply has no header, and TFW_SCMI_E_CHANNEL when the platform set
- * channel error. */
+ * channel error. A channel shorter than its header, or the payload room past
+ * its last whole word, counts as too long. */
 int32_t tfw_scmi_xfer(const struct tfw_scmi_chan *c, const struct tfw_scmi_msg *cmd,
                       struct tfw_scmi_msg *rsp);
 

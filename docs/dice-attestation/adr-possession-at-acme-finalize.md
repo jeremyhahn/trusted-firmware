@@ -41,7 +41,7 @@ assembled itself**. The host chooses a nonce of fixed width, and nothing else:
 | Command | Preimage | Host-chosen bytes | Where |
 |---|---|---|---|
 | `ATTEST` (0x60) | the first 73 bytes of the evidence frame: version, nonce, DeviceID, FWHash, BootCount, UptimeMs | 16-byte nonce at offset 1 | `src/caps/attest.c` `build()` |
-| `ATTEST_CERT` (0x63) | a 383-byte TBSCertificate: a 232-byte template with three holes (serial, subject point, UCCS claims set) | 32-byte nonce, which becomes `eat_nonce` and sets the serial | `src/caps/alias.c` `tfw_alias_tbs_digest()` / `mint()` |
+| `ATTEST_CERT` (0x63) | a 400-byte TBSCertificate: a 249-byte template with three holes (serial, subject point, UCCS claims set) | 32-byte nonce, which becomes `eat_nonce` and sets the serial | `src/caps/alias.c` `tfw_alias_tbs_digest()` / `mint()` |
 
 The header comment of `src/caps/alias.c` explains why the device builds the
 whole TBS: *"a signature over 32 opaque bytes is a signature over anything the

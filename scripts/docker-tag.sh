@@ -2,20 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Tag <source> as <target>, where <target> is a content-addressed devcontainer
-# image name (mk/docker.mk).
-#
-#   usage: scripts/docker-tag.sh <source> <target>
-#
-# CI legs on one daemon that miss the cache build the same hash at once, each
-# to its own <image>-$(IMAGE_BUILD_ID), and then all tag the shared name. The
-# daemon lets one win; the others fail with AlreadyExists (run 70520). Two
-# builds of one hash still differ in id, since buildkit writes run-specific
-# metadata (run 75060), so each docker-build-* rule labels its image
-# tfw.image.inputs=<input hash>. A lost race is a success when <target>
-# resolves to <source>'s id, or when both carry the same non-empty label. Any
-# other error, or a <target> unlabelled or labelled otherwise, still fails. DOCKER names the
-# client, as in mk/docker.mk.
+# Tag <source> as <target>, where <target> is a content-addressed devcontainer image name (mk/docker.mk).
 set -euo pipefail
 
 docker=${DOCKER:-docker}

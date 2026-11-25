@@ -30,6 +30,12 @@ const (
 	NetConfigAddr = EEPROMReservedEnd // 0x140; 0x0C0 before #125
 	NetConfigLen  = 32
 
+	// AppConfigBase is the EEPROM address of an application's config
+	// offset 0: the first byte above the network block, on every image,
+	// Ethernet or not. Config an out-of-tree application stored at 0x140
+	// must be re-provisioned here.
+	AppConfigBase = NetConfigAddr + NetConfigLen // 0x160: application config, every image (#640, owner ruling 1234)
+
 	netcfgVersion = 1
 
 	// netcfgFlagDHCP is flags bit 0, TFW_NETCFG_DHCP: the device takes its
@@ -104,8 +110,9 @@ func DerivedMAC(id []byte) net.HardwareAddr {
 
 // MarshalBinary serialises the block: magic, version, the fields, and the
 // frame CRC over everything before it. It refuses what the device would
-// treat as absent -- a zero endpoint address or port -- and a multicast MAC,
-// rather than write a block the link will never use.
+// treat as absent -- a zero endpoint address or port -- a multicast MAC, and,
+// for a static block, a mask that is not contiguous (tfwprov --bake-netblock
+// refuses the same), rather than write a block the link will never use.
 func (c NetConfig) MarshalBinary() ([]byte, error) {
 	if len(c.MAC) != 6 {
 		return nil, &NetConfigError{Field: "MAC", Reason: "must be 6 bytes"}
@@ -138,6 +145,11 @@ func (c NetConfig) MarshalBinary() ([]byte, error) {
 			return nil, &NetConfigError{Field: a.name, Reason: "must be an IPv4 address"}
 		}
 		v := a.a.As4()
+		if !c.DHCP && a.off == netcfgOffMask {
+			if ones, bits := net.IPMask(v[:]).Size(); ones == 0 && bits == 0 {
+				return nil, &NetConfigError{Field: a.name, Reason: "must be a contiguous netmask"}
+			}
+		}
 		copy(b[a.off:], v[:])
 	}
 	if c.Endpoint.Addr().IsUnspecified() {

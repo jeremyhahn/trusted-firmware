@@ -42,11 +42,11 @@ tfw_status_t tfw_soft_id_sign(const uint8_t cdi[32], const uint8_t digest[32],
     if (!seed_from_handoff(seed)) {
         return TFW_ERR_NOT_PROVISIONED;
     }
-    if (!tfw_deviceid_p256_sign(seed, digest, sig)) {
-        tfw_secure_zero(seed, sizeof seed);
+    int ok = tfw_deviceid_p256_sign(seed, digest, sig);
+    tfw_secure_zero(seed, sizeof seed);
+    if (!ok) {
         return TFW_ERR_CRYPTO;
     }
-    tfw_secure_zero(seed, sizeof seed);
     *alg_id = TFW_ALG_ECDSA_P256_SHA256;
     return TFW_OK;
 }
@@ -58,10 +58,10 @@ tfw_status_t tfw_soft_id_pubkey(uint8_t out[64])
     if (!seed_from_handoff(seed)) {
         return TFW_ERR_NOT_PROVISIONED;
     }
-    if (!tfw_deviceid_p256_public(seed, out)) {
-        tfw_secure_zero(seed, sizeof seed);
+    int ok = tfw_deviceid_p256_public(seed, out);
+    tfw_secure_zero(seed, sizeof seed);
+    if (!ok) {
         return TFW_ERR_CRYPTO;
     }
-    tfw_secure_zero(seed, sizeof seed);
     return TFW_OK;
 }

@@ -11,7 +11,7 @@
 > the decisions it follows are ADR #14
 > ([`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md))
 > and ADR #15 ([`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md)),
-> both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14).
+> both ACCEPTED.
 
 Documents cited:
 
@@ -126,7 +126,7 @@ and host-tested and none run on the board: PWM (`hal_pwm.c`,
    `boards/nrf54l15-dk/board_profile.h`, proven by a case in
    `test/unit/test_board_nrf54l15-dk.c` and a host test of the provider over
    a CRACEN model.
-8. **OTA and the store** (owner decision: whether this board has them): an
+8. **OTA and the store**: an
    A/B row in `mk/boot.mk` over the RRAM write path the EEPROM already uses
    (`src/hal/cortex-m/nrf54l/rram_write.h`), with `boot/boot_swap.c`'s
    journal and confirm, proven by host tests over the RRAM model in

@@ -21,10 +21,14 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
 static tfw_pinref_t led;
 static tfw_ms_t     next;
 static uint8_t      level;
+static uint16_t     toggles;             /* level flips since init; APP_CMD op 0x00 */
 
 tfw_status_t tfw_app_init(void)
 {
-    tfw_status_t st = tfw_board_pin(13u, &led);
+    tfw_status_t st;
+
+    toggles = 0u;
+    st      = tfw_board_pin(13u, &led);
     if (st != TFW_OK) {
         return st;
     }
@@ -38,7 +42,24 @@ void tfw_app_run(tfw_ms_t now_ms)
     }
     next  = now_ms + 500u;
     level = (uint8_t)!level;
+    if (toggles != 0xFFFFu) {
+        toggles = (uint16_t)(toggles + 1u);   /* saturates, never wraps to 0 */
+    }
     (void)tfw_hal_gpio_write(&led, level);
+}
+
+/* APP_CMD (0x07): op 0x00, the blink count, takes no arguments and answers the
+ * u16 number of toggles since init. Any other op is not defined here. */
+tfw_status_t tfw_app_command(uint8_t op, tfw_reader_t *r, tfw_writer_t *w)
+{
+    if (op != 0x00u) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    if (tfw_reader_remaining(r) != 0u) {
+        return TFW_ERR_BAD_ARGC;
+    }
+    tfw_write_u16(w, toggles);
+    return TFW_OK;
 }
 
 void tfw_app_shutdown(void)        { (void)tfw_hal_gpio_write(&led, 0u); }

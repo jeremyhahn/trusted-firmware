@@ -263,6 +263,77 @@ func TestDoReportsAClosedPortAsALinkError(t *testing.T) {
 	assert.False(t, errors.Is(err, ErrTimeout))
 }
 
+// brokenReadLink takes the request and then fails every Read at once with an
+// error that is not a timeout, as a serial port closed under the caller does.
+type brokenReadLink struct{ reads int }
+
+func (l *brokenReadLink) Write(p []byte) (int, error) { return len(p), nil }
+
+func (l *brokenReadLink) Read(p []byte) (int, error) {
+	l.reads++
+	return 0, os.ErrClosed
+}
+
+func TestDoReportsAReadErrorThatIsNotATimeoutAsALinkError(t *testing.T) {
+	l := &brokenReadLink{}
+	d := New(l, WithTimeout(200*time.Millisecond), WithBootWait(0))
+	_, err := d.Do(context.Background(), CmdPing, nil)
+	require.Error(t, err)
+
+	var le *LinkError
+	require.True(t, errors.As(err, &le))
+	assert.Equal(t, "read", le.Op)
+	assert.True(t, errors.Is(err, os.ErrClosed))
+	// Reported at once, not spun on until the deadline and called a timeout.
+	assert.False(t, errors.Is(err, ErrTimeout))
+	assert.Equal(t, 1, l.reads)
+}
+
+// readTimeout is a read error that says it is a timeout without being
+// os.ErrDeadlineExceeded, as a net.Error or a driver's own error can.
+type readTimeout struct{}
+
+func (readTimeout) Error() string { return "read timed out" }
+func (readTimeout) Timeout() bool { return true }
+
+// slowLink times out on its first Read and answers the request on the next.
+type slowLink struct {
+	resp  []byte
+	reads int
+}
+
+func (l *slowLink) Write(p []byte) (int, error) {
+	f, _, err := Decode(p)
+	if err != nil {
+		return 0, err
+	}
+	l.resp, err = EncodeResponse(f.Seq, f.Cmd(), StatusOK, []byte{1})
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (l *slowLink) Read(p []byte) (int, error) {
+	l.reads++
+	if l.reads == 1 {
+		return 0, readTimeout{}
+	}
+	n := copy(p, l.resp)
+	l.resp = l.resp[n:]
+	return n, nil
+}
+
+func TestDoKeepsReadingAfterAReadTimeout(t *testing.T) {
+	l := &slowLink{}
+	d := New(l, WithTimeout(time.Second), WithBootWait(0))
+	f, err := d.Do(context.Background(), CmdPing, nil)
+	require.NoError(t, err)
+	assert.Equal(t, StatusOK, f.Status)
+	assert.Equal(t, []byte{1}, f.Payload)
+	assert.GreaterOrEqual(t, l.reads, 2)
+}
+
 // deafLink refuses the write itself: the port is open and the device is not
 // listening, or the handle is already closed.
 type deafLink struct{}

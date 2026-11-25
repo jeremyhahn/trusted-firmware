@@ -10,7 +10,7 @@
 > [`adding-a-board.md`](adding-a-board.md); the decisions it will follow are
 > ADR #14 ([`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md))
 > and ADR #15 ([`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md)),
-> both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14).
+> both ACCEPTED.
 
 Documents cited:
 
@@ -42,7 +42,7 @@ functions, Go `Test` functions or Python methods in the files named.
 | R4 | Secure boot | **not started** for the boot ROM's own secure boot (the key fingerprint in OTP); tfw-boot verifies the application's P-256 signature in software (R2), and the IMAGE_DEF block is unsigned by design | `src/hal/cortex-m/rp2350/soc_calc.h` (IMAGE_DEF), `mk/arch/cortex-m/rp2350.ld` | `test/unit/test_rp2350_soc.c` `test_image_def_is_the_minimal_secure_arm_exe_block` (pins the unsigned block) |
 | R5 | Enrolment through go-xkms into go-trusted-platform | **not started** on this board: it has no Ethernet and no transport is chosen (ADR open question 5); the enrolment path exists for other roots | `xkms/` (the adapter); no RP2350 transport | none for the RP2350; the path is `xkms/e2e/soft_enroll_test.go` `TestSoftRootEnrollsThroughDeviceAttest01` |
 | R6 | The onboarding ADR, docs-only (#128) | **done** (PROPOSED; its open questions wait on the owner) | `docs/multi-arch/adr-rp2350-pico2w-onboarding.md` | docs only; no test applies |
-| R7 | The AVR gate lifted (ruling 697): the firmware features enabled on the board | **done** in the build and on the host (`I2C ?= 1`, `PERIPH ?= 1`); not run on the board | `boards/rp2350-pico2w/profile.mk`, `board_profile.h`; `src/hal/cortex-m/rp2350/hal_bus.c`, `hal_pwm.c`, `hal_adc.c`, `hal_tone.c`, `hal_eeprom.c` | `scripts/test_rp2350_rows_mk.py` `test_the_default_row_links_every_peripheral`; `test/unit/test_rp2350_i2c.c` `test_write_then_read_with_restart`; `test/unit/test_rp2350_pwm.c` `test_pwm_duty_compare_values`; `test/unit/test_rp2350_adc.c` `test_one_read_per_channel_converts_its_gpio`; `test/unit/test_rp2350_tone.c` `test_irq_toggles_and_rearms_from_target`; `test/unit/test_rp2350_eeprom.c` `test_a_user_address_lands_at_its_byte_of_the_user_sector` |
+| R7 | The AVR gate lifted: the firmware features enabled on the board | **done** in the build and on the host (`I2C ?= 1`, `PERIPH ?= 1`); not run on the board | `boards/rp2350-pico2w/profile.mk`, `board_profile.h`; `src/hal/cortex-m/rp2350/hal_bus.c`, `hal_pwm.c`, `hal_adc.c`, `hal_tone.c`, `hal_eeprom.c` | `scripts/test_rp2350_rows_mk.py` `test_the_default_row_links_every_peripheral`; `test/unit/test_rp2350_i2c.c` `test_write_then_read_with_restart`; `test/unit/test_rp2350_pwm.c` `test_pwm_duty_compare_values`; `test/unit/test_rp2350_adc.c` `test_one_read_per_channel_converts_its_gpio`; `test/unit/test_rp2350_tone.c` `test_irq_toggles_and_rearms_from_target`; `test/unit/test_rp2350_eeprom.c` `test_a_user_address_lands_at_its_byte_of_the_user_sector` |
 
 ### Remaining slices
 
@@ -148,7 +148,7 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
 | I2C | I2C0 on GPIO4 (SDA) and GPIO5 (SCL), pico-sdk 2.1.1's `PICO_DEFAULT_I2C`, with the pad pull-ups on; in the default image (`I2C ?= 1`), off in the `soft:I2C=0` row | `profile.mk`, `board_profile.h` |
 | PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz; in the default image, off in the `soft:PERIPH=0` row | `board.c`, `board_profile.h` |
-| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350 (ruling 697), so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, #429 slice 3) | `profile.mk`, `board_profile.h` |
+| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350, so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, #429 slice 3) | `profile.mk`, `board_profile.h` |
 | Not driven | SPI, 1-Wire, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is

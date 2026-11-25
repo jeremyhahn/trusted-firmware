@@ -23,15 +23,22 @@ struct tfw_imx95_hsm_ids {
     uint32_t phy_power;   /* A1: POWER_STATE_SET off (section 4.3.2.6) */
     uint32_t a55_power;   /* A2: POWER_STATE_SET off */
     uint32_t shutdown;    /* A5: SYSTEM_POWER_STATE_SET (section 4.4.2.5) */
+    uint32_t a55_lm;      /* A2: the A55's logical machine, LMM_SHUTDOWN forceful (imx-sm) */
 };
 
 /* Perform `action` (hsm.h, TFW_HSM_ACT_*) on channel `c`. A1 asserts the
  * PHYs' reset and then switches their power domain off, each where its id is
- * set, and tries the second when the first fails; A2 switches the A55's power
- * domain off; A5 asks the System Manager for a forceful shutdown of the
- * system. TFW_OK once every message sent is acknowledged, else the first
- * failure as tfw_scmi_system_power_status maps it. TFW_ERR_UNSUPPORTED, with
- * nothing sent, for every other action, for an action whose ids are all zero,
+ * set, and tries the second when the first fails; TFW_OK once every message
+ * sent is acknowledged, else the first failure as
+ * tfw_scmi_system_power_status maps it. A2 first asks the System Manager for
+ * LMM_SHUTDOWN, forceful, of a55_lm where it is set, and switches the A55's
+ * power domain off where a55_power is set and the LM stop was not sent or not
+ * acknowledged: TFW_OK once one of them is acknowledged, else the last
+ * failure (the LM stop's as tfw_scmi_lmm_status maps it, the domain's as
+ * tfw_scmi_system_power_status does). A5 asks the System Manager for a
+ * forceful shutdown of the system, its result mapped as A1's.
+ * TFW_ERR_UNSUPPORTED, with nothing sent, for every other action, for an
+ * action whose ids are all zero,
  * and while the channel's MU or shared memory is zero. */
 tfw_status_t tfw_imx95_hsm_act(struct tfw_scmi_chan *c, const struct tfw_imx95_hsm_ids *ids,
                                uint8_t action);
@@ -54,9 +61,12 @@ struct tfw_imx95_wipe {
  * opened for it and closed after. TFW_OK only once the enclave has
  * acknowledged every delete: anything less is not a wipe, and the engine
  * locks down (R3). A refused open or delete is TFW_ERR_CRYPTO, no answer
- * TFW_ERR_TIMEOUT; the remaining keys are still tried. TFW_ERR_UNSUPPORTED,
- * with nothing sent, while the MU, the delete's id or the first key id is
- * zero, and for a layout the client refuses.
+ * TFW_ERR_TIMEOUT; the remaining keys are still tried. When more than one
+ * delete fails, the first failure is the answer. TFW_ERR_UNSUPPORTED,
+ * with nothing sent, while the MU or the delete's id is zero or no key id is
+ * set. A delete layout the client refuses is TFW_ERR_UNSUPPORTED too, after
+ * the session, key store and key management service are opened; they are
+ * closed again and no delete is sent.
  *
  * A3 is not here: it is open (architecture.md section 3, question 4). The
  * key-group delete is not either (question 5). */
@@ -114,8 +124,10 @@ struct tfw_imx95_attest {
  * cleared first, close the session, and compare the report
  * (tfw_imx95_hsm_compare_buf over the layout's report size).
  * TFW_ERR_UNSUPPORTED, with nothing sent, while the MU or the message's id is
- * zero, or for a layout the client refuses. A refused session or attestation, a nonce or a buffer the client
- * refuses, is TFW_ERR_CRYPTO, no answer TFW_ERR_TIMEOUT: S3 either way. */
+ * zero. A layout the client refuses is TFW_ERR_UNSUPPORTED after the session
+ * is opened; it is closed again and no attestation is sent. A refused session
+ * or attestation, a nonce or a buffer the client refuses, is TFW_ERR_CRYPTO,
+ * no answer TFW_ERR_TIMEOUT: S3 either way. */
 tfw_status_t tfw_imx95_hsm_attest(const struct tfw_ele_chan *c, const struct tfw_imx95_attest *a,
                                   uint8_t *report, uint32_t report_len, uint64_t report_addr,
                                   const uint8_t *nonce, uint32_t nonce_len,

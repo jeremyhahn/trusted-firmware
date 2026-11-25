@@ -2,30 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Measure the flash and RAM footprint of TF-M v2.3.1, Profile Medium with
-# BL2 (MCUboot), on the STM32H573I-DK (#483; ADR #15 follow-up F1,
-# docs/cortex-m/adr-trust-model-vs-tf-m.md).
-#
-# Fact-finding only: nothing here is linked into our firmware, and no TF-M
-# source enters this repository. TF-M and tf-m-extras are fetched at their
-# pinned commits into a work directory outside the tree, and built there:
-#
-#   base   TF-M as the platform ships it at Profile Medium: BL2 and the
-#          secure image (SPM, Crypto, ITS, PS, Initial Attestation, FWU,
-#          Platform).
-#   stub   the same, plus tf-m-extras' example partition as the stub
-#          Application RoT partition: one IPC service, no crypto of its own.
-#          The secure image's growth over base is the stub's cost.
-#   ns     tf-m-extras' example non-secure application, built against the
-#          stub build's exported api_ns: the non-secure stub.
-#
-# Needs: git, python3 with venv, arm-none-eabi-gcc (the toolchain image's,
-# docker/packages.txt), and network access to git.trustedfirmware.org and
-# PyPI. CMake and TF-M's Python tools come from PyPI into a venv in the work
-# directory. Takes about 15 minutes; logs go to $WORK/logs.
-#
-# Usage: scripts/tfm-measure.sh [work-dir]   (default /tmp/tfm-measure)
-# A relative work-dir is taken from the invocation directory.
+# Measure the flash and RAM footprint of TF-M v2.3.1, Profile Medium with BL2 (MCUboot), on the STM32H573I-DK.
 set -euo pipefail
 
 # The pins, shared with scripts/tfm-build.sh.

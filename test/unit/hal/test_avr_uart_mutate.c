@@ -93,9 +93,28 @@ static void test_init_programs_divisor_and_frame(void)
     check_init(57600uL, 33u);
     check_init(9600uL, 207u);
     check_init(2400uL, 832u);    /* high byte 3 */
-    check_init(300uL, 6665u);    /* 0x1A09 */
+    check_init(489uL, 4088u);    /* the lowest baud UBRR's 12 bits hold at 16 MHz: 0xFF8 */
     check_init(1000000uL, 1u);
     check_init(2000000uL, 0u);
+}
+
+/* UBRRn is 12 bits (UBRRnH 7:4 reserved): a rate whose divisor does not fit,
+ * a rate above F_CPU/8 and baud 0 are refused, and nothing is written. */
+static void test_init_refuses_a_rate_ubrr_cannot_hold_and_writes_nothing(void)
+{
+    static const uint32_t bad[] = { 0uL, 488uL, 300uL, 2000001uL, 0xFFFFFFFFuL };
+    size_t i;
+
+    memset(regs, 0xA5, sizeof regs);
+    memset(&regs[other], 0, R_COUNT);
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(bad[i]));
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, *reg(R_UBRRH));
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, *reg(R_UBRRL));
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, *reg(R_UCSRA));
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, *reg(R_UCSRB));
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, *reg(R_UCSRC));
+    }
 }
 
 static void test_receive_in_order_and_empty_leaves_out_alone(void)
@@ -240,6 +259,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_programs_divisor_and_frame);
+    RUN_TEST(test_init_refuses_a_rate_ubrr_cannot_hold_and_writes_nothing);
     RUN_TEST(test_receive_in_order_and_empty_leaves_out_alone);
     RUN_TEST(test_full_receive_ring_drops_the_newest);
     RUN_TEST(test_transmit_arms_udrie_sends_in_order_then_disarms);

@@ -125,6 +125,17 @@ static void test_nothing_to_fall_back_from_copies_nothing(void)
     assert_nothing_restored();
 }
 
+/* A freshly staged image at reset is the one to try: PREV is copied only
+ * over a trial that ended unconfirmed, never over a pending image. */
+static void test_a_pending_image_at_reset_is_tried_not_restored(void)
+{
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_TRY, tfw_boot_trial_at_reset(&plat));
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_TRY,
+                      tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat)));
+    assert_nothing_restored();
+    TEST_ASSERT_EQUAL_INT(-1, stored_flags);
+}
+
 /* A reset mid-copy: nothing stored, so the next reset finds the trial again
  * and copies PREV again from the start. */
 static void test_a_restore_cut_short_is_redone_at_the_next_reset(void)
@@ -173,6 +184,7 @@ int main(void)
     RUN_TEST(test_a_trial_found_at_reset_restores_prev_and_boots);
     RUN_TEST(test_a_refused_pending_image_restores_prev);
     RUN_TEST(test_nothing_to_fall_back_from_copies_nothing);
+    RUN_TEST(test_a_pending_image_at_reset_is_tried_not_restored);
     RUN_TEST(test_a_restore_cut_short_is_redone_at_the_next_reset);
     RUN_TEST(test_a_store_that_does_not_answer_restores_nothing);
     RUN_TEST(test_take_and_commit_do_nothing_without_the_slots);

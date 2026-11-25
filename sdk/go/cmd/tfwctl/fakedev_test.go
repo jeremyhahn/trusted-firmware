@@ -182,6 +182,13 @@ func (b *benchDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 		a := []byte{byte(tfw.AppRunning), 7, 0, 1, 2, 1, 2, 3, 0, 16, 0, 5, 0, 0, 0}
 		a = append(a, append([]byte("heartbeat"), make([]byte, 16-len("heartbeat"))...)...)
 		return tfw.StatusOK, append(a, append([]byte("bench"), make([]byte, 32-len("bench"))...)...)
+	case tfw.CmdAppCmd:
+		// The bench application has one sub-op, 0x00, with a fixed reply;
+		// any other op is one it does not have.
+		if len(f.Payload) > 0 && f.Payload[0] == 0x00 {
+			return tfw.StatusOK, []byte{0xbe, 0x0c}
+		}
+		return tfw.StatusErrUnsupported, nil
 	case tfw.CmdDigitalRead, tfw.CmdOneWireReset:
 		// Odd pins read high and have a device on the wire.
 		return tfw.StatusOK, []byte{p[0] & 1}

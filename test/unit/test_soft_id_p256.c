@@ -102,6 +102,13 @@ void setUp(void)
     uECC_set_rng(0);
 }
 
+static int failing_rng(uint8_t *dest, unsigned size)
+{
+    (void)dest;
+    (void)size;
+    return 0;
+}
+
 void tearDown(void) { uECC_set_rng(0); }
 
 static void test_the_only_algorithm_is_es256(void)
@@ -202,6 +209,46 @@ static void test_no_uds_is_not_provisioned_and_writes_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, zero_calls);
 }
 
+/* The last buffer handed to tfw_secure_zero was the seed. */
+static void check_seed_zeroed_last(void)
+{
+    TEST_ASSERT_TRUE(zero_calls >= 1u);
+    TEST_ASSERT_TRUE(zero_calls <= ZERO_MAX);
+    TEST_ASSERT_EQUAL_UINT(32u, zero_len[zero_calls - 1u]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED, zero_before[zero_calls - 1u], 32);
+    TEST_ASSERT_TRUE(zero_after_ok[zero_calls - 1u]);
+}
+
+static void test_a_refused_sign_is_crypto_and_sets_no_alg(void)
+{
+    uint8_t sig[64];
+    uint8_t alg = TFW_ALG_NONE;
+
+    memset(sig, 0xA5, sizeof sig);
+    uECC_set_rng(failing_rng);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_soft_id_sign(CDI, DIGEST, sig, &alg));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_NONE, alg);
+    check_seed_zeroed_last();
+
+    uECC_set_rng(0);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_soft_id_sign(CDI, DIGEST, sig, &alg));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED_SIG, sig, 64);
+}
+
+static void test_a_refused_pubkey_is_crypto(void)
+{
+    uint8_t pub[64];
+
+    memset(pub, 0xA5, sizeof pub);
+    uECC_set_rng(failing_rng);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_soft_id_pubkey(pub));
+    check_seed_zeroed_last();
+
+    uECC_set_rng(0);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_soft_id_pubkey(pub));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(SEED_PUB, pub, 64);
+}
+
 /* A blinding RNG that refuses its first call and then fills bytes, as a
  * PSA RNG that fails transiently does (test_deviceid_p256.c). */
 static unsigned flaky_calls;
@@ -262,6 +309,8 @@ int main(void)
     RUN_TEST(test_pubkey_zeroes_the_seed_and_the_scalar);
     RUN_TEST(test_sign_zeroes_the_seed_and_the_scalar);
     RUN_TEST(test_no_uds_is_not_provisioned_and_writes_nothing);
+    RUN_TEST(test_a_refused_sign_is_crypto_and_sets_no_alg);
+    RUN_TEST(test_a_refused_pubkey_is_crypto);
     RUN_TEST(test_a_failing_blinding_rng_refuses_sign_and_pubkey_and_then_gives_the_same_key);
     return UNITY_END();
 }

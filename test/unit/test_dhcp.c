@@ -10,8 +10,9 @@
  * The client runs on socket 1, so the model's peer calls act on it; socket 0
  * is the link's connection, which renewal must leave as it is.
  *
- * What is pinned is RFC 2131's: the message fields of Table 5, the 1 to 10 s
- * wait before the first DHCPDISCOVER (§4.4.1), the 4 s doubling to 64 s
+ * What is pinned is RFC 2131's: the message fields of Table 5, the unused ones
+ * zero, the 1 to 10 s wait before the first DHCPDISCOVER (§4.4.1), the 4 s
+ * doubling to 64 s
  * retransmission randomised by +-1 s (§4.1), the replies a client must discard,
  * DHCPNAK, the lease counted from the DHCPREQUEST (§4.4.1), the probe of the
  * offered address and DHCPDECLINE with its 10 s wait (§2.2, §3.1, §4.4.1), and
@@ -105,6 +106,7 @@ typedef struct {
     uint16_t       sport;
     uint8_t        bad_xid, bad_mac, bad_cookie;
     uint16_t       claim;            /* header length beyond what is sent */
+    const uint8_t *yi;               /* yiaddr, or offered when 0 */
 } reply_t;
 
 static reply_t reply(uint8_t type)
@@ -138,7 +140,7 @@ static void hand_up(const reply_t *r)
     m[2] = 6u;
     memcpy(m + 4, xid, 4u);
     m[4] = (uint8_t)(m[4] ^ r->bad_xid);
-    put4(m + 16, offered);
+    put4(m + 16, r->yi ? r->yi : offered);
     put4(m + 20, srv_a);
     memcpy(m + 28, mac, 6u);
     m[33] = (uint8_t)(m[33] ^ r->bad_mac);
@@ -211,6 +213,8 @@ static uint8_t sent_as(const uint8_t *dst, uint8_t flags, const uint8_t *ci)
     TEST_ASSERT_EQUAL_UINT8(1u, msg[1]);                    /* Ethernet */
     TEST_ASSERT_EQUAL_UINT8(6u, msg[2]);
     TEST_ASSERT_EQUAL_UINT8(0u, msg[3]);
+    TEST_ASSERT_EQUAL_UINT8(0u, msg[8]);                    /* secs */
+    TEST_ASSERT_EQUAL_UINT8(0u, msg[9]);
     TEST_ASSERT_EQUAL_UINT8(flags, msg[10]);                /* BROADCAST */
     TEST_ASSERT_EQUAL_UINT8(0u, msg[11]);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(ci, msg + 12, 4u);        /* ciaddr */
@@ -218,6 +222,9 @@ static uint8_t sent_as(const uint8_t *dst, uint8_t flags, const uint8_t *ci)
         TEST_ASSERT_EQUAL_UINT8(0u, msg[i]);                /* yiaddr .. giaddr */
     }
     TEST_ASSERT_EQUAL_UINT8_ARRAY(mac, msg + 28, 6u);
+    for (i = 34u; i < 236u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, msg[i]);                /* chaddr pad, sname, file */
+    }
     TEST_ASSERT_EQUAL_UINT8(99u,  msg[236]);
     TEST_ASSERT_EQUAL_UINT8(130u, msg[237]);
     TEST_ASSERT_EQUAL_UINT8(83u,  msg[238]);
@@ -348,6 +355,20 @@ static void test_the_first_discover_waits_between_1_and_10_s(void)
     TEST_ASSERT_TRUE(now_ms - start <= 10000u + STEP_MS);
 }
 
+/* xorshift32 stays at 0 once there, so start() makes a seed that folds to 0
+ * a 1 (dhcp.c:538). This MAC and 0x10000005 fold to 0 (dhcp.c:534-537). */
+static void test_a_seed_that_folds_to_zero_still_draws_a_nonzero_xid(void)
+{
+    uint8_t buf[2u * MSG_LEN];
+
+    cfg.mac[0] = 0x22u;
+    now_ms = 0x10000005u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(11000u));
+    TEST_ASSERT_EQUAL_UINT16(MSG_LEN, w5x_model_peer_recv(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_UINT8(1u, buf[242]);                  /* DHCPDISCOVER */
+    TEST_ASSERT_FALSE(buf[4] == 0u && buf[5] == 0u && buf[6] == 0u && buf[7] == 0u);
+}
+
 static void test_the_other_chip_is_refused_and_no_address_is_taken(void)
 {
     w5x_model_reset(OTHER);
@@ -414,6 +435,24 @@ static void test_the_lease_runs_from_the_request_and_then_starts_again(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
 }
 
+/* dhcp.c:601: the lease counts from the first DHCPREQUEST, not a resend (§4.4.1). */
+static void test_a_retransmitted_request_keeps_the_lease_counting_from_the_first(void)
+{
+    tfw_ms_t asked;
+    reply_t  r = reply(5u);
+
+    offer_and_request();
+    asked = now_ms;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(70000u));          /* no answer: sent again */
+    TEST_ASSERT_EQUAL_UINT8(3u, sent());
+    TEST_ASSERT_TRUE((int32_t)(now_ms - asked) >= 3000);
+    TEST_ASSERT_EQUAL(TFW_OK, acked(&r));
+    now_ms = asked + T1_MS - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = asked + T1_MS;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+}
+
 static void test_an_infinite_lease_is_held_to_the_clock_compare(void)
 {
     tfw_ms_t asked;
@@ -454,6 +493,28 @@ static void test_discover_is_retransmitted_at_4_8_16_32_64_s_then_given_up(void)
     TEST_ASSERT_TRUE(now_ms - last <= base[4] + 1000u + STEP_MS);
     TEST_ASSERT_EQUAL_UINT8(5u, w5x_model_sends());
     TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));   /* given back */
+}
+
+/* RFC 2131 section 4.1: each retransmission delay is randomised by -1..+1 s,
+ * which keeps a fleet's retransmissions apart (src/net/dhcp.c:130-131). A
+ * fixed offset from 4, 8, 16, 32 s means the draw at dhcp.c:232-233 is gone. */
+static void test_discover_retransmissions_are_jittered_not_fixed(void)
+{
+    static const tfw_ms_t base[4] = { 4000u, 8000u, 16000u, 32000u };
+    int32_t  lo = 2000, hi = -2000, off;
+    tfw_ms_t last;
+    uint8_t  k;
+
+    discover();
+    for (k = 0u; k < 4u; k++) {
+        last = now_ms;
+        TEST_ASSERT_EQUAL(TFW_ERR_BUSY, run(base[k] + 2000u));
+        TEST_ASSERT_EQUAL_UINT8(1u, sent());
+        off = (int32_t)(now_ms - last) - (int32_t)base[k];
+        lo = (off < lo) ? off : lo;
+        hi = (off > hi) ? off : hi;
+    }
+    TEST_ASSERT_TRUE(hi - lo > (int32_t)STEP_MS);
 }
 
 static void test_a_request_without_an_answer_is_given_up_the_same_way(void)
@@ -548,6 +609,26 @@ static void test_an_offer_without_a_server_id_or_an_ack_while_selecting_is_disca
     offer_ignored(&r);
 }
 
+/* take() hands back the one datagram it read (src/net/dhcp.c:436), not the
+ * datagrams queued behind it on the socket (include/tfw/eth.h:101-104). */
+static void test_a_discarded_reply_leaves_the_next_one_queued_behind_it(void)
+{
+    reply_t bad  = reply(2u);
+    reply_t good = reply(2u);
+    uint8_t sends;
+
+    bad.server = 0;                  /* passed over, as above */
+    discover();
+    sends = w5x_model_sends();
+    hand_up(&bad);
+    hand_up(&good);                  /* both on the ring before the next poll */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(8u + MSG_LEN, tfw_eth_udp_avail());
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent());                    /* DHCPREQUEST */
+}
+
 static void test_a_nak_from_the_chosen_server_starts_again(void)
 {
     reply_t r = reply(6u);
@@ -590,6 +671,27 @@ static void test_an_ack_without_a_lease_or_a_mask_is_discarded(void)
     r.mask = 0u;
     hand_up(&r);
     TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+}
+
+static void test_an_offer_or_ack_for_no_address_is_discarded(void)
+{
+    reply_t r = reply(2u);
+    uint8_t sends;
+
+    r.yi = none;                                            /* DHCPOFFER for 0.0.0.0 */
+    offer_ignored(&r);
+
+    setUp();
+    offer_and_request();
+    sends = w5x_model_sends();
+    r     = reply(5u);
+    r.yi  = none;                                           /* DHCPACK for 0.0.0.0 */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());      /* no probe */
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    r = reply(5u);
+    TEST_ASSERT_EQUAL(TFW_OK, acked(&r));
 }
 
 static void test_an_ack_without_a_router_leaves_no_gateway(void)
@@ -771,6 +873,59 @@ static void test_at_t1_the_lease_is_renewed_beside_the_connection(void)
     renewal_sent();
 }
 
+/* RFC 2131 §4.1: the xid matches a reply to the request pending. A renewal
+ * asks under a new xid (dhcp.c tfw_dhcp_renew, new_xid() at BOUND), so a late
+ * DHCPACK of the first exchange is not taken as the renewal's answer. */
+static void test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+    uint8_t  first[4], renew[4];
+
+    memcpy(first, xid, 4u);
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    memcpy(renew, xid, 4u);
+    TEST_ASSERT_FALSE(memcmp(first, renew, 4u) == 0);
+
+    now_ms += 2000u;
+    memcpy(xid, first, 4u);                                 /* the first exchange's */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    memcpy(xid, renew, 4u);
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
+}
+
+/* dhcp.c:482: a renewal's DHCPACK sets the lease length anew (§4.4.5), so a
+ * server that shortens the lease is believed, counted from T1 (dhcp.c:478). */
+static void test_a_renewal_ack_that_shortens_the_lease_is_held_to_its_new_length(void)
+{
+    tfw_ms_t asked = bind();
+    tfw_ms_t t1    = asked + T1_MS;
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = t1;
+    renewal_sent();
+    now_ms += 2000u;
+    r.mask  = 0u;
+    r.lease = 600u;                                         /* T1 300 s, end 600 s */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    now_ms = t1 + 300000u - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = t1 + 300000u;
+    renewal_sent();
+    now_ms = t1 + 600000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_dhcp_renew(&cfg));
+}
+
 static void test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s(void)
 {
     tfw_ms_t asked = bind();
@@ -813,6 +968,54 @@ static void test_at_t2_any_server_may_rebind_the_lease(void)
     now_ms = asked + T2_MS + T1_MS;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
     TEST_ASSERT_EQUAL_UINT8(3u, sent_as(srv_b, 0x00u, offered));
+}
+
+static void test_a_nak_from_any_server_while_rebinding_loses_the_lease(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(6u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    now_ms = asked + T2_MS;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent_as(bcast, 0x00u, offered));
+    memcpy(xid, msg + 4, 4u);
+    r.server = srv_b;                                       /* any server, from T2 */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+}
+
+static void test_a_rebind_ack_for_another_address_keeps_the_lease(void)
+{
+    static const uint8_t other[4] = { 192u, 0u, 2u, 78u };
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    now_ms = asked + T2_MS;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(3u, sent_as(bcast, 0x00u, offered));
+    memcpy(xid, msg + 4, 4u);
+    r.server = srv_b;
+    r.yi     = other;                                       /* not the bound address */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    r = reply(5u);
+    r.server = srv_b;
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, cfg.ip, 4u);
 }
 
 static void test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end(void)
@@ -864,6 +1067,51 @@ static void test_a_nak_to_a_renewal_loses_the_lease(void)
     TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_dhcp_renew(&cfg));
     TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+}
+
+static void test_a_renewal_ack_for_another_address_keeps_the_lease(void)
+{
+    static const uint8_t other[4] = { 192u, 0u, 2u, 78u };
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    r.yi = other;                                           /* not the bound address */
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));   /* still asking */
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    r = reply(5u);
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, cfg.ip, 4u);
+}
+
+/* A renewal reply whose UDP header claims more than the controller holds
+ * (dhcp.c:396-398) gives the socket and the lease up (dhcp.c:640-642). */
+static void test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up(void)
+{
+    tfw_ms_t asked = bind();
+    reply_t  r     = reply(5u);
+
+    connect_link();
+    now_ms = asked + T1_MS;
+    renewal_sent();
+    r.mask  = 0u;
+    r.claim = 40u;
+    hand_up(&r);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_dhcp_renew(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));   /* UDP socket back */
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());              /* link untouched */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    memset(cfg.ip, 0xFF, 4u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));   /* INIT again */
+    TEST_ASSERT_EQUAL_UINT8(0u, cfg.ip[0]);                 /* no lease */
 }
 
 static void test_a_connection_lost_while_renewing_renews_again_once_up(void)
@@ -941,23 +1189,28 @@ int main(void)
     RUN_TEST(test_a_static_block_is_used_as_it_is_and_the_chip_untouched);
     RUN_TEST(test_the_socket_opens_as_udp_on_port_68_with_no_address);
     RUN_TEST(test_the_first_discover_waits_between_1_and_10_s);
+    RUN_TEST(test_a_seed_that_folds_to_zero_still_draws_a_nonzero_xid);
     RUN_TEST(test_the_other_chip_is_refused_and_no_address_is_taken);
     RUN_TEST(test_an_offer_is_answered_with_a_request_naming_its_server_and_address);
     RUN_TEST(test_an_ack_hands_the_link_the_lease_and_gives_the_socket_back);
     RUN_TEST(test_a_bound_client_answers_from_its_lease_without_the_chip);
     RUN_TEST(test_the_lease_runs_from_the_request_and_then_starts_again);
+    RUN_TEST(test_a_retransmitted_request_keeps_the_lease_counting_from_the_first);
     RUN_TEST(test_an_infinite_lease_is_held_to_the_clock_compare);
     RUN_TEST(test_discover_is_retransmitted_at_4_8_16_32_64_s_then_given_up);
     RUN_TEST(test_a_request_without_an_answer_is_given_up_the_same_way);
+    RUN_TEST(test_discover_retransmissions_are_jittered_not_fixed);
     RUN_TEST(test_an_offer_for_another_xid_is_discarded);
     RUN_TEST(test_an_offer_for_another_client_is_discarded);
     RUN_TEST(test_a_request_shaped_or_cookieless_or_unterminated_reply_is_discarded);
     RUN_TEST(test_a_reply_from_a_port_other_than_67_is_discarded);
     RUN_TEST(test_an_overloaded_reply_is_discarded);
     RUN_TEST(test_an_offer_without_a_server_id_or_an_ack_while_selecting_is_discarded);
+    RUN_TEST(test_a_discarded_reply_leaves_the_next_one_queued_behind_it);
     RUN_TEST(test_a_nak_from_the_chosen_server_starts_again);
     RUN_TEST(test_another_servers_ack_or_nak_is_discarded);
     RUN_TEST(test_an_ack_without_a_lease_or_a_mask_is_discarded);
+    RUN_TEST(test_an_offer_or_ack_for_no_address_is_discarded);
     RUN_TEST(test_an_ack_without_a_router_leaves_no_gateway);
     RUN_TEST(test_a_datagram_shorter_than_its_header_gives_the_socket_back);
     RUN_TEST(test_an_ack_probes_the_address_from_no_address_before_taking_it);
@@ -967,10 +1220,16 @@ int main(void)
     RUN_TEST(test_a_decline_the_chip_has_no_room_for_gives_the_socket_back);
     RUN_TEST(test_a_probe_the_chip_never_finishes_is_given_up_after_4_s);
     RUN_TEST(test_at_t1_the_lease_is_renewed_beside_the_connection);
+    RUN_TEST(test_a_renewal_asks_under_a_new_xid_and_ignores_the_old_one);
+    RUN_TEST(test_a_renewal_ack_that_shortens_the_lease_is_held_to_its_new_length);
     RUN_TEST(test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s);
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
+    RUN_TEST(test_a_nak_from_any_server_while_rebinding_loses_the_lease);
+    RUN_TEST(test_a_rebind_ack_for_another_address_keeps_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);
     RUN_TEST(test_a_nak_to_a_renewal_loses_the_lease);
+    RUN_TEST(test_a_renewal_ack_for_another_address_keeps_the_lease);
+    RUN_TEST(test_a_renewal_datagram_longer_than_its_header_says_gives_the_socket_back_and_the_lease_up);
     RUN_TEST(test_a_connection_lost_while_renewing_renews_again_once_up);
     RUN_TEST(test_a_renewal_socket_the_chip_will_not_open_keeps_the_lease_and_tries_later);
     RUN_TEST(test_a_renewal_the_chip_has_no_room_for_keeps_the_lease_and_goes_next_time);

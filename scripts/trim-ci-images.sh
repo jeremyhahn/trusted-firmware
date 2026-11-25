@@ -3,22 +3,6 @@
 # SPDX-License-Identifier: commercial
 #
 # Bound the content-tagged devcontainer images on the runner's Docker host.
-#
-#   usage: scripts/trim-ci-images.sh <image> [<image>...]
-#   e.g.   scripts/trim-ci-images.sh "$TOOLCHAIN_IMAGE" "$ESP32_IMAGE"
-#
-# The toolchain and esp32 images are tagged by a hash of their inputs
-# (mk/docker.mk) and shared by every run on the host, so no job removes the one
-# it ran (Company Agent m644). Each new pin or go.sum would then leave one more
-# multi-GiB image behind. For each <image>'s repository this keeps the newest
-# CI_IMAGE_KEEP (default 3) hash tags and removes the older ones, never <image>
-# itself and never one a container (running or stopped) was made from. A tag
-# that is not a hash tag (the moving cache tag, a developer's own) is left.
-# Removing a tag whose image carries another tag only untags it.
-#
-# A run of an older hash that loses its image here pulls it again, or builds
-# it. A failed removal is reported and skipped: this never fails the job.
-# REAP_DRY_RUN=1 prints what would be removed and removes nothing.
 set -u
 
 if [ "$#" -eq 0 ]; then

@@ -205,6 +205,34 @@ static void test_a_heartbeat_moves_the_deadline_the_loop_keeps(void)
     ACTS(LOCK);
 }
 
+/* A pass ticks the engine before it senses the lines: past the deadline with
+ * S1 rising, S6's lockdown comes first and S1's rule after it (R5). */
+static void test_a_pass_keeps_the_deadline_before_it_senses_the_lines(void)
+{
+    load_policy();
+    clock_ms = 1001u;
+    lines    = LINE(TFW_HSM_SIG_TAMPER_PIN);
+    tfw_hsm_loop_poll();
+    ACTS(LOCK, S1_ACTS);
+    TEST_ASSERT_EQUAL_UINT8(1u, engine()->locked);
+}
+
+/* Each line keeps its own level: S1 released in the pass S5 rises raises S5
+ * only, and S1 asserted again after is a new event. */
+static void test_a_line_released_as_another_rises_raises_only_the_one_that_rose(void)
+{
+    load_policy();
+    lines = LINE(TFW_HSM_SIG_TAMPER_PIN);
+    tfw_hsm_loop_poll();
+    ACTS(S1_ACTS);
+    lines = LINE(TFW_HSM_SIG_HOTPLUG);
+    tfw_hsm_loop_poll();
+    ACTS(LOCK);
+    lines = LINE(TFW_HSM_SIG_TAMPER_PIN);
+    tfw_hsm_loop_poll();
+    ACTS(S1_ACTS);
+}
+
 /* After a reset no line has been seen, so one still asserted is new. */
 static void test_reset_forgets_the_lines_seen(void)
 {
@@ -229,6 +257,8 @@ int main(void)
     RUN_TEST(test_bits_above_the_last_signal_are_ignored);
     RUN_TEST(test_each_pass_keeps_the_heartbeat_deadline);
     RUN_TEST(test_a_heartbeat_moves_the_deadline_the_loop_keeps);
+    RUN_TEST(test_a_pass_keeps_the_deadline_before_it_senses_the_lines);
+    RUN_TEST(test_a_line_released_as_another_rises_raises_only_the_one_that_rose);
     RUN_TEST(test_reset_forgets_the_lines_seen);
     return UNITY_END();
 }

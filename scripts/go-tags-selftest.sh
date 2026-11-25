@@ -2,25 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# go-tags-selftest: every Go build, test, vet and scanner the CI stages reach
-# takes the template's GO_BUILD_TAGS (devcontainer.md §6, mk/go.mk go-tags).
-#
-# Each target is dry-run (make -n) and its Go invocations picked out:
-#   - with GO_BUILD_TAGS=tfwtagprobe, every one names tfwtagprobe in its tag
-#     argument, and every target has at least one;
-#   - with a tag given twice, no tag argument names a tag twice;
-#   - with GO_BUILD_TAGS empty or unset, the lines are exactly the literals
-#     below, the command lines from before the template's tags were read. They
-#     are literals on purpose: computed from the Makefile, they would move with it.
-#     The tfwsim tag on sdk-test, sdk-lint and go-golangci is sdk/go's own
-#     (#163), and on xkms-test the xkms adapter's own, so it stays when
-#     GO_BUILD_TAGS is empty. sdk-coverage and xkms-coverage open a { }
-#     group, which keeps their log for the per-package floor (#163); their
-#     tag arguments are as before.
-#
-# Run through `make go-tags-selftest`, which hands in the boot bridge's row
-# (GO_TAGS_BRIDGE) and its prerequisites (GO_TAGS_BRIDGE_PREREQS): the bridge
-# needs an AVR image a dry run cannot link, so those are taken as built.
+# go-tags-selftest: every Go build, test, vet and scanner the CI stages reach takes the template's GO_BUILD_TAGS.
 set -u
 
 : "${GO_TAGS_BRIDGE:?run it through make go-tags-selftest}"

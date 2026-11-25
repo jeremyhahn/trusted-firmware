@@ -4,7 +4,7 @@
 > · ADR: [`adr-esp-idf-integration.md`](adr-esp-idf-integration.md) ([#16](../../../../issues/16))
 > · Scope: trusted-firmware (docs only) · Last verified: 2026-10-18
 >
-> The owner ruling of 2026-10-18 (CA m623) lifts the ESP32-P4 gate in full: a
+> The owner ruling of 2026-10-18 lifts the ESP32-P4 gate in full: a
 > design slice first, then the HAL and boot-HAL port, identity tests on QEMU
 > `esp32c3`, and hardware-in-the-loop on the bench host once its factory state
 > is recorded and verified. This page is that design slice. It changes no code.
@@ -28,7 +28,7 @@ either; both are marked where used.
 | File | What it does |
 |---|---|
 | `mk/arch/esp32.mk` | Read only by an ESP32 board. Pins ESP-IDF `v5.5.5` and Espressif QEMU `esp_develop_9.2.2_20260417` (ADR, "Toolchain pins"). |
-| `mk/arch/esp32-targets.mk` | `esp32-build`: evaluates `FW_SRCS` from `mk/firmware.mk`, generates the RSA-3072 secure boot v2 signing key and the ES256 image key into the build directory on first use, pins the image key in `tfw_plat.bin` (`:92-95`), and runs `idf.py` with the source list, board directory and feature defines; then `l0_seal.py` (`ESP_L0_SEAL`, `:29`) appends trailer v1 and the SUIT envelope the board's `suit-emit` builds, and re-signs the image for secure boot v2 (`:115-117`). Under anti-rollback (`ESP_ANTI_ROLLBACK_TARGETS`, `:37`) it refuses an `image_version` above the eFuse field (`:73-74`) and sets `CONFIG_BOOTLOADER_APP_SECURE_VERSION` from it (`:100`). `PROVISION=1` builds the provisioning image for a tier with `ARCH_PROV_SRCS_<tier>` (`hmac-p256`) and refuses the others (`:75`). `esp32-qemu-test`: builds `esp32-qemu` for `esp32c3` (`hmac-p256` tier) and its `PROVISION=1` image (`:149`) and for `esp32` (`none` tier), builds `wirecheck`, runs `test/integration/esp32/qemu_test.py` on each (`mk/arch/esp32-targets.mk:156-159`). |
+| `mk/arch/esp32-targets.mk` | `esp32-build`: evaluates `FW_SRCS` from `mk/firmware.mk`, generates the RSA-3072 secure boot v2 signing key and the ES256 image key into the build directory on first use, pins the image key in `tfw_plat.bin` (`:65-68`), and runs `idf.py` with the source list, board directory and feature defines; then `l0_seal.py` (`ESP_L0_SEAL`, `:15`) appends trailer v1 and the SUIT envelope the board's `suit-emit` builds, and re-signs the image for secure boot v2 (`:88-90`). Under anti-rollback (`ESP_ANTI_ROLLBACK_TARGETS`, `:20`) it refuses an `image_version` above the eFuse field (`:47-48`) and sets `CONFIG_BOOTLOADER_APP_SECURE_VERSION` from it (`:74`). `PROVISION=1` builds the provisioning image for a tier with `ARCH_PROV_SRCS_<tier>` (`hmac-p256`) and refuses the others (`:49`). `esp32-qemu-test`: builds `esp32-qemu` for `esp32c3` (`hmac-p256` tier) and its `PROVISION=1` image (`:115`) and for `esp32` (`none` tier), builds `wirecheck`, runs `test/integration/esp32/qemu_test.py` on each (`mk/arch/esp32-targets.mk:120-123`). |
 | `mk/arch/esp32/CMakeLists.txt`, `main/CMakeLists.txt`, `main/Kconfig.projbuild`, `sdkconfig.defaults` | The ESP-IDF project (ADR decision 1, option 1c). One component registers exactly `TFW_SRCS`. `Kconfig.projbuild` carries `CONFIG_TFW_ETH_STATIC_IP` (ADR follow-up 9). |
 | `boot/hal/esp32/bootloader_components/main/CMakeLists.txt` | Layer 0's bootloader component. Its sources: `boot_l0.c`, the gate `l0_gate.c` and the boot HAL, the trailer parser and policy primitives of `boot/`, the board's verify (`ESP_L0_VERIFY`), the key slot, `src/core/suit.c` with `l0_crypto.c` under it, the CRC (section 2.2). |
 | `boot/hal/esp32/boot_l0.c` | Replaces `call_start_cpu0` (ADR decision 3, option 2c). `bootloader_init`, partition-table load, `bootloader_utility_get_selected_boot_partition`, then `first_passing` (`:301`), then `bootloader_utility_load_boot_image` (`:344`). `check_slot` (`:205`) runs `esp_image_verify(ESP_IMAGE_VERIFY, …)` (`:215`), layer 0's gate `tfw_l0_gate` (`:226`: trailer, board binding, floor, ES256, SUIT manifest), holds the trailer's `image_version` to `data.secure_version` (`:233`), and on a trial boot reads the activate authorization from `tfw_auth` and checks it (`:244-246`). Only a slot that passes all of them is measured: the image's appended SHA-256, and `derive_cdi` (`:282`) computes `HMAC-SHA256(UDS, measurement)` through `ets_hmac_calculate_message` on the `HMAC_UP` key block. `first_passing` walks ESP-IDF's fallback order under the same gate and gives the loader the first slot that passes; a refused slot is never given to it, and with none passing nothing runs (`:292-300`, `:339-343`). The handoff carries `data.secure_version` as the image version. |
@@ -44,13 +44,13 @@ either; both are marked where used.
 | `src/hal/esp32/crypto_hmac_p256.c` | The `hmac-p256` provider. `tfw_crypto_init` (`:134-162`) takes the CDI from the handoff (tier `SECURE_ELEMENT`) and derives the DeviceID: the HMAC peripheral computes `HMAC-SHA256(UDS, "tfw-deviceid-v1")` on the `HMAC_UP` key block (`deviceid_seed`, `:84-88`; `deviceid_init`, `:105-132`), and `src/crypto/deviceid_p256.c` (`:131-136`, `:138-145`) turns it into a P-256 scalar and point; the scalar is never stored. `tfw_crypto_algorithms` (`:167-171`) reports ECDSA P-256 once a UDS is found; `tfw_crypto_sign` (`:214-232`) signs ES256 with RFC 6979 nonces (`deviceid_p256.c:147-197`) and `tfw_crypto_pubkey` (`:235-242`) returns the 64-byte point; `tfw_crypto_verify_image` refuses (`:284-288`); `tfw_crypto_random` is `esp_fill_random` (`:180-190`). No DS, no `id_record.h`; `tfw_id` is reserved and not read (`:28-29`). |
 | `src/hal/esp32/hal_ota.c` | The OTA session on `esp_ota`, chosen by the object list (`ARCH_OTA_SRCS`): `OTA_BEGIN`/`DATA`/`END`/`STATUS` write the inactive slot (`:119-209`), `esp_ota_end` verifying the whole image at `OTA_END` (`:194`); `OTA_ACTIVATE` (`:317-357`) after an `OTA_AUTH` writes the authorization to `tfw_auth` (`:272-293`); `OTA_CONFIRM` and `OTA_INFO` (`:366-385`, `:402-450`). |
 | `src/hal/esp32/prov_uds.c` | The part HAL of `src/caps/provision_uds.c` in the `PROVISION=1` image: the UDS from the noise source (`:46`), its burn as the read- and write-protected `HMAC_UP` key (`:58`), and the HMAC over it (`:88`). |
-| `boards/esp32p4-poe/` | `board_profile.h`, `board.c`, `profile.mk` (`ESP_TARGET := esp32p4`, `BOARD_TIERS := hmac-p256` at `profile.mk:16`, the factory flash size and SHA-256), `partitions.csv` (`tfw_plat` `0x11000`, `tfw_id` `0x12000`, `tfw_eeprom` `0x13000`, `otadata` `0x14000`, `tfw_auth` `0x16000`, `ota_0` `0x20000` and `ota_1` `0x620000`, 6 MB each), `sdkconfig.defaults` (EMAC and IP101, 32 MB flash since slice 7, flash encryption in release mode). |
+| `boards/esp32p4-poe/` | `board_profile.h`, `board.c`, `profile.mk` (`ESP_TARGET := esp32p4`, `BOARD_TIERS := hmac-p256` at `profile.mk:9`, the factory flash size and SHA-256), `partitions.csv` (`tfw_plat` `0x11000`, `tfw_id` `0x12000`, `tfw_eeprom` `0x13000`, `otadata` `0x14000`, `tfw_auth` `0x16000`, `ota_0` `0x20000` and `ota_1` `0x620000`, 6 MB each), `sdkconfig.defaults` (EMAC and IP101, 32 MB flash since slice 7, flash encryption in release mode). |
 | `boards/esp32-qemu/` | The QEMU board, `0x81`, for both machines (ADR decision 8), with `sdkconfig.defaults.esp32` for the Xtensa run. |
 | `test/integration/esp32/qemu_test.py`, `wirecheck/` | The QEMU harness, its steps in the module docstring (`qemu_test.py:20-83`): a fixed UDS pinned to its DeviceID point (`:141-142`, derived on the host by `deviceid_point`, `:237`), which `provision_efuses` (`:315`) burns as `HMAC_UP` in KEY1 (`:323`) with the secure boot digest through QEMU's download mode, and no DS key; `boot` and `boot_facts` (`:388`, `:409`) read layer 0's and the provider's log lines; `release` (`:493`) seals the OTA releases with `l0_seal.py`, which also builds step 6's mis-sealed images; `ota` (`:400`) bounds every OTA stream by the image's length; `provisioning` (`:435`) and `read_back` (`:358`) run the `PROVISION=1` image. `wirecheck` drives `sdk/go` over the emulated Ethernet: CAPS, `ATTEST` against `-deviceid`, the EEPROM mark, `-ota`, `-activate`, `-confirm`, `-info`, `-genkey`. |
 | `test/unit/test_board_esp32p4-poe.c`, `test_board_esp32-qemu.c` | Host unit tests of the two board profiles, in `make test`. |
 | `test/unit/test_esp_crypto_hmac_p256.c` | The `hmac-p256` provider on the host, over the mock HMAC peripheral, eFuse purpose lookup and RNG in `test/mock/esp32/`: the DeviceID point and ES256 signature pinned to `test_deviceid_p256`'s literals. The row's requirements, met or partial: [`esp32-p4-engineering.md`](esp32-p4-engineering.md). |
 | `test/unit/test_esp_board.c` | `hal_board.c` against the P4's own profile, over the mock gpio driver in `test/mock/esp32/driver/`: the C6 enable is driven low before it is an output, pulled down and held, never driven high, and a refused step stops the init. |
-| `docker/Dockerfile.esp32`, the `esp32-build` and `esp32-qemu-test` CI jobs | ESP-IDF v5.5.5 and Espressif QEMU; `esp32-build` runs `make esp32-build BOARD=esp32p4-poe`, `esp32-qemu-test` runs `make esp32-qemu-test` on a push to main and nightly only (ruling 220(j); ADR, Consequences, last bullet). |
+| `docker/Dockerfile.esp32`, the `esp32-build` and `esp32-qemu-test` CI jobs | ESP-IDF v5.5.5 and Espressif QEMU; `esp32-build` runs `make esp32-build BOARD=esp32p4-poe`, `esp32-qemu-test` runs `make esp32-qemu-test` on a push to main and nightly only. |
 
 ### 1.2 What `make esp32-qemu-test` proves today
 
@@ -94,7 +94,7 @@ but runs nowhere (slice 7).
 ### 1.3 Gaps found on main (docs and data, for the slices)
 
 - **The DeviceID was RSA in DS** (ADR decision 4), against the owner ruling
-  of 2026-10-17 (CA m499, m522): ECDSA P-256 on every board, ES256 only.
+  of 2026-10-17: ECDSA P-256 on every board, ES256 only.
   Closed by slice 1: the DeviceID is P-256, derived from the UDS through the
   HMAC peripheral (`src/hal/esp32/crypto_hmac_p256.c:105-132`). Section 2.1.
 - **The SPEC row `esp32-p4`** said "the DeviceID key is held by the DS
@@ -131,8 +131,7 @@ but runs nowhere (slice 7).
 
 ### 2.1 The P-256 DeviceID on the P4
 
-The ruling fixes the algorithm: ECDSA P-256, ES256, on every board
-(`docs/SPEC.md` row `dice-attestation`, owner ruling 2026-10-17, CA m499). The
+The ruling fixes the algorithm: ECDSA P-256, ES256, on every board. The
 ADR's decision 4 (DS-held RSA) is superseded by it. What remains is where the
 P-256 private key lives.
 
@@ -178,7 +177,7 @@ question for go-xkms, listed in section 6.
 
 ### 2.2 Layer 0 and tfw-boot: trailer v1 and the SUIT manifest inside the signed image
 
-Every tfw-boot row verifies a signature (owner ruling 2026-10-17, CA m453); on
+Every tfw-boot row verifies a signature; on
 the P4 tfw-boot is layer 0 in the second-stage bootloader (ADR decision 3).
 Two signatures, two keys, two owners:
 
@@ -345,7 +344,7 @@ confirms it first.
 | `OTA_END` (`0x6A`) | `esp_ota_end`. The wire meaning stays "every byte arrived, nothing verified" (§8): `esp_ota_end` also runs ESP-IDF's image check, so on the P4 a bad image can already fail here, with the existing verify-failure status. A stronger refusal, not a different meaning; stated in `docs/ota/api.md` by the OTA slice. |
 | `OTA_STATUS` (`0x6B`) | The session's own counters, as on AVR. |
 | `OTA_INFO` (`0x6C`) | `esp_ota_get_running_partition`, `esp_ota_get_state_partition` and `esp_ota_get_partition_description` for each slot; `floor` is the eFuse secure version; `state` maps `ESP_OTA_IMG_PENDING_VERIFY` to `TRIAL`; `flags` bit 0 from the bootloader's rollback. |
-| `OTA_AUTH` (`0x6F`) | Holds the 64-byte ES256 signature (r‖s over the COSE_Sign1 Sig_structure, `boot/boot_cose.c`) for the next command only (`src/core/ota_auth.c`, `docs/SPEC.md` row `ota`, CA m502 item 2). `OTA_ACTIVATE` writes it, in the `TFW_BOOT_AUTH_*` record (`include/tfw/boot.h`), to the `tfw_auth` partition for layer 0, not to `tfw_plat`: slice 5's row says why. |
+| `OTA_AUTH` (`0x6F`) | Holds the 64-byte ES256 signature (r‖s over the COSE_Sign1 Sig_structure, `boot/boot_cose.c`) for the next command only. `OTA_ACTIVATE` writes it, in the `TFW_BOOT_AUTH_*` record (`include/tfw/boot.h`), to the `tfw_auth` partition for layer 0, not to `tfw_plat`: slice 5's row says why. |
 | `OTA_ACTIVATE` (`0x6D`) | After `OTA_AUTH`, on an ended image and not on trial: the application checks the trailer as layer 0 will (`tfw_boot_trailer_parse`, the board binding, the eFuse floor, `image_len` and the measurement against `esp_image_get_metadata` and the appended digest, and under anti-rollback `image_version` = the app's `secure_version`), writes the `tfw_auth` record, then `esp_ota_set_boot_partition`; mode 1 resets (`src/hal/esp32/hal_ota.c`). Each refusal is layer 0's status for the same fault. At that reset layer 0 checks the record with the image key, as tfw-boot does on every tier (row `ota`, #137), after the trailer and the SUIT manifest and before the CDI (2.2, step 9). Refused: layer 0 gives no CDI and the fallback boots the previous slot; at the next reset ESP-IDF finds the entry still `PENDING_VERIFY` and marks it `ABORTED` (confirmed, ESP-IDF v5.5.5 `bootloader_utility.c` 378–629; `boot/hal/esp32/boot_l0.c`). |
 | `OTA_CONFIRM` (`0x6E`) | After `OTA_AUTH`, in `TRIAL` only: `esp_ota_mark_app_valid_cancel_rollback`. As on AVR (#125) the authorization is required and not verified by the application. Under anti-rollback ESP-IDF's confirm raises the eFuse floor to the image's secure version (`esp_ota_ops.c` 903–948): ESP-IDF's write, not ours (below). |
 
@@ -380,7 +379,7 @@ page and counter widths never reach flash on the P4. What remains is the wire:
 by slice 4: both are little-endian u32 in `docs/ota/api.md` §Wire and in the
 Go SDK, reaching 4 GiB, so `0x600000` fits with no wire change.
 
-**`ARCH_UPDATE_REQUEST := arch`** (`mk/arch/esp32.mk:77`: still no update
+**`ARCH_UPDATE_REQUEST := arch`** (`mk/arch/esp32.mk:50`: still no update
 request; `tfw_update_slots()` is left to `ARCH_OTA_SRCS`) and `RESET(1)` → `UNSUPPORTED` (ADR,
 Consequences) **stay** (slice 5, accepted by the coordinator). An earlier
 draft of this page dropped them with `OTA_ACTIVATE`. They are kept because
@@ -445,7 +444,7 @@ answered in 2.3. Provisioning is follow-up 4.
 
 ### 2.5 The operator session, bound to the eFuse UDS (row #606)
 
-Owner decision 11-20 (queue 248 (d), ruling 1024 (b)): "the ESP32-P4 operator
+Owner decision 11-20: "the ESP32-P4 operator
 session binds to a key in the P4 eFuse key storage used through the ECDSA or
 HMAC peripheral, never readable by software."
 
@@ -514,7 +513,7 @@ repository.
 
 | Step | What it writes | Reversible | Decision |
 |---|---|---|---|
-| HIL-0 | Flash only: our bootloader, partition table at `0x10000`, `tfw_plat` with the image key pin, the app. Secure boot and flash encryption **off**, which needs a bench sdkconfig overlay through `ESP_SDKCONFIG_EXTRA`, `boards/esp32p4-poe/sdkconfig.hil0` (the profile turns flash encryption on in release mode, `boards/esp32p4-poe/sdkconfig.defaults`). Layer 0's ES256 check still runs, so the row verifies a signature (m453). | Yes: `make board-restore` | The lane's (m346: flashing is ours) |
+| HIL-0 | Flash only: our bootloader, partition table at `0x10000`, `tfw_plat` with the image key pin, the app. Secure boot and flash encryption **off**, which needs a bench sdkconfig overlay through `ESP_SDKCONFIG_EXTRA`, `boards/esp32p4-poe/sdkconfig.hil0` (the profile turns flash encryption on in release mode, `boards/esp32p4-poe/sdkconfig.defaults`). Layer 0's ES256 check still runs, so the row verifies a signature. | Yes: `make board-restore` | The lane's |
 | HIL-1 | **Burns the UDS** into a key block, purpose `HMAC_UP`, read-protected. | No | **Owner** |
 | HIL-1b | Option (b) only: **burns an ECDSA key block**. | No | **Owner** (not recommended now) |
 | HIL-2 | **Enables secure boot v2**: burns the key digest and `SECURE_BOOT_EN`. From then on only a bootloader signed with that key boots; the factory bootloader is unsigned. | No, and it ends the flash restore (below) | **Owner** |

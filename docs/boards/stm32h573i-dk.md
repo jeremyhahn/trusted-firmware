@@ -147,7 +147,7 @@ tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p2
 | | | Source |
 |---|---|---|
 | TrustZone-M | yes: Armv8-M with the Security Extension | ST product page *STM32H573II*; not confirmed against DS14053 |
-| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update. **Not taken** as this project's secure world (ruling 935, [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)) | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
+| ST's secure world | **STM32Trust TEE Secure Manager** (STM32TRUSTEE-SM): a PSA-compliant secure world for Armv8-M, with secure boot, cryptography, internal trusted storage, initial attestation and firmware update. **Not taken** as this project's secure world | UM3254, *Secure Manager for STM32H573xx microcontrollers*, Rev 8, August 2025; section not confirmed. Feature list also on ST's STM32TRUSTEE-SM page |
 | Secure Manager access kit | X-CUBE-SEC-M-H5, distributed under export-control conditions | ST's STM32TRUSTEE-SM page |
 | Certification targets | PSA Certified Level 3 and SESIP 3 are the part's targets; the SESIP guidance is UM3238 | ST product page *STM32H573II*; UM3238, *STM32H573xx STM32TrusteeSM security guidance for SESIP 3 certification*, revision not confirmed |
 | Factory device certificate | **not confirmed** (the `stm32h5` row states one; no ST document was read that says so) | |
@@ -256,7 +256,9 @@ CA 583 forbids: option bytes or provisioning).
   PKA/HASH not ported).
 - ST Secure Manager: not taken (ruling 935,
   [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
-  the secure world is our own TrustZone-M firmware.
+  the secure world is upstream TF-M Profile Medium with our DICE layer as an
+  Application RoT partition (ruling 1024, ADR #15 (b1)), not our own
+  TrustZone-M firmware.
 - Factory device certificate: not the identity root under ruling 935; whether
   the part carries one is a hardware fact, owner (provisioning writes; CA 583).
 - Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the
@@ -321,7 +323,7 @@ CA 583 forbids: option bytes or provisioning).
     BOARD=stm32h573i-dk PORT=tcp:<the bound line's address>:21574
     HW_RESET='cmd:pyocd reset -t stm32h573iikx'`: the board's row
     selection for a `tcp:` port passes (`ok`, 93 s).
-- The hw-test form for the outbound transport (#584, Codex round 5): `make
+- The hw-test form for the outbound transport: `make
   hw-test BOARD=stm32h573i-dk PORT=tcp-listen:<host-port>`. The host
   listens on `<host-port>` (all interfaces; `<host>:<port>` binds one) and
   accepts the connection the board dials to the endpoint in its network
@@ -339,7 +341,7 @@ CA 583 forbids: option bytes or provisioning).
   hw-584g, slice 22 of #543): built at 0bb49390 with `make
   BOARD=stm32h573i-dk ETH_MAC=1 cortex-m-dk-image` (application 40952
   bytes, size-check passes).
-  - App-partition-only flash (ruling 945 (3)): failed 2026-11-20. `app.bin`
+  - App-partition-only flash: failed 2026-11-20. `app.bin`
     alone written with `pyocd load -e sector` at the `addrs.env` address;
     tfw-boot then refused it on every reset (status-only event, status 14,
     `TFW_ERR_CRYPTO`, no BOOT event): `cortex-m-dk-image` signs each build

@@ -1,45 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The ESP32 port's targets. Included by the Makefile for every invocation
-# (mk/arch/*-targets.mk), unlike mk/arch/esp32.mk, which only an ESP32 board
-# reads -- so `make esp32-qemu-test` works without naming a board.
-#
-# NEITHER esp32-build NOR esp32-qemu-test IS IN `make ci`. The CI image carries
-# no ESP-IDF, and a gate that cannot run there would be a failure, not a skip;
-# these run where ESP-IDF
-# $(ESP_IDF_VERSION) and Espressif's QEMU are installed and exported. The
-# install, outside the clone, is in docs/multi-arch/adr-esp-idf-integration.md.
+# The ESP32 port's targets.
 
 ESP_ROOT      := $(BUILD_DIR)/esp32
 ESP_OUT        = $(ESP_ROOT)/$(BOARD)-$(ESP_TARGET)-$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov)$(APP_SUFFIX)
-# An application (APP_DIR, mk/app.mk) is its own list, compiled with
-# mk/firmware.mk's APP_FW_CFLAGS and not the firmware's: include/, the HAL and
-# the board only, never src/. The framework's -I flags and board header are
-# relative to this directory, so the component sets those itself, absolute.
-# The application's own -I flags (APP_CFLAGS) are kept, made absolute.
+# An application (APP_DIR, mk/app.mk) is its own list, compiled with mk/firmware.mk's APP_FW_CFLAGS and not the firmware's: include/, the HAL and the board only, never src/.
 ESP_APP_SRCS   = $(addprefix $(APP_ABS)/,$(APP_SRCS))
 ESP_APP_CFLAGS = $(foreach f,$(filter-out -Iinclude -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER=%,$(APP_FW_CFLAGS)),$(if $(filter -I%,$(f)),-I$(abspath $(f:-I%=%)),$(f)))
-# Generated on first build, never committed, shared by every ESP32 image this
-# build directory holds. The QEMU test burns its digest into emulated eFuses.
+# Generated on first build, never committed, shared by every ESP32 image this build directory holds.
 ESP_SIGN_KEY  := $(ESP_ROOT)/keys/secure_boot_signing_key.pem
-# Layer 0's ES256 image key (docs/multi-arch/esp32-p4-design.md section 2.2),
-# the same kind and the same rule: generated, never committed. Its public half
-# is compiled into the bootloader and its pin baked into tfw_plat.
+# Layer 0's ES256 image key (docs/multi-arch/esp32-p4-design.md section 2.2), the same kind and the same rule: generated, never committed.
 ESP_IMAGE_KEY := $(ESP_ROOT)/keys/image_key_p256.pem
 ESP_L0_SEAL   := boot/hal/esp32/l0_seal.py
 ESP_L0_GEN     = $(ESP_OUT)/tfw_l0
-# Trailer v1's image_version, the anti-rollback number the gate holds against
-# the eFuse floor. 0 is refused.
+# Trailer v1's image_version, the anti-rollback number the gate holds against the eFuse floor. 0 is refused.
 ESP_IMAGE_VERSION ?= 1
-# Non-empty where boards/<board>/profile.mk lists this target for ESP-IDF's
-# anti-rollback. Its eFuse floor counts in set bits: 16 on the C3, so the
-# version tops out there.
+# Non-empty where boards/<board>/profile.mk lists this target for ESP-IDF's anti-rollback.
 ESP_ANTI_ROLLBACK   = $(filter $(ESP_TARGET),$(ESP_ANTI_ROLLBACK_TARGETS))
 ESP_SEC_VER_MAX    := 16
-# esp32-build also builds the example application's image beside the one with
-# none, unless ESP_APP_EXAMPLE=0, APP_DIR is set (that build is the example's)
-# or PROVISION=1. esp32-qemu-test sets 0: its images need no second link.
+# esp32-build also builds the example application's image beside the one with none, unless ESP_APP_EXAMPLE=0, APP_DIR is set (that build is the example's) or PROVISION=1.
 ESP_APP_EXAMPLE    ?= 1
 ESP_APP_EXAMPLE_RUN = $(and $(filter 1,$(ESP_APP_EXAMPLE)),$(if $(strip $(APP_DIR)),,1),$(if $(filter 1,$(PROVISION)),,1))
 ESP_PROJECT   := mk/arch/esp32
@@ -48,17 +28,10 @@ ESP32_BOARDS  := $(notdir $(patsubst %/profile.mk,%,$(shell grep -l '^ARCH[[:spa
 esp_empty :=
 esp_space := $(esp_empty) $(esp_empty)
 esp_list   = $(subst $(esp_space),;,$(strip $(1)))
-# ESP_SDKCONFIG_EXTRA is a space-separated list of overlays, each its own
-# SDKCONFIG_DEFAULTS entry in the order given, so a later file wins.
+# ESP_SDKCONFIG_EXTRA is a space-separated list of overlays, each its own SDKCONFIG_DEFAULTS entry in the order given, so a later file wins.
 ESP_SDKCONFIG_MISSING = $(strip $(foreach f,$(ESP_SDKCONFIG_EXTRA),$(if $(wildcard $(f)),,$(f))))
 
 ## esp32-build: build an ESP32 board's ESP-IDF image (BOARD=esp32-qemu|esp32p4-poe, ESP_TARGET for QEMU, ESP_SDKCONFIG_EXTRA="<file> ..." for a deployment's overlays in order, e.g. HIL-0 and a static address, ESP_IMAGE_VERSION, SERIAL for tfw_plat)
-# Writes $(ESP_OUT)/trusted-firmware.bin, the app sealed with trailer v1 and
-# the SUIT envelope the board's suit-emit builds (mk/suit.mk), and re-signed --
-# the image to flash; idf/trusted-firmware.bin has no trailer and
-# layer 0 refuses it -- and $(ESP_OUT)/tfw_plat.bin, the platform block with the
-# image key's pin, for the tfw_plat partition. SERIAL defaults to
-# platform-bake's neutral test value, no device's.
 esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	@$(if $(ESP_SDKCONFIG_MISSING),$(error esp32-build: ESP_SDKCONFIG_EXTRA names no such file: $(ESP_SDKCONFIG_MISSING)))
 	@if [ "$(ARCH)" != esp32 ]; then \
@@ -135,14 +108,6 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	   echo "esp32-build: the example application's image took $$(( $$(date +%s) - start )) s"),true)
 
 ## esp32-qemu-test: Espressif's QEMU: secure boot v2 and layer 0's ES256 gate, CDI and DeviceID across reboots, tampered and mis-sealed images and manifests refused, the wire over Ethernet
-# Both machines of boards/esp32-qemu. The esp32c3 run (hmac-p256 tier) carries
-# the identity: the CDI, and the P-256 DeviceID checked against the literal
-# point of a fixed UDS, its ATTEST verified as ES256; the esp32 run has no HMAC
-# peripheral (none tier) and checks secure boot, the wire and the ATTEST
-# refusal. The esp32c3 run also boots the PROVISION=1 image on a part with no
-# UDS: PROV_GENKEY burns one the harness cannot read back, and the next normal
-# boot's DeviceID is the point it returned. Keys and eFuse images are generated
-# into the build directory by the test itself.
 esp32-qemu-test:
 	@v=$$(qemu-system-riscv32 --version 2>/dev/null | head -n 1); case "$$v" in *"$(ESP_QEMU_VERSION)"*) ;; \
 	   *) echo "esp32-qemu-test: QEMU is '$$v'; this tree is pinned to $(ESP_QEMU_VERSION)"; exit 1;; esac
@@ -151,9 +116,7 @@ esp32-qemu-test:
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32 ESP_APP_EXAMPLE=0
 	@mkdir -p $(ESP_ROOT)
 	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
-# The two runs go one at a time, so neither QEMU starves the other of CPU on
-# a shared runner (#319). The esp32 run still goes when esp32c3 fails, so one
-# CI run reports both, and either failing fails the target.
+# The two runs go one at a time, so neither QEMU starves the other of CPU on a shared runner.
 	@rc=0; python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256 esp32c3 $(ESP_ROOT)/wirecheck \
 	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov || rc=1; \
 	 python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32-none esp32 $(ESP_ROOT)/wirecheck \
@@ -162,8 +125,6 @@ esp32-qemu-test:
 	@echo "esp32-qemu-test: green"
 
 ## esp32-overlay-selftest: ESP_SDKCONFIG_EXTRA's files reach SDKCONFIG_DEFAULTS in order, and a missing one stops the build
-# A dry run (make -n) of esp32-build, so it needs no ESP-IDF and runs in CI's
-# security stage. The overlays are throwaway files, never this tree's.
 esp32-overlay-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && touch $$t/a $$t/b && \
 	defs='/boards/esp32p4-poe/sdkconfig.defaults;' && \

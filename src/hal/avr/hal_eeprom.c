@@ -7,8 +7,21 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 
+/* The part decodes only as many address bits as it has EEPROM, so an access
+ * past the end wraps onto address 0, tfw-boot's platform block. The other
+ * ports refuse it with TFW_ERR_RANGE and so does this one; app_runner, ota_ctl
+ * and netcfg call the HAL directly, so this is the last check. Sixteen-bit
+ * arithmetic, addr first so the subtraction cannot wrap. */
+static uint8_t in_part(uint16_t addr, uint8_t len)
+{
+    return addr < TFW_EEPROM_SIZE && len <= (uint16_t)(TFW_EEPROM_SIZE - addr);
+}
+
 tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
+    if (!in_part(addr, len)) {
+        return TFW_ERR_RANGE;
+    }
     eeprom_read_block(buf, (const void *)(uintptr_t)addr, len);
     return TFW_OK;
 }
@@ -17,6 +30,9 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
 {
     uint8_t i;
 
+    if (!in_part(addr, len)) {
+        return TFW_ERR_RANGE;
+    }
     for (i = 0u; i < len; i++) {
         /* eeprom_update_byte, not eeprom_write_byte. It reads first and skips
          * the erase/write entirely when the value is unchanged -- which is the

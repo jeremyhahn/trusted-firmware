@@ -20,7 +20,7 @@ command, no status code and no frame.
 #define TFW_APP_OTA_AB       2u              /* two slots and a rollback */
 
 #define TFW_APP_CAP(bit)     ((uint32_t)1u << (bit))   /* bit: a TFW_CAPBIT_* */
-#define TFW_APP_CONFIG_BASE  TFW_BOOT_EE_LEN
+#define TFW_APP_CONFIG_BASE  (TFW_NETCFG_ADDR + TFW_NETCFG_LEN)
 
 typedef struct {
     uint32_t magic;
@@ -78,6 +78,7 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
 | `tfw_app_before_update` | none | a notification; the update goes ahead |
 | `tfw_app_after_update` | `tfw_status_t` | Once, on the trial boot of a new image, after `init` returned `TFW_OK`. `TFW_OK`: the trial runs on, and the control plane's `OTA_CONFIRM` confirms. Anything else: the trial ends at once, as failed, and `tfw-boot` rolls back |
 | `tfw_app_evidence(out)` | `tfw_status_t` | `TFW_OK`: `out` holds the application's 32 bytes of evidence. Anything else: it supplies none |
+| `tfw_app_command(op, r, w)` | `tfw_status_t` | Optional, only with `APP_COMMANDS := yes`. `TFW_OK`: the bytes written to `w` are the `APP_CMD` reply. Anything else is the reply's status |
 
 `tfw_app_evidence` is called only while the application runs, once each time
 the firmware mints an alias certificate. `ATTEST_CSR` signs the value that mint
@@ -93,6 +94,27 @@ write of a refused call is discarded. The layout is in
 bytes with `tfw.ApplicationEvidence(uccs)` after `tfw.AliasUCCS(der)`, or
 from `tfwctl -json <port> attest-cert <nonce>` as `app_evidence`.
 
+`tfw_app_command` is called only while the application runs, once for each
+`APP_CMD` request, with the request's `app_op` in `op`, the arguments after it
+in `r` and the reply in `w` (`tfw/reader.h`, `tfw/writer.h`). It takes the
+same budget as `run`. The application owns the 256 values of `op`; it extends
+them and never renumbers. A sub-op with fixed arguments checks, when it has
+read them, that `tfw_reader_remaining(r) == 0`, and answers
+`TFW_ERR_BAD_ARGC` if not; the firmware checks only that `op` is there. A
+sub-op that actuates may ask `tfw_app_session_ok()`, which answers whether an
+authenticated session is open, and refuse with `TFW_ERR_AUTH_REQUIRED`
+without one. It is a read-only view: it gives the application no key and no
+way to open a session. On a tier with no auth session it answers true, as the
+firmware's own gate is permissive there.
+
+A host tells three refusals apart, with no new status code:
+
+| Answer | Means |
+|---|---|
+| `TFW_ERR_UNKNOWN_CMD` | no application is linked: the image has no `APP_CMD` |
+| `TFW_ERR_BAD_STATE` | an application is linked and is not running; the hook is not called |
+| `TFW_ERR_UNSUPPORTED` | the application runs and has no such `op`, or it has no commands at all (the stand-in `src/core/app_cmd_none.c` answers every `op` so) |
+
 When each is called, what it may do and its budget are in
 [engineering.md](engineering.md#lifecycle-and-timing).
 
@@ -100,8 +122,8 @@ When each is called, what it may do and its budget are in
 
 | Call | Returns |
 |---|---|
-| `tfw_app_config_read(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len`; otherwise the HAL EEPROM read's status |
-| `tfw_app_config_write(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len`; otherwise the HAL EEPROM write's status |
+| `tfw_app_config_read(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; otherwise `TFW_OK` for `len == 0`, with no EEPROM access, and the HAL EEPROM read's status for the rest |
+| `tfw_app_config_write(off, buf, len)` | `TFW_ERR_RANGE` if `off + len > config_len` or `TFW_APP_CONFIG_BASE + off + len` passes the end of the EEPROM; otherwise `TFW_OK` for `len == 0`, with no EEPROM access, and the HAL EEPROM write's status for the rest |
 
 `off` is relative to the region. The host writes the same bytes with
 `EEPROM_WRITE` at `TFW_APP_CONFIG_BASE + off`.
@@ -125,7 +147,8 @@ When each is called, what it may do and its budget are in
 
 `include/tfw/*.h` and nothing else from this repository. In practice:
 `app.h`, `hal.h`, `board.h`, `types.h`, `status.h`, `config.h` and
-`progmem.h`. `crypto.h` and `boot.h` are public for the firmware's own layers;
+`progmem.h`, and `reader.h` and `writer.h` for an application with
+`tfw_app_command` (the request's arguments and the reply). `crypto.h` and `boot.h` are public for the firmware's own layers;
 an application has no business with keys or the bootloader and does not call
 them.
 
@@ -143,6 +166,7 @@ them.
 | `APP_NAME` | yes | `[a-z0-9][a-z0-9-]*`, at most 15 characters; names the output directory. Should equal the descriptor's `name` |
 | `APP_SRCS` | yes | `.c` files, relative to the application directory |
 | `APP_CFLAGS` | no | extra flags for the application's own files, such as `-I$(APP_DIR)/include` or a `-D` |
+| `APP_COMMANDS` | no | empty, or `yes` for an application that defines `tfw_app_command`; any other value is refused before anything is compiled. Empty links `src/core/app_cmd_none.c`. `yes` without the hook is a missing symbol, and the hook without `yes` a duplicate one: both fail at link time |
 
 ## Make targets
 
@@ -195,9 +219,29 @@ runs; the binding to the code that says it is `FWHash`.
 The vectors are `TFWV_APPINFO_*` in `testdata/vectors.h`, mirrored in
 `sdk/go/internal/vectors`. `Device.AppInfo` decodes the reply in `sdk/go`.
 
+## APP_CMD
+
+Command `0x07`, issue #635, per
+[adr-application-wire-commands.md](adr-application-wire-commands.md)
+(accepted, owner ruling 1243). It is present exactly when APP_INFO is. The
+request is `[app_op:1][args:0..63]` (`TFW_APP_CMD_MAX_ARGS` is 63); the reply
+is what `tfw_app_command` writes. The firmware's handler,
+`tfw_app_cmd_command`, checks that `app_op` is there and that the runner is
+`RUNNING`, then calls the hook; the refusals are in [Hooks](#hooks).
+
+APP_CMD is serial only: it is not on the Ethernet allow-list, so over
+Ethernet it answers `TFW_ERR_UNKNOWN_CMD`.
+
+The example application answers sub-op `0x00` with its blink count, a `u16`
+little-endian, and takes no arguments. The vectors are `TFWV_APPCMD_*` in
+`testdata/vectors.h`, mirrored in `sdk/go/internal/vectors`.
+`Device.AppCommand(ctx, op, args)` sends it from `sdk/go`, refusing more than
+63 bytes of `args` before anything is sent, and `tfwctl app-cmd <op>
+[hex-args]` from the command line.
+
 ## Reserved for follow-ups
 
-Not declared, so no application defines them yet:
+Still reserved, so no application relies on them yet:
 
 - `tfw_status_t tfw_app_claims(uint8_t *buf, uint8_t cap, uint8_t *len)`,
   the application's EAT submodule claims
@@ -205,8 +249,8 @@ Not declared, so no application defines them yet:
   the `submods` claim, which changes the evidence layout, so it is declared
   with that change. `tfw_app_evidence` covers the fixed-width case today and
   stays when it lands.
-- `tfw_status_t tfw_app_command(uint8_t op, tfw_reader_t *r, tfw_writer_t *w)`,
-  the application's own wire commands under `APP_CMD`, and
-  `tfw_app_session_ok()`. Both are proposed in
-  [adr-application-wire-commands.md](adr-application-wire-commands.md) and
-  are declared only when the owner rules on it.
+- The pin reservation, so that an application and a host do not drive the
+  same pin, still proposed in
+  [adr-application-pin-reservation.md](adr-application-pin-reservation.md).
+- The device's answer to a `0x7F` request, open question 4 of
+  [adr-application-wire-commands.md](adr-application-wire-commands.md).

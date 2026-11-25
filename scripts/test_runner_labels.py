@@ -381,7 +381,9 @@ def _scalar_lines(lines):
     the lines after a mapping value or list item that starts with `'` or `"`
     up to the line on which its quote closes (to the end of the file if it
     never closes). A quote later in a plain scalar (`run: echo "x`) opens no
-    quoted scalar."""
+    quoted scalar. The quote is tracked on the comment-stripped value and
+    ends at its closing quote, so a quote in a trailing comment
+    (`name: "CI" # "x`, `done" # "x`) opens nothing."""
     skip, i = set(), 0
     while i < len(lines):
         col, value = _line_node(lines[i])
@@ -395,12 +397,13 @@ def _scalar_lines(lines):
                 i += 1
         elif node[:1] in ("'", '"'):
             scanner = _Scanner()
-            for _ in scanner.feed(value):
+            for _ in scanner.feed(_strip_comment(value)):
                 pass
             while scanner.quote is not None and i < len(lines):
                 skip.add(i)
                 for _ in scanner.feed(lines[i]):
-                    pass
+                    if scanner.quote is None:
+                        break
                 i += 1
     return skip
 
@@ -1076,6 +1079,25 @@ class RunnerLabelsTest(unittest.TestCase):
         body = step + 'echo "a\n'
         line = (head + body).count("\n") + 2
         self.assertEqual(self.check(head + body + after), [f"w.yml:{line}: qwne"])
+
+    def test_a_quote_in_a_trailing_comment_opens_no_quoted_scalar(self):
+        jobs = "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        step = "    steps:\n      - run: "
+        after = "  next:\n    runs-on: qwne\n"
+        for head, body in (
+            ('name: "CI" # "TODO\n' + jobs, step + "echo\n"),
+            ("name: 'CI' # 'TODO\n" + jobs, step + "echo\n"),
+            (jobs, step + '"echo # x"  # "y\n'),
+            (jobs, step + '"echo\n          done" # "z\n'),
+            (jobs, step + "'echo\n          done' # 'z\n"),
+            # A real multi-line scalar with a `#` inside its quote still
+            # hides its inner lines.
+            (jobs, step + '"a # b\n          runs-on: qwne\n          done"\n'),
+        ):
+            with self.subTest(head=head, body=body):
+                line = (head + body).count("\n") + 2
+                found = self.check(head + body + after)
+                self.assertEqual(found, [f"w.yml:{line}: qwne"])
 
     def test_a_block_scalar_label_keeps_its_whitespace(self):
         allowed = allowlist(ACTIONLINT) + ["ci-gate"]

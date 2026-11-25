@@ -3063,6 +3063,13 @@ header-deps-check:
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The application runner on an ETH=1 image (#640, owner ruling 1234): the
+# network block keeps [0x140, 0x160) and the application's configuration
+# starts at 0x160 above it, so an application owning config runs. It stays in TEST_SRCS; this explicit
+# rule takes the place of the pattern rule.
+$(HOST_DIR)/test_app_netcfg: test/unit/test_app_netcfg.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The Cortex-M reset marker's decode and fault record (row cortex-m), each
 # reached through its host accessor in test/model/cortex-m/, the pattern rule's
 # link otherwise. They stay in TEST_SRCS; this explicit rule takes the place of

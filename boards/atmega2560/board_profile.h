@@ -134,7 +134,8 @@
  * (include/tfw/boot.h, issues #77, #231) follows it, 0x0EA-0x134. Both lie
  * below TFW_BOOT_EE_LEN, the bound the wire states as EEPROMReservedEnd, so the
  * application's EEPROM_WRITE refuses them as it refuses the platform block and
- * the board names no extra range (#125). */
+ * the board names no extra range (#125). After TFW_BOOT_EE_LEN: network block
+ * [0x140,0x160) on every image; application config from 0x160 (#640). */
 #define TFW_BOOT_CONFIRM_ADDR     0x0EAu
 #define TFW_APP_WRITE_END         (TFW_SWAP_SECONDARY_BASE + TFW_SWAP_SLOT_LEN)
 #define TFW_OTA_STAGE_DEST        TFW_SWAP_SECONDARY_BASE

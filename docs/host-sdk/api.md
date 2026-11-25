@@ -195,6 +195,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.FeatureAuthSession` | `const FeatureAuthSession` (bit 14) | Issue #4's AUTH_CHALLENGE/AUTH_RESPONSE session -- element tier only. |
 | `tfw.FeatureAttestCSR` | `const FeatureAttestCSR` (bit 15) | Issue #30's ATTEST_CSR -- the possession signature over a device-templated CertificationRequestInfo. |
 | `tfw.NetConfigAddr`, `tfw.NetConfigLen` | `const NetConfigAddr = EEPROMReservedEnd` (0x140), `const NetConfigLen = 32` | The network block, [0x140, 0x160) on the device, where the bootloader's reserved span ends (#231), mirroring include/tfw/eth.h's TFW_NETCFG_*. The tfwsim harness asks the binary (`tfwsim --netcfg-addr`) instead of using `NetConfigAddr`. |
+| `tfw.AppConfigBase` | `const AppConfigBase = NetConfigAddr + NetConfigLen` (0x160) | The EEPROM address of an application's config offset 0: the first byte above the network block, on every image, Ethernet or not, mirroring include/tfw/app.h's TFW_APP_CONFIG_BASE (#640). Config an out-of-tree application stored at 0x140 must be re-provisioned here. |
 | `tfw.OTAActivateAtReset` | `const OTAActivateAtReset byte = 0` | OTA_ACTIVATE mode: tried at the next reset. |
 | `tfw.OTAActivateResetNow` | `const OTAActivateResetNow byte = 1` | OTA_ACTIVATE mode: the device resets once the reply is out. |
 | `tfw.SlotFellBack` | `const SlotFellBack uint8 = 1 << 0` | SlotInfo flag: the last boot fell back. |

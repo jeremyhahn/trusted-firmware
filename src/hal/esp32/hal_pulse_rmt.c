@@ -105,18 +105,24 @@ static tfw_status_t status_of(esp_err_t err)
     return TFW_ERR_INTERNAL;
 }
 
-/* 1 when this firmware drives the pin as an output: the LEDC tone's pin. */
-/* A pin whose pad output LEDC holds, a tone running or stopped: the capture
- * after NOTONE then reads what the channel really drives, not a pad its own
- * input configuration silenced (#561, Codex P1). */
+/* 1 when this firmware drives the pin as an output: the LEDC tone's pin, or a
+ * pin LEDC PWM drives (#48). */
+/* A pin whose pad output LEDC holds, a tone or a PWM channel, running or
+ * stopped: the capture after NOTONE or a PWM stop then reads what the channel
+ * really drives, not a pad its own input configuration silenced (#561, Codex
+ * P1). */
 static bool driven_here(int gpio)
 {
+    bool driven = false;
+
 #if TFW_FEATURE_TONE
-    return tfw_esp_tone_gpio() == gpio;
-#else
-    (void)gpio;
-    return false;
+    driven = driven || tfw_esp_tone_gpio() == gpio;
 #endif
+#if TFW_FEATURE_PWM
+    driven = driven || tfw_esp_pwm_drives(gpio) != 0;
+#endif
+    (void)gpio;
+    return driven;
 }
 
 tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,

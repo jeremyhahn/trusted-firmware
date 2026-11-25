@@ -49,6 +49,10 @@ tfw_status_t tfw_esp_part_write(const char *label, uint32_t off, const uint8_t *
 int tfw_esp_tone_gpio(void);
 /* Ends the tone if it drives gpio: hal_gpio.c's MODE reconfigures the pin. */
 void tfw_esp_tone_release(int gpio);
+/* 1 when LEDC PWM holds gpio's pad output, running or stopped (hal_pwm.c). */
+int tfw_esp_pwm_drives(int gpio);
+/* Forgets gpio as PWM-driven: hal_gpio.c's MODE reconfigures the pin. */
+void tfw_esp_pwm_release(int gpio);
 
 /* The partitions this HAL owns, by label. Each board's partitions.csv names
  * them; a table without one makes the capability behind it refuse. */

@@ -43,6 +43,9 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 #if TFW_FEATURE_TONE
     tfw_esp_tone_release((int)n);   /* the reset below takes the pin off LEDC */
 #endif
+#if TFW_FEATURE_PWM
+    tfw_esp_pwm_release((int)n);    /* and off a LEDC PWM channel too (#48) */
+#endif
     err = gpio_reset_pin(n);
     if (mode == TFW_PIN_OUTPUT) {
         err |= gpio_set_direction(n, GPIO_MODE_INPUT_OUTPUT);

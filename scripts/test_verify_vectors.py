@@ -32,6 +32,7 @@ AGREE = [
     "SYS_INFO reply vectors agree: 6 values, both languages",
     "CAPS reply vectors agree: 2 values, both languages",
     "APP_INFO reply vectors agree: 3 values, both languages",
+    "APP_CMD vectors agree: 8 values, both languages",
     "application evidence vectors agree: 3 values, both languages",
     "image trailer vectors agree: 10 values, both languages",
 ]

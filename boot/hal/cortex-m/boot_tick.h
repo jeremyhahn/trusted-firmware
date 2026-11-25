@@ -22,4 +22,9 @@
 #define TFW_BOOT_POLL_CYCLES 20uL
 #define TFW_BOOT_TICK_HZ     ((uint32_t)(TFW_CM_CPU_HZ / TFW_BOOT_POLL_CYCLES))
 
+/* serve's pass counter: plain, the loop as main compiles it. Nothing has been
+ * measured against it yet; the row that measures the pass settles its type
+ * with its figure (#640). */
+#define TFW_BOOT_POLL_COUNTER_T uint32_t
+
 #endif /* TFW_BOOT_TICK_H */

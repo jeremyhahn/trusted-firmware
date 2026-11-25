@@ -481,7 +481,15 @@ APP_FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) $(APP_WARN_CFLA
                  -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
                  $(APP_CFLAGS)
 
+# mk/app.mk's selection stamp: the ELF depends on it, so changing APP_COMMANDS
+# relinks. Empty with no application.
+APP_FW_CONFIG :=
+
 ifneq ($(APP_SRCS),)
+APP_FW_CONFIG := $(FW_DIR)/app/app-config.txt
+$(APP_FW_CONFIG): FORCE
+	$(APP_CONFIG_STAMP)
+
 $(APP_FW_OBJS): $(FW_DIR)/app/%.o: $(APP_ABS)/%.c
 	@mkdir -p $(dir $@)
 	@$(ARCH_CC) $(APP_FW_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
@@ -489,7 +497,7 @@ $(APP_FW_OBJS): $(FW_DIR)/app/%.o: $(APP_ABS)/%.c
 -include $(APP_FW_OBJS:.o=.d)
 endif
 
-$(TARGET).elf: $(FW_OBJS) $(APP_FW_OBJS)
+$(TARGET).elf: $(FW_OBJS) $(APP_FW_OBJS) $(APP_FW_CONFIG)
 	@$(ARCH_CC) $(FW_LDFLAGS) -o $@ $(FW_OBJS) $(APP_FW_OBJS)
 
 # objcopy -R .eeprom only: mk/handoff.ld makes `.handoff` NOLOAD, so it carries no bytes and no derived image includes it.

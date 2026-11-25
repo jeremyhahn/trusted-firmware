@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/in-toolchain-image.sh's CPU bound: the stage's --cpus, GOMAXPROCS and GOFLAGS=-p all take the computed bound, capped at the daemon's NCPU when `docker info` reports a positive integer below it; empty, 0, malformed or failed output leaves the bound as it was.
+# Tests for scripts/in-toolchain-image.sh's CPU bound: the stage's --cpus, GOMAXPROCS and GOFLAGS=-p all take the computed bound, capped at the daemon's NCPU when `docker info` reports a positive integer below it; empty, 0, malformed or failed output leaves the bound as it was. It also covers the IN_IMAGE_UID guard: 0 and a zero-padded 00 are refused.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -69,6 +69,22 @@ run IN_IMAGE_CPUS=abc STUB_NCPU=80
 if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_CPUS must be a positive integer: abc' "$D/out" && [ ! -s "$D/state/calls" ]; then
   ok "a bad IN_IMAGE_CPUS is refused with no docker call"
 else bad "a bad IN_IMAGE_CPUS is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+# A zero-padded uid is still root: 00 must be refused like 0.
+run IN_IMAGE_UID=00 IN_IMAGE_CPUS=4 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_UID must be a non-root numeric uid: 00' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "a zero-padded root IN_IMAGE_UID is refused with no docker call"
+else bad "a zero-padded root IN_IMAGE_UID is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+run IN_IMAGE_UID=0 IN_IMAGE_CPUS=4 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_UID must be a non-root numeric uid: 0' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "IN_IMAGE_UID=0 is refused with no docker call"
+else bad "IN_IMAGE_UID=0 is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+run IN_IMAGE_CPUS=00 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_CPUS must be a positive integer: 00' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "a zero-padded IN_IMAGE_CPUS is refused with no docker call"
+else bad "a zero-padded IN_IMAGE_CPUS is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

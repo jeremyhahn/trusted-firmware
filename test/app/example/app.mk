@@ -4,3 +4,5 @@
 # The example application's build description, read by mk/app.mk.
 APP_NAME := heartbeat
 APP_SRCS := example.c
+# example.c defines tfw_app_command (APP_CMD op 0x00, the blink count).
+APP_COMMANDS := yes

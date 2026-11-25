@@ -1,6 +1,6 @@
 # Device provisioning — CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-11-21
 > Conflicts with this document are defects. Fix them here first.
 
 `tfwprov` (`sdk/go/cmd/tfwprov`) is the only tool in this repo that drives the
@@ -44,16 +44,15 @@ none.
 | `--operator-pubkey` | `""` | `--bake-eeprom`: 64-byte P-256 operator public key (X‖Y), hex — the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), element tier only. Omitting it bakes an all-zero key and prints a warning: `AUTH_RESPONSE` will refuse every attempt until the real key is set |
 | `--out` | `""` | `--bake-eeprom`/`--bake-netblock`: the `.eep` file to write |
 | `--record` | `""` | the [provisioning record](#the-provisioning-record), a JSON file. `--bake-eeprom` starts it with the serial; `--commit` and `--verify` join the DeviceID point to it. Refused with `--dry-run`, and with `--bake-netblock` alone (the network block is not part of the record) |
-| `--bake-netblock` | `false` | write the Ethernet network block (`sdk/go/netcfg.go`, layout in [../ethernet-transport/api.md](../ethernet-transport/api.md)) as an `.eep` image at `[0x0C0, 0x0E0)`, encoded by `NetConfig.MarshalBinary`. Opens no port. With `--bake-eeprom` too, one file of both blocks: the contiguous 224 bytes `[0x000, 0x0E0)` |
+| `--bake-netblock` | `false` | write the Ethernet network block (`sdk/go/netcfg.go`, layout in [../ethernet-transport/api.md](../ethernet-transport/api.md)) as an `.eep` image at `[0x140, 0x160)` (`NetConfigAddr`, which is `EEPROMReservedEnd`), encoded by `NetConfig.MarshalBinary`. Opens no port. With `--bake-eeprom` too, one file of both blocks in two runs, `[0x000, 0x0C0)` and `[0x140, 0x160)`; the gap between them is left as the part holds it (`writeBakedImage`, `sdk/go/cmd/tfwprov/eeprom.go`) |
 | `--mac` | `""` | `--bake-netblock`: the device's MAC, `aa:bb:cc:dd:ee:ff`; unicast |
 | `--ip` | `""` | `--bake-netblock`: the device's IPv4 address, `a.b.c.d/prefix`, or `a.b.c.d` with `--mask` |
 | `--mask` | `""` | `--bake-netblock`: the netmask, `a.b.c.d`, contiguous. Refused together with a `/prefix` on `--ip` |
 | `--gateway` | `""` | `--bake-netblock`: the gateway, required; `0.0.0.0` for none |
 | `--endpoint` | `""` | `--bake-netblock`: the host the device connects to, `a.b.c.d:port`; not `0.0.0.0`, not port 0 |
 | `--dhcp` | `false` | `--bake-netblock`: set flags bit 0, so a `DHCP=1` build leases the address, mask and gateway; bytes 12–23 are written zero. Refused beside `--ip`, `--mask` or `--gateway`; `--mac` and `--endpoint` are still required |
-
 | `--write-pubkey` | `""` | write a P-256 public key into an element slot through `PROV_WRITE_PUBKEY` ([api](api.md#prov_write_pubkey)). The file is the raw 64-byte X‖Y or a PEM `PUBLIC KEY` (a SubjectPublicKeyInfo, RFC 5480) holding a P-256 key; anything else — a private key, another PEM type, another algorithm or curve, a point off P-256, a second block — is refused naming why, before the port opens. Sends X, then Y, and exits 1 unless the slot reads back as the key. Its own mode: takes `--slot`, `--baud` and `--timeout` and refuses every other flag by name |
-| `--slot` | none | `--write-pubkey`: the slot, 0–15; the element takes `2` (the boot image-signing key) and `15` (the TrustFLEX secure-boot key) and answers `RANGE` for any other |
+| `--slot` | `-1` (none) | `--write-pubkey`: the slot, 0–15; the element takes `2` (the boot image-signing key) and `15` (the TrustFLEX secure-boot key) and answers `RANGE` for any other |
 
 A flag of one bake mode given without that mode is refused, never ignored:
 `--serial` without `--bake-eeprom`, or `--mac` or `--dhcp` without `--bake-netblock`.
@@ -179,9 +178,12 @@ the same file to both runs.
 
 ## Exit behavior
 
-Any failure — including a `--commit` attempted without `--yes-i-mean-it`, a
-missing `--config`, or more than one mode flag — prints `tfwprov: <error>` to
-stderr and exits non-zero. A `ProvInfo` failure at startup is reported with a
+A flag `tfwprov` does not know, none or more than one of `--dry-run`,
+`--verify` and `--commit` (with no bake mode and no `--write-pubkey`), or other
+than one positional argument to them prints the usage text to stderr and exits
+2. Every other failure — including a `--commit` attempted without
+`--yes-i-mean-it`, a missing `--config`, a bake mode beside a wire mode, and
+every refusal on this page — prints `tfwprov: <error>` to stderr and exits 1. A `ProvInfo` failure at startup is reported with a
 hint: `(is this device running a PROVISION=1 image?)`, since an unknown-command
 error against a production image is the most common cause by far.
 
@@ -194,7 +196,8 @@ outside this tool, and always in this order relative to it:
 ```sh
 # 1. Bake the platform-reserved EEPROM block and flash it, before anything else.
 #    An Ethernet (ETH=1) board takes its network block in the same image:
-#    add --bake-netblock and its flags for one 224-byte file, [0x000, 0x0E0).
+#    add --bake-netblock and its flags for one file of two runs, [0x000, 0x0C0)
+#    and [0x140, 0x160); the gap between them is left as the part holds it.
 tfwprov --bake-eeprom --serial <16-byte hex> \
        --operator-pubkey <64-byte hex, element tier> \
        [--bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \

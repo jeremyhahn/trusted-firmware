@@ -236,6 +236,35 @@ func (d *Device) AppInfo(ctx context.Context) (*AppInfo, error) {
 	}, nil
 }
 
+// appCmdMaxArgs is the most argument bytes APP_CMD carries: the payload's
+// TFW_MAX_PAYLOAD (64) less the app_op byte.
+const appCmdMaxArgs = 63
+
+// AppCommand sends APP_CMD (0x07), sub-op op with args, to the application
+// linked into the image, and returns the reply bytes undecoded: their shape
+// is the application's (docs/application-sdk/adr-application-wire-commands.md).
+// An empty reply is a valid result, nil error and zero length.
+//
+// More than 63 bytes of args is an *ArgRangeError, and nothing is sent. The
+// device's refusals come back as its status errors:
+//   - StatusErrUnknownCmd: no application is linked, or the link is Ethernet,
+//     which does not admit APP_CMD;
+//   - StatusErrBadState: an application is linked and is not running;
+//   - StatusErrUnsupported: the application has no such op;
+//   - StatusErrAuthRequired: the application refused it without a session.
+func (d *Device) AppCommand(ctx context.Context, op uint8, args []byte) ([]byte, error) {
+	if len(args) > appCmdMaxArgs {
+		return nil, &ArgRangeError{Cmd: CmdAppCmd, Arg: "args", Value: int64(len(args)), Min: 0, Max: appCmdMaxArgs, Unit: "bytes"}
+	}
+	req := make([]byte, 0, 1+len(args))
+	req = append(append(req, op), args...)
+	f, err := d.Do(ctx, CmdAppCmd, req)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), f.Payload...), nil
+}
+
 // nulPadded is a fixed-width field up to its first NUL. A field the writer
 // filled to the brim has none and is all text.
 func nulPadded(b []byte) string {

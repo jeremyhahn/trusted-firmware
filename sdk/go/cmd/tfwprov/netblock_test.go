@@ -107,6 +107,33 @@ func TestNetblockDHCPRefusesAStaticAddressBesideIt(t *testing.T) {
 	}
 }
 
+// The --dhcp path has its own copies of the --mac and --endpoint refusals;
+// TestNetConfigRefusesUnparsableFlags starts from benchFlags, which has no
+// --dhcp, so it never reaches them.
+func TestNetConfigDHCPRefusesUnparsableFlags(t *testing.T) {
+	for name, c := range map[string]struct {
+		edit func(*netblockFlags)
+		want string
+	}{
+		"mac not a mac":           {func(f *netblockFlags) { f.mac = "not-a-mac" }, "--mac"},
+		"mac eui-64":              {func(f *netblockFlags) { f.mac = "02:00:00:00:00:00:00:01" }, "want 6"},
+		"endpoint no port":        {func(f *netblockFlags) { f.endpoint = "198.51.100.1" }, "--endpoint"},
+		"endpoint not an address": {func(f *netblockFlags) { f.endpoint = "gateway.example:7020" }, "--endpoint"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := netblockFlags{dhcp: true, mac: "02:00:00:00:00:16", endpoint: "198.51.100.1:7020"}
+			c.edit(&f)
+			_, err := f.netConfig()
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %q does not name %q", err, c.want)
+			}
+		})
+	}
+}
+
 func TestBakeNetblockWritesTheBenchFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "net.eep")
 	if err := runBake(out, false, "", "", "", true, benchFlags(), ""); err != nil {

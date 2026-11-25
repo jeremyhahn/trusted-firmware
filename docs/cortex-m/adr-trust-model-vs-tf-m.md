@@ -252,7 +252,8 @@ L2 say.
     and the RP2354 variants carry 2 MB stacked.
 
   The facts bear on open questions 2 (Secure Manager, UM3254; Nordic's TF-M as
-  the only nRF54L15 secure world) and 5 (the RP2350's OTP key store has no
+  the only nRF54L15 secure world; closed, the vendor secure worlds **not
+  taken**, ruling 935) and 5 (the RP2350's OTP key store has no
   public-key accelerator; the nRF54L15's KMU hides keys from secure code).
 
 ## What TF-M is, in the terms that matter here
@@ -322,8 +323,8 @@ checked against those pinned pages.
 
 | Board | Core | Secure world | Where it sits | What is ours |
 |---|---|---|---|---|
-| STM32H573I-DK (second target, row `stm32h5`) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
-| nRF54L15-DK (bench board) | M33, TrustZone-M | Nordic's TF-M from its SDK; keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
+| STM32H573I-DK (second target, row `stm32h5`) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) (upstream TF-M Profile Medium taken, ruling 1024) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
+| nRF54L15-DK (bench board) | M33, TrustZone-M | Nordic's TF-M from its SDK (upstream TF-M Profile Medium taken, ruling 1024); keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
 | QEMU `mps2-an505` (CI) | M33, TrustZone-M | none until this ADR is accepted; TF-M v2.3.1 has no platform for it (open question 11) | the whole image runs Secure (#14 question 2) | the whole image |
 | i.MX 95 M7 (reference part, #49) | M7, no TrustZone | none on the core; the ELE holds the keys, AHAB verifies, the System Manager on the M33 sets domain access | off the core: the ELE and the M33, both NXP's, configured by trusted-imx95 | the privileged layer, the SVC gate and the unprivileged firmware (option (c)) |
 
@@ -347,7 +348,7 @@ replaces it. The vendor documents are listed by title, revision and URL in
 | Part | UDS | Layer-0 engine | Lock before hand-off | DeviceID key | Open |
 |---|---|---|---|---|---|
 | i.MX 95 M7 (reference part) | inside the ELE; no M7 code reads it. The ELE holds the keys and AHAB verifies the M7 image (RM00284 Rev. 4.5, as in question 12) | the Boot ROM and the ELE, NXP's. tfw-boot does not run (#14 decision 8) | the ELE boundary: the secret never leaves the enclave, so no lock is ours | an ELE key, or a key derived in the ELE from the measured M7 image | whether the ELE derives a key bound to the M7's measurement (a CDI) is in IMX95SRM, not read: question 12 |
-| STM32H573I-DK (row `stm32h5`) | not named in any ST document read. STiRoT and OEMiRoT keep their keys in the OBKeys area (STM32CubeH5, `OEMiROT_Boot/README.md`, directory contents, `keys_map.c`). Whether the part has a hardware unique key that only Secure code before HDP can use is in RM0481, not retrieved | STiRoT, ST's immutable root, which offers secure boot and secure firmware update (STM32CubeH5, `ROT_Provisioning/STiROT/README.md`, description); or an OEMiRoT of ours on MCUboot and mbed-crypto, full Secure (`OEMiROT_Boot/README.md`, description). Neither readme names DICE | HDP, the hide-protection area, and the TrustZone boundary: RM0481, to confirm | the Secure Manager's attestation key, a key in our partition ((b1)), or a key in our own secure world ((a)) | which of these is the UDS and the engine: the STM32H573I-DK onboarding ADR's questions 2 and 3, and question 13 here |
+| STM32H573I-DK (row `stm32h5`) | not named in any ST document read. STiRoT and OEMiRoT keep their keys in the OBKeys area (STM32CubeH5, `OEMiROT_Boot/README.md`, directory contents, `keys_map.c`). Whether the part has a hardware unique key that only Secure code before HDP can use is in RM0481, not retrieved | STiRoT, ST's immutable root, which offers secure boot and secure firmware update (STM32CubeH5, `ROT_Provisioning/STiROT/README.md`, description); or an OEMiRoT of ours on MCUboot and mbed-crypto, full Secure (`OEMiROT_Boot/README.md`, description). Neither readme names DICE | HDP, the hide-protection area, and the TrustZone boundary: RM0481, to confirm | the Secure Manager's attestation key (**not taken**, ruling 935), a key in our partition ((b1)), or a key in our own secure world ((a)) | which of these is the UDS and the engine: the STM32H573I-DK onboarding ADR's questions 2 and 3, and question 13 here |
 | nRF54L15-DK | a 384-bit seed in the KMU, provisioned or generated at first boot by the CRACEN RNG. Only the KMU can push it to CRACEN's seed register, and the CPU and software never see it (sdk-nrf, `kmu_cracen_overview.rst`, "CRACEN Isolated Key Generator") | the immutable boot region: UICR BOOTCONF makes the RRAM controller apply it before any code runs, and writes to it are blocked except by a full chip erase (sdk-nrf, `bootloader_nrf54l_memory_protection.rst`, "At reset (before bootloader software runs)"). The NSIB, or a layer 0 of ours, sits in it | the region can be made no longer readable, writable or executable at NSIB hand-off (same document, "At NSIB hand-off"). The IKG keys are not retained and are regenerated at each CRACEN power cycle ("CRACEN Isolated Key Generator") | the IKG derives three keys from the seed, used through PSA Crypto builtin key ids; under TF-M the identity key is the Initial Attestation Key ("CRACEN Isolated Key Generator") | whether the IKG identity key is the DeviceID, or a CDI over the seed and the next layer's measurement is: question 13 |
 | QEMU `mps2-an505` (CI) | none: the machine is RAM only, with no key store and no one-time memory (QEMU 10.0.0, `hw/arm/mps2-tz.c`) | none; the whole image runs Secure (#14 decision 3) in the default build. As built, `TZ=1` splits it: a secure image sets up the SAU and enters a non-secure image (`src/hal/cortex-m/tz/tz_map_mps2_an505.h`, `tz_s_main.c`, `tz_ns_main.c`), run by `integration-test-cortex-m-tz` (`mk/arch/cortex-m-targets.mk`), not in `ci.yml` | none | none until this ADR is accepted; a soft root for tests only, never a DeviceID | whether CI carries a TF-M build at all: question 11 |
 
@@ -372,10 +373,10 @@ Under the recommended option (b1), one owner per capability (L1):
 |---|---|
 | Secure partition manager, isolation, IPC (FF-M) | TF-M |
 | Crypto, key store and builtin-key policy (PSA Crypto API) | TF-M (TF-PSA-Crypto inside it) |
-| Initial Attestation token (PSA Attestation API, RFC 9783) | TF-M |
+| Initial Attestation token (PSA Attestation API, RFC 9783) | TF-M (built without, or not exposed to the non-secure side, ruling 1024) |
 | Firmware update service (PSA FWU API) | TF-M |
 | BL2: image verification, security counters, A/B | MCUboot |
-| The vendor RoT on parts that ship one | ST (Secure Manager), Nordic (its SDK's TF-M) |
+| The vendor RoT on parts that ship one | ST (Secure Manager), Nordic (its SDK's TF-M); **not taken** (ruling 935) |
 | The three template builders, and the partition that holds them | this project |
 | The partition manifest and the board integration | this project |
 | The non-secure firmware: wire protocol, capabilities, application | this project |
@@ -536,7 +537,8 @@ There are two shapes, and only one of them keeps the signing rule.
   with room to spare.
 - **Evidence.** Our three structures come from the partition, unchanged, as in
   (a). Optionally the RFC 9783 PSA token rides beside them as a second piece of
-  evidence, signed by TF-M's IAK. **What go-xkms must accept:**
+  evidence, signed by TF-M's IAK (the PSA token **not taken**, ruling 935,
+  kept by ruling 1024). **What go-xkms must accept:**
   - Everything listed for (a).
   - If the owner wants the token: the RFC 9783 token under the `tfm` profile
     (tagged `COSE_Sign1`, ES256 at least, a 33-byte `ueid`, a 32–64-byte
@@ -699,20 +701,24 @@ board of the port).
   - MCUboot is BL2.
   - The PSA Attestation, Crypto and Firmware Update APIs are the interfaces to
     the secure world, as "PSA interfaces" lists; nothing is designed in their
-    place.
+    place. The PSA Attestation API as an interface is **not taken** (ruling
+    935, kept by ruling 1024): no PSA token is offered.
   - TF-M is pinned to an LTS release (2.3 today), with no local fork.
   - Optionally, TF-M's PSA token is offered beside our three structures.
+    **Not taken** (ruling 935, kept by ruling 1024).
 
   Size does not decide on these parts, and reuse does: we would otherwise write
   and maintain a secure world that TF-M already maintains, with advisories,
   across ports that already exist for the STM32H573I-DK, the FRDM-MCXN947 and the
   RP2350. Where a part ships a vendor secure world (ST's Secure Manager on the
   STM32H573I-DK, Nordic's TF-M on the nRF54L15), the same partition targets the
-  vendor's PSA-compatible secure world if the licence allows; otherwise it
-  targets upstream TF-M. This was open question 2 and the `stm32h5` row's
+  vendor's PSA-compatible secure world if the licence allows (**not taken**,
+  ruling 935); otherwise it targets upstream TF-M. This was open question 2 and the `stm32h5` row's
   open decision; ruling 935 closed it: on the STM32H5 and the nRF54L15 the
-  secure world is our own TrustZone-M firmware, the vendor secure worlds are
-  **not taken**, and the PSA token is not offered
+  vendor secure worlds are **not taken** (not ST's Secure Manager, not
+  Nordic's TF-M build) and the PSA token is not offered. Ruling 935's other
+  half, our own TrustZone-M firmware as the secure world, is *superseded by
+  ruling 1024*: TF-M Profile Medium with our DICE partition, (b1)
   ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Cortex-M7: (c), MPU-only** (decided 2026-11-14).
   - The template builders run privileged, behind an SVC gate.
@@ -727,6 +733,8 @@ board of the port).
   that TF-M has no port for and on which a port is not worth upstreaming. If the
   owner prefers (a) on the NUCLEO-H563ZI, as the `stm32h5` row's wording ("our
   own TrustZone secure world") suggests today, that is open question 1.
+  *Closed*: ruling 632 item 208 a took (b1); ruling 1024 keeps (b1) on the
+  NUCLEO-H563ZI and STM32H573I-DK; the SPEC row's wording is the CA's change.
 - **Language rule, proposed.** Never describe a device as "PSA Certified" unless
   it carries a certificate number, for the same reason the SPEC forbids "TCG
   DICE compliant".
@@ -741,7 +749,8 @@ extends without renumbering:
   (question 5);
 - a second certificate in the alias chain (question 6);
 - a command that returns the PSA token, if the owner wants it offered
-  (question 4).
+  (question 4); **not taken** (ruling 935): question 4 is closed and no PSA
+  token is offered.
 
 ## Rejected alternatives
 
@@ -771,8 +780,10 @@ extends without renumbering:
 Owner ruling 632 item 208 a (2026-11-14) closes question 1. It does not answer
 questions 2 to 13, which stay open:
 
-- 2, vendor secure worlds: closed by ruling 935, none (our own TrustZone-M
-  firmware on the STM32H5 and nRF54L15; not ST's Secure Manager).
+- 2, vendor secure worlds: closed by ruling 935, none on the STM32H5 and
+  nRF54L15 (not ST's Secure Manager, not Nordic's TF-M build); ruling 935's
+  own TrustZone-M firmware is *superseded by ruling 1024*: TF-M Profile Medium
+  with our DICE partition, (b1).
 - 3, the PSA interfaces: open; the ruling does not name them.
 - 4, the PSA token: closed by ruling 935, not offered, no PSA verifier.
 - 5, crypto tier values: open.

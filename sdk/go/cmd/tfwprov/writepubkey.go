@@ -89,7 +89,8 @@ func readPubKey(path string) ([]byte, error) {
 
 // parsePubKey returns the X||Y of a P-256 public key given as the raw 64-byte
 // point or as a PEM "PUBLIC KEY" block, a SubjectPublicKeyInfo (RFC 5480).
-// Either way the point must lie on the curve.
+// Either way the point must lie on the curve. A PEM block is the whole file:
+// only whitespace may come before or after it.
 func parsePubKey(b []byte) ([]byte, error) {
 	block, rest := pem.Decode(b)
 	if block == nil {
@@ -101,6 +102,16 @@ func parsePubKey(b []byte) ([]byte, error) {
 			return nil, err
 		}
 		return append([]byte(nil), b...), nil
+	}
+	// pem.Decode skips text before the first block it can decode, a block
+	// whose body does not decode included, even one of the same type. The
+	// bytes it consumed must start with this block's BEGIN line and hold no
+	// other BEGIN line, so the decoded block is the first one in the file.
+	t := bytes.TrimLeft(b, " \t\r\n")
+	consumed := t[:len(t)-len(rest)]
+	if !bytes.HasPrefix(consumed, []byte("-----BEGIN "+block.Type+"-----")) ||
+		bytes.Count(consumed, []byte("-----BEGIN ")) != 1 {
+		return nil, errors.New("more before the PEM PUBLIC KEY block: want one key")
 	}
 	if strings.Contains(block.Type, "PRIVATE") {
 		return nil, fmt.Errorf("a PEM %s block: --write-pubkey takes the public key only", block.Type)

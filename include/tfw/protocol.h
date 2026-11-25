@@ -83,6 +83,7 @@
 #define TFW_CMD_WDT_SET           0x04u   /* reserved, not implemented */
 #define TFW_CMD_SLEEP             0x05u   /* reserved, not implemented */
 #define TFW_CMD_APP_INFO          0x06u   /* only in an image with an application */
+#define TFW_CMD_APP_CMD           0x07u   /* only in an image with an application */
 
 /* gpio and the pin scheduler */
 #define TFW_CMD_PIN_MODE          0x10u
@@ -367,6 +368,16 @@
  * was refused. name and profile are their whole fields, NUL-padded. The request
  * is empty; a later page byte could extend it without breaking this shape. */
 #define TFW_APP_INFO_LEN     63u
+
+/* ------------------------------------------------------------------ APP_CMD
+ *
+ * A command the linked application defines, serial only (not on the Ethernet
+ * allow-list). Request [app_op:1][args:0..63]: the application's sub-op and
+ * its arguments, handed to tfw_app_command (include/tfw/app.h). The reply is
+ * the application's own bytes. An image without an application, or with one
+ * that defines no commands, answers TFW_ERR_UNKNOWN_CMD.
+ * docs/application-sdk/adr-application-wire-commands.md. */
+#define TFW_APP_CMD_MAX_ARGS 63u
 
 /* ------------------------------------------------------------------ events */
 #define TFW_EVENT_BOOT            0x01u  /* sent once at startup; an unexpected

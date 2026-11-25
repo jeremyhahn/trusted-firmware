@@ -4,7 +4,8 @@
  * The W5x00 driver with its chip select named on a pin that has no digital
  * port: TFW_ETH_CS_PIN is 21 (A7 on the host atmega328p, ADC only) on the
  * command line. The board lookup refuses the pin, so the bus is never brought
- * up and start reports the part unsupported without a single register write.
+ * up and start and the DHCP client's udp_open report the part unsupported
+ * without a single register write.
  * Built twice, as test_w5x00.c is: W5X_TEST_CHIP is 1 for test_w5100_nocs
  * (w5100.c linked) and 2 for test_w5500_nocs (w5500.c linked).
  */
@@ -42,10 +43,17 @@ static void test_start_refuses_a_chip_select_with_no_port_and_never_writes(void)
     TEST_ASSERT_EQUAL_UINT32(0u, w5x_model_writes());
 }
 
+static void test_udp_open_refuses_a_chip_select_with_no_port_and_never_writes(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_eth_udp_open(&cfg, 68u));
+    TEST_ASSERT_EQUAL_UINT32(0u, w5x_model_writes());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_chip_select_pin_has_no_digital_port);
     RUN_TEST(test_start_refuses_a_chip_select_with_no_port_and_never_writes);
+    RUN_TEST(test_udp_open_refuses_a_chip_select_with_no_port_and_never_writes);
     return UNITY_END();
 }

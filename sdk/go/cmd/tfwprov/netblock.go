@@ -137,8 +137,12 @@ func netblockFromFlags(f netblockFlags) ([]byte, error) {
 // runBake writes the .eep image for --bake-eeprom, --bake-netblock or both.
 // Both is one file of two runs, [0x000, 0x0C0) and [0x140, 0x160): the
 // platform block and the network block above the reserved end, which is the
-// whole image a bench writes to a part it re-provisions.
+// whole image a bench writes to a part it re-provisions. A record needs the
+// platform block's serial, so a record path without it is refused.
 func runBake(outPath string, platform bool, serialHex, hashHex, opKeyHex string, netblock bool, nf netblockFlags, recordPath string) error {
+	if recordPath != "" && !platform {
+		return errors.New("tfwprov: --record needs the serial: pass --bake-eeprom --serial; the network block is not part of the record")
+	}
 	var p *bakedPlatform
 	if platform {
 		p = new(bakedPlatform)

@@ -119,7 +119,9 @@ tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
     /* The network block takes the session (#233, the peer-binding ADR's
      * decision 2 B): the link reloads it at every connection attempt, so a
      * write is a redirect that outlasts the serial cable. Overlap, not start,
-     * for boot_owned's reason. A no-op on the soft tier, as the read gate is. */
+     * for boot_owned's reason. A no-op on the soft tier, as the read gate is.
+     * No application byte lies under [0x140, 0x160) now: application config
+     * starts at 0x160 on every image (include/tfw/app.h, #640). */
     if (addr < (uint16_t)(TFW_NETCFG_ADDR + TFW_NETCFG_LEN)
         && (uint16_t)(addr + len) > TFW_NETCFG_ADDR) {
         tfw_status_t st = tfw_auth_gate();

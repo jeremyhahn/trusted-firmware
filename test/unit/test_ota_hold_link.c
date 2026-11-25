@@ -393,6 +393,31 @@ static void test_a_bad_crc_ota_auth_holds_nothing(void)
     TEST_ASSERT_FALSE(marked());
 }
 
+/* An Ethernet request the list admits and the device dispatches drops the serial hold. */
+static void test_an_admitted_ethernet_request_drops_the_serial_hold(void)
+{
+    connect_up();
+    stage();
+    authorize(0x91u);
+    TEST_ASSERT_EQUAL(TFW_OK, over_eth(0x92u, TFW_CMD_OTA_STATUS, NULL, 0u, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, serial(0x93u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* An OTA_AUTH refused off the Ethernet list is a command in between too, though its opcode is OTA_AUTH. */
+static void test_an_ota_auth_refused_over_ethernet_drops_the_serial_hold(void)
+{
+    uint8_t sig[TFW_OTA_AUTH_SIG_LEN];
+
+    connect_up();
+    stage();
+    authorize(0xA1u);
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, over_eth(0xA2u, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, serial(0xA3u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
+    TEST_ASSERT_FALSE(marked());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -404,5 +429,7 @@ int main(void)
     RUN_TEST(test_a_bad_crc_frame_over_serial_drops_the_hold);
     RUN_TEST(test_a_bad_crc_frame_over_ethernet_drops_the_hold);
     RUN_TEST(test_a_bad_crc_ota_auth_holds_nothing);
+    RUN_TEST(test_an_admitted_ethernet_request_drops_the_serial_hold);
+    RUN_TEST(test_an_ota_auth_refused_over_ethernet_drops_the_serial_hold);
     return UNITY_END();
 }

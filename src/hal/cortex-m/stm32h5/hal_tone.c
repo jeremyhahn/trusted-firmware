@@ -56,8 +56,11 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     TFW_H5_TONE_TIM_CCER  = (TFW_H5_TONE_TIM_CCER & ~TFW_H5_TONE_CCER_CH2) | TFW_H5_TONE_CCER_CC2E;
 
     /* The pin to the timer: its alternate function first, then the mode, so
-     * it never drives as AF0 in between. */
+     * it never drives as AF0 in between. The pull comes off before the mode,
+     * as PWM's pin_to_timer does, so a pull-up left by INPUT_PULLUP does not
+     * load the timer output. */
     TFW_H5_GPIO_AFR(bank, p->bit / 8u) = tfw_h5_field4(TFW_H5_GPIO_AFR(bank, p->bit / 8u), p->bit, TFW_H5_TONE_AF);
+    TFW_H5_GPIO_PUPDR(bank) = tfw_h5_field2(TFW_H5_GPIO_PUPDR(bank), p->bit, TFW_H5_PULL_NONE);
     TFW_H5_GPIO_MODER(bank) = tfw_h5_field2(TFW_H5_GPIO_MODER(bank), p->bit, TFW_H5_MODE_AF);
 
     TFW_H5_TONE_TIM_CR1 |= TFW_H5_TONE_CR1_CEN;

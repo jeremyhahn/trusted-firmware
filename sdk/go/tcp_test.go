@@ -157,6 +157,31 @@ func TestClosedListenerStopsAccepting(t *testing.T) {
 	}
 }
 
+// tcp.go: "Close stops accepting. Devices already accepted stay connected."
+func TestAnAcceptedDeviceOutlivesTheListenersClose(t *testing.T) {
+	l := listen(t, WithTimeout(5*time.Second))
+	dev := dialEcho(t, l.Addr())
+	d, err := l.Accept()
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	<-dev
+	if err := l.Close(); err != nil {
+		t.Fatalf("Listener.Close: %v", err)
+	}
+
+	got, err := d.Do(context.Background(), CmdPing, []byte("after close"))
+	if err != nil {
+		t.Fatalf("Do after the listener closed: %v (the accepted device was dropped)", err)
+	}
+	if string(got.Payload) != "after close" {
+		t.Fatalf("Do after the listener closed = %q, want %q", got.Payload, "after close")
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Device.Close: %v", err)
+	}
+}
+
 // Accept must hand the listener's own options to every device it makes:
 // a short WithTimeout on the listener is what times out a silent device.
 func TestAcceptAppliesTheListenersOptions(t *testing.T) {
@@ -176,6 +201,30 @@ func TestAcceptAppliesTheListenersOptions(t *testing.T) {
 	}
 	if ctx.Err() != nil {
 		t.Fatal("the caller's context expired first: the listener's WithTimeout was not applied")
+	}
+}
+
+// tcp.go: "The options apply to every accepted Device" -- not the first only.
+func TestEveryAcceptedDeviceGetsTheListenersOptions(t *testing.T) {
+	l := listen(t, WithTimeout(20*time.Millisecond))
+	for _, round := range []string{"first", "second"} {
+		dialSilent(t, l.Addr())
+		d, err := l.Accept()
+		if err != nil {
+			t.Fatalf("%s device: Accept: %v", round, err)
+		}
+		defer func() { _ = d.Close() }() // the backstop; this test does not check Close
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_, err = d.Do(ctx, CmdPing, nil)
+		ctxErr := ctx.Err()
+		cancel()
+		if !errors.Is(err, ErrTimeout) {
+			t.Fatalf("%s device: Do on a silent device = %v, want ErrTimeout from the listener's WithTimeout", round, err)
+		}
+		if ctxErr != nil {
+			t.Fatalf("%s device: the caller's context expired first: the listener's WithTimeout was not applied", round)
+		}
 	}
 }
 

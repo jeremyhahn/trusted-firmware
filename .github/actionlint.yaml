@@ -1,24 +1,4 @@
-# actionlint-template: v3 — self-hosted runner labels for actionlint.
-# Copy to <repo>/.github/actionlint.yaml.
-#
-# Without this file actionlint reports every self-hosted label as an unknown
-# runner (runner-label), which trains readers to ignore its output — the
-# signal-integrity failure mode. With it, a MISSPELLED label is still caught.
-#
-# Labels must match the runners the workflows use. `codex`, `claude` and
-# `code-review` are restricted labels (review workflows only — they carry
-# credential mounts); listing them here affects linting only, not policy.
-#
-# v2: add the review runner's label (on a GPU host such as `core-10`). A
-# runner can be live and completing jobs while this allowlist still omits its
-# label; actionlint then correctly reports an unknown runner and takes `Lint`
-# — and with it the whole staged gate — red on main. Adding a self-hosted
-# label to a workflow means adding it here in the same change.
-#
-# v3: the review label is `code-review`. When a runner's label is renamed,
-# rename it here in the same change. The dead name is removed rather than
-# kept alongside: an allowlist that still accepts a label no runner has
-# cannot catch that label as a typo.
+# actionlint-template: v3: self-hosted runner labels for actionlint.
 self-hosted-runner:
   labels:
     - ubuntu-latest

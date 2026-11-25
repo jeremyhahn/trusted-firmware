@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/in-toolchain-image.sh's CPU bound: the stage's --cpus,
-# GOMAXPROCS and GOFLAGS=-p all take the computed bound, capped at the
-# daemon's NCPU when `docker info` reports a positive integer below it; empty,
-# 0, malformed or failed output leaves the bound as it was. A stub `docker` on
-# PATH records every call and answers `docker info` with STUB_NCPU (exit
-# STUB_NCPU_RC); a stub `tar` keeps the copy-in off the image's own tar.
-# IN_IMAGE_CPUS sets the bound, so the host's CPU count never matters.
-# It also covers the IN_IMAGE_UID guard: 0 and a zero-padded 00 are refused.
-#
-#   usage: scripts/in-toolchain-image-test.sh   (also: make in-toolchain-image-test)
+# Tests for scripts/in-toolchain-image.sh's CPU bound: the stage's --cpus, GOMAXPROCS and GOFLAGS=-p all take the computed bound, capped at the daemon's NCPU when `docker info` reports a positive integer below it; empty, 0, malformed or failed output leaves the bound as it was. It also covers the IN_IMAGE_UID guard: 0 and a zero-padded 00 are refused.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)

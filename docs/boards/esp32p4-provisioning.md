@@ -2,7 +2,7 @@
 
 Provisioning writes everything below the app: the second-stage bootloader
 with layer 0 in it, the partition table, and the `tfw_plat` platform block,
-then a sealed app on top. It is its own procedure (ruling 945 (3)) and never
+then a sealed app on top. It is its own procedure and never
 part of a feature PR's hardware evidence: an Ethernet or feature run flashes
 the app alone onto a board already provisioned. The board page is
 [`esp32p4-poe.md`](esp32p4-poe.md); the bench record with each dated run is

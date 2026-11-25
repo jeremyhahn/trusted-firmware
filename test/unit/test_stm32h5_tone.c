@@ -71,6 +71,7 @@ static uint32_t tone_tim_hz = 64000000u;
 #define A_ARR      (TFW_H5_TONE_TIM_BASE + 0x2Cu)
 #define A_AFRL     (GPIOB + 0x20u)
 #define A_MODER    (GPIOB + 0x00u)
+#define A_PUPDR    (GPIOB + 0x0Cu)
 
 static const tfw_pinref_t d3 = { .port = 1u, .bit = 5u };
 
@@ -158,6 +159,24 @@ static void test_start_runs_in_order(void)
     TEST_ASSERT_TRUE(last(A_AFRL) < first(A_MODER));   /* AF before the mode */
     TEST_ASSERT_TRUE(last(A_MODER) < last(A_CR1));     /* the counter starts last */
     TEST_ASSERT_TRUE(last(A_CCER) < last(A_CR1));
+}
+
+/* A pull left on the pin by INPUT_PULLUP or INPUT_PULLDOWN comes off when
+ * the timer takes it, as PWM's pin_to_timer does; the bank's other pins
+ * keep theirs. */
+static void test_start_takes_the_pull_off_the_pin(void)
+{
+    poke(A_PUPDR, (0x1u << 10) | (0x2u << 12) | 0x1u);  /* PB5 up, PB6 down, PB0 up */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL_HEX32((0x2u << 12) | 0x1u, peek(A_PUPDR));
+}
+
+static void test_the_pull_comes_off_before_the_mode(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 440u));
+    TEST_ASSERT_TRUE(first(A_PUPDR) >= 0);
+    TEST_ASSERT_TRUE(last(A_PUPDR) < first(A_MODER));  /* never AF with a pull on */
+    TEST_ASSERT_TRUE(last(A_AFRL) < first(A_MODER));
 }
 
 static void test_a_second_start_retargets(void)
@@ -249,6 +268,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_start_programs_the_divider_and_toggle_mode);
     RUN_TEST(test_start_runs_in_order);
+    RUN_TEST(test_start_takes_the_pull_off_the_pin);
+    RUN_TEST(test_the_pull_comes_off_before_the_mode);
     RUN_TEST(test_a_second_start_retargets);
     RUN_TEST(test_stop_halts_and_holds_the_pin_low);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);

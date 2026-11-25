@@ -5,9 +5,11 @@
  * (boards/<board>/board.c), 0 for GPIOA to 8 for GPIOI, and a pin 0-15.
  *
  * A mode switches the bank's clock on before it writes the bank: every bank
- * leaves reset unclocked, with every pin analog. A write is the bank's BSRR,
- * one store and no read-modify-write, so it cannot race the UART's pins in
- * the same bank. A read is the input register, which follows the pin in
+ * leaves reset unclocked, with every pin analog. A mode also sets the pin
+ * push-pull, as the I2C driver (hal_bus.c) leaves its pins open-drain.
+ *
+ * A write is the bank's BSRR, one store and no read-modify-write, so it
+ * cannot race the UART's pins in the same bank. A read is the input register, which follows the pin in
  * output mode too.
  *
  * The level is the pin's. The board's LEDs are wired to light at a low pin
@@ -54,6 +56,7 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *pin, tfw_pin_mode_t mode)
     TFW_H5_RCC_AHB2ENR |= 1u << pin->port;
     (void)TFW_H5_RCC_AHB2ENR;                   /* the enable lands before the bank is written */
     TFW_H5_GPIO_PUPDR(bank) = tfw_h5_field2(TFW_H5_GPIO_PUPDR(bank), pin->bit, pull);
+    TFW_H5_GPIO_OTYPER(bank) &= ~(1u << pin->bit);   /* push-pull */
     TFW_H5_GPIO_MODER(bank) = tfw_h5_field2(TFW_H5_GPIO_MODER(bank), pin->bit, moder);
     return TFW_OK;
 }

@@ -224,6 +224,34 @@ void test_rx_keeps_the_order(void)
     TEST_ASSERT_EQUAL_HEX8(0x02u, b);
 }
 
+/* The ring holds 63 bytes: the 64th is dropped, the receive restarted all
+ * the same, and the ring takes bytes again once read (hal_uart.c's
+ * DMA.RX.END handler). */
+void test_rx_drops_a_byte_when_the_ring_is_full(void)
+{
+    uint8_t  b = 0u;
+    uint32_t n;
+
+    for (n = 0u; n < 63u; n++) {
+        byte_arrives((uint8_t)n);
+    }
+    TFW_NRF_UARTE_RX_START = 0u;
+    byte_arrives(0xEEu);
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x028u)));
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x14Cu)));
+
+    for (n = 0u; n < 63u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+
+    byte_arrives(0x5Au);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 /* No DMA.RX.END: whatever rx_dma holds is not a byte, and no receive is
  * restarted. */
 void test_rx_returns_nothing_without_rx_end(void)
@@ -265,6 +293,7 @@ int main(void)
     RUN_TEST(test_tx_idle_follows_txdrdy);
     RUN_TEST(test_rx_returns_the_byte_on_rx_end);
     RUN_TEST(test_rx_keeps_the_order);
+    RUN_TEST(test_rx_drops_a_byte_when_the_ring_is_full);
     RUN_TEST(test_rx_returns_nothing_without_rx_end);
     RUN_TEST(test_irq_clears_a_receive_error);
     return UNITY_END();

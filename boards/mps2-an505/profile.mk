@@ -129,7 +129,7 @@ OTA_STORE      := mem
 # M7's response loop exercised on QEMU before the part (mk/firmware.mk HSM_SRCS).
 HSM            := 1
 
-# TZ=1 (#590, docs/plans/590.md): the TrustZone-M split's two images instead
+# TZ=1 (#590): the TrustZone-M split's two images instead
 # of tfw-boot and the application (mk/arch/cortex-m-targets.mk tz-firmware),
 # on the map in TZ_MAP; tz_soc_mps2.c opens the MPC and PPCs QEMU models.
 TZ_MAP         := src/hal/cortex-m/tz/tz_map_mps2_an505.h

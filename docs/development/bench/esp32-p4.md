@@ -597,7 +597,7 @@ static-address overlay (step 2), a rebuild, step 3's writes and step 4's
 ### Row 48: flash, layer-0 boot check, wire over Ethernet, 2026-11-14
 
 Ruling 625 (1): flash our build, run the layer-0 boot check and the wire
-protocol over Ethernet, and burn no eFuse ([plan](../../plans/48.md)).
+protocol over Ethernet, and burn no eFuse.
 `ESP_PORT` is the board's `/dev/serial/by-id` path (the lane's only device),
 esptool / espefuse v5.6.0 (pip, in a venv outside the repository). No
 `espefuse` command other than `summary` was run. The outputs are kept outside

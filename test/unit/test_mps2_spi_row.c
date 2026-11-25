@@ -4,7 +4,8 @@
  * The SPI=1 row of the MPS2 boards (row cortex-m, #161): mps2-an505's own
  * profile and board table, compiled with TFW_CM_SPI as profile.mk's SPI=1
  * compiles them, and SPI_CONFIG and SPI_XFER from src/caps/bus.c through
- * src/hal/cortex-m/mps2/hal_bus.c to a PL022 modelled in place of pl022.c.
+ * src/hal/cortex-m/mps2/hal_bus.c to a PL022 modelled behind the image's pl022.c
+ * (test/model/mps2_bus_model.h).
  *
  * The model is a shield device behind the PL022: while MISC bit 8, the
  * select, is low it logs each byte the master sends and answers from its own
@@ -27,6 +28,7 @@
 #include "board_profile.h"
 #include "pl022.h"
 #include "sbcon.h"
+#include "mps2_bus_model.h"
 
 static struct {
     uint32_t       cr0;
@@ -42,9 +44,9 @@ static struct {
     unsigned       selects;      /* falling edges of the select */
 } ssp;
 
-/* ---- the PL022 and MISC, in place of pl022.c */
+/* ---- the PL022 and MISC, behind pl022.c */
 
-uint32_t tfw_mps2_ssp_read(uint32_t off)
+uint32_t tfw_mps2_model_ssp_read(uint32_t off)
 {
     uint32_t v;
 
@@ -68,7 +70,7 @@ uint32_t tfw_mps2_ssp_read(uint32_t off)
     }
 }
 
-void tfw_mps2_ssp_write(uint32_t off, uint32_t v)
+void tfw_mps2_model_ssp_write(uint32_t off, uint32_t v)
 {
     uint8_t out = 0xFFu;
 
@@ -99,12 +101,12 @@ void tfw_mps2_ssp_write(uint32_t off, uint32_t v)
     }
 }
 
-uint32_t tfw_mps2_misc_read(void)
+uint32_t tfw_mps2_model_misc_read(void)
 {
     return ssp.misc;
 }
 
-void tfw_mps2_misc_write(uint32_t v)
+void tfw_mps2_model_misc_write(uint32_t v)
 {
     if ((ssp.misc & TFW_MPS2_MISC_SHIELD0_NCS) != 0u
         && (v & TFW_MPS2_MISC_SHIELD0_NCS) == 0u) {
@@ -116,17 +118,17 @@ void tfw_mps2_misc_write(uint32_t v)
 /* ---- the rest of what hal_bus.c and bus.c reach: an idle SBCon with both
  * lines released, no delay, and the soft tier. */
 
-uint32_t tfw_mps2_sb_lines(void)
+uint32_t tfw_mps2_model_sb_lines(void)
 {
     return TFW_SB_SCL | TFW_SB_SDA;
 }
 
-void tfw_mps2_sb_release(uint32_t mask)
+void tfw_mps2_model_sb_release(uint32_t mask)
 {
     (void)mask;
 }
 
-void tfw_mps2_sb_drive_low(uint32_t mask)
+void tfw_mps2_model_sb_drive_low(uint32_t mask)
 {
     (void)mask;
 }

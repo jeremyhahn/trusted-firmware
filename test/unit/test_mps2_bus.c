@@ -2,7 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The MPS2 I2C master (src/hal/cortex-m/mps2/hal_bus.c), bit-banged over the
- * SBCon, against a simulated bus in place of sbcon.c: the two open-collector
+ * SBCon, against a simulated bus behind the image's sbcon.c and the register
+ * model (test/model/mps2_bus_model.h): the two open-collector
  * lines as the wired AND of the master's and one device's, and the device a
  * slave that watches the edges -- START and STOP while SCL is high, a bit
  * sampled on each rising SCL, its own SDA moved on each falling one.
@@ -12,8 +13,8 @@
  * the bytes written, <xx for each byte the device sent and the master's A or
  * N after it, and P.
  *
- * The SPI master in the same file drives a PL022, modelled in place of
- * pl022.c: the register writes init makes, checked against DDI 0194H's
+ * The SPI master in the same file drives a PL022, modelled behind the
+ * image's pl022.c: the register writes init makes, checked against DDI 0194H's
  * SSPCR0/SSPCR1 layout, and the shield 0 select (MISC bit 8) around each
  * transfer.
  */
@@ -24,6 +25,7 @@
 #include "tfw/hal.h"
 #include "sbcon.h"
 #include "pl022.h"
+#include "mps2_bus_model.h"
 
 #define SB_BOTH   (TFW_SB_SCL | TFW_SB_SDA)
 #define FOREVER   0xFFFFu
@@ -194,9 +196,9 @@ static void master_sets(uint32_t m)
 
 /* ---- sbcon.h and tfw_hal_delay_us, as hal_bus.c links them */
 
-uint32_t tfw_mps2_sb_lines(void)          { return lines(); }
-void     tfw_mps2_sb_release(uint32_t m)   { master_sets(bus.m | m); }
-void     tfw_mps2_sb_drive_low(uint32_t m) { master_sets(bus.m & ~m); }
+uint32_t tfw_mps2_model_sb_lines(void)          { return lines(); }
+void     tfw_mps2_model_sb_release(uint32_t m)   { master_sets(bus.m | m); }
+void     tfw_mps2_model_sb_drive_low(uint32_t m) { master_sets(bus.m & ~m); }
 
 void tfw_hal_delay_us(uint16_t us)
 {
@@ -208,7 +210,7 @@ void tfw_hal_delay_us(uint16_t us)
     }
 }
 
-/* ---- the PL022 and MISC, modelled in place of pl022.c. A frame goes out on
+/* ---- the PL022 and MISC, modelled behind pl022.c. A frame goes out on
  * each SSPDR write while SSE is set, and the device's answer to it lands in
  * the receive FIFO at once, unless the port is stalled. The log reads as the
  * shield's pins would: [ when MISC bit 8 falls, >xx for each byte shifted out
@@ -238,7 +240,7 @@ static void ssp_say(char *s, size_t cap, const char *tag, int digits, unsigned v
     }
 }
 
-uint32_t tfw_mps2_ssp_read(uint32_t off)
+uint32_t tfw_mps2_model_ssp_read(uint32_t off)
 {
     uint8_t b;
 
@@ -254,7 +256,7 @@ uint32_t tfw_mps2_ssp_read(uint32_t off)
     return 0u;
 }
 
-void tfw_mps2_ssp_write(uint32_t off, uint32_t v)
+void tfw_mps2_model_ssp_write(uint32_t off, uint32_t v)
 {
     uint8_t a;
 
@@ -280,12 +282,12 @@ void tfw_mps2_ssp_write(uint32_t off, uint32_t v)
     if (off == TFW_SSP_CPSR) { ssp.cpsr = v; }
 }
 
-uint32_t tfw_mps2_misc_read(void)
+uint32_t tfw_mps2_model_misc_read(void)
 {
     return ssp.misc;
 }
 
-void tfw_mps2_misc_write(uint32_t v)
+void tfw_mps2_model_misc_write(uint32_t v)
 {
     if ((ssp.misc ^ v) & TFW_MPS2_MISC_SHIELD0_NCS) {
         ssp_say(ssp.log, sizeof ssp.log,
@@ -587,6 +589,26 @@ static void test_spi_a_stopped_port_is_a_timeout_and_the_select_released(void)
     TEST_ASSERT_EQUAL_HEX32(0x3A5u, ssp.misc);
 }
 
+/* A byte that goes out with SSE clear is dropped, so its answer never comes:
+ * the second wait (hal_bus.c lines 374-377) times out and releases too. */
+static void test_spi_an_answer_that_never_comes_is_a_timeout_and_the_select_released(void)
+{
+    const tfw_pinref_t cs = { 1u, 8u };
+    const uint8_t wr = 0x9Fu;
+    uint8_t rd = 0xAAu;
+
+    ssp_ready(0u);
+    ssp.cr1 = 0u;
+    quiet();
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_spi_xfer(&cs, &wr, &rd, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, ssp.dr_writes);
+    TEST_ASSERT_EQUAL_STRING("[]", ssp.log);
+    TEST_ASSERT_EQUAL_UINT(2000u, bus.delays);
+    TEST_ASSERT_EQUAL_UINT16(1u, bus.delay_max);
+    TEST_ASSERT_EQUAL_HEX32(0x3A5u, ssp.misc);
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, rd);
+}
+
 static void test_onewire_off_its_pin_is_range(void)
 {
     const tfw_pinref_t p = { 0 };
@@ -621,6 +643,7 @@ int main(void)
     RUN_TEST(test_spi_xfer_drains_a_stale_answer_first);
     RUN_TEST(test_spi_xfer_refuses_any_other_select);
     RUN_TEST(test_spi_a_stopped_port_is_a_timeout_and_the_select_released);
+    RUN_TEST(test_spi_an_answer_that_never_comes_is_a_timeout_and_the_select_released);
     RUN_TEST(test_onewire_off_its_pin_is_range);
     return UNITY_END();
 }

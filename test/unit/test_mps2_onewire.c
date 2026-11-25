@@ -11,7 +11,9 @@
  * a pull-up makes a floating line high unless the model slave holds it low.
  * Time is the model SysTick's, in microseconds, advanced only by
  * tfw_hal_delay_us. Every change of the master's direction is logged with
- * that time, the line's level after it and whether interrupts were masked.
+ * that time, the line's level after it and whether interrupts were masked,
+ * and every restore that takes interrupts back (masked to unmasked) is
+ * counted, so a test can see them taken between slots.
  *
  * The slave sees each low the master releases: one of 480 us or more is a
  * reset, which it answers with a presence pulse 15 us after the release, 60 us
@@ -54,6 +56,7 @@ static struct {
     /* what the test reads */
     ow_ev_t        ev[MAX_EV];
     unsigned       nev;
+    unsigned       unmasks;        /* restores that took interrupts back: masked -> unmasked */
 } ow;
 
 static uint8_t level(void)
@@ -140,6 +143,9 @@ uint32_t tfw_mps2_gpio_irq_save(void)
 
 void tfw_mps2_gpio_irq_restore(uint32_t saved)
 {
+    if (ow.masked && !saved) {
+        ow.unmasks++;
+    }
     ow.masked = (uint8_t)saved;
 }
 
@@ -185,6 +191,7 @@ static void test_ow_reset_presence(void)
     TEST_ASSERT_EQUAL_UINT8(1u, ow.ev[1].masked);
     TEST_ASSERT_EQUAL_UINT32(480u + 70u + 410u, ow.now - ow.ev[0].t);
     TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(1u, ow.unmasks);
     TEST_ASSERT_EQUAL_UINT8(1u, level());
 }
 
@@ -199,6 +206,7 @@ static void test_ow_reset_no_presence(void)
     TEST_ASSERT_EQUAL_UINT(2u, ow.nev);
     TEST_ASSERT_EQUAL_UINT32(480u + 70u + 410u, ow.now - ow.ev[0].t);
     TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(1u, ow.unmasks);
 }
 
 /* 0xA5 goes out least significant bit first: 1 0 1 0 0 1 0 1. A 1 is low for
@@ -228,6 +236,7 @@ static void test_ow_write_byte_slots(void)
     }
     TEST_ASSERT_EQUAL_HEX8(0xA5u, ow.rx[0]);
     TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(8u, ow.unmasks);   /* taken back after every slot */
 }
 
 /* The slave answers 0x3C then 0x81: every read slot is a 6 us low, the line
@@ -249,6 +258,57 @@ static void test_ow_read_bytes_from_slave(void)
     }
     TEST_ASSERT_EQUAL_UINT32(16u * 70u, ow.now - ow.ev[0].t);
     TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(16u, ow.unmasks);
+}
+
+/* A caller that already masked interrupts keeps them masked: each slot
+ * restores what it saved, so nothing is taken back mid-transfer. */
+static void test_ow_a_mask_the_caller_holds_stays_held(void)
+{
+    static const uint8_t ans[1] = { 0x96u };
+    const uint8_t w = 0x5Au;
+    uint8_t presence = 0xEEu;
+    uint8_t rd = 0u;
+    unsigned i;
+
+    ow.present = 1u;
+    ow.masked = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_reset(&k_ow_pin, &presence));
+    TEST_ASSERT_EQUAL_UINT8(1u, presence);
+    TEST_ASSERT_EQUAL_UINT8(1u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.unmasks);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_write(&k_ow_pin, &w, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, ow.rx[0]);
+    TEST_ASSERT_EQUAL_UINT8(1u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.unmasks);
+
+    ow.tx = ans;
+    ow.txlen = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_read(&k_ow_pin, &rd, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x96u, rd);
+    TEST_ASSERT_EQUAL_UINT8(1u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.unmasks);
+
+    TEST_ASSERT_EQUAL_UINT(2u + 16u + 16u, ow.nev);
+    for (i = 0u; i < ow.nev; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, ow.ev[i].masked);
+    }
+}
+
+/* A write or a read of no bytes is TFW_OK and runs no slot: the line, the
+ * clock and the interrupt mask are never touched. */
+static void test_ow_zero_length_touches_nothing(void)
+{
+    uint8_t b = 0x5Au;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_write(&k_ow_pin, &b, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_read(&k_ow_pin, &b, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.nev);
+    TEST_ASSERT_EQUAL_UINT32(1000u, ow.now);
+    TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.unmasks);
 }
 
 /* Any pin but GPIO block 0's 1-Wire bit is TFW_ERR_RANGE, as the AVR refuses
@@ -282,5 +342,7 @@ int main(void)
     RUN_TEST(test_ow_write_byte_slots);
     RUN_TEST(test_ow_read_bytes_from_slave);
     RUN_TEST(test_ow_out_of_table_pin_is_range);
+    RUN_TEST(test_ow_a_mask_the_caller_holds_stays_held);
+    RUN_TEST(test_ow_zero_length_touches_nothing);
     return UNITY_END();
 }

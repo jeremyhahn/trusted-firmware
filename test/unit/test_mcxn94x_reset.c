@@ -106,6 +106,43 @@ static void test_a_watchdog_with_any_other_source_is_unknown(void)
     }
 }
 
+/* "Two sources at once ... is TFW_RESET_UNKNOWN" holds for every source with
+ * a value, not only WWDT0: the decode compares the whole word, never a bit. */
+static void test_two_sources_are_unknown_whichever_they_are(void)
+{
+    static const uint32_t sources[] = { POR, VD, PIN, SW };
+
+    for (uint32_t i = 0u; i < sizeof sources / sizeof sources[0]; i++) {
+        for (uint32_t bit = 0u; bit < 32u; bit++) {
+            uint32_t other = 1u << bit;
+
+            if (other == sources[i] || other == WARM || other == FATAL) {
+                continue;
+            }
+            assert_either_way(TFW_RESET_UNKNOWN, sources[i] | other, "two sources at once");
+        }
+    }
+}
+
+static void test_the_class_flags_ride_every_source(void)
+{
+    assert_either_way(TFW_RESET_BROWNOUT, VD | WARM, "VD, WARM");
+    assert_either_way(TFW_RESET_BROWNOUT, VD | FATAL, "VD, FATAL");
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_mcxn_reset_decode(SW | FATAL, ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_mcxn_reset_decode(SW | FATAL, NOT_ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_mcxn_reset_decode(SW | WARM | FATAL, ASKED));
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_mcxn_reset_decode(SW | WARM | FATAL, NOT_ASKED));
+}
+
+/* requested "is nonzero" when the firmware asked: any nonzero value, not 1. */
+static void test_any_nonzero_request_is_the_firmwares(void)
+{
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_mcxn_reset_decode(SW, 2u));
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_mcxn_reset_decode(SW, 0x80u));
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_mcxn_reset_decode(SW, 0xFFu));
+    TEST_ASSERT_EQUAL(TFW_RESET_POWER_ON, tfw_mcxn_reset_decode(POR, 0xFFu));
+}
+
 /* SRS is read-only: a take reads it and writes nothing. */
 static void test_a_take_reads_and_writes_nothing(void)
 {
@@ -124,6 +161,9 @@ int main(void)
     RUN_TEST(test_nothing_latched_is_unknown);
     RUN_TEST(test_a_source_with_no_value_is_unknown);
     RUN_TEST(test_a_watchdog_with_any_other_source_is_unknown);
+    RUN_TEST(test_two_sources_are_unknown_whichever_they_are);
+    RUN_TEST(test_the_class_flags_ride_every_source);
+    RUN_TEST(test_any_nonzero_request_is_the_firmwares);
     RUN_TEST(test_a_take_reads_and_writes_nothing);
     return UNITY_END();
 }

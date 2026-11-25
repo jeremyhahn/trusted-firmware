@@ -212,6 +212,30 @@ class TestMissing(FixtureTree):
         self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.Bool("json", false, "emit JSON")\n\tflag.Parse()')
         self.assertFails("tfwctl flag -json has no row in ### Flags")
 
+    def test_new_int64var_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.Int64Var(&n, "count", 0, "how many")\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -count has no row in ### Flags")
+
+    def test_new_uintvar_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.UintVar(&u, "retries", 3, "retries")\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -retries has no row in ### Flags")
+
+    def test_new_uint64var_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.Uint64Var(&w, "offset", 0, "offset")\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -offset has no row in ### Flags")
+
+    def test_new_float64var_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.Float64Var(&f, "ratio", 1.0, "ratio")\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -ratio has no row in ### Flags")
+
+    def test_new_textvar_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.TextVar(&ip, "addr", net.IPv4zero, "address")\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -addr has no row in ### Flags")
+
+    def test_new_boolfunc_flag_without_a_row_fails(self):
+        self.edit("sdk/go/cmd/tfwctl/main.go", "\tflag.Parse()", '\tflag.BoolFunc("trace", "trace frames", func(string) error { return nil })\n\tflag.Parse()')
+        self.assertFails("tfwctl flag -trace has no row in ### Flags")
+
     def test_missing_commands_table_fails(self):
         self.edit("docs/host-sdk/cli.md", "### Commands", "### Verbs")
         self.assertFails("no '### Commands' table in the ## `tfwctl` section")

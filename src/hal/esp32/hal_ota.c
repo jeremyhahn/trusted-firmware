@@ -216,7 +216,11 @@ tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w)
  * profile's geometry, which layer 0 builds with too. esp_image_get_metadata's
  * image_len ends at the appended digest (esp_image_format.c,
  * process_appended_hash_and_sig); esp_image_verify's would reach past the
- * signature. */
+ * signature. The trailer must lie inside the stream this session uploaded,
+ * as ota_stage.c's is its last TFW_BOOT_TRAILER_LEN bytes: flash past it
+ * holds whatever an earlier session left. That bound follows the reads, so a
+ * digest that cannot be read stays TFW_ERR_INTERNAL; nothing is parsed or
+ * written before it. */
 static tfw_status_t check_staged(void)
 {
     esp_partition_pos_t  pos = { slot->address, slot->size };
@@ -237,6 +241,9 @@ static tfw_status_t check_staged(void)
         || esp_partition_get_sha256(slot, hash) != ESP_OK
         || esp_ota_get_partition_description(slot, &desc) != ESP_OK) {
         return TFW_ERR_INTERNAL;
+    }
+    if (md.image_len > total || total - md.image_len < TFW_BOOT_TRAILER_LEN) {
+        return TFW_ERR_RANGE;
     }
     st = tfw_boot_trailer_parse(raw, &tr);
     if (st == TFW_OK) {

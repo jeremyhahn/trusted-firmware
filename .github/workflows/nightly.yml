@@ -1,5 +1,6 @@
 # nightly-template: v1.12 (customized) — the known-red and long-horizon jobs, off the push path.
 # v1.12 (2026-11-13): a timeout-minutes on the trivy job (ruling 580), so a hung run ends itself.
+# (2026-11-23, row 611): GO_VERSION 1.27.3 -> 1.27.4 for GO-2026-6859 (net/http, fixed in go1.27.4), matching tool-pins.sh and go.mod.
 # v1.11 (2026-11-08, Tenant Agent m2226 item 2, ci-template v1.34.1): the
 # GO_BUILD_PROXY chain has no trailing `direct` (dependency-resolution.md,
 # "No direct fetch, anywhere").
@@ -89,7 +90,7 @@ env:
   # Keep in lockstep with ci-template's GO_VERSION — the fips job's setup-go
   # reads ${{ env.GO_VERSION }} and an undeclared value resolves to EMPTY,
   # handing setup-go no version at all (nightly-template v1.2).
-  GO_VERSION: '1.27.3'
+  GO_VERSION: '1.27.4'
 
 on:
   schedule:

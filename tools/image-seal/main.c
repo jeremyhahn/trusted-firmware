@@ -34,6 +34,8 @@ static size_t slurp(const char *path, uint8_t *buf, size_t cap)
     if (!feof(f) && fgetc(f) != EOF) {
         fprintf(stderr, "image-seal: %s is larger than %zu bytes\n", path, cap);
         n = 0u;
+    } else if (n == 0u) {
+        fprintf(stderr, "image-seal: %s is empty\n", path);
     }
     fclose(f);
     return n;

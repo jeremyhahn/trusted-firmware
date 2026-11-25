@@ -29,6 +29,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open
 - **xkms-adapter** — physical-board enrollment run end to end — [#7](../../issues/7) — open; the AVR gate is verified at the soft tier on the Mega 2560 (2026-10-29), enrollment waits on the ATECC608A tier (owner item 174)
 - **application-sdk** — the application interface for `trusted-firmware-<application>` repositories — [#51](../../issues/51) — open
+- **maintenance** — standing row: dependency updates and CI configuration, worked on `row/1045-maintenance`; no Dev complete milestone, never gates a release (owner ruling 1234) — [#1045](../../issues/1045) — open, standing
 - **esp32-p4** — ESP32-P4 on a PoE Ethernet board, on Espressif's QEMU until the board arrives — [#48](../../issues/48) — open
 - **esp32** — the ESP-IDF architecture port, the ESP32-P4 first — [#23](../../issues/23) — open
 - **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — done

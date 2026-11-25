@@ -104,6 +104,33 @@ printf 'clean\nhost build.example.internal\n' > "$t/doc.md"     # lab-string-ok:
 run_gate
 case "$out" in *"doc.md:2: lab-host"*) ;; *) fail "second-line hit not reported as doc.md:2: $out" ;; esac
 
+# The match ignores case.
+expect_hit lab-host 'HOST BUILD.EXAMPLE.INTERNAL'   # lab-string-ok: plant
+
+# A waiver reaches one line above, no further: two lines above does not waive.
+checks=$((checks + 1)); fresh
+printf '<!-- lab-string-ok: an example path -->\nclean\nbuilt in /home/example/src\n' > "$t/doc.md"   # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a waiver two lines above waived (exit $rc): $out"
+else case "$out" in *"doc.md:3: owner-path"*) ;; *) fail "a waiver two lines above: no doc.md:3: owner-path in: $out" ;; esac
+fi
+
+# Nor does a waiver on the line below.
+checks=$((checks + 1)); fresh
+printf 'built in /home/example/src\n<!-- lab-string-ok: an example path -->\n' > "$t/doc.md"   # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a waiver on the line below waived (exit $rc): $out"
+else case "$out" in *"doc.md:1: owner-path"*) ;; *) fail "a waiver on the line below: no doc.md:1: owner-path in: $out" ;; esac
+fi
+
+# A path holding a colon is reported whole.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/a:b.md"                 # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a path with a colon exited $rc, want 1: $out"
+else case "$out" in *"a:b.md:1: lab-host"*) ;; *) fail "a path with a colon: no a:b.md:1: lab-host in: $out" ;; esac
+fi
+
 # ---------------------------------------------------------- what must pass
 
 expect_clean 'documentation addresses 198.51.100.7 and 203.0.113.9'
@@ -125,6 +152,22 @@ checks=$((checks + 1)); fresh
 printf 'build.example.internal\0\001\002' > "$t/blob.bin"           # lab-string-ok: plant
 run_gate
 if [ "$rc" -ne 0 ]; then fail "binary file was scanned: $out"; fi
+
+# A tracked symlink is published as its target text, so the target is scanned.
+checks=$((checks + 1)); fresh
+printf 'clean\n' > "$t/doc.md"
+ln -s /home/example/src "$t/link"                                    # lab-string-ok: plant
+run_gate
+if [ "$rc" -ne 1 ]; then fail "a symlink to an owner path exited $rc, want 1: $out"
+else case "$out" in *"link: owner-path (symlink target)"*) ;; *) fail "a symlink to an owner path: no 'link: owner-path (symlink target)' in: $out" ;; esac
+fi
+
+# A symlink to a clean target passes.
+checks=$((checks + 1)); fresh
+printf 'clean\n' > "$t/doc.md"
+ln -s doc.md "$t/link"
+run_gate
+if [ "$rc" -ne 0 ]; then fail "a symlink to a clean target exited $rc, want 0: $out"; fi
 
 # ------------------------------------------------- export-ignored, not scanned
 
@@ -150,8 +193,111 @@ printf 'neutral text\n' > "$t/doc.md"
 printf 'no-such-class\tfoo\t# note\n' > "$tmp/bad.patterns"
 git -C "$t" add -A
 rc=0
-RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/bad.patterns "$gate" > /dev/null 2>&1 || rc=$?
-if [ "$rc" -ne 2 ]; then fail "an unknown class exited $rc, want 2"; fi
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/bad.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "an unknown class exited $rc, want 2: $out"
+else case "$out" in *"unknown class 'no-such-class'"*) ;; *) fail "an unknown class: no class named in: $out" ;; esac
+fi
+
+# An unknown class after a rule that matches still fails the whole list: the
+# gate refuses the list before it scans, so the earlier hit is not reported.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\t(^|[.])example\\.internal\nno-such-class\tfoo\n' > "$tmp/late.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/late.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "an unknown class after a matching rule exited $rc, want 2: $out"
+else case "$out" in *"unknown class 'no-such-class'"*) ;; *) fail "an unknown class after a matching rule: no class named in: $out" ;; esac
+fi
+
+# A last line with no final newline is still a rule.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\t(^|[.])example\\.internal' > "$tmp/nonl.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/nonl.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 1 ]; then fail "a last rule with no newline exited $rc, want 1: $out"
+else case "$out" in *"doc.md:1: lab-host"*) ;; *) fail "a last rule with no newline: no doc.md:1: lab-host in: $out" ;; esac
+fi
+
+# A regex grep -E refuses fails the list, not the rule alone.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+printf 'lab-host\tfoo(\n' > "$tmp/badre.patterns"
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/badre.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a regex grep -E refuses exited $rc, want 2: $out"
+else case "$out" in *"pattern grep -E refuses for lab-host"*) ;; *) fail "a regex grep -E refuses: no class named in: $out" ;; esac
+fi
+
+# A class with no pattern fails the list: an empty regex would match every
+# line of every published file, and skipping the line would scan nothing.
+checks=$((checks + 1)); fresh
+printf 'neutral text\n' > "$t/doc.md"
+printf 'lab-host\t\n' > "$tmp/empty.patterns"
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/empty.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a class with an empty pattern exited $rc, want 2: $out"
+else case "$out" in *"empty pattern for lab-host"*) ;; *) fail "a class with an empty pattern: no class named in: $out" ;; esac
+fi
+
+# A list with no rules fails: an empty file, or one of only comments and blank
+# lines, would scan nothing and pass every tree.
+for list in empty comments; do
+  checks=$((checks + 1)); fresh
+  printf 'host build.example.internal\n' > "$t/doc.md"                 # lab-string-ok: plant
+  case $list in
+    empty) : > "$tmp/norules.patterns" ;;
+    comments) printf '# a comment\n\n#\tanother\n' > "$tmp/norules.patterns" ;;
+  esac
+  git -C "$t" add -A
+  rc=0
+  out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/norules.patterns "$gate" 2>&1) || rc=$?
+  if [ "$rc" -ne 2 ]; then fail "a list with no rules ($list) exited $rc, want 2: $out"
+  else case "$out" in *"no rules in $tmp/norules.patterns"*) ;; *) fail "a list with no rules ($list): list not named in: $out" ;; esac
+  fi
+done
+
+# One real rule after comments and blank lines still scans.
+checks=$((checks + 1)); fresh
+printf 'host build.example.internal\n' > "$t/doc.md"                   # lab-string-ok: plant
+printf '# a comment\n\nlab-host\t(^|[.])example\\.internal\n' > "$tmp/onerule.patterns"  # lab-string-ok: plant
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/onerule.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 1 ]; then fail "a rule after comments exited $rc, want 1: $out"
+else case "$out" in *"doc.md:1: lab-host"*) ;; *) fail "a rule after comments: no doc.md:1: lab-host in: $out" ;; esac
+fi
+
+# A missing list fails with exit 2, not 1: 1 is a finding.
+checks=$((checks + 1)); fresh
+printf 'neutral text\n' > "$t/doc.md"
+git -C "$t" add -A
+rc=0
+out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$tmp/missing.patterns "$gate" 2>&1) || rc=$?
+if [ "$rc" -ne 2 ]; then fail "a missing list exited $rc, want 2: $out"
+else case "$out" in *"cannot read pattern list $tmp/missing.patterns"*) ;; *) fail "a missing list: list not named in: $out" ;; esac
+fi
+
+# A published file grep cannot read fails: it would never be scanned.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "note: skipping the unreadable-file case as root, which reads a mode 000 file"
+else
+  checks=$((checks + 1)); fresh
+  printf 'neutral text\n' > "$t/doc.md"
+  printf 'host build.example.internal\n' > "$t/secret.md"              # lab-string-ok: plant
+  git -C "$t" add -A
+  chmod 000 "$t/secret.md"
+  rc=0
+  out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$fixture "$gate" 2>&1) || rc=$?
+  chmod 644 "$t/secret.md"
+  if [ "$rc" -ne 2 ]; then fail "an unreadable published file exited $rc, want 2: $out"
+  else case "$out" in *"cannot read secret.md"*) ;; *) fail "an unreadable published file: file not named in: $out" ;; esac
+  fi
+fi
 
 # This tree passes its own list.
 checks=$((checks + 1))

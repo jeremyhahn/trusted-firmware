@@ -6,6 +6,7 @@ package tfw
 import (
 	"context"
 	"crypto"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
@@ -154,10 +155,11 @@ func ecdsaDERToRaw(der []byte) ([]byte, error) {
 	if len(rest) != 0 {
 		return nil, errASN1TrailingData
 	}
-	if sig.R == nil || sig.S == nil || sig.R.Sign() < 0 || sig.S.Sign() < 0 {
-		return nil, errASN1BadSig
-	}
-	if sig.R.BitLen() > 256 || sig.S.BitLen() > 256 {
+	// A P-256 r and s are each in 1..n-1; n < 2^256, so this also bounds
+	// each to the 32 bytes it is written in.
+	n := elliptic.P256().Params().N
+	if sig.R == nil || sig.S == nil || sig.R.Sign() <= 0 || sig.S.Sign() <= 0 ||
+		sig.R.Cmp(n) >= 0 || sig.S.Cmp(n) >= 0 {
 		return nil, errASN1BadSig
 	}
 	out := make([]byte, ecdsaRawSigLen)

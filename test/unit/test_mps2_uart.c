@@ -300,6 +300,34 @@ static void test_tx_irq_sends_the_queued_byte_and_clears_tx(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_MPS2_UART_INT_TX, w[0]);   /* TX only cleared */
 }
 
+/* Each TX interrupt sends the next queued byte, not the one before it again:
+ * three bytes queued go out in order, one per interrupt, and the interrupt
+ * after the last writes nothing and leaves the link idle. */
+static void test_tx_irqs_drain_the_ring_in_order_then_go_idle(void)
+{
+    uint32_t w[4];
+
+    init_ok();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x11u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x22u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x33u));
+
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_TX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_DATA, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(0x22u, w[0]);
+
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_TX);
+    TEST_ASSERT_EQUAL_UINT(1u, writes_to(A_DATA, w, 4));
+    TEST_ASSERT_EQUAL_HEX32(0x33u, w[0]);
+
+    log_clear();
+    irq_a(TFW_MPS2_UART_INT_TX);
+    TEST_ASSERT_EQUAL_UINT(0u, writes_to(A_DATA, w, 4));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
 /* The ordinary acknowledgement: INTCLEAR written with exactly INTSTATUS's
  * bits, so the cell holds the same value after the store as before it. */
 static void test_tx_irq_acknowledges_exactly_the_pending_tx_bit(void)
@@ -427,6 +455,7 @@ int main(void)
     RUN_TEST(test_init_refuses_zero_and_a_divisor_below_16);
     RUN_TEST(test_tx_try_writes_the_first_byte_to_data);
     RUN_TEST(test_tx_irq_sends_the_queued_byte_and_clears_tx);
+    RUN_TEST(test_tx_irqs_drain_the_ring_in_order_then_go_idle);
     RUN_TEST(test_tx_irq_acknowledges_exactly_the_pending_tx_bit);
     RUN_TEST(test_rx_irq_acknowledges_exactly_the_pending_rx_bit);
     RUN_TEST(test_tx_try_refuses_when_the_ring_is_full);

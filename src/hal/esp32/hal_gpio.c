@@ -16,7 +16,8 @@
 #include "hal_esp32.h"
 
 /* GPIO_IS_VALID_GPIO shifts 1ULL by the pin number, which is undefined at 64
- * or more, so a pin past the part is refused before the mask is consulted. */
+ * or more, so a pin past the part is refused before the mask is consulted;
+ * mode, write and read all check the pin here before the driver sees it. */
 static int gpio_pin_valid(gpio_num_t n)
 {
     return n < GPIO_NUM_MAX && GPIO_IS_VALID_GPIO(n);
@@ -55,6 +56,9 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
+    if (!gpio_pin_valid((gpio_num_t)p->gpio)) {
+        return TFW_ERR_BAD_PIN;
+    }
     return gpio_set_level((gpio_num_t)p->gpio, level ? 1u : 0u) == ESP_OK
            ? TFW_OK : TFW_ERR_BAD_PIN;
 }

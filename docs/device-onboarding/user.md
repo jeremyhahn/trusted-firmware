@@ -45,27 +45,9 @@ tfwprov --verify  --config sdk/go/templates/atecc608a-dice.conf --record device.
 
 `--commit` is irreversible ([the guard](../device-provisioning/cli.md#the-irreversibility-guard)).
 It generates the DeviceID key and adds it to the record as `cnf.jwk`; `--verify`
-reads the key back and checks it against the record.
-
-The ATECC608C-TFLXTLS on the MIKROE-6774 board ships locked. It takes the
-TrustFLEX template instead, by the (a1) slot map owner ruling 1243 accepted
-([slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)):
-
-```sh
-tfwprov --dry-run --config sdk/go/templates/atecc608a-trustflex.conf <port>
-tfwprov --commit  --config sdk/go/templates/atecc608a-trustflex.conf --image-key <image-key.pem> --record device.json --yes-i-mean-it <port>
-tfwprov --verify  --config sdk/go/templates/atecc608a-trustflex.conf --image-key <image-key.pem> --record device.json <port>
-```
-
-`--dry-run` prints the seven steps. `--commit` is **irreversible**: it keeps
-the shipped slot-0 DeviceID, seeds the UDS into slot 6, writes the
-`--image-key` public key to slot 15, then slot-locks slot 6 and slot 15
-([the TrustFLEX plan](../device-provisioning/cli.md#the-trustflex-plan)). The
-firmware takes slot 6's lock CRC from this boot's `PROV_SEED_UDS` and answers
-`BAD_STATE` without one, so slot 15 is not locked either. `--verify` reads the
-part and writes nothing. Nothing has run on a real part yet: answer the
-[slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)'s
-bench questions 1-4 before any `--commit`.
+reads the key back and checks it against the record. The ATECC608C on the
+MIKROE-6774 board ships locked, and `--commit` refuses it until the owner
+rules on its slot map (T4 below).
 
 ## 4. Lock bits and the production image
 
@@ -98,14 +80,11 @@ To try an enrolment without a control plane, `make hw-enroll` runs go-xkms's
 ACME client and server against the board in process
 ([hardware enrollment](../development/hardware-enrollment.md)).
 
-## Open: the bench
+## Open, and the owner's
 
-- **T3 — the ATmega328P enrols.** Owner ruling 1243 gives it its 28 672-byte
-  application region as its flash budget and its element image carries
-  `ATTEST_CSR` ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
-  Still open: a Nano answering `ATTEST_CSR` on the bench, and the element-tier
-  Ethernet image, which fits flash but not RAM.
-- **T4 — the ATECC608C slot map.** (a1) is accepted and step 3 above follows
-  it. Still open: the ADR's bench questions, read before any lock, and
-  `make hw-enroll` on a MIKROE-6774 board
-  ([slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md#applied)).
+- **T3 — the ATmega328P cannot enrol.** Its element-tier Ethernet image is over
+  its flash budget and its profile leaves `ATTEST_CSR` out; the choice is the
+  owner's ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
+- **T4 — the ATECC608C slot map.** Step 3 on the pre-provisioned part waits on
+  the owner's slot map
+  ([slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md)).

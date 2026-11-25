@@ -65,6 +65,55 @@ static void test_the_deadline_resets_and_not_before(void)
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
 }
 
+/* The deadline across a wrap of the 32-bit millisecond clock (about 49.7
+ * days of uptime). The first test polls before and just after the wrap: it
+ * kills a compare written as `tfw_hal_millis() >= started + TRIAL_MS`, whose
+ * sum wraps to a small value so the trial resets at its first poll. The
+ * second starts at the very top of the clock: it kills an elapsed time taken
+ * without the tfw_ms_t cast in a wider (signed or 64-bit) type, where the
+ * difference across the wrap goes negative or huge and the deadline is never
+ * reached or reached at once. Both pin the reset at exactly DEADLINE_MS. */
+static void test_the_deadline_holds_across_a_millis_wrap(void)
+{
+    tfw_mock_set_millis((tfw_ms_t)0xFFFFFFFFu - 999u);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(1000u); /* the clock wraps to 0 */
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(DEADLINE_MS - 1001u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(3u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(1u); /* exactly DEADLINE_MS after the start */
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
+static void test_a_trial_started_at_the_top_of_the_clock_resets_once_past_it(void)
+{
+    tfw_mock_set_millis((tfw_ms_t)0xFFFFFFFFu);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+
+    tfw_mock_advance(DEADLINE_MS - 1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
 /* OTA_CONFIRM writes its request and leaves the count alone (#137): there is
  * no call that stops it, so a confirmed trial is petted up to the deadline and
  * reset there like any other, the request left in place for tfw-boot to
@@ -248,6 +297,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_trial_boot_rearms_and_pets);
     RUN_TEST(test_the_deadline_resets_and_not_before);
+    RUN_TEST(test_the_deadline_holds_across_a_millis_wrap);
+    RUN_TEST(test_a_trial_started_at_the_top_of_the_clock_resets_once_past_it);
     RUN_TEST(test_a_confirmed_trial_still_resets_at_the_deadline);
     RUN_TEST(test_any_other_state_arms_nothing);
     RUN_TEST(test_no_platform_block_arms_nothing);

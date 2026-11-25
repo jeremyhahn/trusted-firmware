@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b, docs/plans/590b.md) on host.
+ * The secure-world DICE service (#590 slice b) on host.
  *
  * The DeviceID reference is today's non-secure path, linked beside the
  * service: the soft root's P-256 identity (src/crypto/soft/id_p256.c) over this
@@ -427,7 +427,7 @@ static void test_a_buffer_that_wraps_the_address_space_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.got);
 }
 
-/* ---- the vectors sdk/go's dice evidence test reads (docs/plans/590c.md) --- */
+/* ---- the vectors sdk/go's dice evidence test reads (#590 slice c) --- */
 
 static size_t vec_line(char *out, size_t at, const char *name, const uint8_t *b, size_t n)
 {

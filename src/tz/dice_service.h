@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The secure-world DICE service: the DeviceID key, the alias key and the
- * alias certificate. Written for #590 slice b (docs/plans/590b.md, ruling
- * 935) behind four NSC entry points; since #608 slice 3 (ruling 1024 (a)) it
+ * alias certificate. Written for #590 slice b (ruling 935)
+ * behind four NSC entry points; since #608 slice 3 (ruling 1024 (a)) it
  * is the core of the TF-M Application RoT partition, reached only through
  * src/tz/dice_partition.c's dispatcher. TF-M's SPM checks the non-secure
  * caller's buffers and the dispatcher hands this service partition-local

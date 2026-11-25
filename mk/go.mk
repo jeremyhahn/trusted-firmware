@@ -144,7 +144,7 @@ sdk-coverage:
 # A PORT=tcp: board has no DTR line:
 # RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
 # DTR on to reset it, and only that row resets; unset, that row skips, naming
-# RESET_PORT (#550, docs/plans/550.md).
+# RESET_PORT (#550).
 HW_TEST_RUN ?=
 HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
 hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:% tcp-listen:%,$(PORT)),,$(HW_RESET_$(BOARD)))

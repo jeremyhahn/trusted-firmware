@@ -48,7 +48,7 @@ F_CPU          := 800000000
 #               reset vector points (the System Manager configuration's M7
 #               start address; TO CONFIRM). Reserved: tfw-boot is not yet built
 #               for this board (mk/boot.mk has no row for it).
-#   0x00008000  the application slot, 192 KiB of code.
+#   0x00008000  the application slot, 192 KiB of code (ITCM 0 under IMX_BOOT=1).
 #   0x0003F000  the platform block, the last 4 KiB of the ITCM.
 #   0x20000000  .data, .bss, the stack, the reset marker and the handoff
 #               block at the top (RAM_END), in the DTCM.
@@ -67,8 +67,10 @@ RAM_BASE       := 0x20000000
 RAM_END        := 0x2003FFFF
 
 # The region tfw-boot measures (mk/release.mk's provenance): the application
-# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h. Not
-# ITCM 0, which is tfw-boot's region.
+# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h, not
+# tfw-boot's region at ITCM 0. IMX_BOOT=1 (below) moves it, with APP_BASE, to
+# ITCM 0. board_profile.h keeps the slot's values: only tfw-boot and OTA staging
+# read them, and this board builds neither.
 FWHASH_BASE    := $(APP_BASE)
 FWHASH_SIZE    := $(FLASH_BUDGET)
 
@@ -77,6 +79,32 @@ FWHASH_SIZE    := $(FLASH_BUDGET)
 BOOT_SECTION   := 32768
 BOOT_BASE      := 0x00000000
 BOOT_BUDGET    := 32768
+
+# IMX_BOOT=1: the image the boot container carries (#473; the container is
+# trusted-imx95's, docs/multi-arch/imx95-design.md R12). The System Manager
+# loads the container's M7 image at the ITCM base and starts it from the vector
+# there, so this build links the application, and measures it, from ITCM 0.
+# make tracks no flag and the mode changes only the link, so the ELF linked for
+# the other mode would be reused in the same directory: IMXBOOT in
+# BOARD_FEATURES_ON names this mode's FW_DIR -imxboot (ROW_FEATURE_SUFFIX in
+# mk/firmware.mk), so the two modes' ELFs stay apart in any BUILD_DIR. IMXBOOT
+# is a link mode, not a feature module: feature_off never matches it. The default build/ is still kept for the slot image only, so
+# IMX_BOOT=1 is refused there and takes its own BUILD_DIR:
+#   make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware
+# tfw-boot's geometry above stays: no tfw-boot is built for this board.
+IMX_BOOT       ?= 0
+ifneq ($(filter-out 0 1,$(IMX_BOOT)),)
+$(error IMX_BOOT is 0 or 1, not "$(IMX_BOOT)")
+endif
+ifeq ($(IMX_BOOT),1)
+# Absolute paths: build/, ./build and the repo's absolute build/ all match.
+ifeq ($(abspath $(BUILD_DIR)),$(abspath build))
+$(error IMX_BOOT=1 links the application at ITCM 0, not the slot: give it its own BUILD_DIR (make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware), or the ELF linked for the other mode is reused)
+endif
+APP_BASE       := 0x00000000
+FWHASH_BASE    := $(APP_BASE)
+BOARD_FEATURES_ON += IMXBOOT
+endif
 
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is
 # the enclave, and this slice does not touch it.

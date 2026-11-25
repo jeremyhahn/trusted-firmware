@@ -11,14 +11,18 @@
 # signed tags vX.Y.Z-alpha and sdk/go/vX.Y.Z-alpha on HEAD, with git's
 # configured key, and pushes both to `dev`, never forced. The xkms/ module keeps
 # its own series and is not tagged here. --dry-run fetches dev's main and tags,
-# prints the tags, and cuts and pushes nothing.
+# prints the tags, and cuts and pushes nothing. A failed cut or push deletes the
+# tags this run cut, so the next run cuts the same version; it deletes no tag
+# another run made, nor one moved since this run cut it.
 #
 #   release_alpha.py [--repo DIR] [--dry-run]
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+import tempfile
 
 REMOTE = "dev"
 BRANCH = "main"
@@ -33,6 +37,51 @@ def git(repo, *args):
     if r.returncode != 0:
         raise SystemExit(f"release-alpha: git {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout.strip()
+
+
+def git_bytes(repo, *args, data=None):
+    r = subprocess.run(["git", "-C", repo] + list(args), input=data, capture_output=True, check=False)
+    if r.returncode != 0:
+        raise SystemExit(f"release-alpha: git {' '.join(args)} failed: "
+                         f"{r.stderr.decode(errors='replace').strip()}")
+    return r.stdout
+
+
+def init_scratch(repo, scratch):
+    """A private bare repository that reads the checkout's objects, so a tag
+    can be made and its id read where no other process can move its ref."""
+    git(scratch, "init", "--bare", "-q")
+    objects = git(repo, "rev-parse", "--git-path", "objects")
+    objects = os.path.join(os.path.abspath(repo), objects)
+    with open(os.path.join(scratch, "objects", "info", "alternates"), "w") as f:
+        f.write(os.path.abspath(objects) + "\n")
+
+
+def signing_config(repo):
+    """-c k=v for each user.* and gpg.* setting the checkout sees, so the
+    scratch repository signs with the checkout's identity and signer."""
+    r = subprocess.run(["git", "-C", repo, "config", "--null", "--get-regexp", r"^(user|gpg)\."],
+                       capture_output=True, text=True, check=False)
+    if r.returncode not in (0, 1):
+        raise SystemExit(f"release-alpha: git config failed: {r.stderr.strip()}")
+    out = []
+    for entry in r.stdout.split("\0"):
+        if entry:
+            k, _, v = entry.partition("\n")
+            out += ["-c", f"{k}={v}"]
+    return out
+
+
+def make_tag(repo, scratch, signer, t, head):
+    """Sign tag t on head in scratch and write its object into the checkout.
+    The object id, not any ref in the checkout."""
+    git(scratch, *signer, "tag", "--sign", "-m", f"trusted-firmware {t}", t, head)
+    oid = git(scratch, "rev-parse", f"refs/tags/{t}")
+    body = git_bytes(scratch, "cat-file", "tag", oid)
+    copied = git_bytes(repo, "hash-object", "-t", "tag", "-w", "--stdin", data=body).decode().strip()
+    if copied != oid:
+        raise SystemExit(f"release-alpha: tag {t} object {oid} was copied as {copied}")
+    return oid
 
 
 def parse(name):
@@ -115,9 +164,26 @@ def main(argv):
     if a.dry_run:
         print(f"release-alpha: DRY_RUN: would cut {' '.join(cut)} on {head} and push them to {REMOTE}")
     else:
-        for t in cut:
-            git(a.repo, "tag", "--sign", "-m", f"trusted-firmware {t}", t, head)
-        git(a.repo, "push", "--atomic", REMOTE, *(f"refs/tags/{t}" for t in cut))
+        # (tag, object id) of each tag this run created. Cleanup deletes only
+        # these, and only while each still points at this run's tag object, so
+        # a competing run that cut the same version keeps its tags. The id is
+        # the object this run made, never a reread of the published ref.
+        created = []
+        try:
+            with tempfile.TemporaryDirectory(prefix="release-alpha-") as scratch:
+                init_scratch(a.repo, scratch)
+                signer = signing_config(a.repo)
+                for t in cut:
+                    oid = make_tag(a.repo, scratch, signer, t, head)
+                    # A zero old value: create only, refused if the tag exists.
+                    git(a.repo, "update-ref", f"refs/tags/{t}", oid, "0" * len(oid))
+                    created.append((t, oid))
+            git(a.repo, "push", "--atomic", REMOTE, *(f"refs/tags/{t}" for t in cut))
+        except SystemExit:
+            for t, oid in created:
+                subprocess.run(["git", "-C", a.repo, "update-ref", "-d", f"refs/tags/{t}", oid],
+                               capture_output=True, check=False)
+            raise
         print(f"release-alpha: cut {' '.join(cut)} on {head} and pushed them to {REMOTE}")
     print(f"next (coordinator, runbook step 12): consumer-check {SDK_MODULE} {cut[1]}")
     return 0

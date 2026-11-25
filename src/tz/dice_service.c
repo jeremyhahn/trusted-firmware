@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b, docs/plans/590b.md), the core
+ * The secure-world DICE service (#590 slice b), the core
  * of the TF-M DICE partition since #608 slice 3 (src/tz/dice_partition.c).
  *
  * Built over the existing code without changing it: the DeviceID key is

@@ -152,6 +152,43 @@ func TestQMPResetTakesTheEventBeforeTheReturn(t *testing.T) {
 	}
 }
 
+// After both returns qmpReset keeps decoding until the event is RESET
+// (peer.go `reset = m.Event == "RESET"`): an unrelated event after
+// system_reset's return is not the reset, so with nothing more sent the
+// wait runs into the deadline.
+func TestQMPResetWaitsPastAnUnrelatedEventAfterTheReturn(t *testing.T) {
+	sock := fakeQMP(t, func(c net.Conn, dec *json.Decoder) {
+		_, _ = c.Write([]byte(qmpGreeting))
+		expect(dec)
+		_, _ = c.Write([]byte(`{"return": {}}` + "\n"))
+		expect(dec)
+		_, _ = c.Write([]byte(`{"return": {}}` + "\n" + `{"event": "STOP"}` + "\n"))
+		_ = expect(dec)
+	})
+	err := qmpReset(sock, 200*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "waiting for the RESET event") {
+		t.Fatalf("qmpReset = %v, want the RESET wait to time out", err)
+	}
+}
+
+// A RESET counts only while system_reset is pending (peer.go
+// `m.Event == "RESET" && cmd == "system_reset"`): one that arrives while
+// qmp_capabilities waits for its return is not this reset, so with no RESET
+// after system_reset the wait runs into the deadline.
+func TestQMPResetIgnoresAResetBeforeSystemReset(t *testing.T) {
+	sock := fakeQMP(t, func(c net.Conn, dec *json.Decoder) {
+		_, _ = c.Write([]byte(qmpGreeting))
+		expect(dec)
+		_, _ = c.Write([]byte(`{"event": "RESET"}` + "\n" + `{"return": {}}` + "\n"))
+		expect(dec)
+		_, _ = c.Write([]byte(`{"return": {}}` + "\n"))
+		_ = expect(dec)
+	})
+	if err := qmpReset(sock, 200*time.Millisecond); err == nil {
+		t.Fatal("qmpReset returned nil on a RESET sent before system_reset")
+	}
+}
+
 func TestQMPResetReportsARefusal(t *testing.T) {
 	sock := fakeQMP(t, func(c net.Conn, dec *json.Decoder) {
 		_, _ = c.Write([]byte(qmpGreeting))

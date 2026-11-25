@@ -97,6 +97,34 @@ static void test_attest_csr_is_present_in_a_328p_build_and_caps_says_so(void)
     TEST_ASSERT_EQUAL_HEX32(1uL << 13, feats & (1uL << 13));
 }
 
+/* include/tfw/config.h: the HSM channel is off by default and not in the
+ * CAPS bitmap; a host learns whether it is present by asking, and
+ * TFW_ERR_UNKNOWN_CMD answers. So a build without it must refuse every
+ * HSM_* id exactly as an unknown command, whatever payload the HSM build
+ * would have accepted. */
+static void test_the_hsm_channel_is_absent_from_a_build_without_it(void)
+{
+    static const struct { uint8_t id; const char *name; uint8_t n; } hsm[] = {
+        { TFW_CMD_HSM_HEARTBEAT,   "HSM_HEARTBEAT",   0u },
+        { TFW_CMD_HSM_REPORT,      "HSM_REPORT",      1u },
+        { TFW_CMD_HSM_VERDICT,     "HSM_VERDICT",     1u },
+        { TFW_CMD_HSM_SELECT,      "HSM_SELECT",      1u },
+        { TFW_CMD_HSM_LOAD,        "HSM_LOAD",        4u },
+        { TFW_CMD_HSM_RECORD_READ, "HSM_RECORD_READ", 1u },
+    };
+    const uint8_t b[4] = { 0u };
+    size_t i;
+
+    TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_HSM, "TFW_FEATURE_HSM");
+    for (i = 0u; i < sizeof hsm / sizeof hsm[0]; i++) {
+        TEST_ASSERT_FALSE_MESSAGE(tfw_dispatch_knows(hsm[i].id), hsm[i].name);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_UNKNOWN_CMD, run(hsm[i].id, b, hsm[i].n), hsm[i].name);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(0u, tfw_writer_len(&w), hsm[i].name);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(hsm[i].id, tfw_dispatch_last(), hsm[i].name);
+        TEST_ASSERT_FALSE_MESSAGE(tfw_dispatch_last_ok(), hsm[i].name);
+    }
+}
+
 static void test_the_system_commands_are_all_present(void)
 {
     TEST_ASSERT_TRUE(tfw_dispatch_knows(TFW_CMD_CAPS));
@@ -435,6 +463,7 @@ int main(void)
     RUN_TEST(test_no_command_id_reaches_the_event_marker);
     RUN_TEST(test_auth_commands_are_absent_from_a_soft_tier_build);
     RUN_TEST(test_attest_csr_is_present_in_a_328p_build_and_caps_says_so);
+    RUN_TEST(test_the_hsm_channel_is_absent_from_a_build_without_it);
     RUN_TEST(test_the_system_commands_are_all_present);
     RUN_TEST(test_a_payload_shorter_than_the_minimum_is_refused);
     RUN_TEST(test_a_payload_longer_than_the_maximum_is_refused);

@@ -88,6 +88,14 @@ static const uint8_t SET_C[] = {
     0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x81u, 0x83u, 0x03u, 0x58u, 0x20u, DIG_A, 0xF4u,
     0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
 };
+
+/* Set D: policy 0, S5: [record]; policy 1, S3: script A. */
+static const uint8_t SET_D[] = {
+    0xA5u, 0x01u, 0x01u, 0x02u, 0x82u,
+    0x81u, 0x83u, 0x05u, 0x81u, 0x06u, 0xF4u,
+    0x81u, 0x83u, 0x03u, 0x58u, 0x20u, DIG_A, 0xF4u,
+    0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
+};
 /* SET_A with signal 7 where S2 is: refused by the reader. */
 static const uint8_t SET_BAD[] = {
     0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x81u, 0x83u, 0x07u, 0x81u, 0x01u, 0xF4u,
@@ -533,6 +541,47 @@ static void test_r7_a_refused_envelope_leaves_the_previous_policy(void)
     TEST_ASSERT_EQUAL_UINT32(4u, h.refused);
 }
 
+/* R7, owner ruling 1234 ("every refusal counts"): each refusal tfw_hsm_load
+ * makes steps the counter by exactly one and leaves the policy as it was. */
+static void test_r7_every_load_refusal_counts_once(void)
+{
+    static tfw_hsm_t before;
+    uint16_t         n;
+
+    tfw_hsm_init(&h, 4u);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 5u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_select(&h, 1u));
+
+    /* The image key. */
+    memcpy(&before, &h, sizeof before);
+    n = envelope(policy_class, "#policy", SET_B, sizeof SET_B, 6u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_hsm_load(&h, buf, n, SUIT_PUB, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* Below the floor. */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, SET(SET_B, 4u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A set the reader refuses, above the floor. */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, SET(SET_BAD, 9u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A script the set does not name (ruling 1234). */
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, script(SUIT_SCRIPT_BODY, sizeof SUIT_SCRIPT_BODY));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+
+    /* A load that succeeds leaves the count where the last refusal put it. */
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_B, 6u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+}
+
 /* --- the rest of the engine table -------------------------------------- */
 
 static void test_a_selection_out_of_range_is_refused_and_unchanged(void)
@@ -635,8 +684,26 @@ static void test_scripts_are_held_while_named_and_bounded(void)
     ACTS(TFW_HSM_ACT_PHY_OFF, TFW_HSM_ACT_PHY_OFF);
 }
 
+/* A script named by a policy past the first is named by the set: it loads,
+ * the next set that names it keeps it, and it runs once that policy is
+ * selected. */
+static void test_a_script_named_by_the_second_policy_alone_loads_and_is_kept(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_D, 1u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, script(SCRIPT_A, sizeof SCRIPT_A));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL_UINT32(0u, h.refused);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_D, 2u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_select(&h, 1u));
+    tfw_hsm_signal(&h, S3, 0u);
+    ACTS(TFW_HSM_ACT_RECORD, TFW_HSM_ACT_SHUTDOWN);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+}
+
 /* load_script's TFW_ERR_NO_SLOT: a named, readable script past the last slot
- * is refused and counted, and the scripts held, the set and the floor stay. */
+ * is refused and counted (R7: the NO_SLOT refusal counts, owner ruling 1234),
+ * and the scripts held, the set and the floor stay. */
 static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
 {
     static uint8_t   set[NINE_LEN];
@@ -653,6 +720,27 @@ static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
     nth_body(TFW_HSM_SCRIPTS_MAX, body);
     TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, script(body, sizeof body));
     TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
+}
+
+/* R7, owner ruling 1234: a script the set does not name counts once whatever
+ * the slots hold, and the scripts held stay. */
+static void test_r7_an_unnamed_script_counts_with_scripts_held(void)
+{
+    static uint8_t   set[NINE_LEN];
+    static tfw_hsm_t before;
+    uint8_t          body[3];
+
+    nine_named(set);
+    TEST_ASSERT_EQUAL(TFW_OK, set_at(set, sizeof set, 4u, 0u));
+    for (uint8_t i = 0u; i < 2u; i++) {
+        nth_body(i, body);
+        TEST_ASSERT_EQUAL(TFW_OK, script(body, sizeof body));
+    }
+    memcpy(&before, &h, sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, script(SUIT_SCRIPT_BODY, sizeof SUIT_SCRIPT_BODY));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    TEST_ASSERT_EQUAL_UINT8(2u, h.n_scripts);
     unchanged_since(&before);
 }
 
@@ -815,6 +903,22 @@ static void test_s3_a_mismatch_or_failed_measurement_raises_s3(void)
         TEST_ASSERT_EQUAL_UINT8(1u, h.locked);
         TEST_ASSERT_EQUAL_UINT8(1u, h.set.n_expected);
     }
+}
+
+/* S3 is measured when a policy set loads, and then only: a script load leaves
+ * SET_E's expected values in place, and a refused envelope loads nothing, so
+ * neither measures again. */
+static void test_s3_a_script_or_a_refused_envelope_measures_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_E, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL(TFW_OK, script(SCRIPT_A, sizeof SCRIPT_A));
+    TEST_ASSERT_EQUAL_UINT8(1u, h.n_scripts);
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, SET(SET_E, 0u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
 }
 
 /* --- A6: what the engine saw, decided and did (slice 11b-2) ------------- */
@@ -1059,9 +1163,12 @@ int main(void)
     RUN_TEST(test_r5_silence_past_the_heartbeat_period_locks_down);
     RUN_TEST(test_r6_lockdown_then_any_input_is_still_locked_down);
     RUN_TEST(test_r7_a_refused_envelope_leaves_the_previous_policy);
+    RUN_TEST(test_r7_every_load_refusal_counts_once);
+    RUN_TEST(test_r7_an_unnamed_script_counts_with_scripts_held);
     RUN_TEST(test_a_selection_out_of_range_is_refused_and_unchanged);
     RUN_TEST(test_a_script_the_engine_does_not_hold_locks_down);
     RUN_TEST(test_scripts_are_held_while_named_and_bounded);
+    RUN_TEST(test_a_script_named_by_the_second_policy_alone_loads_and_is_kept);
     RUN_TEST(test_a_script_past_the_last_slot_is_refused_and_the_held_stay);
     RUN_TEST(test_a_named_script_that_does_not_read_is_refused);
     RUN_TEST(test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection);
@@ -1074,6 +1181,7 @@ int main(void)
     RUN_TEST(test_s3_a_measurement_that_matches_raises_nothing);
     RUN_TEST(test_s3_a_port_that_cannot_measure_raises_nothing);
     RUN_TEST(test_s3_a_mismatch_or_failed_measurement_raises_s3);
+    RUN_TEST(test_s3_a_script_or_a_refused_envelope_measures_nothing);
     RUN_TEST(test_a6_nothing_is_recorded_without_a_signal);
     RUN_TEST(test_a6_a_verdict_with_no_signal_is_recorded_and_acts_on_nothing);
     RUN_TEST(test_a6_r3_a_clear_verdict_records_the_decision_and_wipes_nothing);

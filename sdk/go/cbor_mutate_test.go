@@ -205,8 +205,6 @@ func TestCBORLimits(t *testing.T) {
 		"bytes filling the input":     {0x43, 1, 2, 3},
 		"bytes, 1-byte length":        append([]byte{0x58, 24}, make([]byte, 24)...),
 		"bytes, 2-byte length":        append([]byte{0x59, 0x01, 0x00}, make([]byte, 256)...),
-		"bytes, 4-byte length":        {0x5a, 0, 0, 0, 3, 1, 2, 3},
-		"bytes, 8-byte length":        {0x5b, 0, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3},
 		"text filling the input":      {0x63, 'a', 'p', 'p'},
 		"array count equal to items":  {0x83, 0, 0, 0},
 		"map count equal to pairs":    {0xa2, 0, 0, 1, 0},
@@ -253,6 +251,12 @@ func TestCBORLimits(t *testing.T) {
 		"trailing byte":                {0x00, 0x00},
 		"unsigned 1-byte head cut":     {0x18},
 		"map value truncated":          {0xa1, 0x00, 0x18},
+		"bytes, 1-byte head for 3":     {0x58, 0x03, 1, 2, 3},
+		"bytes, 4-byte head for 3":     {0x5a, 0, 0, 0, 3, 1, 2, 3},
+		"bytes, 8-byte head for 3":     {0x5b, 0, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3},
+		"array, 1-byte head for 0":     {0x98, 0x00},
+		"map, 1-byte head for 0":       {0xb8, 0x00},
+		"text, 2-byte head for 1":      {0x79, 0x00, 0x01, 'a'},
 	}
 	for name, b := range bad {
 		if v, err := cborDecode(b); err == nil {

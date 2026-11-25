@@ -718,6 +718,28 @@ static void test_an_element_lost_before_the_verify_refuses_and_spends_the_challe
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
+/* A challenge is spent by its first answer, not only by the zeroed nonce:
+ * after a rejected response, a second one the operator signed over the
+ * all-zero nonce the spent challenge leaves behind is refused, and the gate
+ * stays shut. */
+static void test_a_spent_challenge_refuses_a_signature_over_the_zeroed_nonce(void)
+{
+    uint8_t  n[TFW_AUTH_NONCE_LEN];
+    uint8_t  zero[TFW_AUTH_NONCE_LEN];
+    uint8_t  bad[TFW_AUTH_SIG_LEN];
+    uint8_t  over_zero[TFW_AUTH_SIG_LEN];
+    unsigned written = 99u;
+
+    memset(zero, 0, sizeof zero);
+    TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
+    sign(stranger_priv, n, bad);
+    sign(operator_priv, zero, over_zero);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(bad, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(over_zero, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL_UINT(0u, written);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -728,5 +750,6 @@ int main(void)
     RUN_TEST(test_a_short_response_is_refused_and_the_challenge_stays_outstanding);
     RUN_TEST(test_a_rejected_signature_writes_nothing_and_spends_the_challenge);
     RUN_TEST(test_an_element_lost_before_the_verify_refuses_and_spends_the_challenge);
+    RUN_TEST(test_a_spent_challenge_refuses_a_signature_over_the_zeroed_nonce);
     return UNITY_END();
 }

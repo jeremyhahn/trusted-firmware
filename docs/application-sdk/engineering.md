@@ -443,7 +443,8 @@ Counts: 15 done, 5 partial, 0 not started.
    first; no code until the owner rules
    ([architecture.md](architecture.md#what-it-does-not-do)).
 
-The row is not done: slices 1, 3 and 4 are done; 2 is done but for its
+The row is not done: slices 3 and 4 are done; 1 waits on a release that
+carries APP_CMD; 2 is done but for its
 `esp32-qemu-test` run, which runs on a push to main and on the schedule, never
 on a PR (`.github/workflows/ci.yml`, the `esp32-qemu-test` job's `if:`), so it
 is observed after the merge; 5 and 6 wait on another project or the owner. Open question 1 below is

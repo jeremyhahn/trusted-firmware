@@ -192,6 +192,104 @@ static void test_a2_switches_the_a55_domain_off(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
 }
 
+/* LMM_SHUTDOWN (scmi.h: protocol 0x80, message 0x6): lm_id, then flags, 0
+ * forceful. */
+static void assert_lm_stop(uint32_t i, uint32_t token, uint32_t lm)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[i][0]);                  /* flags: polled */
+    TEST_ASSERT_EQUAL_HEX32(0x0000000Cu, seen[i][1]);                  /* header + 8 */
+    TEST_ASSERT_EQUAL_HEX32(0x00020006u | (token << 18), seen[i][2]);  /* lmm 0x80, 0x6 */
+    TEST_ASSERT_EQUAL_HEX32(lm, seen[i][3]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[i][4]);                  /* forceful */
+}
+
+static void test_a2_stops_the_a55_logical_machine_forcefully(void)
+{
+    ids.a55_lm = 2u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a2_acknowledged_lm_stop_sends_no_power_off(void)
+{
+    ids.a55_lm    = 2u;
+    ids.a55_power = 9u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+}
+
+static void test_a2_a_refused_lm_stop_falls_back_to_the_power_domain(void)
+{
+    ids.a55_lm     = 2u;
+    ids.a55_power  = 9u;
+    reply_words[0] = 0xFFFFFFFDu;   /* DENIED */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(2u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    assert_power_off(1u, 1u, 9u);
+}
+
+static void test_a2_a_refused_lm_stop_and_power_off_is_the_domains_failure(void)
+{
+    ids.a55_lm     = 2u;
+    ids.a55_power  = 9u;
+    reply_words[0] = 0xFFFFFFFCu;   /* NOT_FOUND: TFW_ERR_UNSUPPORTED from the LM */
+    reply_words[1] = 0xFFFFFFFDu;   /* DENIED */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(2u, n_seen);
+}
+
+static void test_a2_a_refused_lm_stop_with_no_domain_is_its_mapped_status(void)
+{
+    static const struct {
+        uint32_t     status;
+        tfw_status_t want;
+    } cases[] = {
+        { 0x00000000u, TFW_OK },                     /* SUCCESS */
+        { 0xFFFFFFFCu, TFW_ERR_UNSUPPORTED },        /* NOT_FOUND */
+        { 0xFFFFFFFEu, TFW_ERR_RANGE },              /* INVALID_PARAMETERS */
+        { 0xFFFFFFFDu, TFW_ERR_PROTECTED_REGION },   /* DENIED */
+        { 0xFFFFFFF4u, TFW_ERR_INTERNAL },           /* not listed */
+    };
+    uint32_t k;
+
+    for (k = 0u; k < sizeof cases / sizeof cases[0]; k++) {
+        setUp();
+        ids.a55_lm     = 2u;
+        reply_words[0] = cases[k].status;
+        TEST_ASSERT_EQUAL_INT(cases[k].want, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+        TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+        assert_lm_stop(0u, 0u, 2u);
+    }
+}
+
+static void test_a2_an_lm_stop_never_answered_is_a_timeout(void)
+{
+    ids.a55_lm   = 2u;
+    reply_status = 0x0u;   /* never freed */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+}
+
+static void test_a2_with_neither_id_is_unsupported_and_sends_nothing(void)
+{
+    ids.phy_reset = 3u;
+    ids.phy_power = 5u;
+    ids.shutdown  = 1u;
+    TEST_ASSERT_EQUAL_UINT32(0u, ids.a55_lm);
+    TEST_ASSERT_EQUAL_UINT32(0u, ids.a55_power);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
+                          tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(0u, n_seen);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
+}
+
 static void test_a1_holds_the_phys_reset(void)
 {
     ids.phy_reset = 3u;
@@ -1094,6 +1192,13 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a2_switches_the_a55_domain_off);
+    RUN_TEST(test_a2_stops_the_a55_logical_machine_forcefully);
+    RUN_TEST(test_a2_acknowledged_lm_stop_sends_no_power_off);
+    RUN_TEST(test_a2_a_refused_lm_stop_falls_back_to_the_power_domain);
+    RUN_TEST(test_a2_a_refused_lm_stop_and_power_off_is_the_domains_failure);
+    RUN_TEST(test_a2_a_refused_lm_stop_with_no_domain_is_its_mapped_status);
+    RUN_TEST(test_a2_an_lm_stop_never_answered_is_a_timeout);
+    RUN_TEST(test_a2_with_neither_id_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a1_holds_the_phys_reset);
     RUN_TEST(test_a1_switches_the_phys_domain_off);
     RUN_TEST(test_a1_resets_then_powers_off_on_the_next_token);

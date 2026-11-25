@@ -1079,7 +1079,7 @@ $(BOOT_TEST_DIR)/test_boot_hand_over_clear: test/unit/boot/test_boot_hand_over_c
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
         boot/boot_stage_none.c src/proto/frame.c \
         $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
 
 # The same hand-over on an unprovisioned device: cdi_soft.c as it ships, its
 # UDS slot erased.
@@ -1089,21 +1089,21 @@ $(BOOT_TEST_DIR)/test_boot_hand_over_erased: test/unit/boot/test_boot_hand_over_
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
         boot/boot_stage_none.c src/proto/frame.c \
         $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
 
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c src/proto/frame.c \
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The faults the session suite let through, planted in recovery_ota.c (#163):
 # linked exactly as above.
 $(BOOT_TEST_DIR)/test_boot_recovery_ota_mutate: test/unit/boot/test_boot_recovery_ota_mutate.c \
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c src/proto/frame.c \
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The settle against the floor's authority: the real boot_store.c over the mock
 # EEPROM, with the element's counter supplied by the test.
@@ -1162,7 +1162,7 @@ $(BOOT_TEST_DIR)/test_boot_hand_over_erased_2560: test/unit/boot/test_boot_hand_
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
         boot/boot_stage_none.c src/proto/frame.c \
         $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
 
 # And under the 32U4's, the third tfw-boot row in BOOT_SUPPORTED.
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_geometry_32u4
@@ -1258,20 +1258,20 @@ $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.
                                  boot/recovery/recovery_ota.c src/proto/frame.c \
                                  boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same link under a journal and a confirm request rewritten at random (#77).
 $(BOOT_TEST_DIR)/test_boot_swap_mutate: test/unit/boot/test_boot_swap_mutate.c boot/boot_swap.c \
                                         boot/recovery/recovery_ota.c src/proto/frame.c \
                                         boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_recovery_ota_swap_mutate: test/unit/boot/test_boot_recovery_ota_swap_mutate.c boot/boot_swap.c \
                                         boot/recovery/recovery_ota.c src/proto/frame.c \
                                         boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Iboot/hal/host $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The 328P's fallback (#52): PREV copied back by the store's copy loop, under
 # the host board's profile, which is the 328P's.

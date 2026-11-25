@@ -30,6 +30,9 @@
 enum { WIRE_SERIAL = 0u, WIRE_TCP = 1u };
 
 #define RX_MASK (TFW_H5_WIRE_RX_RING - 1u)
+_Static_assert(TFW_H5_WIRE_RX_RING != 0u &&
+               (TFW_H5_WIRE_RX_RING & (TFW_H5_WIRE_RX_RING - 1u)) == 0u,
+               "TFW_H5_WIRE_RX_RING must be a power of two: RX_MASK wraps the ring indexes");
 
 static uint8_t  rx_ring[TFW_H5_WIRE_RX_RING];
 static uint16_t rx_head;

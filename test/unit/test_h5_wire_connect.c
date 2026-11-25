@@ -582,6 +582,40 @@ static void test_a_request_split_across_a_pbuf_chain_is_answered(void)
     TEST_ASSERT_EQUAL_UINT(0, close_calls);
 }
 
+/* A full lwIP receive window, TCP_WND bytes in a two-pbuf chain, lands whole:
+ * the ring takes every byte (it holds TFW_H5_WIRE_RX_RING - 1, at least
+ * TCP_WND), the transport reads them all and reopens the whole window, and the
+ * request at the window's very end, behind filler the framer drops, is
+ * answered. */
+static void test_a_full_receive_window_lands_whole(void)
+{
+    static uint8_t window[TCP_WND];
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 17u, TFW_CMD_CAPS, 0, 0u);
+    struct pbuf a, b;
+
+    TEST_ASSERT_TRUE(len > 0u && len <= TCP_WND / 2u);
+    memset(window, 0x00, sizeof window);
+    memcpy(window + sizeof window - len, wire, len);
+    memset(&a, 0, sizeof a);
+    memset(&b, 0, sizeof b);
+    a.payload = window;
+    a.len     = (u16_t)(TCP_WND / 2u);
+    a.tot_len = (u16_t)TCP_WND;
+    a.next    = &b;
+    b.payload = window + TCP_WND / 2u;
+    b.len     = (u16_t)(TCP_WND - TCP_WND / 2u);
+    b.tot_len = b.len;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &conn, &a, ERR_OK));
+    for (unsigned i = 0u; i < 64u && recved_total < TCP_WND; i++) {
+        tfw_transport_poll(&t);
+    }
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(answered(17u));
+    TEST_ASSERT_EQUAL_UINT(TCP_WND, recved_total);
+    TEST_ASSERT_EQUAL_UINT(0, close_calls);
+}
+
 /* hal_eth_wire_tcp.c:221-222: tcp_close fails, so the pcb is aborted. */
 static void test_a_close_with_no_memory_for_the_fin_resets(void)
 {
@@ -615,6 +649,7 @@ int main(void)
     RUN_TEST(test_a_write_lwip_refuses_sends_nothing);
     RUN_TEST(test_a_send_larger_than_the_send_buffer_is_clipped_to_it);
     RUN_TEST(test_a_request_split_across_a_pbuf_chain_is_answered);
+    RUN_TEST(test_a_full_receive_window_lands_whole);
     RUN_TEST(test_a_close_with_no_memory_for_the_fin_resets);
     return UNITY_END();
 }

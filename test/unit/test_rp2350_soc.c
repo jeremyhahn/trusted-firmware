@@ -102,6 +102,22 @@ static void test_uart_divisors_at_the_edges_of_the_integer_range(void)
     TEST_ASSERT_EQUAL_UINT32(0u, fbrd);
 }
 
+static void test_uart_divisors_refuse_a_fraction_on_the_largest_integer(void)
+{
+    uint32_t ibrd = 0xA5u;
+    uint32_t fbrd = 0x5Au;
+
+    /* 4 * 1048563 = 4194252 = 65535 * 64 + 12: at IBRD 65535 the fraction
+     * must be 0 ([RP-DS] §12.1.7.1), so refused, both left as they were */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_rp_uart_divisors(1048563u, 1u, &ibrd, &fbrd));
+    TEST_ASSERT_EQUAL_UINT32(0xA5u, ibrd);
+    TEST_ASSERT_EQUAL_UINT32(0x5Au, fbrd);
+    /* 4 * 1048560 = 4194240 = 65535 * 64: the largest divisor, kept */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_uart_divisors(1048560u, 1u, &ibrd, &fbrd));
+    TEST_ASSERT_EQUAL_UINT32(65535u, ibrd);
+    TEST_ASSERT_EQUAL_UINT32(0u, fbrd);
+}
+
 static void test_pad_value_input_and_output(void)
 {
     /* IE, 4 mA drive, Schmitt; ISO, OD, PUE and PDE clear */
@@ -192,6 +208,7 @@ int main(void)
     RUN_TEST(test_uart_divisors_match_the_datasheet_worked_example);
     RUN_TEST(test_uart_divisors_refuse_what_the_part_cannot_make);
     RUN_TEST(test_uart_divisors_at_the_edges_of_the_integer_range);
+    RUN_TEST(test_uart_divisors_refuse_a_fraction_on_the_largest_integer);
     RUN_TEST(test_pad_value_input_and_output);
     RUN_TEST(test_pad_value_input_pullup);
     RUN_TEST(test_i2c_timing_fast_mode_at_12mhz);

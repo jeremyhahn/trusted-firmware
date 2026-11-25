@@ -99,3 +99,268 @@ for the owner's cable (CA).
 
 U-Boot has no `ahab_status` command; `ele_info` (display only) is its
 lifecycle read, and the first and last reads are identical.
+
+## Cortex-M7 image in RAM, console capture
+
+Row 428 follow-on (ruling 625 (3)). The board has no Ethernet cable; every
+step runs over the four-port USB-UART bridge on the board's debug USB (J22).
+Ports are named here by role, never by device path. Bridge ports 0 to 3 are
+the USB interfaces 0, 2, 4 and 6 of the Consoles row above.
+
+Rules in force: no serial break or SysRq on any port; no fuse, ELE
+lifecycle, SRK or secure-boot command; no write to eMMC; no `saveenv`.
+
+### 1. Board state before any load (2026-11-14)
+
+The four ports were opened at 115200 8N1, raw, `-hupcl`, and read for 8 s
+with nothing sent: all four were silent. One carriage return was then sent
+to each port, one at a time:
+
+| Bridge port | Role | Answer to CR |
+|---|---|---|
+| port 0 | A55 Linux console (`ttyLP0`) | root shell prompt |
+| port 1 | System Manager (M33) debug monitor | `>$` |
+| port 2 | M7 console (LPUART3), identified in section 3 | nothing (idle) |
+| port 3 | silent | nothing |
+
+A55 (Linux), read-only commands:
+
+```
+Linux ... 6.18.20-2.0.0-gb096ce610e95 #1 SMP PREEMPT Tue Jun  9 02:25:20 UTC 2026 aarch64
+ID=fsl-imx-xwayland  NAME="NXP i.MX Distro with Wayland and XWayland"
+cmdline: console=ttyLP0,115200 earlycon root=(eMMC p2) rootwait rw
+remoteproc0 neutron-rproc offline
+remoteproc1 imx-rproc     attached   (firmware: unknown)
+imx-rproc imx95-cm7: Using LMM Protocol OPS
+imx-rproc imx95-cm7: lmm(1) not under Linux Control
+remoteproc remoteproc1: remote processor imx-rproc is now attached
+/lib/firmware: NXP imx95-15x15-evk_m7_TCM_* demo images (hello_world,
+               power_mode_switch, rpmsg_lite_pingpong_rtos_linux_remote)
+```
+
+System Manager monitor, read-only commands (`info`, `lm info`, `cpu.r`):
+
+```
+SM Version    = Build 896, Commit 44f76dcb
+SM Config     = mx95frdm-pro, mSel=0
+Silicon       = i.MX95 B0, MIMX9596XVZXNAC
+Boot mode     = normal   Boot device = MMC1   Boot stage = primary   Boot set = 1
+lm info:  000: SM = on   001: M7 = on   002: AP = on (default)
+cpu.r:    001: m7p => run-mode = RUN, slp-mode = RUN, vector = 0x00000000_00000000
+          a55c0..5 vector = 0x00000000_8A200178
+```
+
+Reading: the SM boots the M7 in its own logical machine (LM1) from the
+boot container at reset, with its vector at 0 (ITCM). Linux only attaches
+to it (`not under Linux Control`): the LM is not Linux's to stop, load or
+start, so the remoteproc path in the brief is closed on this SM
+configuration (no remoteproc state change was tried). The M7 is controlled from the SM monitor (`lm`).
+
+### 2. Build
+
+```
+make BOARD=frdm-imx95-m7 firmware
+frdm-imx95-m7 flash  10696 / 196608 ( 4% of part)   ram   816 / 65536 ( 0% of part)
+built build/frdm-imx95-m7/soft/trusted-firmware.hex
+```
+
+`arm-none-eabi-objcopy -O binary` gives a 10 696-byte image for ITCM
+`0x00008000` (A55 view `0x203C8000`); its vector table opens with SP
+`0x2003FF80`, reset `0x0000A061`. The image carries `.resource_table`.
+
+### 3. Load attempts (RAM only): every route is closed on mSel=0
+
+| Route | Command | Result |
+|---|---|---|
+| Linux remoteproc | (state read only) | `lmm(1) not under Linux Control`: attach only, no stop, no start, no firmware load |
+| A55 write to the TCM through `/dev/mem` | read 16 bytes at `0x203C0000` with `mmap` | `Bus error` (SIGBUS) in the process; the kernel is unaffected. TRDC gives the AP domain no access to the M7 TCM |
+| SM monitor `md`/`mm` | `md 0x203C0000 8`, `md 0x90000000 4` | `????????` on the TCM and on DDR alike: the monitor reaches no memory outside its own |
+| SM monitor M7 vector | `cpu.w 1 vector` | `Invalid parameter(s)!`: the monitor sets no CPU vector |
+| U-Boot `loady` + `bootaux` | not run | U-Boot runs on the A55 in the same LM, under the same TRDC as Linux, and NXP's `bootaux` on i.MX 95 needs the M7 LM under AP control |
+
+The M7 LM is booted only by the SM, from the M7 image in the eMMC boot
+container. Loading our image therefore needs one of: a boot container with
+our M7 image (an eMMC write, forbidden in this lane), the SM configuration
+with the M7 under AP control (`mSel` 1, also set in the boot container), or a
+serial-download boot of a new container (boot-mode switches and a USB
+cable: a person at the bench). Each is an owner decision.
+
+#### M7 console identified (vendor image)
+
+`lm reset 1` on the SM monitor, meant for the M7, rebooted the A55 instead,
+and the M7 kept running. Why is not known: the monitor's `lm` argument may
+not be the `lm info` row number. The vendor M7
+image, still running, printed on port 2 while Linux rebooted:
+
+```
+Other side(AP) entered poweroff state through linux command: poweroff
+Handle Peer Core Reboot
+Handle Peer Core Linkup
+```
+
+So port 2 is the M7 console at 115200 8N1. After the reboot the board was
+in its section-1 state again: Linux up, `remoteproc1 attached`, SM
+`lm info` all three on. Nothing was written to eMMC, fuses or the ELE.
+Before the next `lm` command, confirm which LM its argument names
+(NXP's SM monitor documentation).
+
+Our image's console output is not captured: no RAM-only loader exists on
+this board as configured.
+
+## imx-boot with our M7 image (ruling 644)
+
+Tenant Agent ruling 644 (1): the board is a dev board with full write access
+(owner 10-16); load the M7 image the non-volatile way, in the boot container
+(imx-boot) that the System Manager boots LM1 from.
+
+Plan, in order:
+
+1. Read the current boot container from the eMMC user area (image set 0 at
+   offset 0x8000, the Boot ROM path row above) from the A55 Linux, copy it to
+   the bench host, and record its SHA-256, size, device and offset here,
+   matching on both sides. The backup binary stays on the bench host, out of
+   git.
+2. Build an unsigned imx-boot that carries our Cortex-M7 image for LM1, from
+   the same SoC firmware pieces as the board's container (ELE firmware,
+   OEI, System Manager with the same mSel 0 configuration, TF-A, U-Boot):
+   only the M7 image changes.
+3. Write it from the A55 Linux to the same device and offset, `sync`, read it
+   back and compare digests.
+4. `reboot` from the A55 console; capture port 2 (the M7 console) for our
+   banner and port 0 for U-Boot.
+
+Recovery path, stated before any write (ruling 644 (1)): restore the backup
+from the A55 Linux; if the board does not boot, uuu over USB serial
+download, which needs the owner to set SW4.
+
+Rules: no fuse, OTP, ELE lifecycle or SRK command; no signed or
+AHAB-authenticated container; the write touches the boot container location
+only (no other partition, no `saveenv`, no rootfs change); no serial break.
+
+### 1. Backup of the boot container (2026-11-14)
+
+The board's Ethernet is now up on the development network; every A55 command
+below ran over SSH as root, in the foreground, its output captured. The
+partition table puts p1 at sector 16384, so the image set lives in the user
+area between 32 KiB and 8 MiB:
+
+```
+dd if=/dev/mmcblk0 of=emmc-head-8M.bin  bs=512 count=16384           # sectors 0..16383, MBR included
+dd if=/dev/mmcblk0 of=imx-boot-orig.bin bs=512 skip=64 count=16320   # offset 0x8000 (32 KiB) to 8 MiB
+```
+
+| File | Device, offset | Size | SHA-256 (board and bench host alike) |
+|---|---|---|---|
+| imx-boot-orig.bin | eMMC user area (`mmcblk0`), 0x8000 | 8355840 | `1d775624af162149a6c974d8c838b8b618f027bcf70dad5dc9a1c397a890081f` |
+| emmc-head-8M.bin | eMMC user area, 0x0 | 8388608 | `f2168cefa7eed2dd098bdf20f35d86a624bf4cf7e9e274aa4c48c529c920daa5` |
+
+Copied off the board with `scp` and hashed again on the bench host. Both
+files stay on the board (`/root/imxboot-backup/`) and in the lane clone's
+`build/imx95-imxboot/`; neither is in git (NXP firmware).
+
+The image set it holds (offsets from 0x8000):
+
+| At | Container | Images |
+|---|---|---|
+| 0x0000 | ELE firmware, NXP-signed | ELE image at 0xC000, 0xE1D0 bytes |
+| 0x8000 | boot container, version 2, unsigned (signature block without a signature), every image SHA-384 | 0: DDR training data marker; 1: OEI (M33, 0x1FFC0000); 2: System Manager (M33); 3: M7, 0x8C00 bytes at 0x303C0000 (ITCM base), entry 0; 4: U-Boot SPL (A55, 0x20480000); 5: dummy at 0x8B000000 |
+| 0xEA800 | second container, unsigned | TF-A at 0x8A200000, U-Boot at 0x90200000, OP-TEE at 0x8C000000 |
+
+### 2. Build
+
+The SM starts the M7 at vector 0 (the ITCM base), where the board's map
+reserves tfw-boot, which is not built for this board. The bench image is
+therefore our application linked at ITCM 0:
+
+```
+make BOARD=frdm-imx95-m7 APP_BASE=0x00000000 BOOT_SECTION=0 BUILD_DIR=build/imx95-imxboot/m7-at-0 firmware
+arm-none-eabi-objcopy -O binary build/imx95-imxboot/m7-at-0/frdm-imx95-m7/soft/trusted-firmware.elf m7-at-0.bin
+./imx-boot-m7.py imx-boot-orig.bin m7-at-0.bin imx-boot-m7.bin
+```
+
+The container tool was a bench-only script, since removed from this
+repository: trusted-imx95 owns the boot container
+([imx95-design R12](../../multi-arch/imx95-design.md)). The same ITCM-0
+image is now built with
+`make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware`
+([board page](../../boards/frdm-imx95-m7.md)).
+
+11216 bytes, initial SP `0x2003FF80`, reset `0x00002245`. The bench script
+does what imx-mkimage's
+`-m7 <image> 0 0x303C0000` does without rebuilding the rest: it replaces
+entry 3's data (padded to 0x2C00), size and SHA-384 and zeroes the rest of
+its slot. Every other byte of the image set is the board's: the ELE
+container, OEI, the System Manager with its mSel 0 configuration, SPL, TF-A,
+U-Boot and OP-TEE. Changed bytes span 0x8195 to 0xC03AB only (the entry and
+the M7 slot); `imx-boot-m7.py --show` checks every SHA-384 again.
+
+imx-boot-m7.bin: 8355840 bytes, SHA-256
+`2babcf24c5b1e65a8dce8f00ee3413b5692faa464ed9a9defe14a119e33f285c`.
+
+### 3. Write and read-back
+
+Copied to the board with `scp`; its SHA-256 on the board matched, and the
+device still read as the backup just before the write. Then, from the A55
+Linux:
+
+```
+dd if=imx-boot-m7.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # rc 0
+sync
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 2babcf24...f285c, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # first 32 KiB unchanged (MBR)
+```
+
+### 4. Boot and the M7 console
+
+All four ports were read for the whole of each step; nothing but the one
+command line was sent, and no break.
+
+**Linux `reboot` (A55 console, port 0).** The A55 went through U-Boot SPL,
+U-Boot and Linux to the login prompt, `remoteproc1` attached again. As the
+reset-behaviour section says, this resets the A55 LM only: the M7 kept the
+vendor image, which printed on port 2 `Handle Peer Core Reboot` and
+`Handle Peer Core Linkup`. The ROM did not read the new container.
+
+**System reset (SM monitor `reset`, port 1).** The vendor M7 printed
+`SCMI system notification: graceful=0, state=0x8` and was cut off. The SM
+console then showed the whole boot from the new container:
+
+```
+Reset request: reason=sw, errId=0, srcLm=0
+DDR OEI: (Build 217, Commit e9bce6f4, Jun 16 2026 06:04:20)
+DDR OEI: Compiled for SOC MIMX95(B0), Board mx95lp5
+DDR OEI: done, err = 0
+Hello from SM (Build 896, Commit 44f76dcb, Jun 16 2026 06:04:24)
+```
+
+The A55 reached U-Boot and the Linux login. SM `lm info`: SM, M7, AP all
+`on`; `cpu.r`: `m7p => run-mode = RUN, vector = 0x00000000_00000000`. So
+the ROM and ELE accepted the container, and the SM started LM1 at ITCM 0 on
+our image.
+
+**Port 2 stayed silent** for the 120 s after the reset: our image's boot
+event (`TFW_EVENT_BOOT`, the first frame `main` sends) did not appear.
+Reason, from NXP's FRDM-IMX95 M7 board support (mcuxsdk-examples,
+`_boards/frdmimx95/common/pin_mux/pin_mux.c`, `BOARD_InitPins`): the M7
+console pads, GPIO_IO14 (LPUART3 TX) and GPIO_IO15 (LPUART3 RX), are muxed
+by the M7 image itself at startup, through SCMI pin control to the System
+Manager (`HAL_PinctrlSetPinMux`), which owns the IOMUXC. The vendor image did
+that before the reset; a system reset returns the pads to their default, and
+our image has no SCMI channel (`TFW_IMX95_SCMI_MU_BASE` is 0 in
+`board_profile.h`), so its LPUART3 drives no pad. Also open: the M7 NVIC line
+of LPUART3 (64, TO CONFIRM in `soc_regs.h`), which our transmit path needs.
+
+### 5. Board state after this lane
+
+The eMMC boot container is imx-boot-m7.bin (our M7 image, silent); the
+board boots to Linux as before, the M7 runs our image. To return to the
+vendor image: `dd if=imx-boot-orig.bin of=/dev/mmcblk0 bs=512 seek=64
+conv=fsync,notrunc` from the A55 Linux (the backup is on the board and the
+bench host), then SM `reset`. Not done: the next step only replaces the M7
+image again.
+
+Next (a firmware slice, not a bench one): an SCMI pin-control request at
+startup that muxes GPIO_IO14/15 to LPUART3, which needs the M7 agent's SCMI
+MU and shared memory (board_profile.h, zero today) and the SM's pin ids;
+then the LPUART3 NVIC line confirmed. Then rebuild, rerun
+`imx-boot-m7.py`, write, SM `reset`, read port 2.

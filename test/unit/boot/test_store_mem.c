@@ -167,6 +167,25 @@ static void test_boot_refuses_what_it_does_not_model(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(read, 0u, out, 0u));
 }
 
+/* boot_ota_store_cortex-m.c:61 refuses clen 0 before cmd[0] is read: only a
+ * NULL command shows it, as every opcode check refuses a real buffer anyway. */
+static void test_boot_an_empty_command_is_refused_without_reading_it(void)
+{
+    uint8_t prog[5] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u };
+    uint8_t out[4];
+
+    memset(out, 0x5A, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(NULL, 0u, out, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(NULL, 0u, out, sizeof out));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x5Au, out, sizeof out);
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+
+    /* An empty command sets no write-enable latch. */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(NULL, 0u, out, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 5u, prog, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_store_mem_model[0]);
+}
+
 /* boot_ota_store_cortex-m.c:66, OP_JEDEC: a long command or a long read. */
 static void test_boot_jedec_with_a_long_command_or_a_long_read_is_refused(void)
 {
@@ -237,6 +256,28 @@ static void test_boot_read_starting_past_the_span_is_refused(void)
     TEST_ASSERT_EQUAL_HEX8(0xEEu, out);
 }
 
+static void test_boot_a_write_enable_does_not_outlive_its_session(void)
+{
+    uint8_t wren = 0x06u;
+    uint8_t prog[6] = { 0x02u, 0x00u, 0x00u, 0x08u, 0x0Fu, 0xF0u };
+
+    /* A WREN left set at close dies there, not only at the next open:
+     * a program before any open is refused, and still is after it. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_cmd(&wren, 1u, &wren, 0u));
+    tfw_boot_store_close();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_open());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+
+    /* An open over a session never closed clears it too. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_cmd(&wren, 1u, &wren, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_open());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(prog, 6u, prog, 0u));
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -251,11 +292,13 @@ int main(void)
     RUN_TEST(test_boot_status_is_never_busy);
     RUN_TEST(test_boot_program_needs_a_write_enable_each_time_and_only_clears_bits);
     RUN_TEST(test_boot_refuses_what_it_does_not_model);
+    RUN_TEST(test_boot_an_empty_command_is_refused_without_reading_it);
     RUN_TEST(test_boot_jedec_with_a_long_command_or_a_long_read_is_refused);
     RUN_TEST(test_boot_status_with_a_long_command_is_refused);
     RUN_TEST(test_boot_write_enable_with_extra_bytes_is_refused_and_sets_no_latch);
     RUN_TEST(test_boot_program_shorter_than_its_address_or_with_a_read_is_refused);
     RUN_TEST(test_boot_program_past_the_span_is_refused_and_touches_nothing);
     RUN_TEST(test_boot_read_starting_past_the_span_is_refused);
+    RUN_TEST(test_boot_a_write_enable_does_not_outlive_its_session);
     return UNITY_END();
 }

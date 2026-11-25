@@ -11,7 +11,9 @@
  *
  *   tfw_hal_gpio_mode   output accepted, both input modes TFW_ERR_UNSUPPORTED,
  *                       and no register written either way
- *   tfw_hal_gpio_write  sets or clears its own LED bit, every other bit kept
+ *   tfw_hal_gpio_write  sets or clears its own LED bit, every other bit kept,
+ *                       reads and stores the word with interrupts masked and
+ *                       restores the caller's mask
  *   tfw_hal_gpio_read   the LED register's bit for the pin
  *   any pin outside the table (another port, a bit past the LEDs) is
  *   TFW_ERR_BAD_PIN, and the LED register is not touched
@@ -122,6 +124,36 @@ void test_read_returns_the_level_last_written(void)
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 }
 
+/* The tone's TIMER0 handler toggles its own bit of the LED word: the
+ * write's read and store both run with interrupts masked. */
+void test_write_touches_the_led_word_only_with_interrupts_masked(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 1u));
+    TEST_ASSERT_EQUAL_UINT(2u, led_accesses);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 0u));
+    TEST_ASSERT_EQUAL_UINT(4u, led_accesses);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED1, 1u));
+    TEST_ASSERT_EQUAL_UINT(6u, led_accesses);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED1, 0u));
+    TEST_ASSERT_EQUAL_UINT(8u, led_accesses);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mps2_model_led_unmasked);
+}
+
+void test_write_restores_an_unmasked_caller(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_mps2_model_irq_masked());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 1u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_mps2_model_irq_masked());
+}
+
+/* The write restores the state it saved, not "unmasked". */
+void test_write_keeps_a_masked_caller_masked(void)
+{
+    tfw_mps2_model_irq_mask();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED1, 1u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_mps2_model_irq_masked());
+}
+
 static void check_refused(const tfw_pinref_t *pin)
 {
     uint8_t level = 0x5Au;
@@ -165,6 +197,9 @@ int main(void)
     RUN_TEST(test_write_any_nonzero_level_is_high);
     RUN_TEST(test_read_returns_the_pins_bit);
     RUN_TEST(test_read_returns_the_level_last_written);
+    RUN_TEST(test_write_touches_the_led_word_only_with_interrupts_masked);
+    RUN_TEST(test_write_restores_an_unmasked_caller);
+    RUN_TEST(test_write_keeps_a_masked_caller_masked);
     RUN_TEST(test_a_bit_past_the_leds_is_refused);
     RUN_TEST(test_another_port_is_refused);
     return UNITY_END();

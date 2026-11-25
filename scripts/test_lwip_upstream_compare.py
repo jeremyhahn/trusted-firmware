@@ -61,6 +61,19 @@ class TestVendoredFiles(TempTree):
         self.assertEqual(check.vendored_files(self.root),
                          ["COPYING", "README", "src/a.c", "src/b/a.h", "src/b/z.c"])
 
+    def test_a_tree_with_no_src_directory_is_an_error(self):
+        for rel in ("COPYING", "README"):
+            write(self.root, rel, b"x")
+        with self.assertRaisesRegex(ValueError, "src holds no file"):
+            check.vendored_files(self.root)
+
+    def test_a_src_of_empty_directories_is_an_error(self):
+        for rel in ("COPYING", "README"):
+            write(self.root, rel, b"x")
+        os.makedirs(os.path.join(self.root, "src", "core"))
+        with self.assertRaisesRegex(ValueError, "src holds no file"):
+            check.vendored_files(self.root)
+
 
 class TestCompare(TempTree):
     def compare(self, mine, theirs, where="upstream"):
@@ -128,6 +141,25 @@ class TestMain(TempTree):
         rc, out, err = self.main(["x", "--archive", self.root, "file://" + tar, sha.upper()])
         self.assertEqual(rc, 0, out + err)
         self.assertIn("lwip-upstream-check: PASS: 3 vendored files", out)
+
+    def no_src_tree(self):
+        for rel in ("COPYING", "README"):
+            write(self.root, rel, b"x")
+
+    def test_archive_mode_fails_a_tree_with_no_src_before_any_fetch(self):
+        self.no_src_tree()
+        rc, out, err = self.main(["x", "--archive", self.root,
+                                  "file://" + os.path.join(self.tmp, "nowhere.tar.gz"), "0" * 64])
+        self.assertEqual(rc, 1, out + err)
+        self.assertIn("lwip-upstream-check: FAIL:", out)
+        self.assertNotIn("SKIP", out)
+
+    def test_git_mode_fails_a_tree_with_no_src_before_any_fetch(self):
+        self.no_src_tree()
+        rc, out, err = self.main(["x", self.root, "file://" + os.path.join(self.tmp, "nowhere"), "0" * 40])
+        self.assertEqual(rc, 1, out + err)
+        self.assertIn("lwip-upstream-check: FAIL:", out)
+        self.assertNotIn("SKIP", out)
 
 
 if __name__ == "__main__":

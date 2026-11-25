@@ -256,6 +256,19 @@ static void test_gpio_input_reads_pdir(void)
     TEST_ASSERT_EQUAL_UINT8(0u, lvl);
 }
 
+/* The bank is shared with the A55 and other cores: OUTPUT sets one PDDR bit only. */
+static void test_gpio_output_keeps_the_banks_other_directions(void)
+{
+    const tfw_pinref_t pin = { .port = 1u, .bit = 0u };
+
+    m->gpio[1].pddr = 0x80000002u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x80000003u, m->gpio[1].pddr);    /* bits 1, 31 untouched */
+    TEST_ASSERT_EQUAL_UINT32(0u, m->gpio[1].pddr_unmasked);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->gpio[0].pddr | m->gpio[2].pddr);
+}
+
 static void test_gpio_pullup_is_unsupported_and_writes_nothing(void)
 {
     const tfw_pinref_t pin = { .port = 1u, .bit = 0u };
@@ -368,6 +381,7 @@ int main(void)
     RUN_TEST(test_the_interrupt_clears_an_overrun);
     RUN_TEST(test_gpio_output_drives_psor_and_pcor);
     RUN_TEST(test_gpio_input_reads_pdir);
+    RUN_TEST(test_gpio_output_keeps_the_banks_other_directions);
     RUN_TEST(test_gpio_pullup_is_unsupported_and_writes_nothing);
     RUN_TEST(test_gpio_past_the_banks_is_bad_pin);
     RUN_TEST(test_early_disarms_the_watchdog);

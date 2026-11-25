@@ -3,9 +3,11 @@
 /*
  * Tone: a 50 % square wave on any GPIO, from an LEDC timer and channel the
  * PWM table never names (the last of each), so a tone never steals a PWM
- * output. One tone at a time, as on the AVR.
+ * output. One tone at a time on one pin, as on the AVR: a start on another
+ * pin takes the old pin back, as MODE does (#48).
  */
 
+#include "driver/gpio.h"
 #include "driver/ledc.h"
 
 #include "tfw/hal.h"
@@ -20,7 +22,8 @@ static uint8_t running;
 static int     tone_gpio = -1;    /* the pin the LEDC channel drives */
 /* The pin whose pad output the LEDC channel holds through the GPIO matrix.
  * A stop leaves it there, driving the idle level, so it outlives `running`:
- * only MODE's gpio_reset_pin takes the pin back (#561, Codex P1). */
+ * only MODE's gpio_reset_pin, or a start on another pin, takes the pin back
+ * (#561, Codex P1; #48). */
 static int     owned_gpio = -1;
 
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
@@ -51,6 +54,11 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         if (ledc_channel_config(&chan) != ESP_OK) {
             return TFW_ERR_INTERNAL;
         }
+    }
+    /* ledc_channel_config leaves the old pin routed to the channel too; it was
+     * a pin the channel accepted, so a valid GPIO and the reset cannot fail. */
+    if (owned_gpio >= 0 && owned_gpio != p->gpio) {
+        (void)gpio_reset_pin((gpio_num_t)owned_gpio);
     }
     running    = 1u;
     tone_gpio  = p->gpio;

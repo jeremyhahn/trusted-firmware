@@ -384,6 +384,16 @@ func TestTrailerOfSegments(t *testing.T) {
 	}
 }
 
+func TestTrailerOfRefusesAnUnknownTrailerVersion(t *testing.T) {
+	for _, v := range []uint16{0, 2} {
+		img := imageOf([]int{32}, 9)
+		binary.LittleEndian.PutUint16(img[len(img)-trailerLen+trVersion:], v)
+		if _, _, err := trailerOf(img); err == nil {
+			t.Errorf("trailer_version %d: no error", v)
+		}
+	}
+}
+
 // imageOf is image() with the given segment lengths.
 func imageOf(segs []int, version uint32) []byte {
 	img := make([]byte, espHeaderLen)
@@ -401,6 +411,7 @@ func imageOf(segs []int, version uint32) []byte {
 	img = append(img, digest[:]...)
 	tr := make([]byte, trailerLen)
 	binary.LittleEndian.PutUint32(tr, trailerMagic)
+	binary.LittleEndian.PutUint16(tr[trVersion:], trailerVersion)
 	binary.LittleEndian.PutUint32(tr[trImageVersion:], version)
 	copy(tr[trMeasurement:], digest[:])
 	return append(img, tr...)

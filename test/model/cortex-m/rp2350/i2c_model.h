@@ -33,6 +33,10 @@ struct rp2350_i2c_model {
     uint8_t  stuck;            /* the bus is held: no command completes */
     uint8_t  never_idle;       /* the controller never reports disabled */
     uint8_t  no_stop_on_abrt;  /* an abort leaves the bus without a STOP */
+    uint8_t  arb_lost_at;      /* 0: never; n: another master wins the bus
+                                * during the nth data byte written (1-based) */
+    uint32_t arb_lost_src;     /* 0: bit 12; else the IC_TX_ABRT_SOURCE bits
+                                * the arb_lost_at abort raises */
     uint8_t  late_stop;        /* another master's STOP shows while the last
                                 * command waits; that command goes out on the
                                 * third STATUS read after */

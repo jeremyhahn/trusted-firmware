@@ -46,11 +46,28 @@ const (
 \tBoardAlpha       BoardID = 0x01
 \tBoardTiny        BoardID = 0x04
 \tboardAVRFirst    BoardID = 0x01
+\tboardAVRLast     BoardID = 0x3F
+\tboardCortexFirst BoardID = 0x40
+\tboardCortexLast  BoardID = 0x7F
+\tboardOtherFirst  BoardID = 0x80
+\tboardOtherLast   BoardID = 0xBF
 )
 
 var boardNames = map[BoardID]string{
 \tBoardAlpha: "alpha",
 \tBoardTiny:  "tiny",
+}
+
+func (b BoardID) Family() string {
+\tswitch {
+\tcase b >= boardAVRFirst && b <= boardAVRLast:
+\t\treturn "avr"
+\tcase b >= boardCortexFirst && b <= boardCortexLast:
+\t\treturn "cortex-m"
+\tcase b >= boardOtherFirst && b <= boardOtherLast:
+\t\treturn "esp32/other"
+\t}
+\treturn "unallocated"
 }
 """
 
@@ -285,6 +302,38 @@ class TestIds(FixtureTree):
     def test_go_name_without_a_constant_fails(self):
         self.edit("sdk/go/boardid.go", "}\n", '\tBoardGhost: "ghost",\n}\n')
         self.assertFails("boardNames names BoardGhost, which is not a BoardID constant")
+
+    def test_go_family_range_narrower_than_the_registry_fails(self):
+        self.edit("sdk/go/boardid.go", "boardCortexLast  BoardID = 0x7F", "boardCortexLast  BoardID = 0x6F")
+        self.assertFails(
+            "docs/boards/board-id-registry.md: range 0x40-0x7F (cortex-m) is not a Family() case in sdk/go/boardid.go",
+            "sdk/go/boardid.go: Family() gives cortex-m for 0x40-0x6F, which is not a range in "
+            "docs/boards/board-id-registry.md")
+
+    def test_go_family_name_not_the_registrys_fails(self):
+        self.edit("sdk/go/boardid.go", 'return "cortex-m"', 'return "cortexm"')
+        self.assertFails(
+            "docs/boards/board-id-registry.md: range 0x40-0x7F (cortex-m) is not a Family() case",
+            "sdk/go/boardid.go: Family() gives cortexm for 0x40-0x7F, which is not a range")
+
+    def test_go_family_case_on_an_undefined_constant_fails(self):
+        self.edit("sdk/go/boardid.go", "b <= boardOtherLast:", "b <= boardOtherEnd:")
+        self.assertFails(
+            "sdk/go/boardid.go: Family() case names boardOtherEnd, which is not a BoardID constant",
+            "docs/boards/board-id-registry.md: range 0x80-0xBF (esp32/other) is not a Family() case")
+
+    def test_go_family_unreadable_fails(self):
+        self.edit("sdk/go/boardid.go", "\tswitch {", "\tif r, ok := familyOf(b); ok {\n\t\treturn r\n\t}\n\tswitch {")
+        self.edit("sdk/go/boardid.go", "case b >= boardAVRFirst && b <= boardAVRLast:", "case inAVR(b):")
+        self.edit("sdk/go/boardid.go", "case b >= boardCortexFirst && b <= boardCortexLast:", "case inCortex(b):")
+        self.edit("sdk/go/boardid.go", "case b >= boardOtherFirst && b <= boardOtherLast:", "case inOther(b):")
+        self.assertFails("sdk/go/boardid.go: Family() has no range case board-check can read")
+
+    def test_registry_range_with_no_go_case_fails(self):
+        self.edit("docs/boards/board-id-registry.md", "| `0xC0`-`0xFF` |",
+                  "| `0xC0`-`0xDF` | Spare | `spare` |\n| `0xC0`-`0xFF` |")
+        self.assertFails(
+            "docs/boards/board-id-registry.md: range 0xC0-0xDF (spare) is not a Family() case in sdk/go/boardid.go")
 
 
 class TestBudgets(FixtureTree):

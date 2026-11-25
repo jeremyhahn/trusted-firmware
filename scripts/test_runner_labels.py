@@ -154,11 +154,83 @@ def _value(text):
 
 
 def _unquote(text):
-    """Return a scalar stripped of blanks and of the quotes around it."""
+    """Return a scalar stripped of blanks and, when quoted, decoded (see
+    _decode_quoted)."""
     text = text.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
-        text = text[1:-1]
+        text = _decode_quoted(text)
     return text
+
+
+# YAML 1.2 double-quoted escapes: one character, and hex escapes by length.
+ESCAPES = {
+    "0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n",
+    "v": "\v", "f": "\f", "r": "\r", "e": "\x1b", " ": " ", '"': '"',
+    "/": "/", "\\": "\\", "N": chr(0x85), "_": chr(0xA0), "L": chr(0x2028),
+    "P": chr(0x2029),
+}
+HEX_ESCAPES = {"x": 2, "u": 4, "U": 8}
+
+
+def _decode_quoted(text):
+    """Return the content of a quoted scalar (quotes included in text) as
+    YAML 1.2 decodes it: in single quotes `''` is `'`; in double quotes the
+    escapes of ESCAPES and HEX_ESCAPES are decoded. Line folding: a line's
+    trailing blanks (not escaped ones) and the next line's leading blanks are
+    dropped, one line break is a space and n breaks (n - 1 empty lines) are
+    n - 1 newlines; in double quotes a `\\` at the end of a line joins it to
+    the next with nothing. An unknown or short escape is not decoded: the
+    content is returned raw, so the label fails closed."""
+    quote, inner = text[0], text[1:-1]
+    rows = inner.split("\n")
+    out, joined, empty = "", None, 0
+    for k, row in enumerate(rows):
+        last = k == len(rows) - 1
+        if k:
+            row = row.lstrip(" \t")
+            if not row and not last:
+                empty += 1
+                continue
+        chars, escaped_break, j = [], False, 0
+        while j < len(row):
+            c = row[j]
+            if quote == "'" or c != "\\":
+                if quote == "'" and row.startswith("''", j):
+                    chars.append(("'", True))
+                    j += 2
+                else:
+                    chars.append((c, False))
+                    j += 1
+                continue
+            e = row[j + 1 : j + 2]
+            if not e:
+                if last:
+                    return inner
+                escaped_break = True
+                break
+            if e in ESCAPES:
+                chars.append((ESCAPES[e], True))
+                j += 2
+                continue
+            n = HEX_ESCAPES.get(e)
+            digits = row[j + 2 : j + 2 + n] if n else ""
+            if not n or len(digits) != n or not all(
+                d in "0123456789abcdefABCDEF" for d in digits
+            ):
+                return inner
+            code = int(digits, 16)
+            if code > 0x10FFFF:
+                return inner
+            chars.append((chr(code), True))
+            j += 2 + n
+        if not last and not escaped_break:
+            while chars and not chars[-1][1] and chars[-1][0] in " \t":
+                chars.pop()
+        if k:
+            out += "\n" * empty if joined or empty else " "
+        out += "".join(c for c, _ in chars)
+        joined, empty = escaped_break, 0
+    return out
 
 
 def _node(text):
@@ -383,7 +455,9 @@ def _scalar_lines(lines):
     never closes). A quote later in a plain scalar (`run: echo "x`) opens no
     quoted scalar. The quote is tracked on the comment-stripped value and
     ends at its closing quote, so a quote in a trailing comment
-    (`name: "CI" # "x`, `done" # "x`) opens nothing."""
+    (`name: "CI" # "x`, `done" # "x`) opens nothing. A value that opens a
+    flow (`{NOTE: "a`, `[ "a`) is walked to where the flow closes, and a
+    line of it that starts inside a quoted scalar is skipped too."""
     skip, i = set(), 0
     while i < len(lines):
         col, value = _line_node(lines[i])
@@ -395,14 +469,21 @@ def _scalar_lines(lines):
             ):
                 skip.add(i)
                 i += 1
-        elif node[:1] in ("'", '"'):
+        elif node[:1] in ("'", '"', "[", "{"):
+            flow = node[0] in "[{"
             scanner = _Scanner()
             for _ in scanner.feed(_strip_comment(value)):
                 pass
-            while scanner.quote is not None and i < len(lines):
-                skip.add(i)
-                for _ in scanner.feed(lines[i]):
-                    if scanner.quote is None:
+            while i < len(lines) and (
+                scanner.quote is not None or (flow and scanner.nest > 0)
+            ):
+                if scanner.quote is not None:
+                    skip.add(i)
+                scanner.prev = " "
+                for _, c, top in scanner.feed(lines[i]):
+                    if _is_comment(scanner, c, top):
+                        break
+                    if not flow and scanner.quote is None:
                         break
                 i += 1
     return skip
@@ -491,33 +572,55 @@ def _read_value(lines, i, col, value, skip):
     if value[len(_strip_comment(value)) :]:
         # A ` # comment` ends a plain scalar (an open quote has none).
         return node, i
-    scanner = _Scanner()
-    quoted = node[0] in "'\""
+    if node[0] in "'\"":
+        return _read_quoted(lines, i, col, node)
     parts, last = [node], i
-    for _ in scanner.feed(node):
-        pass
     for j in range(i + 1, len(lines)):
-        if quoted and scanner.quote is None:
-            break
         line = lines[j]
         if not line.strip():
             continue
-        if (j in skip and not quoted) or _indent(line) <= col:
-            # A quoted scalar's own continuation lines are in skip.
+        if j in skip or _indent(line) <= col:
             break
-        if not quoted and (
-            ENTRY.match(line) or ITEM.match(line) or line.lstrip().startswith("#")
-        ):
+        if ENTRY.match(line) or ITEM.match(line) or line.lstrip().startswith("#"):
             break
-        text = line.strip() if quoted else _strip_comment(line).strip()
-        scanner.prev = " "
-        for _ in scanner.feed(text):
-            pass
+        text = _strip_comment(line).strip()
         parts.append(text)
         last = j
-        if not quoted and text != line.strip():
+        if text != line.strip():
             break
     return " ".join(parts), last
+
+
+def _read_quoted(lines, i, col, node):
+    """Return (value, last) for a quoted scalar opened by node on line i: node
+    itself when its quote closes on line i (_labels decodes it), else the
+    raw lines up to its closing quote (blank ones included, nothing after the
+    quote) decoded as one _Decoded label; a scalar whose quote never closes
+    (end of file, or a non-blank line not deeper than col) is its stripped
+    lines joined with a blank, a label that fails closed."""
+    scanner = _Scanner()
+    for _ in scanner.feed(node):
+        pass
+    rows, last = [node], i
+    for j in range(i + 1, len(lines)):
+        if scanner.quote is None:
+            break
+        line = lines[j]
+        if line.strip() and _indent(line) <= col:
+            break
+        end = len(line)
+        for k, _c, _top in scanner.feed(line):
+            if scanner.quote is None:
+                end = k + 1
+                break
+        rows.append(line[:end])
+        if scanner.quote is None:
+            return _Decoded(_decode_quoted("\n".join(rows))), j
+        if line.strip():
+            last = j
+    if scanner.quote is None:
+        return node, i
+    return " ".join(r.strip() for r in rows if r.strip()), last
 
 
 def plain_labels(text):
@@ -551,7 +654,8 @@ def plain_labels(text):
     (`env: {RUNNER: &runner codex}`). An alias whose anchor is missing, comes
     later, or marks a block list, mapping or scalar yields the label
     `<unresolved alias *r>`, which no allowlist accepts, so the test fails
-    closed on it. A quoted label is read as written, unquoted once:
+    closed on it. A quoted label is unquoted and decoded once, as YAML
+    decodes it (escapes, `''`, line folding; see _decode_quoted):
     `"*r"`, `"&a linux"`, `"!!str linux"`, `"linux # x"` and `"'linux'"` are
     labels, not an alias, anchor, tag, comment or second quote.
 
@@ -1098,6 +1202,42 @@ class RunnerLabelsTest(unittest.TestCase):
                 line = (head + body).count("\n") + 2
                 found = self.check(head + body + after)
                 self.assertEqual(found, [f"w.yml:{line}: qwne"])
+
+    def test_a_quoted_scalar_in_a_flow_collection_is_not_a_key(self):
+        head = "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        after = "  next:\n    runs-on: qwne\n"
+        for body in (
+            '    env: {NOTE: "first\n      runs-on: qwne\n      last"}\n',
+            "    env: {NOTE: 'first\n      runs-on: qwne\n      last'}\n",
+            "    steps:\n      - uses: a/b@v1\n        with:\n"
+            '          labels: [ "a\n            runs-on: qwne\n            b" ]\n',
+        ):
+            with self.subTest(body=body):
+                line = (head + body).count("\n") + 2
+                found = self.check(head + body + after)
+                self.assertEqual(found, [f"w.yml:{line}: qwne"])
+
+    def test_a_quoted_label_is_decoded(self):
+        # The YAML escape backslash, u, 0063: the letter c.
+        U63 = "\\" + "u0063"
+        allowed = allowlist(ACTIONLINT) + ["codex"]
+        head = "jobs:\n  build:\n    runs-on: "
+        for value, want in (
+            ('"' + U63 + 'odex"', []),
+            (r'"\x63odex"', []),
+            (r'"co\U00000064ex"', []),
+            ('["' + U63 + 'odex"]', []),
+            ('"co\\\n      dex"', []),
+            ("'qw''ne'", ["w.yml:3: qw'ne"]),
+            (r'"qw\"ne"', ['w.yml:3: qw"ne']),
+            ('"co\n      dex"', ["w.yml:3: co dex"]),
+            ('"co\n\n      dex"', ["w.yml:3: 'co\\ndex'"]),
+            ("'co\n\n      dex'", ["w.yml:3: 'co\\ndex'"]),
+            # An unknown escape is not decoded: the raw label fails closed.
+            (r'"co\qdex"', [r"w.yml:3: co\qdex"]),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(self.check(head + value + "\n", allowed), want)
 
     def test_a_block_scalar_label_keeps_its_whitespace(self):
         allowed = allowlist(ACTIONLINT) + ["ci-gate"]

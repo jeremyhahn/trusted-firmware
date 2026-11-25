@@ -44,7 +44,7 @@ HELD_ESP_IDF="6.x is a major-version port of the ESP32-P4 work (#48, the #16 ADR
 # (go-quicraft 0cf97cd): the tools are static (CGO_ENABLED=0) and copied into
 # the Debian toolchain stage. GO_VERSION above and this tag must name the same
 # Go. Pinned by index digest.
-GO_IMAGE=golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
+GO_IMAGE=golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
 # --- CI tools (devops.md §8) -------------------------------------------------
 # The fleet template's pins (ci-template v1.18, go-quicraft 0cf97cd), built

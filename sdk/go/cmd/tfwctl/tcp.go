@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,8 +26,14 @@ func tcpAddr(port string) (addr string, ok bool, err error) {
 	if !ok {
 		return "", false, nil
 	}
-	if _, _, err := net.SplitHostPort(addr); err != nil {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
 		return "", true, fmt.Errorf("device address %q: want %shost:port: %w", port, tcpScheme, err)
+	}
+	// The device's network block refuses port 0, and a named port or an empty
+	// one would have tfwctl listen on a port the block never names.
+	if n, perr := strconv.ParseUint(p, 10, 16); perr != nil || n == 0 {
+		return "", true, fmt.Errorf("device address %q: want %shost:port: port %q must be a number 1-65535", port, tcpScheme, p)
 	}
 	return addr, true, nil
 }

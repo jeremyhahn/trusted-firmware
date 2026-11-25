@@ -37,7 +37,7 @@ confirmed against it.
 ### Build rows
 
 The ATmega328P is supported only with a secure element (owner ruling
-2026-10-17 (m522), item 79). `make firmware-matrix` builds and size-checks its
+2026-10-17, item 79). `make firmware-matrix` builds and size-checks its
 one row:
 
 | Row | Settings | Source |
@@ -71,7 +71,7 @@ in it. Each answers `TFW_ERR_UNKNOWN_CMD` with its `CAPS` bit clear:
 
 ### Soft root, Ethernet and ATTEST_CSR together (issue #53 T3)
 
-A dated record: measured before owner ruling 2026-10-17 (m522), which made the
+A dated record: measured before owner ruling 2026-10-17, which made the
 328P element-only, for the owner's T3/T4 decision on #53. Measured by CI's
 `size-check`, each from a clean tree. Rows A to C cannot be rebuilt now:
 `CRYPTO=soft` and `MEASURE_SOFT_CSR=1` are both refused on this board, and the
@@ -91,8 +91,8 @@ B and C are lower bounds. The soft provider has no P-256 signer:
 only refuse `ATTEST_CSR`, and a soft DeviceID's signer would add its size on
 top.
 
-What sheds first (m467): OTA goes before verify, and `BOOT_SIG=none` is never an
-option (m453). B has already shed OTA, since it is built without the stager, and
+What sheds first: OTA goes before verify, and `BOOT_SIG=none` is never an
+option. B has already shed OTA, since it is built without the stager, and
 it is still 814 bytes over before the signer is counted. On this part nothing
 left in the OTA class closes that gap. Without the stager the update path is
 serial and the boot's signature verify stays.

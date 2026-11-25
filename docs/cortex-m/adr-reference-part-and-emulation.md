@@ -1,6 +1,6 @@
 # ADR: the Cortex-M reference part and its CI emulation target
 
-> **Status: ACCEPTED (owner ruling 632 item 208 a, 2026-11-14)** · Issue: #14 · SPEC rows: `cortex-m` (future),
+> **Status: ACCEPTED** · Issue: #14 · SPEC rows: `cortex-m` (future),
 > `imx95`, `stm32h5`, `nrf54l15` · Scope: trusted-firmware only · Last verified: 2026-11-14
 >
 > Documentation only. No code, build file, board id or SPEC row changes with this
@@ -8,9 +8,9 @@
 > (named where it is used), and is a starting point for the owner, not a fact.
 
 
-## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
+## Accepted on 2026-11-14
 
-The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
+The owner ruled on 2026-11-14, verbatim:
 
 > "ADRs #14 and #15 adopt the i.MX 95 M7 reference part, QEMU mps2-an505
 > emulation, TF-M Profile Medium plus our DICE attestation partition on the M33
@@ -38,9 +38,9 @@ boards are the parts it is checked against, and `mps2-an505` stays the CI
 target. Question 1 now asks the owner to choose between the two. Decisions 2 to
 8 are unchanged.
 
-## Changes on 2026-10-18 (owner, CA m623)
+## Changes on 2026-10-18
 
-The owner ruled on 2026-10-18 (CA m623, 12:35Z) that this ADR is no longer gated
+The owner ruled on 2026-10-18 that this ADR is no longer gated
 on the i.MX 95, and that it is decided against the Cortex-M parts on the bench
 host: the STM32H573I-DK and the nRF54L15-DK, both Cortex-M33 with TrustZone-M.
 The generic `cortex-m` port runs on QEMU `mps2-an505` in CI. The hardware order
@@ -141,7 +141,7 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
 
 ### 1. The reference part: the i.MX 95 Cortex-M7, checked against the two M33 boards
 
-**Decided 2026-11-14 (owner ruling 632 item 208 a): the i.MX 95 M7 is the
+**Decided 2026-11-14: the i.MX 95 M7 is the
 reference part.** Question 1 is answered (a).
 
 *Corrected 2026-10-20.* The 2026-10-18 revision of this decision made the
@@ -245,10 +245,10 @@ boards/frdm-imx95-m7/        profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC
 
 ### 3. The CI emulation target: QEMU `mps2-an505`
 
-**Decided 2026-11-14 (owner ruling 632 item 208 a): the CI emulation is QEMU
+**Decided 2026-11-14: the CI emulation is QEMU
 `mps2-an505`.**
 
-*Changed 2026-10-18 (owner, CA m623).* The CI target was QEMU `mps2-an500`, a
+*Changed 2026-10-18.* The CI target was QEMU `mps2-an500`, a
 Cortex-M7, with `mps2-an505` "for the M33 later". The owner ruled that the
 generic port runs on `mps2-an505` in CI, so that text is superseded.
 
@@ -451,7 +451,7 @@ therefore does not survive a reset. RAM that QEMU did not load keeps its
 contents across a system reset for the life of the process. *Confirm* this
 against `hw/core/loader.c` in the implementing change.
 
-*Changed 2026-10-18 (owner, CA m623):* the map was on `mps2-an500`'s SSRAM1
+*Changed 2026-10-18:* the map was on `mps2-an500`'s SSRAM1
 and PSRAM. On `mps2-an505` it follows the same rule. The addresses are the
 Secure aliases, because the image runs Secure until #15 is accepted, and each
 is to *confirm* in the implementing change:
@@ -532,8 +532,7 @@ not the silicon's size.
 - **The figures are a ceiling, not a target.** They are about twice the
   ATmega2560's 64 KiB and 1 KiB, to leave room for 32-bit code, larger stacks
   and the soft crypto tier.
-- **The QEMU board carries the smallest board's figures.** *Changed 2026-10-18
-  (owner, CA m623):* it carried the i.MX 95's, as the reference part's. It
+- **The QEMU board carries the smallest board's figures.** *Changed 2026-10-18:* it carried the i.MX 95's, as the reference part's. It
   still does in size, since the two are equal; the reason is now the fit. The
   STM32H573 (2 MB flash, 640 KB SRAM) and the nRF54L15 (up to 1524 KB RRAM,
   256 KB RAM) are larger (onboarding ADRs #126 and #129, both *confirm*), so a
@@ -582,7 +581,7 @@ for a revision. The ADR was accepted on 2026-11-14 (owner ruling 632 item
 208 a), which answers question 1 and the CI target of question 2. Questions 3
 to 10 are not answered by the ruling and stay open.
 
-1. **Closed 2026-11-14: (a), the i.MX 95 M7 (ruling 632 item 208 a).**
+1. **Closed 2026-11-14: (a), the i.MX 95 M7.**
    **The reference part** (decision 1). (a) Does the i.MX 95 Cortex-M7 stay the
    reference part, as the SPEC row `cortex-m` has it, with the core HAL checked
    on the STM32H573I-DK, the nRF54L15-DK and `mps2-an505`? Or (b) does the
@@ -620,7 +619,7 @@ to 10 are not answered by the ruling and stay open.
    and who stages the image? This carries the owner's partial answer of
    2026-10-15 (Q11: AHAB and the enclave verify the M7 container).
 10. **The nRF54L15-DK's place in the order.** The hardware order is the SE052F,
-    then the i.MX 95 M7, then the STM32H5 (CA m623). Does the nRF54L15-DK port
+    then the i.MX 95 M7, then the STM32H5. Does the nRF54L15-DK port
     wait behind the STM32H5, under the same #79 gate?
 
 Answered since the last revision: "when does `mps2-an505` land" (with the
@@ -631,7 +630,7 @@ STM32H5 port, or with #15) is closed by CA m623: it is the CI target now.
 | Alternative | Why not |
 |---|---|
 | The Cortex-M33 as the reference part | Not rejected: it is option (b) of question 1. The 2026-10-18 revision chose it, citing CA m623, and the ruling does not say so. Both bench parts are M33s, but the SPEC row names the M7 (correction of 2026-10-20). |
-| QEMU `mps2-an500` as the CI target | Superseded 2026-10-18 (owner, CA m623): the CI target is `mps2-an505`. `mps2-an500` stays an option for the M7 only (question 8). |
+| QEMU `mps2-an500` as the CI target | Superseded 2026-10-18: the CI target is `mps2-an505`. `mps2-an500` stays an option for the M7 only (question 8). |
 | QEMU `mps3-an547` | A Cortex-M55: Armv8.1-M with Helium. That is the wrong ISA for both the M7 and the M33. |
 | QEMU `netduinoplus2`, `olimex-stm32-h405` | STM32F405, a Cortex-M4: neither an M7 nor TrustZone-M. |
 | QEMU `lm3s6965evb`, `lm3s811evb`, `mps2-an385`, `mps2-an511` | Cortex-M3: no Armv7E-M, no FPU, and no part we target. |

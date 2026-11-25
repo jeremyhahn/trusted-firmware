@@ -10,10 +10,14 @@
  * TIMER0_COMPA_vect(). To pin the read inside ATOMIC_BLOCK, a tick can be
  * made to land just before the block masks interrupts and another to be
  * pending when it unmasks: a read in the block sees the first and not the
- * second.
+ * second. The carry test ticks the count across a carry out of each of its
+ * low three bytes (0x3FF, 0xFFFF, 0xFFFFFF) and
+ * through the 600 s valve run, so a count narrower than 32 bits fails.
  */
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "unity.h"
 
@@ -128,6 +132,49 @@ static void test_millis_reads_inside_the_atomic_block(void)
     TEST_ASSERT_EQUAL_UINT32(start + 2u, tfw_hal_millis());
 }
 
+/* Fires the compare until the count reaches target, tracking it in a local
+ * copy so the loop does no reads. Returns the number of ticks fired. */
+static uint32_t tick_until(tfw_ms_t target)
+{
+    tfw_ms_t now = tfw_hal_millis();
+    uint32_t calls = 0u;
+
+    while (now != target) {
+        TIMER0_COMPA_vect();
+        now++;
+        calls++;
+    }
+    return calls;
+}
+
+static void test_the_count_carries_through_every_byte(void)
+{
+    /* the tests share the count and leave it past 0xFF: the first carry is
+     * out of the low byte at the next value ending 0xFF */
+    tfw_ms_t edges[] = { tfw_hal_millis() | 0xFFu, 0x0000FFFFu, 0x00FFFFFFu };
+    clock_t  t0 = clock();
+    uint32_t calls = 0u;
+    unsigned i;
+
+    TEST_ASSERT_TRUE(edges[0] < edges[1]);
+    for (i = 0u; i < sizeof edges / sizeof edges[0]; i++) {
+        if (edges[i] == 0x00FFFFFFu) {
+            calls += tick_until(600000u);       /* the valve run, hal_tick.c */
+            TEST_ASSERT_EQUAL_UINT32(600000u, tfw_hal_millis());
+        }
+        calls += tick_until(edges[i]);
+        TEST_ASSERT_EQUAL_HEX32(edges[i], tfw_hal_millis());
+        TIMER0_COMPA_vect();
+        calls++;
+        TEST_ASSERT_EQUAL_HEX32(edges[i] + 1u, tfw_hal_millis());
+        TEST_ASSERT_EQUAL_INT(0, depth);
+    }
+    TEST_ASSERT_EQUAL_HEX32(0x01000000u, tfw_hal_millis());     /* reading moves nothing */
+    TEST_ASSERT_EQUAL_UINT(0u, accesses);
+    printf("carry: %lu ticks, %.3f s\n", (unsigned long)calls,
+           (double)(clock() - t0) / CLOCKS_PER_SEC);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -135,5 +182,6 @@ int main(void)
     RUN_TEST(test_init_keeps_the_mask_registers_other_bits);
     RUN_TEST(test_each_compare_is_one_millisecond);
     RUN_TEST(test_millis_reads_inside_the_atomic_block);
+    RUN_TEST(test_the_count_carries_through_every_byte);
     return UNITY_END();
 }

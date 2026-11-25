@@ -1,17 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Every pinned tool, in one file (handbook devcontainer.md §2). Read by
-# build/docker/devcontainer/Dockerfile, which sources it, by mk/docker.mk's
-# image build arguments and image hash, and by `make deps-check`
-# (scripts/deps-check.py), so the image, the gates and the latest-version check cannot disagree.
-#
-# Plain NAME=value lines, no expansion; a value with spaces is double-quoted.
-# A shell sources it and a script parses it.
-#
-# A pin held below the latest release carries HELD_<NAME>, the reason in one
-# line (devops.md §9: "unless a pin is documented in place with the reason").
-# `make deps-check` fails on a pin that is behind and has none.
+# Every pinned tool, in one file.
 
 # --- base: the image every stage starts from -------------------------------
 # Debian, not alpine (devops.md §9a): avr-gcc, avr-libc and simavr come as

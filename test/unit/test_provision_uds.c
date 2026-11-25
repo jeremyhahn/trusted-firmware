@@ -232,6 +232,32 @@ static void test_a_refused_deviceid_is_a_status_and_no_point_is_sent(void)
     TEST_ASSERT_EQUAL_MEMORY(UDS_00_1F_PUB, outbuf, 64u);
 }
 
+static void test_a_slot_other_than_the_deviceid_is_a_range_error_and_burns_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(0xFFu));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_prov_uds_draws());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_prov_uds_burns());
+    TEST_ASSERT_NULL(tfw_mock_prov_uds_burned());
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, pubkey(1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, pubkey(0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+
+    TEST_ASSERT_EQUAL(TFW_OK, genkey(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, pubkey(1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_prov_uds_burns());
+
+    TEST_ASSERT_EQUAL(TFW_OK, pubkey(0u));
+    TEST_ASSERT_EQUAL_MEMORY(UDS_00_1F_PUB, outbuf, 64u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -244,5 +270,6 @@ int main(void)
     RUN_TEST(test_a_draw_that_cannot_start_the_noise_source_burns_nothing);
     RUN_TEST(test_a_refused_hmac_after_the_burn_is_a_status_and_pubkey_recovers);
     RUN_TEST(test_a_refused_deviceid_is_a_status_and_no_point_is_sent);
+    RUN_TEST(test_a_slot_other_than_the_deviceid_is_a_range_error_and_burns_nothing);
     return UNITY_END();
 }

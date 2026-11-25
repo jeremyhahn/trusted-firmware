@@ -13,7 +13,8 @@
  * A seeded xorshift32 drives it for a fixed count. Every call must return,
  * and what the link sends must fit the reply buffer of one request. Then the
  * socket is made honest, and CAPS over Ethernet answers exactly as
- * test_link_eth pins it: its seq, OK, one SEND.
+ * test_link_eth pins it: its seq, OK, one SEND. Then, honest, the source port
+ * each attempt dials from and the redial deadline across the millis wrap.
  */
 
 #include <string.h>
@@ -44,6 +45,7 @@ static uint32_t next(void)
 static struct {
     uint8_t      hostile;
     uint8_t      state;
+    uint16_t     port;           /* local_port of the last tfw_eth_start() */
     unsigned     starts, closes, sends;
     uint8_t      in[TFW_MAX_FRAME];
     uint16_t     in_len, in_pos;
@@ -57,7 +59,7 @@ static struct {
 tfw_status_t tfw_eth_start(const tfw_netcfg_t *cfg, uint16_t local_port)
 {
     (void)cfg;
-    (void)local_port;
+    eth.port = local_port;
     eth.starts++;
     if (eth.hostile && (next() % 4u) == 0u) {
         return (next() & 1u) ? TFW_ERR_UNSUPPORTED : TFW_ERR_INTERNAL;
@@ -364,6 +366,51 @@ static void test_the_end_of_a_serial_reply_never_sends_on_ethernet(void)
     TEST_ASSERT_EQUAL_UINT(0u, eth.sends);
 }
 
+/* At a clock whose low 16 bits are 0x4000 the masked port is the first of the
+ * ephemeral range, where an unmasked one wraps to 0; the redial picks another. */
+static void test_each_attempt_dials_from_a_fresh_port_in_the_ephemeral_range(void)
+{
+    uint16_t first;
+
+    tfw_mock_set_millis(((tfw_hal_millis() + 0x10000u) & ~(tfw_ms_t)0xFFFFu) | 0x4000u);
+    memcpy(&tfw_mock_eeprom()[TFW_NETCFG_ADDR], NETCFG, sizeof NETCFG);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT16(49152u, eth.port);
+    first = eth.port;
+
+    eth.state = TFW_ETH_DOWN;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.closes);
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    TEST_ASSERT_TRUE(eth.port >= 49152u);
+    TEST_ASSERT_NOT_EQUAL(first, eth.port);
+}
+
+/* A drop just before tfw_hal_millis() wraps sets a deadline past it: the
+ * link waits all 1000 ms of it, then redials, and not a millisecond sooner. */
+static void test_a_redial_waits_for_its_deadline_across_the_millis_wrap(void)
+{
+    connect_up();
+    tfw_mock_set_millis(0xFFFFFF00u);
+    eth.state = TFW_ETH_DOWN;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.closes);
+
+    tfw_mock_advance(100u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    tfw_mock_advance(899u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    tfw_mock_advance(1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_BUSY, eth.state);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -374,5 +421,7 @@ int main(void)
     RUN_TEST(test_a_reply_byte_to_a_connection_still_opening_is_dropped_and_queues_nothing);
     RUN_TEST(test_the_end_of_a_reply_to_a_connection_still_opening_sends_nothing);
     RUN_TEST(test_the_end_of_a_serial_reply_never_sends_on_ethernet);
+    RUN_TEST(test_each_attempt_dials_from_a_fresh_port_in_the_ephemeral_range);
+    RUN_TEST(test_a_redial_waits_for_its_deadline_across_the_millis_wrap);
     return UNITY_END();
 }

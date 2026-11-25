@@ -368,7 +368,7 @@ func TestStartElementEthernetWritesTheBlockAtTheAddressTheSimulatorReports(t *te
 // could, or one that answers an address inside the platform block -- fails
 // the test before any simulator is started, and says to rebuild it.
 func TestStartElementEthernetFailsWhenTheSimulatorReportsNoUsableAddress(t *testing.T) {
-	for _, answer := range []string{"usage: tfwsim", "0x0010", "0xFFFF"} {
+	for _, answer := range []string{"usage: tfwsim", "0x0010", "0x00BF", "0x0FE1", "0xFFFF"} {
 		record := fake(t)
 		t.Setenv(netcfgAddrEnv, answer)
 		f := &fatalTB{TB: t}
@@ -385,6 +385,32 @@ func TestStartElementEthernetFailsWhenTheSimulatorReportsNoUsableAddress(t *test
 		if _, err := os.Stat(record); !os.IsNotExist(err) {
 			t.Errorf("answer %q: a simulator was started (stat %v)", answer, err)
 		}
+	}
+}
+
+// The last network block the 4 KiB EEPROM holds, at 0x0FE0, is taken: the
+// image ends at the EEPROM's last byte and the device dials. One byte later,
+// 0x0FE1, would run the block past the EEPROM, and is refused (the table
+// above, with 0x00BF one byte below the platform block's end).
+func TestStartElementEthernetTakesTheLastAddressTheEEPROMHolds(t *testing.T) {
+	const at = 0x0FE0
+	record := fake(t)
+	t.Setenv(netcfgAddrEnv, "0x0FE0")
+	_, eth := tfwsim.StartElementEthernet(t)
+
+	image := eeprom(t, commandLine(t, record))
+	// 0x0FE0+tfw.NetConfigLen is 4096: the block ends the EEPROM.
+	if len(image) != at+tfw.NetConfigLen {
+		t.Fatalf("EEPROM image is %d bytes, want the network block to end it at the EEPROM's end (%d)",
+			len(image), at+tfw.NetConfigLen)
+	}
+	var cfg tfw.NetConfig
+	if err := cfg.UnmarshalBinary(image[at:]); err != nil {
+		t.Fatalf("the block at %#x: %v", at, err)
+	}
+	// The fake dialled the endpoint it read at 0x0FE0, so the link is up.
+	if eth == nil {
+		t.Fatalf("no link from the block at %#x", at)
 	}
 }
 

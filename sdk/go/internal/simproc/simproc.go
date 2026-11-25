@@ -84,11 +84,17 @@ func Dir() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "build", "host")
 }
 
-// Locate returns the path of b, or a *NotBuiltError.
+// Locate returns the path of b, or a *NotBuiltError. A directory at the path
+// is a NotBuiltError too: TFWSIM_DIR pointed at tools/ finds the source
+// directory tools/tfwsim, which exec would refuse without saying how to build.
 func Locate(b Binary) (string, error) {
 	path := filepath.Join(Dir(), b.Name)
-	if _, err := os.Stat(path); err != nil {
+	fi, err := os.Stat(path)
+	if err != nil {
 		return "", &NotBuiltError{Binary: b, Path: path, Err: err}
+	}
+	if fi.IsDir() {
+		return "", &NotBuiltError{Binary: b, Path: path, Err: fmt.Errorf("%s is a directory, not a program", path)}
 	}
 	return path, nil
 }

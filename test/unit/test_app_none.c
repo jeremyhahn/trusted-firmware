@@ -13,9 +13,20 @@
 #include "dispatch.h"
 #include "sys.h"
 #include "app_runner.h"
+#include "attest.h"
+#include "boot_soft_mock.h"
 #include "hal_mock.h"
 #include "tfw/config.h"
 #include "tfw/protocol.h"
+
+static const uint8_t UDS[32] = {
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+};
+static const uint8_t FW[32] = {
+    0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b, 0x3c, 0x2d, 0x1e, 0x0f,
+    0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0,
+};
 
 void setUp(void)
 {
@@ -88,6 +99,40 @@ static void test_app_info_is_unknown_without_an_application(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
+/* APP_CMD (0x07) exists only in an image with an application: here it is an
+ * unknown command, whatever sub-op it names, and nothing is written. */
+static void test_app_cmd_is_unknown_without_an_application(void)
+{
+    uint8_t      in[1] = { 0x00u };
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, in, (uint8_t)sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNKNOWN_CMD, tfw_dispatch(TFW_CMD_APP_CMD, &r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
+/* Claim 273 with no application: the empty runner has no evidence, so the
+ * image attests the firmware hash (attest.c), not what the buffer held --
+ * running, and after the runner is stopped. */
+static void test_without_an_application_the_measurement_is_the_firmware_hash(void)
+{
+    uint8_t out[TFW_SHA256_LEN];
+
+    tfw_mock_boot_soft(UDS, FW);
+    tfw_app_runner_start();
+    memset(out, 0x5A, sizeof out);
+    tfw_attest_measurement(out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(FW, out, sizeof out);
+
+    tfw_app_runner_stop(1u);
+    memset(out, 0x5A, sizeof out);
+    tfw_attest_measurement(out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(FW, out, sizeof out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -96,5 +141,7 @@ int main(void)
     RUN_TEST(test_the_empty_runner_never_refuses_a_trial);
     RUN_TEST(test_a_reset_still_resets);
     RUN_TEST(test_app_info_is_unknown_without_an_application);
+    RUN_TEST(test_app_cmd_is_unknown_without_an_application);
+    RUN_TEST(test_without_an_application_the_measurement_is_the_firmware_hash);
     return UNITY_END();
 }

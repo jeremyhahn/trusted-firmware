@@ -65,8 +65,8 @@ reads the same with either.
 | Mega (ATmega2560) | USB serial; Ethernet on the bench network | W5100 (probed, [docs/development/wiznet-probe.md](../development/wiznet-probe.md)) | Not fitted (ordered) | Software (`CRYPTO=soft`; `ETH=1` is the 2560's default since item 48) | Now: everything below except the element tier and enrolment. |
 | Mega (ATmega2560) | USB serial; Ethernet on the bench network | W5100 (probed) | Fitted: Click SDA to D20, SCL to D21 | Element (`CRYPTO=atecc608a`, `ETH=1` by default) | The day the ATECC608C (MIKROE-6774 Click board) arrives: the element tier and device-attest-01 enrolment. Optional: the soft DICE root is the default and the element is never required. |
 | Mega (ATmega2560) | USB serial only | None used: W5100 fitted in [the 10-15 first pass](#the-mega-run-2026-10-15), no shield in [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) and [train/ota75e](#the-bench-mega-on-trainota75e-2026-10-16) | Not used by this tier; did not answer in [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) | Software, serial only: the shieldless bench Mega, its own row (`CRYPTO=soft ETH=0`, item 48; before it, `ETH=0` was the default) | Run in [the 10-15 first pass](#the-mega-run-2026-10-15), [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) and [train/ota75e](#the-bench-mega-on-trainota75e-2026-10-16): built, size-checked, flashed with `make flash`, and `make hw-test`'s whole cross-implementation suite over serial, each a pass. In fd7a696 and train/ota75e: `0x000`–`0x0FF` read back unchanged across the flash, and the `OTA_*` commands and `tfwctl ota-stage`/`ota-status` answer "unknown command", as an image linking `ota_stage_none.c` does. No TCP item applies. |
-| Nano (ATmega328P) | USB serial; Ethernet on the bench network | W5100 expected; not probed (no serial bootloader answers; Optiboot goes in by ISP first) | Fitted: Click SDA to A4, SCL to A5 | Element (`CRYPTO=atecc608a ETH=1`) | Not a row: no 328P row builds Ethernet now. Owner ruling 2026-10-17 (m522) made the 328P element-only and withdrew the soft-crypto Ethernet node (`CRYPTO=soft ETH=1 OTA_STAGE=0`, item 48), and the element tier with `ETH=1` is 1 652 bytes over the 328P's flash budget ([the options](adr-wire-protocol-over-w5x00.md#the-328p-budget)). |
-| Nano (ATmega328P) | USB serial only | None | Fitted: Click SDA to A4, SCL to A5 | Element, serial only (`CRYPTO=atecc608a`, no `ETH`), the 328P's one row (m522) | No TCP item applies. Not run. It waits, as the Nano's other work does, for Optiboot to go in by ISP first ([the Nano's page](../development/bench/nano.md)). |
+| Nano (ATmega328P) | USB serial; Ethernet on the bench network | W5100 expected; not probed (no serial bootloader answers; Optiboot goes in by ISP first) | Fitted: Click SDA to A4, SCL to A5 | Element (`CRYPTO=atecc608a ETH=1`) | Not a row: no 328P row builds Ethernet now. Owner ruling 2026-10-17 made the 328P element-only and withdrew the soft-crypto Ethernet node (`CRYPTO=soft ETH=1 OTA_STAGE=0`, item 48), and the element tier with `ETH=1` is 1 652 bytes over the 328P's flash budget ([the options](adr-wire-protocol-over-w5x00.md#the-328p-budget)). |
+| Nano (ATmega328P) | USB serial only | None | Fitted: Click SDA to A4, SCL to A5 | Element, serial only (`CRYPTO=atecc608a`, no `ETH`), the 328P's one row | No TCP item applies. Not run. It waits, as the Nano's other work does, for Optiboot to go in by ISP first ([the Nano's page](../development/bench/nano.md)). |
 | ATmega32U4, ATtiny85 | — | None | — | — | Covered by the simulator. |
 
 ## What is tested now, on each board
@@ -131,7 +131,7 @@ which item 7's evidence needs
 ([the ISP route](../development/isp-route.md#the-mega-2026-10-16)). Nothing
 was written to the Mega.
 
-**Correction, 2026-10-16 (owner, CA m311):** this Mega is a different board
+**Correction, 2026-10-16:** this Mega is a different board
 from the one in [the Mega run](#the-mega-run-2026-10-15). It is a stock
 factory Arduino Mega 2560. The owner replaced the board that carries the W5100
 shield, because the shield blocks the ICSP header the USBasp needs. The
@@ -146,9 +146,9 @@ results stand as measured.
 |---|---|
 | Signature and fuses over ISP | `0x1E9801`; fuses `0xFF` (low), `0xD8` (high), `0xFD` (extended); lock `0xCF`. The same before and after the run |
 | The EEPROM, read out over ISP | All `0xFF`. The platform block and network block of the second pass above are gone, and so is the application. The STK500v2 bootloader is intact. They were erased between that pass and this run, by something this run did not see. *Correction, 2026-10-16: not erased; the stock board as shipped, see above* |
-| `make boot-flash BOARD=atmega2560 ISP_PROG=usbasp ISP_PORT=usb` | **Did not build.** The default row (soft, ed25519-donna) does not fit the 8 KB boot section, and avrdude never ran. Since item 79 (owner ruling 2026-10-17) the default is the 2560 soft row, `p256-soft` with no OTA: the verifier is P-256 on every row. The supported element row builds, but needs the ATECC608C and a provisioned EEPROM |
+| `make boot-flash BOARD=atmega2560 ISP_PROG=usbasp ISP_PORT=usb` | **Did not build.** The default row (soft, ed25519-donna) does not fit the 8 KB boot section, and avrdude never ran. Since item 79 the default is the 2560 soft row, `p256-soft` with no OTA: the verifier is P-256 on every row. The supported element row builds, but needs the ATECC608C and a provisioned EEPROM |
 | `make hw-test`, the identity and the `tfw-boot` evidence | **Not run.** There is no application on the part and no `tfw-boot` |
-| Re-provisioning over ISP, later that day (Company Agent m233: the erase was an Arduino IDE "Burn Bootloader"; *correction, 2026-10-16: withdrawn, there was no erase, this is the stock board*) | **Pass**, on the stock board. The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
+| Re-provisioning over ISP, later that day | **Pass**, on the stock board. The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
 | The second pass's application, through the stock bootloader | **Pass**, on the stock board, which has no W5100. `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` wrote the same `.hex` (`92364618…`). `CAPS` answers atmega2560 on the software tier, and `tfwctl eeprom-read` reads `0x000`–`0x0DF` equal to the image, the serial and the MAC included. `make hw-test` and `ATTEST` were not run ([the record](../development/isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16)) |
 
 ## The boot-flash EESAVE guard on the Mega, 2026-10-16
@@ -461,7 +461,7 @@ flashes the 2560 serial image that does, sends it `OTA_INFO`, `OTA_CONFIRM` and
 
 **The image.** `ota_ctl.c` links only where the board has `BOOT_AB` and the
 image stages (`mk/firmware.mk:320`), and a serial image stages only when asked
-(`mk/firmware.mk:230`). On the 2560 (`BOOT_AB := 1`, `boards/atmega2560/profile.mk:67`)
+(`mk/firmware.mk:230`). On the 2560 (`BOOT_AB := 1`, `boards/atmega2560/profile.mk:58`)
 that is:
 
 ```
@@ -474,7 +474,7 @@ make firmware BOARD=atmega2560 CRYPTO=soft ETH=0 OTA_STAGE=1
 
 It links `ota_ctl.o`, `ota_activate.o`, `ota_stage.o`, `ota_trial.o`,
 `ota_floor_eeprom.o`, `ota_prev_none.o` and the `spi_nor.o` store driver
-(`OTA_STORE := spi_nor`, `boards/atmega2560/profile.mk:62`). The bench has no
+(`OTA_STORE := spi_nor`, `boards/atmega2560/profile.mk:55`). The bench has no
 SPI NOR store and no tfw-boot. Neither stops the image: `tfw_stage_init`
 discards the store's init status (`src/core/ota_stage.c:129`), and the
 application is flashed at `0x00000` through the stock bootloader as the soft
@@ -711,7 +711,7 @@ and a `replace` to `sdk/go`, ran every step below on one connection through
 On the board, the gate refuses both unauthorized commands with 17.
 
 **Why the stager answers 7: this row stages into an SPI NOR the bench Mega does
-not have.** The 2560's `OTA_STORE` is `spi_nor` (`boards/atmega2560/profile.mk:70`),
+not have.** The 2560's `OTA_STORE` is `spi_nor` (`boards/atmega2560/profile.mk:55`),
 selected on D8 (`boards/atmega2560/board_profile.h:106`). No NOR is fitted on
 the board, so nothing drives MISO on that select. `tfwctl spi 8` on the factory
 image returned each request byte for byte: `03` with nine zero bytes, `05 00`,
@@ -766,7 +766,7 @@ It links `w5100.o`, `w5x00.o`, `netcfg.o`, `link_eth.o`, the stager
 
 | Enrolment prerequisite | State | Evidence |
 |---|---|---|
-| The soft DICE root as the runtime default (#130) | Met in the tree | `CRYPTO ?= auto` (`boards/atmega2560/profile.mk:56`): the element when one answers, else the soft root. But the soft root has no identity without tfw-boot: `attest` answers `TFW_ERR_NOT_PROVISIONED` (item 5) |
+| The soft DICE root as the runtime default (#130) | Met in the tree | `CRYPTO ?= auto` (`boards/atmega2560/profile.mk:44`): the element when one answers, else the soft root. But the soft root has no identity without tfw-boot: `attest` answers `TFW_ERR_NOT_PROVISIONED` (item 5) |
 | A production image signed with go-xkms's image key (go-xkms#1606) | Missing | This tree holds no image key, and none was made in its place |
 | tfw-boot installed | Missing | The boot section holds the stock bootloader (item 1). Installing tfw-boot needs ISP, and [the USBasp reaches only the upper 128 KB](../development/bench/mega2560.md#the-usbasp-cannot-see-the-low-128-kb) |
 | A reachable go-trusted-platform test control plane at the configured endpoint | Missing | Three TCP connects to the endpoint in the network block, 5 s each, all timed out. The endpoint is the documentation address (item 5) |
@@ -925,7 +925,7 @@ It is 94 bytes larger than [b0eab87's](#the-mega-on-main-b0eab87-2026-10-18)
 `ota_activate.c`, `ota_auth.c`, `ota_trial.c`, `ota_trial_block.c`, `spi_nor.c`):
 an `ETH=1` image on a board with an `OTA_STORE` stages by default
 (`mk/firmware.mk:255`). SPEC's shedding of OTA on the 2560 soft store and OTA
-rows (owner ruling item 79) is about `tfw-boot`'s rows, and no `tfw-boot` is on
+rows is about `tfw-boot`'s rows, and no `tfw-boot` is on
 this board.
 
 | # | What ran | Result |
@@ -976,7 +976,7 @@ lists it as a board row for the soft tier.
 [testing.md](../development/testing.md) gives, runs the `TestEthernet*` rows
 with `TFW_HW_ETH=1`. `hw-test` takes `ETH` as the `ip:port` the board dials
 and says it has no default (`mk/go.mk:88`, `:95`, `:99`), but the 2560's
-profile sets `ETH ?= 1` for the firmware build (`boards/atmega2560/profile.mk:51`),
+profile sets `ETH ?= 1` for the firmware build (`boards/atmega2560/profile.mk:41`),
 and the two share the name.
 
 **Fixed.** A in 537f16b: the docs side with the image, so the soft `tfwsim`

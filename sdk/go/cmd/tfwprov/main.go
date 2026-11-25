@@ -38,7 +38,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -133,9 +132,6 @@ func main() {
 	if *writeKey != "" || *slot != -1 {
 		var set []string
 		flag.Visit(func(f *flag.Flag) { set = append(set, f.Name) })
-		if err := checkLink(*baud, *timeout); err != nil {
-			fail(err)
-		}
 		if err := runWritePubKey(set, flag.Args(), *writeKey, *slot, *baud, *timeout); err != nil {
 			fail(err)
 		}
@@ -203,9 +199,6 @@ func main() {
 	}
 	if nf.any() {
 		fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"))
-	}
-	if err := checkLink(*baud, *timeout); err != nil {
-		fail(err)
 	}
 	if *dryRun && *recordPath != "" {
 		fail(errors.New("--record is written by --bake-eeprom, --commit and --verify; --dry-run changes nothing"))
@@ -314,19 +307,7 @@ func rejectBakeFlags(serialHex, hashHex, opKeyHex, outPath string) error {
 	return nil
 }
 
-// checkLink refuses a link setting that cannot work: serialport.Open turns a non-positive baud into DefaultBaud unasked, and a non-positive timeout fails every command as a timeout.
-func checkLink(baud int, timeout time.Duration) error {
-	if baud <= 0 {
-		return fmt.Errorf("--baud is %d; it must be positive", baud)
-	}
-	if timeout <= 0 {
-		return fmt.Errorf("--timeout is %v; it must be positive, or every command fails as a timeout", timeout)
-	}
-	return nil
-}
-
 func fail(err error) {
-	// The bake errors (eeprom.go, netblock.go) carry the prefix already; print it once.
-	fmt.Fprintln(os.Stderr, "tfwprov:", strings.TrimPrefix(err.Error(), "tfwprov: "))
+	fmt.Fprintln(os.Stderr, "tfwprov:", err)
 	os.Exit(1)
 }

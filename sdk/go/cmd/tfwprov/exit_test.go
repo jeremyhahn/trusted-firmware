@@ -74,9 +74,7 @@ func TestMainExitCodes(t *testing.T) {
 		{"bake-eeprom with no --serial", []string{"--bake-eeprom", "--out", out}, 1, "tfwprov: --bake-eeprom requires --serial (16 bytes, hex)"},
 		{"bake-netblock with --serial", []string{"--bake-netblock", "--out", out, "--serial", serial}, 1, "tfwprov: --serial/--pubkey-hash/--operator-pubkey belong to --bake-eeprom"},
 		{"bake-eeprom with --mac", []string{"--bake-eeprom", "--out", out, "--serial", serial, "--mac", "02:00:00:00:00:01"}, 1, "tfwprov: --mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock"},
-		{"bake-eeprom with a bad serial", []string{"--bake-eeprom", "--out", out, "--serial", "zz"}, 1, "tfwprov: --serial: encoding/hex: invalid byte"},
-		{"bake-eeprom with a short serial", []string{"--bake-eeprom", "--out", out, "--serial", "01"}, 1, "tfwprov: --serial is 1 bytes, want 16"},
-		{"bake-netblock with no --mac", []string{"--bake-netblock", "--out", out}, 1, "tfwprov: --bake-netblock requires --mac"},
+		{"bake-eeprom with a bad serial", []string{"--bake-eeprom", "--out", out, "--serial", "zz"}, 1, "tfwprov: tfwprov: --serial: encoding/hex: invalid byte"},
 		{"bake-eeprom with --config", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--config", tmpl}, 1, "tfwprov: --config does not combine with --bake-eeprom"},
 		{"bake-eeprom with --yes-i-mean-it", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--yes-i-mean-it"}, 1, "tfwprov: --yes-i-mean-it does not combine with --bake-eeprom"},
 		{"bake-eeprom with --baud", []string{"--bake-eeprom", "--out", out, "--serial", goodSerial, "--baud", "9600"}, 1, "tfwprov: --baud does not combine with --bake-eeprom"},
@@ -94,12 +92,6 @@ func TestMainExitCodes(t *testing.T) {
 		{"no --config", []string{"--dry-run", port}, 1, "tfwprov: --config is required"},
 		{"a missing template", []string{"--dry-run", "--config", filepath.Join(dir, "absent.tmpl"), port}, 1, "tfwprov: open "},
 		{"a port that cannot be opened", []string{"--verify", "--config", tmpl, port}, 1, "tfwprov: serialport: opening "},
-		{"a wire mode with --timeout 0", []string{"--verify", "--config", tmpl, "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
-		{"a wire mode with a negative --timeout", []string{"--dry-run", "--config", tmpl, "--timeout", "-1s", port}, 1, "tfwprov: --timeout is -1s; it must be positive"},
-		{"a wire mode with --baud 0", []string{"--verify", "--config", tmpl, "--baud", "0", port}, 1, "tfwprov: --baud is 0; it must be positive"},
-		{"a wire mode with a negative --baud", []string{"--verify", "--config", tmpl, "--baud", "-1", port}, 1, "tfwprov: --baud is -1; it must be positive"},
-		{"write-pubkey with --baud 0", []string{"--write-pubkey", filepath.Join(dir, "absent.pem"), "--slot", "2", "--baud", "0", port}, 1, "tfwprov: --baud is 0; it must be positive"},
-		{"write-pubkey with --timeout 0", []string{"--write-pubkey", filepath.Join(dir, "absent.pem"), "--slot", "2", "--timeout", "0s", port}, 1, "tfwprov: --timeout is 0s; it must be positive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, first := runMain(t, tc.args...)

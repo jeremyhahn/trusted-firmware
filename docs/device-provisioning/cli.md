@@ -36,8 +36,8 @@ none.
 | `--bake-eeprom` | `false` | write a platform-block `.eep` image. Opens no port, touches no element; its own mode, not combinable with the three above |
 | `--yes-i-mean-it` | `false` | required by `--commit`; the flag that cannot be typed by accident. Refused with `--bake-eeprom`/`--bake-netblock` |
 | `--config` | `""` | path to the provisioning template (required for `--dry-run`/`--verify`/`--commit`). Refused with `--bake-eeprom`/`--bake-netblock` |
-| `--baud` | `115200` | serial baud rate (`serialport.DefaultBaud`). Must be positive (`--baud is 0; it must be positive`); refused with `--bake-eeprom`/`--bake-netblock` |
-| `--timeout` | `30s` | how long to wait for a reply. Must be positive (`--timeout is 0s; it must be positive, or every command fails as a timeout`); refused with `--bake-eeprom`/`--bake-netblock` |
+| `--baud` | `115200` | serial baud rate (`serialport.DefaultBaud`). Refused with `--bake-eeprom`/`--bake-netblock` |
+| `--timeout` | `30s` | how long to wait for a reply. Refused with `--bake-eeprom`/`--bake-netblock` |
 | `--force` | `false` | **refused**, not an alias. `tfwprov` exits with an error naming `--yes-i-mean-it` instead of accepting it |
 | `--serial` | `""` | `--bake-eeprom`: the 16-byte device serial, hex |
 | `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna`, which item 79 (owner ruling 2026-10-17) takes off every row: the verifier is P-256 on every row — omitting it there bakes an all-zero hash and prints a warning, and `tfw-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |

@@ -23,15 +23,22 @@ struct tfw_imx95_hsm_ids {
     uint32_t phy_power;   /* A1: POWER_STATE_SET off (section 4.3.2.6) */
     uint32_t a55_power;   /* A2: POWER_STATE_SET off */
     uint32_t shutdown;    /* A5: SYSTEM_POWER_STATE_SET (section 4.4.2.5) */
+    uint32_t a55_lm;      /* A2: the A55's logical machine, LMM_SHUTDOWN forceful (imx-sm) */
 };
 
 /* Perform `action` (hsm.h, TFW_HSM_ACT_*) on channel `c`. A1 asserts the
  * PHYs' reset and then switches their power domain off, each where its id is
- * set, and tries the second when the first fails; A2 switches the A55's power
- * domain off; A5 asks the System Manager for a forceful shutdown of the
- * system. TFW_OK once every message sent is acknowledged, else the first
- * failure as tfw_scmi_system_power_status maps it. TFW_ERR_UNSUPPORTED, with
- * nothing sent, for every other action, for an action whose ids are all zero,
+ * set, and tries the second when the first fails; TFW_OK once every message
+ * sent is acknowledged, else the first failure as
+ * tfw_scmi_system_power_status maps it. A2 first asks the System Manager for
+ * LMM_SHUTDOWN, forceful, of a55_lm where it is set, and switches the A55's
+ * power domain off where a55_power is set and the LM stop was not sent or not
+ * acknowledged: TFW_OK once one of them is acknowledged, else the last
+ * failure (the LM stop's as tfw_scmi_lmm_status maps it, the domain's as
+ * tfw_scmi_system_power_status does). A5 asks the System Manager for a
+ * forceful shutdown of the system, its result mapped as A1's.
+ * TFW_ERR_UNSUPPORTED, with nothing sent, for every other action, for an
+ * action whose ids are all zero,
  * and while the channel's MU or shared memory is zero. */
 tfw_status_t tfw_imx95_hsm_act(struct tfw_scmi_chan *c, const struct tfw_imx95_hsm_ids *ids,
                                uint8_t action);

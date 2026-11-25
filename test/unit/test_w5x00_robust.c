@@ -6,7 +6,7 @@
  * failing chip can produce: frames split at every byte, a read pointer that
  * wraps the ring at every offset inside a frame, reads of one byte and of
  * none, a received size the ring cannot hold, a frame cut by a hang-up, single
- * bit flips and runs of noise.
+ * bit flips, runs of noise and a socket still at INIT.
  *
  * Held for every input: no read or write leaves its buffer (make test-asan); a
  * frame is handed up only when its last byte is in and its CRC is good, and
@@ -391,6 +391,24 @@ static void test_noise_is_never_a_frame_and_the_next_frame_is_read_whole(void)
     }
 }
 
+/* A socket the chip still holds at INIT, its CONNECT taken but no SYN out
+ * yet, is on its way up: reported busy and left open, not dropped as a
+ * hang-up is, and once it connects the next frame is read whole. */
+static void test_a_socket_still_at_init_is_busy_and_kept_until_it_connects(void)
+{
+    at("socket at INIT", 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_eth_start(&cfg, 50000u), where);
+    w5x_model_set_sr(0x13u);                                /* SOCK_INIT */
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(TFW_ETH_BUSY, tfw_eth_state(), where);
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x13u, w5x_model_sock(S_SR), where);
+    w5x_model_set_sr(0x15u);                                /* SOCK_SYNSENT */
+    w5x_model_peer_accept();
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(TFW_ETH_UP, tfw_eth_state(), where);
+    rd0       = w5x_model_sock16(S_RX_RD);
+    delivered = 0u;
+    resyncs();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -402,5 +420,6 @@ int main(void)
     RUN_TEST(test_a_frame_cut_by_a_hang_up_at_every_byte_leaves_nothing_behind);
     RUN_TEST(test_a_frame_with_any_one_bit_flipped_is_never_handed_up);
     RUN_TEST(test_noise_is_never_a_frame_and_the_next_frame_is_read_whole);
+    RUN_TEST(test_a_socket_still_at_init_is_busy_and_kept_until_it_connects);
     return UNITY_END();
 }

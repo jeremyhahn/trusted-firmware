@@ -217,3 +217,38 @@ func TestNetcfgRefusesWhatItCannotParse(t *testing.T) {
 		}
 	}
 }
+
+// netcfg.go:47-48: an auth refusal without --operator-key names the inputs and keeps the Status.
+func TestNetcfgSetNamesTheOperatorInputsWhenTheWriteNeedsAuth(t *testing.T) {
+	dev := startFakeDevice(t, func(f tfw.Frame) (tfw.Status, []byte) { return tfw.StatusErrAuthRequired, nil })
+	var out bytes.Buffer
+	err := run(context.Background(), dev, "netcfg", netcfgSetArgs[1:], false, &out)
+	var st tfw.Status
+	if !errors.As(err, &st) || st != tfw.StatusErrAuthRequired {
+		t.Fatalf("err = %v, want it to wrap StatusErrAuthRequired", err)
+	}
+	for _, flag := range []string{"--serial", "--operator-key"} {
+		if !strings.Contains(err.Error(), flag) {
+			t.Errorf("err = %q, want it to name %s", err, flag)
+		}
+	}
+	if out.Len() != 0 {
+		t.Errorf("out = %q, want nothing for a refused write", out.String())
+	}
+}
+
+func TestNetcfgSetPassesOtherWriteRefusalsThrough(t *testing.T) {
+	dev := startFakeDevice(t, func(f tfw.Frame) (tfw.Status, []byte) { return tfw.StatusErrProtectedRegion, nil })
+	var out bytes.Buffer
+	err := run(context.Background(), dev, "netcfg", netcfgSetArgs[1:], false, &out)
+	var st tfw.Status
+	if !errors.As(err, &st) || st != tfw.StatusErrProtectedRegion {
+		t.Fatalf("err = %v, want it to wrap StatusErrProtectedRegion", err)
+	}
+	if strings.Contains(err.Error(), "--operator-key") {
+		t.Errorf("err = %q, want no operator hint on a refusal that is not about auth", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("out = %q, want nothing for a refused write", out.String())
+	}
+}

@@ -9,12 +9,14 @@
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
+#include <poll.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include "unity.h"
 #include "tfw/eth.h"
 #include "eth_socket.h"
@@ -22,6 +24,37 @@
 static int          lsn  = -1;
 static int          peer = -1;
 static tfw_netcfg_t cfg;
+
+/* poll() is wrapped (-Wl,--wrap=poll) so the backpressure test can see the
+ * device's send stall: while armed, a POLLOUT wait on one descriptor whose
+ * buffer is full right now is counted, its timeout kept, and the first one
+ * releases the gated reader by writing a byte to gate_w. */
+int __real_poll(struct pollfd *f, nfds_t n, int t);
+int __wrap_poll(struct pollfd *f, nfds_t n, int t);
+
+static int stall_armed, stall_calls, stall_full, stall_timeout = -1, gate_w = -1;
+
+static void release_gate(void)
+{
+    static const uint8_t go = 1u;
+
+    if (gate_w >= 0) {
+        (void)write(gate_w, &go, 1u);
+        (void)close(gate_w);
+        gate_w = -1;
+    }
+}
+
+int __wrap_poll(struct pollfd *f, nfds_t n, int t)
+{
+    if (stall_armed && n == 1u && (f[0].events & POLLOUT) != 0) {
+        if (__real_poll(f, n, 0) == 0) { stall_full++; }
+        stall_calls++;
+        stall_timeout = t;
+        release_gate();
+    }
+    return __real_poll(f, n, t);
+}
 
 /* A loopback socket bound to a port the kernel picks, written into cfg. */
 static int bound_socket(void)
@@ -72,6 +105,10 @@ void setUp(void) {}
 
 void tearDown(void)
 {
+    stall_armed = 0;
+    release_gate();
+    stall_calls = stall_full = 0;
+    stall_timeout = -1;
     tfw_eth_close();
     if (peer >= 0) { (void)close(peer); }
     if (lsn >= 0)  { (void)close(lsn); }
@@ -272,6 +309,70 @@ static void test_no_descriptor_left_reads_absent(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
 }
 
+/* Mutant: the stall's poll() timeout cut to 0 (1000 -> 0), so a full socket
+ * buffer is read as a peer that has gone. A peer that keeps reading holds the
+ * link through 64 KB sent into 4 KB buffers, read 64 bytes at a time: every
+ * byte arrives in order and the link is still up. The peer is a forked reader
+ * that waits on a pipe until the device's send has stalled on a full buffer
+ * (the wrapped poll() releases it), so the 1000 ms stall poll is always
+ * reached and no clock is waited on. It closes its copies of the device's
+ * socket and the listener, and the gate is released before every wait, so a
+ * failed assert never leaves the connection open or the reader blocked. */
+static void test_a_peer_that_keeps_reading_keeps_the_link_through_a_full_buffer(void)
+{
+    static uint8_t got[2048];
+    int            small = 4096, st = -1, gate[2];
+    uint8_t        go;
+    size_t         i, round, n;
+    ssize_t        r;
+    pid_t          pid;
+
+    lsn = bound_socket();
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(lsn, SOL_SOCKET, SO_RCVBUF, &small, sizeof small));
+    TEST_ASSERT_EQUAL_INT(0, listen(lsn, 2));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_eth_start(&cfg, 4000u));
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(tfwsim_eth_fd(), SOL_SOCKET, SO_SNDBUF, &small, sizeof small));
+    peer = accept(lsn, NULL, NULL);
+    TEST_ASSERT_TRUE(peer >= 0);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+    TEST_ASSERT_EQUAL_INT(0, pipe(gate));
+    pid = fork();
+    TEST_ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        (void)close(gate[1]);
+        (void)close(tfwsim_eth_fd());
+        (void)close(lsn);
+        if (read(gate[0], &go, 1u) != 1) { _exit(4); }
+        for (round = 0u; round < 32u; round++) {
+            for (n = 0u; n < sizeof got; n += (size_t)r) {
+                r = recv(peer, &got[n], (sizeof got - n) < 64u ? sizeof got - n : 64u, 0);
+                if (r <= 0) { _exit(2); }
+            }
+            for (i = 0u; i < sizeof got; i++) {
+                if (got[i] != (uint8_t)(round + i)) { _exit(3); }
+            }
+        }
+        _exit(0);
+    }
+    (void)close(gate[0]);
+    gate_w      = gate[1];
+    stall_armed = 1;
+    for (round = 0u; round < 32u; round++) {
+        for (i = 0u; i < 2048u; i++) { TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_tx((uint8_t)(round + i))); }
+        tfw_eth_send();
+        TEST_ASSERT_TRUE_MESSAGE(tfwsim_eth_fd() >= 0, "a reading peer was dropped");
+    }
+    stall_armed = 0;
+    release_gate();
+    TEST_ASSERT_EQUAL_INT(pid, waitpid(pid, &st, 0));
+    TEST_ASSERT_TRUE_MESSAGE(stall_calls >= 1, "no send stalled");
+    TEST_ASSERT_TRUE(stall_full >= 1);
+    TEST_ASSERT_EQUAL_INT(1000, stall_timeout);
+    TEST_ASSERT_TRUE(WIFEXITED(st));
+    TEST_ASSERT_EQUAL_INT(0, WEXITSTATUS(st));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -287,5 +388,6 @@ int main(void)
     RUN_TEST(test_close_drops_buffered_and_queued_bytes);
     RUN_TEST(test_a_restart_hangs_up_the_old_connection);
     RUN_TEST(test_no_descriptor_left_reads_absent);
+    RUN_TEST(test_a_peer_that_keeps_reading_keeps_the_link_through_a_full_buffer);
     return UNITY_END();
 }

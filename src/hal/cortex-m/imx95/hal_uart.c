@@ -43,6 +43,11 @@ static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writ
 static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writes. */
 
+/* 1 only after an init that started the console. With the console off, tx
+ * drops each byte and reports idle so a caller's backpressure loop and the
+ * deferred reset never wait on a UART that cannot drain; rx reads nothing. */
+static volatile uint8_t uart_up;
+
 /* tfw_imx95_console_route's result as the HAL's status: the channel's own
  * failures (scmi.h TFW_SCMI_E_*) and the SM's refusals (SCMI statuses). */
 static tfw_status_t route_status(int32_t rc)
@@ -66,8 +71,10 @@ static tfw_status_t route_status(int32_t rc)
 tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     uint32_t     reg;
-    tfw_status_t st = tfw_imx95_lpuart_baud((uint32_t)TFW_IMX95_LPUART_CLK_HZ, baud, &reg);
+    tfw_status_t st;
 
+    uart_up = 0u;
+    st      = tfw_imx95_lpuart_baud((uint32_t)TFW_IMX95_LPUART_CLK_HZ, baud, &reg);
     if (st != TFW_OK) {
         return st;
     }
@@ -94,6 +101,7 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE | TFW_IMX95_LPUART_CTRL_RE |
                             TFW_IMX95_LPUART_CTRL_RIE;
     tfw_cm_nvic_enable(TFW_IMX95_LPUART7_IRQ);
+    uart_up = 1u;
     return TFW_OK;
 }
 
@@ -128,7 +136,7 @@ void tfw_cm_irq68(void)
 
 uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
-    if (rx_tail == rx_head) {
+    if (uart_up == 0u || rx_tail == rx_head) {
         return 0u;
     }
     *out    = rx_buf[rx_tail];
@@ -141,6 +149,9 @@ uint8_t tfw_hal_uart_tx_try(uint8_t byte)
     uint8_t  next = (uint8_t)((tx_head + 1u) & (TFW_UART_TX_RING - 1u));
     uint32_t primask;
 
+    if (uart_up == 0u) {
+        return 1u;                      /* no console: dropped, not "full" */
+    }
     if (next == tx_tail) {
         return 0u;                      /* full: the caller retries next poll */
     }
@@ -157,6 +168,9 @@ uint8_t tfw_hal_uart_tx_try(uint8_t byte)
  * on this so the acknowledgement's last byte is out before the reset. */
 uint8_t tfw_hal_uart_tx_idle(void)
 {
+    if (uart_up == 0u) {
+        return 1u;
+    }
     return (uint8_t)(tx_head == tx_tail &&
                      (TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_TC) != 0u);
 }

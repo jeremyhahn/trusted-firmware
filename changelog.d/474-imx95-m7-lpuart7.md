@@ -9,4 +9,6 @@
   Manager refuses either pad or the exchange fails, `tfw_hal_uart_init`
   returns the routing failure and turns the LPUART's transmitter, receiver
   and interrupt off (whatever a previous image left on), and the CRC-32 is
-  pinned against imx-sm's `CRC_Crc32` known-answer vectors.
+  pinned against imx-sm's `CRC_Crc32` known-answer vectors. After a failed
+  console init the tx path drops bytes and reports idle, so a requested reset
+  is not held by a console that cannot drain.

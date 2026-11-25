@@ -61,10 +61,10 @@ class MaskLan(unittest.TestCase):
 
     def test_m4_host_case_and_terminal_dot(self):
         cases = (
-            ({"DEVCACHE_GO": "http://cache.INTERNAL:3000/go"},
-             {"http://cache.INTERNAL:3000/go", "cache.INTERNAL:3000", "cache.INTERNAL"}),
-            ({"CI_IMAGE_REGISTRY": "registry.lan.:5000"}, {"registry.lan.:5000", "registry.lan."}),
-            ({"RELEASE_REGISTRY": "Pkgs.Home.Arpa."}, {"Pkgs.Home.Arpa."}),
+            ({"DEVCACHE_GO": "http://cache.INTERNAL:3000/go"},  # lab-string-ok: suffix-rule fixture
+             {"http://cache.INTERNAL:3000/go", "cache.INTERNAL:3000", "cache.INTERNAL"}),  # lab-string-ok: suffix-rule fixture
+            ({"CI_IMAGE_REGISTRY": "registry.lan.:5000"}, {"registry.lan.:5000", "registry.lan."}),  # lab-string-ok: suffix-rule fixture
+            ({"RELEASE_REGISTRY": "Pkgs.Home.Arpa."}, {"Pkgs.Home.Arpa."}),  # lab-string-ok: suffix-rule fixture
             ({"GOPROXY": "http://buildcache.:3000"},
              {"http://buildcache.:3000", "buildcache.:3000", "buildcache."}),
             ({"GOPROXY": "https://Proxy.Golang.Org.,DIRECT"}, set()),

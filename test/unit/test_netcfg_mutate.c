@@ -94,6 +94,7 @@ static int endpoint_ok(const uint8_t *raw)
 
 static void check_fields(const uint8_t *raw, const tfw_netcfg_t *c)
 {
+    TEST_ASSERT_EQUAL_HEX8(raw[5], c->flags);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(&raw[6], c->mac, 6u);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(&raw[12], c->ip, 4u);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(&raw[16], c->mask, 4u);
@@ -264,13 +265,15 @@ static void set_and_run(unsigned off, const uint8_t *v, unsigned n)
 }
 
 /* The block carries addresses, not policy: an all-0x00 or all-0xFF MAC, IP,
- * mask or gateway, a multicast MAC and a broadcast IP or peer decode as
- * written. Only a zero peer or a zero port is "not provisioned". */
+ * mask or gateway, a multicast MAC, a broadcast IP or peer and a peer with
+ * only its first or only its last octet nonzero decode as written. Only a
+ * zero peer or a zero port is "not provisioned". */
 static void test_edge_addresses(void)
 {
     static const uint8_t z[6] = { 0 }, f[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     static const uint8_t mcast[6] = { 0x01, 0x00, 0x5E, 0x00, 0x00, 0x01 };
     static const uint8_t bcast[4] = { 192, 0, 2, 255 };
+    static const uint8_t peer_first[4] = { 192, 0, 0, 0 }, peer_last[4] = { 0, 0, 0, 20 };
     static const unsigned addr[] = { 12u, 16u, 20u };
     unsigned i;
 
@@ -284,8 +287,10 @@ static void test_edge_addresses(void)
     }
     set_and_run(24u, f, 4u);
     set_and_run(24u, bcast, 4u);
+    set_and_run(24u, peer_first, 4u);
+    set_and_run(24u, peer_last, 4u);
     set_and_run(28u, f, 2u);
-    TEST_ASSERT_EQUAL_UINT(3u + 9u + 3u, ok_runs);
+    TEST_ASSERT_EQUAL_UINT(3u + 9u + 5u, ok_runs);
 
     set_and_run(24u, z, 4u);
     set_and_run(28u, z, 2u);

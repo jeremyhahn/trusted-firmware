@@ -26,6 +26,12 @@ func TestTCPAddrParsesTheDeviceAddress(t *testing.T) {
 		{"tcp://[::1]:9000", "[::1]:9000", true, ""},
 		{"tcp://127.0.0.1", "", true, "want tcp://host:port"},
 		{"tcp://", "", true, "want tcp://host:port"},
+		{"tcp://:", "", true, "port"},
+		{"tcp://127.0.0.1:", "", true, "port"},
+		{"tcp://127.0.0.1:0", "", true, "port"},
+		{"tcp://127.0.0.1:http", "", true, "port"},
+		{"tcp://127.0.0.1:65536", "", true, "port"},
+		{"tcp://127.0.0.1:65535", "127.0.0.1:65535", true, ""},
 		{"TCP://127.0.0.1:9000", "", false, ""}, // a serial port name, not the scheme
 	} {
 		t.Run(tc.port, func(t *testing.T) {

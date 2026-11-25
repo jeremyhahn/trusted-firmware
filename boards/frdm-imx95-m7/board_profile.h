@@ -213,6 +213,7 @@
 #define TFW_IMX95_HSM_PHY_RESET  0u             /* A1: the PHYs' reset domain */
 #define TFW_IMX95_HSM_PHY_POWER  0u             /* A1: the PHYs' power domain */
 #define TFW_IMX95_HSM_A55_POWER  0u             /* A2: the A55's power domain */
+#define TFW_IMX95_HSM_A55_LM     0u             /* A2: the A55's logical machine (imx-sm LMM) */
 /* A5 names no domain: SYSTEM_POWER_STATE_SET (DEN0056E section 4.4.2.5, in
  * scmi.c) acts on the whole system. What is open is whether the M7's agent may
  * send it (hsm-self-defence architecture question 7); 1 once it may. */

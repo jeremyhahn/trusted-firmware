@@ -135,8 +135,9 @@ versions.
 ## Configure it at run time
 
 Declare how many bytes you need in `config_len`. Your region starts at
-`TFW_APP_CONFIG_BASE` (`TFW_BOOT_EE_LEN`, byte 0x140 = 320 of EEPROM; the
-bootloader's block and, on the ATmega2560, its swap journal lie below it).
+`TFW_APP_CONFIG_BASE` (`TFW_NETCFG_ADDR + TFW_NETCFG_LEN`, byte 0x160 = 352 of
+EEPROM, on every image; the bootloader's block, on the ATmega2560 its swap
+journal, and the 32-byte network block at `[0x140, 0x160)` lie below it).
 Read it in `init`:
 
 ```c
@@ -151,23 +152,17 @@ Both calls take an offset into your region, `[0, config_len)`, and return
 `tfw_app_config_write(off, buf, len)`: in `run`, one byte per call, as above.
 
 A host writes the same bytes with the Go SDK's `Device.EEPROMWrite`
-(`sdk/go/commands.go`) at address `0x140 + offset`; the device refuses a write
-below 0x140. A write that overlaps `[0x140, 0x160)` also needs an
-authenticated operator session where the image has one: without it the device
-answers `TFW_ERR_AUTH_REQUIRED` (17) and writes nothing (`src/caps/storage.c`);
-on the soft and CRYPTO=NONE tiers that gate is a no-op and the write is
-unconditional. Put a layout version in the first byte, and validate
-everything you read: outside the network block, any host with wire access can
+(`sdk/go/commands.go`) at address `0x160 + offset` (`tfw.AppConfigBase +
+offset`); the device refuses a write below 0x140. Your region never overlaps
+the network block `[0x140, 0x160)`, which is reserved on every image, Ethernet
+or not; a host write into that block needs an authenticated operator session
+where the image has one (`src/caps/storage.c`). Put a layout version in the
+first byte, and validate everything you read: any host with wire access can
 write the region. Do not store secrets there.
 
-On an image that links the Ethernet network block (`ETH=1`, the ATmega2560's
-default, or `ETH_MAC=1`), that block is `TFW_NETCFG_LEN` (32) bytes at
-`TFW_NETCFG_ADDR`, which is also `TFW_BOOT_EE_LEN`: it is the first 32 bytes
-of your region. Writing them breaks the device's network settings, and the
-link cannot reconnect ([network block](../ethernet-transport/api.md#network-block)).
-On such an image declare `config_len` 0 and own no EEPROM. The firmware does
-not refuse it yet: an application that declares more reads and writes the
-network block.
+An out-of-tree application whose config was stored at 0x140, before #640 moved
+the region to 0x160, finds its region erased or holding other bytes after the
+update: re-provision it at `0x160 + offset`.
 
 ## Update it
 

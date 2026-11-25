@@ -31,6 +31,11 @@ void     w5x_model_cr_stuck_on(uint8_t cr);        /* only command cr is never t
 void     w5x_model_size_unstable(uint8_t on);      /* FSR and RSR never read the same twice */
 void     w5x_model_tx_cap(uint16_t cap);           /* FSR reads no more than this */
 void     w5x_model_rsr_reads(uint16_t v);          /* RSR reads v, steadily; 0: the true size */
+/* A TCP SEND on socket 0 still puts its bytes on the wire, but raises SEND_OK
+ * only on the reads-th read of socket 0's Sn_IR after it; 0: at once. UDP
+ * sends are not lagged. */
+void     w5x_model_send_lag(uint8_t reads);
+uint8_t  w5x_model_sends_over_flight(void);        /* SENDs taken with a SEND_OK pending */
 /* The socket's buffer pointers after the next OPEN, so wrap-around in both the
  * 16-bit pointer and the 2 KB buffer is reachable. */
 void     w5x_model_seed_pointers(uint16_t p);

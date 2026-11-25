@@ -2751,7 +2751,7 @@ $(HOST_DIR)/test_tier_soft_mutate: test/unit/test_tier_soft_mutate.c tools/tfwsi
 # peer the test opens on a port the kernel picks, killing its mutants (#163).
 $(HOST_DIR)/test_eth_socket_mutate: test/unit/test_eth_socket_mutate.c tools/tfwsim/eth_socket.c \
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ -Wl,--wrap=poll $(EXTRA_LDFLAGS)
 
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(and $(filter command line,$(origin CRYPTO)),$(filter atecc608a,$(CRYPTO))),-atecc608a)$(APP_SUFFIX)
@@ -3071,6 +3071,13 @@ header-deps-check:
 # the shield's pins D10-D13 marked in use, so tone's refusal of D11 runs. It
 # stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The application runner on an ETH=1 image (#640, owner ruling 1234): the
+# network block keeps [0x140, 0x160) and the application's configuration
+# starts at 0x160 above it, so an application owning config runs. It stays in TEST_SRCS; this explicit
+# rule takes the place of the pattern rule.
+$(HOST_DIR)/test_app_netcfg: test/unit/test_app_netcfg.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The Cortex-M reset marker's decode and fault record (row cortex-m), each

@@ -85,6 +85,11 @@ See docs/device-provisioning/user.md.
 `)
 }
 
+// bakeWireFlags are the wire-mode flags the bake modes refuse: a bake opens
+// no port and reads no template, so taking one silently would let a record
+// look template-checked when no template was read.
+var bakeWireFlags = map[string]bool{"config": true, "yes-i-mean-it": true, "baud": true, "timeout": true}
+
 func main() {
 	var (
 		dryRun     = flag.Bool("dry-run", false, "print the plan and change nothing")
@@ -147,6 +152,13 @@ func main() {
 		}
 		if *dryRun || *verify || *commit {
 			fail(fmt.Errorf("%s is its own mode; it does not combine with --dry-run/--verify/--commit", mode))
+		}
+		var set []string
+		flag.Visit(func(f *flag.Flag) { set = append(set, f.Name) })
+		for _, name := range set {
+			if bakeWireFlags[name] {
+				fail(fmt.Errorf("--%s does not combine with %s, which opens no port and reads no template", name, mode))
+			}
 		}
 		if flag.NArg() != 0 {
 			fail(fmt.Errorf("%s takes no positional argument (it opens no port); did you mean to drop the port, or to run one of --dry-run/--verify/--commit instead?", mode))

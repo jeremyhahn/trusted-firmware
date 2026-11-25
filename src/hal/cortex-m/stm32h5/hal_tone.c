@@ -7,8 +7,10 @@
  * reload come from tfw_h5_tone_psc_arr (h5_calc.h), host-tested alone.
  *
  * One tone at a time, as on AVR and ESP32: a second start retargets the same
- * channel, stop forces the channel's output low and halts the counter. Every
- * register and value is in soc_regs.h with its ST source; what the pinned
+ * channel, stop forces the channel's output low and halts the counter, then
+ * returns PB5 to a GPIO output driven low, as PWM's stop does, so digital_write
+ * works on it afterwards. Every register and value is in soc_regs.h with its
+ * ST source; what the pinned
  * sources do not settle is on docs/boards/stm32h573i-dk.md, "What is not
  * verified". Linked only when the board sets TFW_FEATURE_TONE 1
  * (mk/firmware.mk, TONE_SRCS).
@@ -70,11 +72,16 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
 
 tfw_status_t tfw_hal_tone_stop(void)
 {
+    uint32_t bank;
+
     if (running) {
         /* Forced inactive holds OC2REF low, and with CC2P clear the pin
          * follows it; then the counter stops. */
         TFW_H5_TONE_TIM_CCMR1 = (TFW_H5_TONE_TIM_CCMR1 & ~TFW_H5_TONE_CCMR1_CH2) | TFW_H5_TONE_OC2M_LOW;
         TFW_H5_TONE_TIM_CR1 &= ~TFW_H5_TONE_CR1_CEN;
+        bank = tfw_h5_gpio_base(TFW_H5_GPIOA_BASE, TFW_H5_GPIO_STRIDE, TFW_H5_TONE_BANK);
+        TFW_H5_GPIO_BSRR(bank) = 1u << (TFW_H5_TONE_PIN + 16u);   /* low before it drives */
+        TFW_H5_GPIO_MODER(bank) = tfw_h5_field2(TFW_H5_GPIO_MODER(bank), TFW_H5_TONE_PIN, TFW_H5_MODE_OUTPUT);
         running = 0u;
     }
     return TFW_OK;

@@ -6,6 +6,7 @@
 # PATH records every call and answers `docker info` with STUB_NCPU (exit
 # STUB_NCPU_RC); a stub `tar` keeps the copy-in off the image's own tar.
 # IN_IMAGE_CPUS sets the bound, so the host's CPU count never matters.
+# It also covers the IN_IMAGE_UID guard: 0 and a zero-padded 00 are refused.
 #
 #   usage: scripts/in-toolchain-image-test.sh   (also: make in-toolchain-image-test)
 set -eu
@@ -77,6 +78,22 @@ run IN_IMAGE_CPUS=abc STUB_NCPU=80
 if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_CPUS must be a positive integer: abc' "$D/out" && [ ! -s "$D/state/calls" ]; then
   ok "a bad IN_IMAGE_CPUS is refused with no docker call"
 else bad "a bad IN_IMAGE_CPUS is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+# A zero-padded uid is still root: 00 must be refused like 0.
+run IN_IMAGE_UID=00 IN_IMAGE_CPUS=4 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_UID must be a non-root numeric uid: 00' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "a zero-padded root IN_IMAGE_UID is refused with no docker call"
+else bad "a zero-padded root IN_IMAGE_UID is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+run IN_IMAGE_UID=0 IN_IMAGE_CPUS=4 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_UID must be a non-root numeric uid: 0' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "IN_IMAGE_UID=0 is refused with no docker call"
+else bad "IN_IMAGE_UID=0 is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
+
+run IN_IMAGE_CPUS=00 STUB_NCPU=80
+if [ "$rc" = 2 ] && grep -q 'IN_IMAGE_CPUS must be a positive integer: 00' "$D/out" && [ ! -s "$D/state/calls" ]; then
+  ok "a zero-padded IN_IMAGE_CPUS is refused with no docker call"
+else bad "a zero-padded IN_IMAGE_CPUS is refused with no docker call (rc=$rc)"; cat "$D/out"; fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

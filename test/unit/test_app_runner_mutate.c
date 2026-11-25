@@ -9,7 +9,8 @@
  * and answers what test_app.c defines -- evidence TFW_ERR_UNSUPPORTED with the
  * caller's buffer untouched, after-update TFW_OK -- and a descriptor with any
  * field broken is refused without init ever being called, while one whose
- * every field is in range starts.
+ * every field is in range starts. The clock starts anywhere, including just
+ * before the millisecond-counter wrap, and a run is still timed by difference.
  *
  * The expected answer of each step comes from a model held here: the state,
  * the overrun count and the hook log. Whether a mutated descriptor is good is
@@ -365,6 +366,31 @@ static void test_app_runner_mutate_random_call_orders_follow_the_model(void)
     }
 }
 
+static void test_app_runner_mutate_a_run_across_the_counter_wrap_is_timed_by_difference(void)
+{
+    tfw_ms_t k;
+    tfw_ms_t run;
+
+    for (k = 0u; k <= 2u * TFW_APP_RUN_BUDGET_MS + 2u; k++) {
+        for (run = 0u; run <= 2u * TFW_APP_RUN_BUDGET_MS + 1u; run++) {
+            uint16_t want = (run > TFW_APP_RUN_BUDGET_MS) ? 1u : 0u;
+
+            begin_run();
+            tfw_mock_set_millis((tfw_ms_t)(0u - k));
+            tfw_mock_app_set_run_ms(run);
+            tfw_app_runner_start();
+            tfw_app_runner_poll();
+            if (tfw_app_runner_state() != TFW_APP_STATE_RUNNING || strcmp(tfw_mock_app_log(), "ir") != 0 ||
+                tfw_app_runner_overruns() != want) {
+                printf("start %lu ms before the wrap, run %lu ms: state %d, log \"%s\", overruns %u, want %u\n",
+                       (unsigned long)k, (unsigned long)run, (int)tfw_app_runner_state(), tfw_mock_app_log(),
+                       (unsigned)tfw_app_runner_overruns(), (unsigned)want);
+                TEST_FAIL_MESSAGE("a run across the millisecond-counter wrap is timed wrongly");
+            }
+        }
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -372,5 +398,6 @@ int main(void)
     RUN_TEST(test_app_runner_mutate_failed_refused_and_stopped_ignore_every_call);
     RUN_TEST(test_app_runner_mutate_any_one_bad_field_is_refused_before_init);
     RUN_TEST(test_app_runner_mutate_random_call_orders_follow_the_model);
+    RUN_TEST(test_app_runner_mutate_a_run_across_the_counter_wrap_is_timed_by_difference);
     return UNITY_END();
 }

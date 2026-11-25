@@ -115,6 +115,30 @@ static void test_the_dropped_count_saturates(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_RECORD_MAX, tfw_hsm_record_count());
 }
 
+/* The dropped count is entries refused for want of room (hsm_record.h): a
+ * kind not defined is refused as unsupported even on a full record, and
+ * never counted as dropped. */
+static void test_a_kind_not_defined_on_a_full_record_is_refused_not_dropped(void)
+{
+    tfw_hsm_entry_t e;
+
+    fill();
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, tfw_hsm_record_append(TFW_HSM_REC_ACTION,
+                                                             TFW_HSM_ACT_SHUTDOWN, TFW_OK, 999u));
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_hsm_record_dropped());
+
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hsm_record_append(0u, 1u, TFW_OK, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hsm_record_append(4u, 1u, TFW_OK, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hsm_record_append(0xFFu, 1u, TFW_OK, 1u));
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_hsm_record_dropped());
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_RECORD_MAX, tfw_hsm_record_count());
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_read(TFW_HSM_RECORD_MAX - 1u, &e));
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_REC_SIGNAL, e.kind);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_RECORD_MAX - 1u, e.what);
+    TEST_ASSERT_EQUAL_UINT32(100u + TFW_HSM_RECORD_MAX - 1u, e.at);
+}
+
 /* A head past the bound reads as full, never as a slot past the store. */
 static void test_a_head_past_the_bound_reads_as_full(void)
 {
@@ -160,6 +184,7 @@ int main(void)
     RUN_TEST(test_a_kind_not_defined_is_refused_and_not_kept);
     RUN_TEST(test_a_full_record_keeps_the_first_and_counts_the_rest);
     RUN_TEST(test_the_dropped_count_saturates);
+    RUN_TEST(test_a_kind_not_defined_on_a_full_record_is_refused_not_dropped);
     RUN_TEST(test_a_head_past_the_bound_reads_as_full);
     RUN_TEST(test_erase_empties_the_record_and_its_count);
     RUN_TEST(test_the_store_refuses_a_slot_past_its_bound);

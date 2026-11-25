@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 
+#include <stdio.h>
+
 #include "unity.h"
 #include "crc16.h"
 #include "vectors.h"
@@ -178,6 +180,43 @@ static void test_crc16_from_of_zero_bytes_returns_the_seed_unread(void)
     TEST_ASSERT_EQUAL_HEX16(0x0000u, tfw_crc16_from(0x0000u, NULL, 0));
 }
 
+/* The carry tfw-boot's handoff CRC depends on: a CRC over the first k bytes,
+ * handed to tfw_crc16_from as the seed for the rest, equals the CRC of the
+ * whole, at every split including the empty head and the empty tail. A fold
+ * that restarts at TFW_CRC16_INIT, or drops a byte, fails at some k. */
+static void test_crc16_from_carried_across_any_split_equals_the_whole(void)
+{
+    const uint8_t *msg = (const uint8_t *)TFWV_CRC_CHECK_INPUT;
+    uint16_t       k;
+    char           what[16];
+
+    for (k = 0; k <= TFWV_CRC_CHECK_LEN; k++) {
+        (void)snprintf(what, sizeof what, "split k=%u", (unsigned)k);
+        TEST_ASSERT_EQUAL_HEX16_MESSAGE(TFWV_CRC_CHECK_RESULT,
+            tfw_crc16_from(tfw_crc16(msg, k), msg + k,
+                           (uint16_t)(TFWV_CRC_CHECK_LEN - k)), what);
+    }
+}
+
+/* From a seed that is not TFW_CRC16_INIT, tfw_crc16_from folds from that
+ * seed: it agrees with tfw_crc16_update byte by byte, with the literal
+ * (0xE5CC, CRC-16/AUG-CCITT's published check value, which is this
+ * polynomial from 0x1D0F), and not with tfw_crc16 of the same bytes. */
+static void test_crc16_from_folds_from_the_seed_it_is_given(void)
+{
+    const uint8_t *msg = (const uint8_t *)TFWV_CRC_CHECK_INPUT;
+    uint16_t       crc = 0x1D0Fu;
+    uint8_t        i;
+
+    for (i = 0; i < TFWV_CRC_CHECK_LEN; i++) {
+        crc = tfw_crc16_update(crc, msg[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX16(0xE5CCu, crc);
+    TEST_ASSERT_EQUAL_HEX16(crc, tfw_crc16_from(0x1D0Fu, msg, TFWV_CRC_CHECK_LEN));
+    TEST_ASSERT_NOT_EQUAL(tfw_crc16(msg, TFWV_CRC_CHECK_LEN),
+                          tfw_crc16_from(0x1D0Fu, msg, TFWV_CRC_CHECK_LEN));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -195,5 +234,7 @@ int main(void)
     RUN_TEST(test_crc16_update_meets_the_seed_by_xor);
     RUN_TEST(test_crc16_update_folding_123456789_gives_0x29b1);
     RUN_TEST(test_crc16_from_of_zero_bytes_returns_the_seed_unread);
+    RUN_TEST(test_crc16_from_carried_across_any_split_equals_the_whole);
+    RUN_TEST(test_crc16_from_folds_from_the_seed_it_is_given);
     return UNITY_END();
 }

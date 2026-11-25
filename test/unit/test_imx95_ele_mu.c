@@ -29,7 +29,7 @@ static struct tfw_imx95_model *m;
 static struct tfw_ele_chan chan;
 
 /* What the enclave below answers. */
-static uint32_t reply[8];
+static uint32_t reply[TFW_ELE_MSG_WORDS];
 static uint32_t reply_n;
 static uint8_t  info_out[256];   /* the buffer the enclave writes, as DMA would */
 static uint8_t  info_image[256];
@@ -2064,6 +2064,56 @@ static void test_a_get_event_never_writes_past_the_callers_room(void)
     TEST_ASSERT_EQUAL_HEX32(0u, ev[1]);
 }
 
+/* A fourteen-word response has room for ten events: a caller with room for
+ * sixteen still gets eight, the cap the intake's buffer is sized to. */
+static const struct tfw_ele_event_layout evt14 = { 0x9Au, 2u, 14u, 1u, 2u, 3u };
+
+static void test_a_get_event_never_returns_more_than_the_cap(void)
+{
+    uint32_t ev[16] = { 0u };
+    uint32_t n = 0u, k;
+
+    reply[0] = 0xE19A0E06u;
+    reply[1] = 0x000000D6u;
+    reply[2] = 10u;
+    for (k = 0u; k < 10u; k++) {
+        reply[3u + k] = 0xE0u + k;
+    }
+    reply[13] = 0u;   /* the CRC word's place */
+    reply_n   = 14u;
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt14, 1u, ev, 16u, &n, NULL));
+    TEST_ASSERT_EQUAL_UINT32(TFW_ELE_EVENTS_MAX, n);
+    for (k = 0u; k < TFW_ELE_EVENTS_MAX; k++) {
+        TEST_ASSERT_EQUAL_HEX32(0xE0u + k, ev[k]);
+    }
+    TEST_ASSERT_EQUAL_HEX32(0u, ev[8]);
+    TEST_ASSERT_EQUAL_HEX32(0u, ev[9]);
+}
+
+/* Events from word 2, the count in word 4 after them: the room stops at the
+ * count word, which is never returned as an event. */
+static const struct tfw_ele_event_layout evt6_count_after = { 0x9Au, 2u, 6u, 1u, 4u, 2u };
+
+static void test_a_get_event_count_word_after_the_events_is_not_an_event(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 0u;
+
+    reply[0] = 0xE19A0606u;
+    reply[1] = 0x000000D6u;
+    reply[2] = 0x00000011u;
+    reply[3] = 0x00000022u;
+    reply[4] = 3u;
+    reply[5] = 0x00000033u;   /* the CRC word's place */
+    reply_n  = 6u;
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6_count_after, 1u, ev, 8u, &n,
+                                                 NULL));
+    TEST_ASSERT_EQUAL_UINT32(2u, n);
+    TEST_ASSERT_EQUAL_HEX32(0x00000011u, ev[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000022u, ev[1]);
+    TEST_ASSERT_EQUAL_HEX32(0u, ev[2]);
+}
+
 static void test_a_get_event_with_none_pending_returns_none(void)
 {
     uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
@@ -2396,6 +2446,8 @@ int main(void)
     RUN_TEST(test_a_get_event_names_its_session_and_returns_the_events);
     RUN_TEST(test_a_get_event_count_never_reads_past_the_response);
     RUN_TEST(test_a_get_event_never_writes_past_the_callers_room);
+    RUN_TEST(test_a_get_event_never_returns_more_than_the_cap);
+    RUN_TEST(test_a_get_event_count_word_after_the_events_is_not_an_event);
     RUN_TEST(test_a_get_event_with_none_pending_returns_none);
     RUN_TEST(test_a_refused_get_event_returns_no_events);
     RUN_TEST(test_a_get_event_with_no_session_or_layout_is_not_sent);

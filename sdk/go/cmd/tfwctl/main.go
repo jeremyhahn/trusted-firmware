@@ -49,6 +49,10 @@ commands
   pin <pin>          one pin's descriptor: port, adc channel, pwm
   sys                uptime, free RAM, why it last reset
   app                the application: name, state, version, the caps it needs
+  app-cmd <op> [hex-args]
+                     one application command: op 0-255, at most 63 bytes of
+                     args; prints the reply as hex. Serial only: over
+                     Ethernet the device answers an unknown command
   reset [soft|boot]  restart; boot enters the bootloader
   mode <pin> <in|out|pullup>
   read <pin>
@@ -271,6 +275,9 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		})
 
 	case "app":
+		if len(args) != 0 {
+			return fmt.Errorf("usage: app")
+		}
 		// APP_INFO: an image with no application answers it as an unknown
 		// command, and that status is returned as every other refusal is.
 		ai, err := dev.AppInfo(ctx)
@@ -284,10 +291,32 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 				ai.RequiredCaps, ai.Overruns, ai.OTASlots, ai.ConfigLen)
 		})
 
+	case "app-cmd":
+		op, appArgs, err := parseAppCmd(args)
+		if err != nil {
+			return err
+		}
+		// Sent on every transport: over Ethernet the device answers
+		// UNKNOWN_CMD (the wire-commands ADR, decision 6), and that answer
+		// is the device's to give, returned as every other refusal is.
+		reply, err := dev.AppCommand(ctx, op, appArgs)
+		if err != nil {
+			return err
+		}
+		h := hex.EncodeToString(reply)
+		return emit(out, asJSON, map[string]any{"reply": h},
+			func() string { return h + "\n" })
+
 	case "reset":
 		mode := tfw.ResetSoft
-		if len(args) > 0 && args[0] == "boot" {
+		switch {
+		case len(args) > 1:
+			return fmt.Errorf("usage: reset [soft|boot]")
+		case len(args) == 0 || args[0] == "soft":
+		case args[0] == "boot":
 			mode = tfw.ResetBootloader
+		default:
+			return fmt.Errorf("usage: reset [soft|boot]")
 		}
 		if err := dev.Reset(ctx, mode); err != nil {
 			return err
@@ -641,6 +670,56 @@ func parseLevel(s string) (bool, error) {
 		return true, nil
 	}
 	return false, fmt.Errorf("level %q, want 0 or 1", s)
+}
+
+const appCmdUsage = "usage: app-cmd <op 0-255> [hex-args, at most 63 bytes]"
+
+// parseAppCmd reads app-cmd's words: an op, decimal or 0x hex, and optional
+// even-length hex args of at most 63 bytes. Anything else is a usage error
+// before the wire.
+func parseAppCmd(args []string) (uint8, []byte, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return 0, nil, fmt.Errorf("%s", appCmdUsage)
+	}
+	op, err := parseAppOp(args[0])
+	if err != nil {
+		return 0, nil, fmt.Errorf("%s: op %q: %w", appCmdUsage, args[0], err)
+	}
+	var b []byte
+	if len(args) == 2 {
+		if args[1] == "" {
+			return 0, nil, fmt.Errorf("%s: empty args; leave them out instead", appCmdUsage)
+		}
+		if b, err = hex.DecodeString(args[1]); err != nil {
+			return 0, nil, fmt.Errorf("%s: args %q: %w", appCmdUsage, args[1], err)
+		}
+		if len(b) > 63 {
+			return 0, nil, fmt.Errorf("%s: args are %d bytes", appCmdUsage, len(b))
+		}
+	}
+	return op, b, nil
+}
+
+// parseAppOp reads an op as plain decimal or 0x hex. strconv's base 0 is not
+// used: it reads 010 as octal and takes 0b, 0o and underscores, none of which
+// the usage names, so a decimal with a leading zero is refused too.
+func parseAppOp(s string) (uint8, error) {
+	digits, base := s, 10
+	if h, ok := strings.CutPrefix(s, "0x"); ok {
+		digits, base = h, 16
+	} else if h, ok := strings.CutPrefix(s, "0X"); ok {
+		digits, base = h, 16
+	} else if len(s) > 1 && s[0] == '0' {
+		return 0, fmt.Errorf("a leading zero: write it as decimal or 0x hex")
+	}
+	if digits == "" || digits[0] == '+' || digits[0] == '-' {
+		return 0, fmt.Errorf("want decimal or 0x hex, 0-255")
+	}
+	n, err := strconv.ParseUint(digits, base, 8)
+	if err != nil {
+		return 0, err
+	}
+	return uint8(n), nil
 }
 
 func fail(err error) {

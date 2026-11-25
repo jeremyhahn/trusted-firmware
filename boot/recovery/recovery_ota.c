@@ -22,6 +22,7 @@
 #include "../boot_session.h"
 #include "../boot_swap.h"
 #include "../boot_trial.h"
+#include "boot_tick.h"
 #include "frame.h"
 
 static tfw_framer_t framer;
@@ -220,12 +221,29 @@ static next_t answer(tfw_boot_platform_t *plat,
     return next;
 }
 
+/*
+ * Where serve keeps total_polls. On AVR the empty pass IS the clock
+ * (boot/hal/avr/boot_tick.h), and TFW_BOOT_POLL_CYCLES is its cost with
+ * total_polls in SRAM: four loads and four stores a pass. Left to the
+ * register allocator, the counter moves between SRAM and registers as the
+ * rest of serve changes size. When the framer gained the oversize-request
+ * refusal (#640) it moved into registers, the 2560 OTA image's empty pass
+ * fell from 77 to about 64 cycles, and the session idled out near 8.3 s, not
+ * 10 s, before the simavr drip case's frame at 8 s arrived. volatile pins it
+ * to SRAM, so the pass costs what boot_tick.h says whatever serve grows.
+ * The qualifier is per architecture, through TFW_BOOT_POLL_COUNTER_T in
+ * each boot/hal/<arch>/boot_tick.h: volatile on AVR and on the host, which
+ * mirrors the 328P's figures; plain on Cortex-M, the loop main compiles,
+ * since its TFW_BOOT_POLL_CYCLES is not measured yet
+ * (boot/hal/cortex-m/boot_tick.h).
+ */
+
 static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
                   const tfw_boot_session_limits_t *lim)
 {
     uint32_t idle        = 0u;
     uint32_t bytes       = 0u;
-    uint32_t total_polls = 0u;
+    TFW_BOOT_POLL_COUNTER_T total_polls = 0u;
     uint32_t total_bytes = 0u;
 
     cur = plat;

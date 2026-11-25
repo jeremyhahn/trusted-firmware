@@ -54,7 +54,8 @@
 # The container is named <CI_STACK_PREFIX>tc-<pid>-<random>, under the prefix
 # scripts/reap-stale-ci-stacks.sh reaps (default <checkout dir>-ci-, which in CI
 # is <repo>-ci-), and is removed on every exit. IN_IMAGE_UID is the non-root
-# uid the command runs as (default 10001; devcontainer.md §5: any non-root uid).
+# uid the command runs as (default 10001; devcontainer.md §5: any non-root uid);
+# a leading zero is refused (00 is root).
 #
 # CUSTOMIZE (trusted-firmware, #253): IN_IMAGE_CACHE=<runner dir>:<container
 # dir> carries a cache the job restores with actions/cache (the OP-TEE stack,
@@ -91,7 +92,7 @@ esac
 
 uid=${IN_IMAGE_UID:-10001}
 case $uid in
-  "" | 0 | *[!0-9]*) echo "IN_IMAGE_UID must be a non-root numeric uid: $uid" >&2; exit 2 ;;
+  "" | 0* | *[!0-9]*) echo "IN_IMAGE_UID must be a non-root numeric uid: $uid" >&2; exit 2 ;;
 esac
 prefix=${CI_STACK_PREFIX:-$(basename "$PWD")-ci-}
 name="${prefix}tc-$$-${RANDOM}"
@@ -129,7 +130,7 @@ if [ -z "$cpus" ]; then
   esac
 fi
 case $cpus in
-  "" | 0 | *[!0-9]*) echo "IN_IMAGE_CPUS must be a positive integer: $cpus" >&2; exit 2 ;;
+  "" | 0* | *[!0-9]*) echo "IN_IMAGE_CPUS must be a positive integer: $cpus" >&2; exit 2 ;;
 esac
 # The daemon refuses --cpus above its own CPU count, and the job container can
 # see more CPUs than the daemon that runs the stage (a pooled runner host), so

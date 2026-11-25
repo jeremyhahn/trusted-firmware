@@ -19,6 +19,9 @@ const (
 	ImageTrailerLen = 128
 	// ImageTrailerVersion is TFW_BOOT_TRAILER_VERSION, the one layout read.
 	ImageTrailerVersion = 1
+	// ImageEnvelopeMax is TFW_SUIT_ENVELOPE_MAX (src/core/suit.h), the longest
+	// manifest envelope the device reads.
+	ImageEnvelopeMax = 320
 	// imageTrailerMagic is TFW_BOOT_TRAILER_MAGIC, 'T','F','I','M' little-endian.
 	imageTrailerMagic = 0x4D494654
 	// imageNoEnvelope is the length erased padding reads as.
@@ -39,7 +42,7 @@ var (
 	// ErrImageBoard says the trailer names no board (board_id 0).
 	ErrImageBoard = errors.New("tfw: image board_id is zero")
 	// ErrImageEnvelope says the manifest envelope's length is zero or runs
-	// past the padding into the trailer.
+	// past the padding into the trailer, or is longer than ImageEnvelopeMax.
 	ErrImageEnvelope = errors.New("tfw: image manifest envelope truncated")
 )
 
@@ -105,8 +108,9 @@ func ParseImage(b []byte) (*Image, error) {
 	if el == imageNoEnvelope {
 		return img, nil
 	}
-	if el == 0 || el > room-2 {
-		return nil, fmt.Errorf("%w: %d bytes, room for %d", ErrImageEnvelope, el, room-2)
+	if el == 0 || el > ImageEnvelopeMax || el > room-2 {
+		return nil, fmt.Errorf("%w: %d bytes, room for %d, at most %d",
+			ErrImageEnvelope, el, room-2, ImageEnvelopeMax)
 	}
 	img.Envelope = b[n+2 : n+2+el]
 	return img, nil

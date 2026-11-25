@@ -50,6 +50,29 @@ static void test_writer_copies_a_blob(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(src, buf, 3u);
 }
 
+/* A blob writes its n bytes and not the next: the byte after it in the
+ * buffer stays poisoned, and a blob that fills the buffer exactly leaves
+ * the byte past cap alone (a copy of n+1 bytes would write buf[cap]). */
+static void test_a_blob_writes_its_n_bytes_and_not_the_next(void)
+{
+    const uint8_t src[5] = { 0xA1u, 0xB2u, 0xC3u, 0xD4u, 0xE5u };
+    uint8_t       room[5];
+    tfw_writer_t  tight;
+
+    tfw_write_blob(&w, src, 3u);
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(3u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(src, buf, 3u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, &buf[3], CAP - 3u);
+
+    memset(room, 0xEE, sizeof room);
+    tfw_writer_init(&tight, room, 4u);
+    tfw_write_blob(&tight, src, 4u);
+    TEST_ASSERT_TRUE(tfw_writer_ok(&tight));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(src, room, 4u);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, room[4]);     /* the byte past cap */
+}
+
 /* Filling the buffer exactly must succeed. The off-by-one lives here. */
 static void test_writer_permits_filling_to_capacity_exactly(void)
 {
@@ -200,6 +223,7 @@ int main(void)
     RUN_TEST(test_writer_starts_empty_and_clean);
     RUN_TEST(test_writer_encodes_scalars_little_endian);
     RUN_TEST(test_writer_copies_a_blob);
+    RUN_TEST(test_a_blob_writes_its_n_bytes_and_not_the_next);
     RUN_TEST(test_writer_permits_filling_to_capacity_exactly);
     RUN_TEST(test_writer_overflowing_write_stores_nothing);
     RUN_TEST(test_writer_overflow_is_sticky);

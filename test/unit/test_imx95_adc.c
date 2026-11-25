@@ -28,6 +28,9 @@
 #define NREGS (0x400u / 4u)
 
 enum cal_mode { CAL_PASS, CAL_FAIL, CAL_HANG };
+/* PD_STUCK: PWDN never reaches POWER_DOWN; PD_STUCK_AFTER_CAL: it does
+ * until a calibration has run, then never again */
+enum pd_mode { PD_SETTLES, PD_STUCK, PD_STUCK_AFTER_CAL };
 
 static uint32_t regs[NREGS];
 static uint32_t other;              /* any address outside the block */
@@ -37,6 +40,7 @@ static enum cal_mode cal;
 static unsigned cal_runs;
 static int cal_at_bus_clock;        /* ADCLKSE when the calibration ran */
 static int conv_hang;
+static enum pd_mode pd;
 static unsigned conversions;
 static uint16_t sample[TFW_IMX95_ADC_CHANNELS];
 static unsigned conv_delay;         /* accesses a started conversion takes */
@@ -64,9 +68,11 @@ static void settle(void)
 {
     uint32_t mcr = R(TFW_IMX95_ADC_MCR);
     uint32_t msr = R(TFW_IMX95_ADC_MSR) & ~TFW_IMX95_ADC_MSR_ADCSTATUS;
+    int stuck = pd == PD_STUCK || (pd == PD_STUCK_AFTER_CAL && cal_runs > 0u);
 
-    msr |= (mcr & TFW_IMX95_ADC_MCR_PWDN) ? TFW_IMX95_ADC_STATUS_POWER_DOWN
-                                          : TFW_IMX95_ADC_STATUS_IDLE;
+    msr |= ((mcr & TFW_IMX95_ADC_MCR_PWDN) && !stuck)
+               ? TFW_IMX95_ADC_STATUS_POWER_DOWN
+               : TFW_IMX95_ADC_STATUS_IDLE;
     if ((mcr & TFW_IMX95_ADC_MCR_CALSTART) && !(mcr & TFW_IMX95_ADC_MCR_PWDN)) {
         if (cal == CAL_HANG) {
             msr |= TFW_IMX95_ADC_MSR_CALBUSY;
@@ -138,6 +144,7 @@ void setUp(void)
     cal_runs = 0u;
     cal_at_bus_clock = 0;
     conv_hang = 0;
+    pd = PD_SETTLES;
     conversions = 0u;
     conv_delay = 0u;
     w1c_off = 0u;
@@ -219,6 +226,38 @@ static void test_a_calibration_that_never_completes(void)
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
     TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
     TEST_ASSERT_EQUAL_UINT(before, touches);
+    TEST_ASSERT_EQUAL_UINT(0u, conversions);
+}
+
+static void test_a_block_that_never_powers_down_is_not_calibrated(void)
+{
+    uint16_t raw = 0x5A5Au;
+    unsigned before;
+
+    pd = PD_STUCK;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    /* calibration starts only from power-down */
+    TEST_ASSERT_EQUAL_UINT(0u, cal_runs);
+    TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_CALSTART);
+    pd = PD_SETTLES;
+    before = touches;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
+    TEST_ASSERT_EQUAL_UINT(before, touches);
+    TEST_ASSERT_EQUAL_UINT(0u, conversions);
+}
+
+static void test_a_block_that_will_not_power_down_after_calibrating_times_out(void)
+{
+    uint16_t raw = 0x5A5Au;
+
+    pd = PD_STUCK_AFTER_CAL;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    TEST_ASSERT_EQUAL_UINT(1u, cal_runs);
+    /* AD_CLK changes only powered down: the convert clock was never set */
+    TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_ADCLKSE);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
     TEST_ASSERT_EQUAL_UINT(0u, conversions);
 }
 
@@ -323,6 +362,8 @@ int main(void)
     RUN_TEST(test_a_conversion_that_never_ends_times_out);
     RUN_TEST(test_a_stale_completion_is_not_the_new_sample);
     RUN_TEST(test_the_references_accepted_and_refused);
+    RUN_TEST(test_a_block_that_never_powers_down_is_not_calibrated);
+    RUN_TEST(test_a_block_that_will_not_power_down_after_calibrating_times_out);
 #else
     RUN_TEST(test_base_zero_touches_nothing);
 #endif

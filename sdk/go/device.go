@@ -19,6 +19,7 @@ const (
 	CmdReset        Cmd = 0x02
 	CmdSysInfo      Cmd = 0x03
 	CmdAppInfo      Cmd = 0x06
+	CmdAppCmd       Cmd = 0x07
 	CmdPinMode      Cmd = 0x10
 	CmdDigitalRead  Cmd = 0x11
 	CmdDigitalWrite Cmd = 0x12
@@ -703,14 +704,19 @@ func (d *Device) fill(deadline time.Time) error {
 		d.rx = append(d.rx, buf[:n]...)
 	}
 	if err != nil && n == 0 {
-		if errors.Is(err, io.EOF) {
-			// The port went away. Wrapped rather than replaced, so a caller
-			// still reaches io.EOF through errors.Is and can tell a closed
-			// link -- reconnect -- from a stalled one.
-			return &LinkError{Op: "read", Err: err}
-		}
 		// A read timeout is not fatal; the caller's own deadline governs.
-		return nil
+		// os.ErrDeadlineExceeded and a net.Error timeout both say so.
+		var te interface{ Timeout() bool }
+		if errors.As(err, &te) && te.Timeout() {
+			return nil
+		}
+		// Anything else -- io.EOF when the port went away, os.ErrClosed from
+		// a closed handle -- fails again on every Read, so it is reported at
+		// once rather than spun on until the deadline and called a timeout.
+		// Wrapped rather than replaced, so a caller still reaches the cause
+		// through errors.Is and can tell a closed link -- reconnect -- from
+		// a stalled one.
+		return &LinkError{Op: "read", Err: err}
 	}
 	return nil
 }

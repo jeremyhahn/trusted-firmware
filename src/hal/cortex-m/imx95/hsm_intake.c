@@ -36,15 +36,31 @@ uint8_t tfw_imx95_hsm_intake_sense(struct tfw_imx95_hsm_intake *in)
     uint32_t s5 = in->s5_seen;
     uint8_t  s  = 0u;
 
-    if (s1 != in->s1_last) {
+    /* A counter that moved while its bit was high last pass is left for the
+     * next one: the loop raises only a rising line. */
+    if (s1 != in->s1_last && (in->high & SIG_BIT(TFW_HSM_SIG_TAMPER_PIN)) == 0u) {
         in->s1_last = s1;
         s |= SIG_BIT(TFW_HSM_SIG_TAMPER_PIN);
     }
-    if (s5 != in->s5_last) {
+    if (s5 != in->s5_last && (in->high & SIG_BIT(TFW_HSM_SIG_HOTPLUG)) == 0u) {
         in->s5_last = s5;
         s |= SIG_BIT(TFW_HSM_SIG_HOTPLUG);
     }
+    in->high = s;
     return s;
+}
+
+/* S2 as one edge per pass: a fetched event is reported only when the bit was
+ * low last pass, otherwise it waits one pass, so the loop sees a new rise. */
+static uint8_t report_s2(struct tfw_imx95_hsm_intake *in)
+{
+    uint8_t s = (in->s2_pending != 0u && in->s2_high == 0u) ? 1u : 0u;
+
+    if (s != 0u) {
+        in->s2_pending = 0u;
+    }
+    in->s2_high = s;
+    return (s != 0u) ? SIG_BIT(TFW_HSM_SIG_AHAB_FAILURE) : 0u;
 }
 
 uint8_t tfw_imx95_hsm_poll(struct tfw_imx95_hsm_intake *in, const struct tfw_ele_chan *c,
@@ -59,19 +75,20 @@ uint8_t tfw_imx95_hsm_poll(struct tfw_imx95_hsm_intake *in, const struct tfw_ele
         return 0u;
     }
     if (in->session == 0u && tfw_ele_session_open(c, mu_irq, &in->session, NULL) != 0) {
-        return 0u;
+        return report_s2(in);
     }
     rc = tfw_ele_get_event(c, l, in->session, ev, TFW_ELE_EVENTS_MAX, &n, NULL);
     if (rc == TFW_ELE_E_SESSION) {
         in->session = 0u;
     }
     if (rc != 0) {
-        return 0u;
+        return report_s2(in);
     }
     for (i = 0u; i < n; i++) {
         if (ev[i] == ids->s2_event) {
-            return SIG_BIT(TFW_HSM_SIG_AHAB_FAILURE);
+            in->s2_pending = 1u;
+            break;
         }
     }
-    return 0u;
+    return report_s2(in);
 }

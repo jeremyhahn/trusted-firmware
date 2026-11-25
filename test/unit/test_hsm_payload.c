@@ -253,6 +253,17 @@ static void test_a_non_deterministic_encoding_is_refused(void)
     SCRIPT(TFW_ERR_UNSUPPORTED, 0x98u, 0x01u, 0x01u);
 }
 
+static void test_a_float64_is_a_type_the_cddl_lacks(void)
+{
+    /* wipe = 1.0 and 0.0 as float64: one status whatever the value. */
+    READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u, 0xFBu, 0x3Fu,
+         0xF0u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, TAIL);
+    READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u, 0xFBu, 0x00u,
+         0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, TAIL);
+    /* A script that is a float64 1.0. */
+    SCRIPT(TFW_ERR_UNSUPPORTED, 0xFBu, 0x3Fu, 0xF0u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u);
+}
+
 static void test_each_bound_at_its_limit_and_one_past(void)
 {
     /* Policies. */
@@ -314,6 +325,25 @@ static void test_every_truncation_is_refused(void)
     }
 }
 
+/* A cut just before a head: the reader looks at no byte past the cut. A
+ * float64 lead byte past it is not read (head()'s n != 0); a set that ends
+ * where a rule's response or its wipe begins reads nothing more (response()'s
+ * n != 0, which ASan sees: READ's array ends at the cut). An eight-byte head
+ * at the end with its four high bytes present and zero is too long a form;
+ * with three of them it is a truncation (head()'s n > 4, both sides). */
+static void test_a_cut_at_a_head_reads_nothing_past_it(void)
+{
+    static const uint8_t fl[] = { HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u, 0xFBu, 0x3Fu };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, rd(fl, sizeof fl - 2u));
+    READ(TFW_ERR_RANGE, HEAD, 0x81u, 0x81u, 0x83u, 0x01u);
+    READ(TFW_ERR_RANGE, HEAD, 0x81u, 0x81u, 0x83u, 0x01u, 0x81u, 0x01u);
+    READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, RULE(1u), 0x03u, 0xA0u, 0x04u, 0x1Bu, 0x00u,
+         0x00u, 0x00u, 0x00u);
+    READ(TFW_ERR_RANGE, HEAD, 0x81u, 0x81u, RULE(1u), 0x03u, 0xA0u, 0x04u, 0x1Bu, 0x00u,
+         0x00u, 0x00u);
+}
+
 static void test_trailing_bytes_are_refused(void)
 {
     READ(TFW_ERR_UNSUPPORTED, HEAD, 0x81u, 0x81u, RULE(1u), TAIL, 0x00u);
@@ -370,8 +400,10 @@ int main(void)
     RUN_TEST(test_an_unknown_action_is_refused);
     RUN_TEST(test_a_rule_not_of_the_cddl_is_refused);
     RUN_TEST(test_a_non_deterministic_encoding_is_refused);
+    RUN_TEST(test_a_float64_is_a_type_the_cddl_lacks);
     RUN_TEST(test_each_bound_at_its_limit_and_one_past);
     RUN_TEST(test_every_truncation_is_refused);
+    RUN_TEST(test_a_cut_at_a_head_reads_nothing_past_it);
     RUN_TEST(test_trailing_bytes_are_refused);
     RUN_TEST(test_every_bit_flip_is_refused_or_reads_another_set);
     return UNITY_END();

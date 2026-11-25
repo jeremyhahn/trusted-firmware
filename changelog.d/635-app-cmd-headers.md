@@ -1,0 +1,1 @@
+- The application wire command is public: `TFW_CMD_APP_CMD` (0x07) and `TFW_APP_CMD_MAX_ARGS` in `tfw/protocol.h`, the `tfw_app_command` hook and `tfw_app_session_ok` in `tfw/app.h`, and the request reader and response writer as `tfw/reader.h` and `tfw/writer.h`.

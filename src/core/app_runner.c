@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 #include "app_runner.h"
+#include "auth_session.h"
 #include "update_request.h"
 #include "tfw/app.h"
 #include "tfw/config.h"
@@ -70,6 +71,12 @@ void tfw_app_runner_start(void)
         return;
     }
     state = (tfw_app_init() == TFW_OK) ? TFW_APP_STATE_RUNNING : TFW_APP_STATE_FAILED;
+}
+
+void tfw_app_runner_reset_state(void)
+{
+    state    = TFW_APP_STATE_IDLE;
+    overruns = 0u;
 }
 
 void tfw_app_runner_poll(void)
@@ -167,6 +174,31 @@ tfw_status_t tfw_app_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
     write_pgm_str(w, d->name, TFW_APP_NAME_LEN);
     write_pgm_str(w, d->profile, TFW_APP_PROFILE_LEN);
     return TFW_OK;
+}
+
+tfw_status_t tfw_app_cmd_command(tfw_reader_t *r, tfw_writer_t *w)
+{
+    uint8_t      op = tfw_read_u8(r);
+    tfw_ms_t     start;
+    tfw_status_t st;
+
+    /* Only a running application answers: one not started, failed, refused or
+     * stopped has no state to answer from, and is not called. */
+    if (state != TFW_APP_STATE_RUNNING) {
+        return TFW_ERR_BAD_STATE;
+    }
+    start = tfw_hal_millis();
+    st    = tfw_app_command(op, r, w);
+    /* Timed as tfw_app_runner_poll times run: a slow sub-op is an overrun too. */
+    if ((tfw_ms_t)(tfw_hal_millis() - start) > TFW_APP_RUN_BUDGET_MS && overruns != 0xFFFFu) {
+        overruns = (uint16_t)(overruns + 1u);
+    }
+    return st;
+}
+
+uint8_t tfw_app_session_ok(void)
+{
+    return tfw_auth_gate() == TFW_OK ? 1u : 0u;
 }
 
 /* The region is checked against the declared length and the part both: the

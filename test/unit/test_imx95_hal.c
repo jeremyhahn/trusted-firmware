@@ -28,6 +28,7 @@
 #include "tfw/hal.h"
 #include "imx95_model.h"
 #include "soc_regs.h"
+#include "scmi.h"
 
 static struct tfw_imx95_model *m;
 
@@ -138,20 +139,48 @@ static void test_uart_init_routes_the_pads_once_before_the_reset(void)
 
 /* The SM may refuse the pad request (it routed the pads already, or the
  * agent lacks the right): the console still comes up on LPUART7. */
-static void test_a_refused_pad_request_still_starts_the_console(void)
+/* A refused or failed pad request (the SM's refusal, a timeout, a reply whose
+ * CRC is wrong, any other error): the routing failure comes back mapped and
+ * the LPUART is left untouched, so a refused RX never leaves a TX-only
+ * console. A refusal does not establish the pads were routed already. */
+static void test_a_failed_pad_request_leaves_the_console_off(void)
 {
-    route_rc = -3;    /* SCMI DENIED */
+    static const struct {
+        int32_t      rc;
+        tfw_status_t want;
+    } cases[] = {
+        { TFW_SCMI_DENIED, TFW_ERR_BUSY },
+        { TFW_SCMI_BUSY, TFW_ERR_BUSY },
+        { TFW_SCMI_IN_USE, TFW_ERR_BUSY },
+        { TFW_SCMI_E_TIMEOUT, TFW_ERR_TIMEOUT },
+        { TFW_SCMI_E_CRC, TFW_ERR_CRC },
+        { TFW_SCMI_GENERIC_ERROR, TFW_ERR_INTERNAL },
+        { TFW_SCMI_E_CHANNEL, TFW_ERR_INTERNAL },
+    };
+    uint32_t i;
+
+    for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+        setUp();
+        route_rc = cases[i].rc;
+        TEST_ASSERT_EQUAL_MESSAGE(cases[i].want, tfw_hal_uart_init(115200u), "mapped status");
+        m = tfw_imx95_model_get();
+        TEST_ASSERT_EQUAL_UINT32(1u, routes);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.resets, "no LPUART reset");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x000C0000u, "TE and RE clear");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->nvic.iser[2], "interrupt 68 not enabled");
+    }
+}
+
+/* The pads granted: the console starts. */
+static void test_a_granted_pad_request_starts_the_console(void)
+{
+    route_rc = 0;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_UINT32(1u, routes);
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
     TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
     TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);     /* interrupt 68 */
-    m->lpuart.ctrl_unmasked = 0u;
-    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x5Au));
-    tfw_imx95_model_uart_interrupt();
-    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, m->lpuart.tx[0]);
 }
 
 /* A transmission starts by enabling the empty-register interrupt, inside the
@@ -436,7 +465,8 @@ int main(void)
     RUN_TEST(test_uart_init_clears_a_latched_overrun);
     RUN_TEST(test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing);
     RUN_TEST(test_uart_init_routes_the_pads_once_before_the_reset);
-    RUN_TEST(test_a_refused_pad_request_still_starts_the_console);
+    RUN_TEST(test_a_failed_pad_request_leaves_the_console_off);
+    RUN_TEST(test_a_granted_pad_request_starts_the_console);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);

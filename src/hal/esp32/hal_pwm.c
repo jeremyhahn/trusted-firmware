@@ -42,7 +42,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     };
 
     const int known = p->mode < LEDC_SPEED_MODE_MAX && p->timer < LEDC_TIMER_MAX;
-    const uint8_t bit = known ? (uint8_t)(1u << p->timer) : 0u;
+    const uint8_t bit = (uint8_t)(known ? 1u << p->timer : 0u);
 
     if (!known || (timer_up[p->mode] & bit) == 0u) {
         if (ledc_timer_config(&timer) != ESP_OK) {

@@ -33,7 +33,8 @@ static uint8_t  stall_start, stall_end, stall_stopped;
 static int16_t  next_sample;
 static char     seq[16];
 static uint32_t nseq;
-static uint32_t at_sample[6];   /* PSELP, PSELN, CONFIG, RESOLUTION, PTR, MAXCNT */
+static uint32_t at_sample[8];   /* PSELP, PSELN, CONFIG, RESOLUTION, PTR, MAXCNT,
+                                   OVERSAMPLE, SAMPLERATE */
 static uint8_t  dma_ok;
 
 /* Port P1's GPIO window, where the four AIN pins are: PIN_CNF n at 0x080 + 4n. */
@@ -74,6 +75,8 @@ static void settle(void)
         at_sample[3] = W(0x5F0u);
         at_sample[4] = W(0x62Cu);
         at_sample[5] = W(0x630u);
+        at_sample[6] = W(0x5F4u);
+        at_sample[7] = W(0x5F8u);
         if (W(0x100u) != 0u && !stall_end) {
             dma_ok = (W(0x62Cu) == (uint32_t)(uintptr_t)&saadc_sample && W(0x630u) == 2u);
             if (dma_ok) {
@@ -277,6 +280,46 @@ static void test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sampl
     TEST_ASSERT_EQUAL_HEX32(0u, W(0x510u));
 }
 
+/* The SAADC leaves EVENTS_STARTED, END and STOPPED latched after a read, so a
+ * second read must start from cleared events: with the converter stalled at
+ * start, end or stop, it times out and keeps the caller's value instead of
+ * taking the first read's events and sample. */
+static void test_a_read_does_not_take_the_previous_reads_events(void)
+{
+    uint8_t *const stall[3] = { &stall_start, &stall_end, &stall_stopped };
+    uint8_t i;
+
+    for (i = 0u; i < 3u; i++) {
+        uint16_t raw = 0u;
+        setUp();
+        next_sample = 1234;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_adc_read(0u, &raw));
+        TEST_ASSERT_EQUAL_UINT16(1234u, raw);
+        *stall[i] = 1u;
+        next_sample = 99;
+        raw = 77u;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+        TEST_ASSERT_EQUAL_UINT16(77u, raw);
+    }
+}
+
+/* hal_adc.c lines 85, 86 and 88: an earlier owner's differential PSELN,
+ * oversampling and sample timer on channel 0 are put back before SAMPLE. */
+static void test_a_read_overrides_an_earlier_owners_channel_settings(void)
+{
+    uint16_t raw = 0u;
+
+    W(0x514u) = 0x40000105u;   /* PSELN AnalogInput P1.5 */
+    W(0x5F4u) = 8u;            /* OVERSAMPLE 256x */
+    W(0x5F8u) = 0x00001050u;   /* SAMPLERATE: a nonzero value */
+    next_sample = 1234;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_UINT16(1234u, raw);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, at_sample[1]);   /* PSELN NC */
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, at_sample[6]);   /* OVERSAMPLE Bypass */
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, at_sample[7]);   /* SAMPLERATE Task */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -291,5 +334,7 @@ int main(void)
     RUN_TEST(test_a_saadc_that_never_starts_times_out_stopped_and_disabled);
     RUN_TEST(test_a_sample_that_never_ends_times_out_stopped_and_disabled);
     RUN_TEST(test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sample);
+    RUN_TEST(test_a_read_does_not_take_the_previous_reads_events);
+    RUN_TEST(test_a_read_overrides_an_earlier_owners_channel_settings);
     return UNITY_END();
 }

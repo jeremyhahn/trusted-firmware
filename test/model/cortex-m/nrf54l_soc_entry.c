@@ -28,6 +28,11 @@ void tfw_nrf54l_model_watchdog_pet(void)
     tfw_cm_soc_watchdog_pet();
 }
 
+tfw_reset_cause_t tfw_nrf54l_model_reset_cause(uint32_t mark)
+{
+    return tfw_cm_soc_reset_cause(mark);
+}
+
 uint32_t tfw_nrf54l_model_mark(void)
 {
     return tfw_cm_reset_mark;

@@ -7,8 +7,9 @@
  * register file (test/model/cortex-m/regfile_model.c): UARTE20's BAUDRATE
  * word for 115200, CONFIG 8N1, PSEL.TXD/RXD for P1.4/P1.5, ENABLE and
  * INTEN, the EasyDMA pointer and MAXCNT of each transfer, TXDRDY ending a
- * transmission, and a byte received only on DMA.RX.END. The values are the
- * nrfx MDK's (the source soc_regs.h names). A board has not run them.
+ * transmission, a byte received only on DMA.RX.END, and a byte dropped on a
+ * full receive ring. The values are the nrfx MDK's (the source soc_regs.h
+ * names). A board has not run them.
  *
  * The suite includes hal_uart.c, as test_nrf54l_saadc.c includes hal_adc.c:
  * the register file moves no data, so the test reads the EasyDMA buffers
@@ -26,6 +27,7 @@
 #define P1_ADDR(off)     ((uintptr_t)0x500D8200u + (off))
 /* UARTE20's interrupt, 198: NVIC word 6, bit 6. */
 #define NVIC_ISER6_ADDR  ((uintptr_t)0xE000E100u + 4u * 6u)
+#define NVIC_ICER6_ADDR  ((uintptr_t)0xE000E180u + 4u * 6u)
 
 static uint32_t peek(uintptr_t addr)
 {
@@ -193,6 +195,38 @@ void test_tx_idle_follows_txdrdy(void)
     TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x168u)));
 }
 
+/* A second init starts the console clean. hal_uart.c turns the UARTE's
+ * interrupt off in the NVIC (line 85) before it touches the peripheral, then
+ * resets both rings and tx_busy (lines 109-110). Without that, a re-init keeps
+ * the received bytes nobody read and a tx_busy that no TXDRDY will ever clear,
+ * so the console never sends again. Here two bytes wait unread in the receive
+ * ring and two are queued with the first stalled on the wire; after the
+ * re-init the receive ring is empty, the UARTE is idle, init itself starts no
+ * transfer, and the first byte sent goes out at once. */
+void test_a_second_init_starts_with_empty_rings_and_nothing_on_the_wire(void)
+{
+    uint8_t b = 0u;
+
+    byte_arrives(0x01u);
+    byte_arrives(0x02u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x11u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x22u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+
+    TFW_NRF_UARTE_TX_START = 0u;
+    regfile_model_poke(NVIC_ICER6_ADDR, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_HEX32(1u << (198u % 32u), peek(NVIC_ICER6_ADDR));
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x050u)));
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x33u));
+    TEST_ASSERT_EQUAL_HEX8(0x33u, tx_dma);
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x050u)));
+}
+
 /* DMA.RX.END: the byte reaches the ring, the event is cleared and the next
  * one-byte receive started. */
 void test_rx_returns_the_byte_on_rx_end(void)
@@ -266,6 +300,28 @@ void test_rx_returns_nothing_without_rx_end(void)
     TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x028u)));
 }
 
+/* 63 bytes fill the ring: the 64th is dropped, not written over the oldest,
+ * and the next receive still starts, so the framer can resynchronise
+ * (hal_uart.c lines 132-138). */
+void test_rx_drops_a_byte_that_finds_the_ring_full(void)
+{
+    uint8_t  b = 0u;
+    uint32_t n;
+
+    for (n = 0u; n < 63u; n++) {
+        byte_arrives((uint8_t)n);
+    }
+    TFW_NRF_UARTE_RX_START = 0u;
+    byte_arrives(0xEEu);
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x028u)));
+
+    for (n = 0u; n < 63u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
 /* An ERROR event is cleared with its ERRORSRC bits. */
 void test_irq_clears_a_receive_error(void)
 {
@@ -274,6 +330,52 @@ void test_irq_clears_a_receive_error(void)
     tfw_cm_irq198();
     TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x114u)));
     TEST_ASSERT_EQUAL_HEX32(0xFu, peek(UARTE_ADDR(0x480u)));
+}
+
+/* 64 bytes fill the ring (one on the wire, 63 queued) and go out in order;
+ * the last one's TXDRDY leaves the UARTE idle, so tx_tail wrapped back to
+ * tx_head. Three more then go out in order across the wrap. */
+void test_tx_ring_wraps_and_drains_in_order(void)
+{
+    uint32_t n;
+
+    for (n = 0u; n < 64u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)n));
+    }
+    for (n = 0u; n < 64u; n++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, tx_dma);
+        byte_left_txd();
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+
+    for (n = 0x40u; n < 0x43u; n++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)n));
+    }
+    for (n = 0x40u; n < 0x43u; n++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)n, tx_dma);
+        byte_left_txd();
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+/* ERROR and DMA.RX.END in one interrupt: the error is cleared and the byte
+ * still reaches the ring, with the next receive started. */
+void test_irq_takes_a_byte_that_came_with_an_error(void)
+{
+    uint8_t b = 0u;
+
+    TFW_NRF_UARTE_RX_START = 0u;
+    TFW_NRF_UARTE_ERRORSRC = 0u;
+    TFW_NRF_UARTE_ERROR    = 1u;
+    rx_dma                 = 0x5Au;
+    TFW_NRF_UARTE_RX_END   = 1u;
+    tfw_cm_irq198();
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x114u)));
+    TEST_ASSERT_EQUAL_HEX32(0xFu, peek(UARTE_ADDR(0x480u)));
+    TEST_ASSERT_EQUAL_UINT32(0u, peek(UARTE_ADDR(0x14Cu)));
+    TEST_ASSERT_EQUAL_UINT32(1u, peek(UARTE_ADDR(0x028u)));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
 }
 
 int main(void)
@@ -291,10 +393,14 @@ int main(void)
     RUN_TEST(test_tx_try_queues_behind_a_byte_on_the_wire);
     RUN_TEST(test_tx_try_refuses_a_full_ring);
     RUN_TEST(test_tx_idle_follows_txdrdy);
+    RUN_TEST(test_a_second_init_starts_with_empty_rings_and_nothing_on_the_wire);
     RUN_TEST(test_rx_returns_the_byte_on_rx_end);
     RUN_TEST(test_rx_keeps_the_order);
     RUN_TEST(test_rx_drops_a_byte_when_the_ring_is_full);
     RUN_TEST(test_rx_returns_nothing_without_rx_end);
+    RUN_TEST(test_rx_drops_a_byte_that_finds_the_ring_full);
     RUN_TEST(test_irq_clears_a_receive_error);
+    RUN_TEST(test_tx_ring_wraps_and_drains_in_order);
+    RUN_TEST(test_irq_takes_a_byte_that_came_with_an_error);
     return UNITY_END();
 }

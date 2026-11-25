@@ -10,7 +10,9 @@
  * writes, the device configuration word, errata 32, 40 and 31 on the first
  * revision only, the RESETREAS pin-reset fold, CLOCK.TASKS_XOSTART; on arm
  * WDT CRV for 8 s, RREN, CONFIG, INTEN and NMIEN off and TASKS_START; on pet
- * the reload value in RR[0]. A board has not run them.
+ * the reload value in RR[0]; and tfw_cm_soc_reset_cause's take of
+ * RESET.RESETREAS: read, cleared with every bit, and SREQ the firmware's own
+ * only under TFW_CM_MARK_RESETREQ. A board has not run them.
  */
 #include <stdint.h>
 
@@ -101,6 +103,23 @@ static void test_early_running_watchdog_stopped_then_reloaded(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
 }
 
+/* A running watchdog that does stop: RUNSTATUS drops to 0 on the first
+ * poll after STOP, so both events are cleared and RR0 is never reloaded. */
+static void test_early_watchdog_that_stops_is_not_reloaded(void)
+{
+    TFW_NRF_WDT_RUNSTATUS  = 1u;
+    TFW_NRF_WDT_EV_TIMEOUT = 1u;
+    TFW_NRF_WDT_EV_STOPPED = 1u;
+    regfile_model_clear_after(WDT_ADDR(0x400u), 2u);
+    tfw_nrf54l_model_soc_early();
+    TEST_ASSERT_EQUAL_HEX32(0x6E524635uL, regfile_model_peek(WDT_TSEN_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(1u, regfile_model_peek(WDT_STOP_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_RR0_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_EV_TIMEOUT_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_EV_STOPPED_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
+}
+
 static void test_early_pll_at_128mhz_and_crystal_started(void)
 {
     TFW_NRF_PLL_FREQ = 3u;   /* CK64M, the reset value */
@@ -129,6 +148,18 @@ static void test_early_trims_end_at_a_zero_address(void)
     tfw_nrf54l_model_soc_early();
     TEST_ASSERT_EQUAL_HEX32(TRIM0_DATA, regfile_model_peek(TRIM0_ADDR));
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(TRIM1_ADDR));
+}
+
+/* All 64 pairs to one address, each with its index: the last value stored is
+ * the 64th pair's, and the pair one past the table is never read. */
+static void test_early_copies_a_full_trim_table_and_no_further(void)
+{
+    for (uint32_t i = 0u; i < 64u; i++) {
+        trim_entry(i, TRIM0_ADDR, 0xA5000000uL | i);
+    }
+    trim_entry(64u, TRIM0_ADDR, 0xA5000040uL);   /* past the end */
+    tfw_nrf54l_model_soc_early();
+    TEST_ASSERT_EQUAL_HEX32(0xA500003FuL, regfile_model_peek(TRIM0_ADDR));
 }
 
 static void test_early_device_configuration_when_unset(void)
@@ -228,14 +259,60 @@ static void test_pet_writes_the_reload_value(void)
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(WDT_START_ADDR));
 }
 
+/* ---- tfw_cm_soc_reset_cause */
+
+/* RESET.RESETREAS bits, from the nrfx MDK (nrf54l15_application.h,
+ * RESET_RESETREAS_*_Pos), as test_nrf54l_reset.c copies them. */
+#define RESETREAS_RESETPIN_BIT (1uL << 0)
+#define RESETREAS_DOG0_BIT     (1uL << 1)
+#define RESETREAS_SREQ_BIT     (1uL << 6)
+
+static void test_reset_cause_sreq_is_software_only_under_the_resetreq_mark(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_WATCHDOG));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_PANIC));
+    TFW_NRF_RESETREAS = RESETREAS_SREQ_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_nrf54l_model_reset_cause(0u));
+}
+
+static void test_reset_cause_reads_resetreas(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_WATCHDOG,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = RESETREAS_RESETPIN_BIT;
+    TEST_ASSERT_EQUAL(TFW_RESET_EXTERNAL,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
+    TFW_NRF_RESETREAS = 0u;
+    TEST_ASSERT_EQUAL(TFW_RESET_POWER_ON,
+                      tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ));
+}
+
+/* RESETREAS is write-1-to-clear: the take writes every bit. */
+static void test_reset_cause_clears_every_bit(void)
+{
+    TFW_NRF_RESETREAS = RESETREAS_DOG0_BIT | RESETREAS_SREQ_BIT;
+    (void)tfw_nrf54l_model_reset_cause(TFW_CM_MARK_RESETREQ);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(RESETREAS_ADDR));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_early_stopped_watchdog_is_left_alone);
     RUN_TEST(test_early_running_watchdog_stopped_then_reloaded);
+    RUN_TEST(test_early_watchdog_that_stops_is_not_reloaded);
     RUN_TEST(test_early_pll_at_128mhz_and_crystal_started);
     RUN_TEST(test_early_copies_trims_to_the_erased_entry);
     RUN_TEST(test_early_trims_end_at_a_zero_address);
+    RUN_TEST(test_early_copies_a_full_trim_table_and_no_further);
     RUN_TEST(test_early_device_configuration_when_unset);
     RUN_TEST(test_early_device_configuration_kept_when_set);
     RUN_TEST(test_early_errata_on_the_first_revision);
@@ -246,5 +323,8 @@ int main(void)
     RUN_TEST(test_arm_programs_and_starts_the_watchdog);
     RUN_TEST(test_arm_when_running_is_a_pet);
     RUN_TEST(test_pet_writes_the_reload_value);
+    RUN_TEST(test_reset_cause_sreq_is_software_only_under_the_resetreq_mark);
+    RUN_TEST(test_reset_cause_reads_resetreas);
+    RUN_TEST(test_reset_cause_clears_every_bit);
     return UNITY_END();
 }

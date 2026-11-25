@@ -35,7 +35,7 @@ BOOT_SECTION   := 32768
 BOOT_BASE      := 0x08000000
 BOOT_BUDGET    := 32768
 
-# The soft root, as on mps2-an505: no element on the kit, and P-256 in software for the image signature (mk/boot.mk's BOOT_SUPPORTED row).
+# The soft root, as on mps2-an505: P-256 in software for the image signature; CRYPTO=stm32h5 is the same root with the part's HASH and PKA under it (src/crypto/stm32h5/provider.c), falling back to soft where the hardware does not answer.
 BOARD_TIERS    := soft stm32h5
 ARCH_CRYPTO_TIERS      := stm32h5
 ARCH_CRYPTO_WRAPS_SOFT := stm32h5

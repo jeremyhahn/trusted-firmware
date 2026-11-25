@@ -34,8 +34,7 @@ For this ADR it means:
   is the DICE evidence through go-xkms device-attest-01.
 
 The TF-M pin is the one `scripts/tfm-measure.sh` measures, v2.3.1. Which of
-our boards that release has a platform port for is in
-[`../plans/608.md`](../plans/608.md).
+our boards that release has a platform port for is tracked in row #608.
 
 ## Amended by ruling 935 (owner queue 236)
 

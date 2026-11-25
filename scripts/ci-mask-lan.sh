@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/ci-mask-lan.sh: mask the LAN addresses a pool runner's environment names.
+# scripts/ci-mask-lan.sh: mask the LAN addresses a pool runner's environment names, and every SECRETS_*_REGISTRY entry; CI_MASK_REQUIRE names the SECRETS_* variables that must be set.
 set -euo pipefail
 
 private() {
@@ -12,6 +12,14 @@ private() {
 	return 0
 }
 
+missing=0
+for v in ${CI_MASK_REQUIRE:-}; do
+	[ -n "${!v:-}" ] && continue
+	echo "::error::secret ${v#SECRETS_} is not set; this job needs it (Settings > Secrets and variables > Actions > Secrets)"
+	missing=1
+done
+[ "$missing" = 0 ] || exit 1
+
 for v in $(compgen -e); do
 	case $v in
 	DEVCACHE_* | GOPROXY | *_REGISTRY | GITHUB_SERVER_URL) ;;
@@ -22,7 +30,10 @@ for v in $(compgen -e); do
 		hostport=${entry#*://}
 		hostport=${hostport%%/*}
 		host=${hostport%%:*}
-		private "$host" || continue
+		case $v in
+		SECRETS_*) [ -n "$host" ] || continue ;;
+		*) private "$host" || continue ;;
+		esac
 		echo "::add-mask::$entry"
 		[ "$hostport" = "$entry" ] || echo "::add-mask::$hostport"
 		[ "$host" = "$hostport" ] || echo "::add-mask::$host"

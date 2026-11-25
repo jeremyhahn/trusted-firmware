@@ -139,7 +139,10 @@
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL
  * is the ITCM's end (include/tfw/boot.h asserts both regions fit below it and
- * do not overlap). The application region is the code budget, FLASH_BUDGET. */
+ * do not overlap). The application region is the code budget, FLASH_BUDGET.
+ * An IMX_BOOT=1 image (profile.mk, #473) is linked and measured from ITCM 0;
+ * these stay the slot's, since only tfw-boot and OTA staging read them and
+ * this board builds neither. */
 #define TFW_BOOT_REGION_BASE  0x00000000uL
 #define TFW_BOOT_REGION_SIZE  0x00008000uL   /* 32 KiB, BOOT_SECTION */
 #define TFW_APP_REGION_BASE   0x00008000uL

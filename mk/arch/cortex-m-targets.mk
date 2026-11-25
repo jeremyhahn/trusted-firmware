@@ -297,7 +297,7 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 	   -o $@ $^
 	@echo "built $@"
 
-# TZ=1: the TrustZone-M secure/non-secure split.
+# TZ=1: the TrustZone-M split, a -mcmse secure image with its NSC veneer import library and a non-secure image linked against it, for boards whose profile.mk names TZ_MAP.
 TZ_DIR      = $(BUILD_DIR)/tz/$(BOARD)
 TZ_SRC     := src/hal/cortex-m/tz
 TZ_CFLAGS   = -mcpu=$(CPU) -mthumb -mfloat-abi=soft -std=c11 -Os -g -ffreestanding \

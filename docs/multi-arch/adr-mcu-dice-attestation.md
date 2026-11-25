@@ -113,8 +113,7 @@ Future rows; none is built.
 Under ruling 1024, slices (a) and (b) are built on TF-M: (a) is TF-M's own
 secure/non-secure split for the board, not one written here (what row #590's own
 split is kept for is settled in row #608's slices), and (b) is the DICE layer as a
-TF-M Application RoT partition. Row #608 carries the TF-M slices; its plan is
-[`../plans/608.md`](../plans/608.md).
+TF-M Application RoT partition. Row #608 carries the TF-M slices.
 
 - (a) The STM32H5 TrustZone-M secure/non-secure split and NSC veneers on the
   NUCLEO-H563ZI, in simulation and host tests.

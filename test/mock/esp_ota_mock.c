@@ -3,7 +3,9 @@
 /*
  * esp_ota, esp_partition_get_sha256 and _read, esp_image_get_metadata, the
  * eFuse secure-version read and the tfw_auth write on the host, for
- * src/hal/esp32/hal_ota.c. The controls are in esp32/esp_ota_mock.h.
+ * src/hal/esp32/hal_ota.c. The controls are in esp32/esp_ota_mock.h; among
+ * them no_hash (metadata with no appended SHA-256) and read_err (a failed
+ * esp_partition_read).
  */
 #include <string.h>
 #include "esp_ota_mock.h"
@@ -286,6 +288,9 @@ esp_err_t esp_partition_read(const esp_partition_t *partition, size_t src_offset
     if (i < 0 || dst == NULL || src_offset > MOCK_ESP_SLOT_LEN || size > MOCK_ESP_SLOT_LEN - src_offset) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (mock_esp.read_err != ESP_OK) {
+        return mock_esp.read_err;
+    }
     memcpy(dst, &mock_esp.flash[i][src_offset], size);
     return ESP_OK;
 }
@@ -309,7 +314,7 @@ esp_err_t esp_image_get_metadata(const esp_partition_pos_t *part, esp_image_meta
     memset(metadata, 0, sizeof *metadata);
     metadata->start_addr          = part->offset;
     metadata->image.magic         = MOCK_ESP_IMG_MAGIC;
-    metadata->image.hash_appended = 1u;
+    metadata->image.hash_appended = (uint8_t)(mock_esp.no_hash ? 0u : 1u);
     metadata->image_len           = image_end((uint8_t)i);
     return ESP_OK;
 }

@@ -223,6 +223,9 @@ static int g_gpio_read_as;
 static tfw_status_t g_adc_st;
 static uint16_t g_adc_raw;
 static tfw_status_t g_pwm_st;
+/* The one PWM write, counted from 1, that returns TFW_ERR_INTERNAL (0: none). */
+static unsigned g_pwm_fail_at;
+static unsigned g_pwm_writes;
 static tfw_status_t g_tone_start_st;
 static tfw_status_t g_tone_stop_st;
 static tfw_status_t g_pulse_st;
@@ -239,6 +242,28 @@ static int g_i2c_addr;
 static int g_i2c_probe;
 static int g_spi_cs_at_xfer;
 static int g_spi_xfers;
+/* Set-up steps the bus checks take before their probe: the status each
+ * driver init, 1-Wire reset and read returns, and a logical pin the board
+ * refuses to resolve (-1: none). */
+static tfw_status_t g_i2c_init_st;
+static tfw_status_t g_spi_init_st;
+static tfw_status_t g_ow_reset_st;
+static tfw_status_t g_ow_read_st;
+static int g_pin_refuse;
+/* Set-up and release steps the pin checks take around their reading: the
+ * one gpio_mode the HAL refuses (-1: none, else the tfw_pin_mode_t value
+ * whose call returns TFW_ERR_INTERNAL; the call is still traced), and the
+ * status each gpio_write, ADC init, PWM stop and board ADC/PWM lookup
+ * returns. A refused lookup returns before it writes its result. */
+static int g_gpio_mode_refuse;
+static tfw_status_t g_gpio_write_st;
+/* Refuse only the Nth GPIO write or read (1-based; 0 = never), counted
+ * across the whole self-check, so a later step can be refused alone. */
+static unsigned g_gpio_write_fail_at, g_gpio_writes, g_gpio_read_fail_at, g_gpio_reads;
+static tfw_status_t g_adc_init_st;
+static tfw_status_t g_pwm_stop_st;
+static tfw_status_t g_adc_lookup_st;
+static tfw_status_t g_pwm_lookup_st;
 
 /* The PoE board's own pin rows, copied from boards/esp32p4-poe/board.c lines
  * 21-37: the file cannot be #included here, since the dependency file then
@@ -273,12 +298,14 @@ tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
     if (g_pins_n < sizeof g_pins_asked / sizeof g_pins_asked[0]) g_pins_asked[g_pins_n] = pin;
     g_pins_n++;
     memset(out, 0, sizeof *out);
+    if ((int)pin == g_pin_refuse) return TFW_ERR_UNSUPPORTED;
     return TFW_OK;
 }
 
 tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out)
 {
     g_adc_pin_asked = pin;
+    if (g_adc_lookup_st != TFW_OK) return g_adc_lookup_st;
     if (pin >= TFW_PIN_COUNT) return TFW_ERR_INTERNAL;
     *out = g_poe_pins[pin].adc_ch;
     return TFW_OK;
@@ -287,6 +314,7 @@ tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out)
 tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 {
     g_pwm_pin_asked = pin;
+    if (g_pwm_lookup_st != TFW_OK) return g_pwm_lookup_st;
     memset(out, 0, sizeof *out);
     return TFW_OK;
 }
@@ -295,6 +323,7 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
     trace("mode:%u ", (unsigned)mode);
     (void)p;
+    if ((int)mode == g_gpio_mode_refuse) return TFW_ERR_INTERNAL;
     g_gpio_mode = mode;
     return TFW_OK;
 }
@@ -303,6 +332,8 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
     trace("w%u ", level);
     (void)p;
+    if (++g_gpio_writes == g_gpio_write_fail_at) return TFW_ERR_INTERNAL;
+    if (g_gpio_write_st != TFW_OK) return g_gpio_write_st;
     g_gpio_level = level;
     return TFW_OK;
 }
@@ -312,13 +343,14 @@ tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
     trace("r ", 0u);
     (void)p;
     *out = g_gpio_read_as < 0 ? g_gpio_level : (uint8_t)g_gpio_read_as;
+    if (++g_gpio_reads == g_gpio_read_fail_at) return TFW_ERR_INTERNAL;
     return g_gpio_read_st;
 }
 
 tfw_status_t tfw_hal_adc_init(void)
 {
     trace("adc_init ", 0u);
-    return TFW_OK;
+    return g_adc_init_st;
 }
 
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
@@ -334,6 +366,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     trace("pwm:%u ", duty);
     (void)p;
     g_duty = duty;
+    if (++g_pwm_writes == g_pwm_fail_at) return TFW_ERR_INTERNAL;
     return g_pwm_st;
 }
 
@@ -341,7 +374,7 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
     trace("pwm_stop ", 0u);
     (void)p;
-    return TFW_OK;
+    return g_pwm_stop_st;
 }
 
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
@@ -378,7 +411,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     trace("i2c_init ", 0u);
     (void)hz;
-    return TFW_OK;
+    return g_i2c_init_st;
 }
 
 tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
@@ -396,7 +429,7 @@ tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
     (void)mode;
     (void)clkdiv;
     (void)lsb_first;
-    return TFW_OK;
+    return g_spi_init_st;
 }
 
 tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
@@ -416,7 +449,7 @@ tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
     trace("ow_reset ", 0u);
     (void)p;
     *out_presence = g_ow_presence;
-    return TFW_OK;
+    return g_ow_reset_st;
 }
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
@@ -424,7 +457,7 @@ tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
     trace("ow_read ", 0u);
     (void)p;
     memset(buf, g_ow_byte, len);
-    return TFW_OK;
+    return g_ow_read_st;
 }
 
 /* ------------------------------------------------------------------ tests */
@@ -451,6 +484,7 @@ void setUp(void)
     g_adc_st = TFW_OK;
     g_adc_raw = 2048u;
     g_pwm_st = TFW_OK;
+    g_pwm_fail_at = g_pwm_writes = 0u;
     g_ledc_as = -1;
     g_tone_start_st = g_tone_stop_st = TFW_OK;
     g_pulse_st = TFW_ERR_TIMEOUT;
@@ -463,6 +497,12 @@ void setUp(void)
     g_i2c_probe = 0;
     g_spi_cs_at_xfer = 0;
     g_spi_xfers = 0;
+    g_i2c_init_st = g_spi_init_st = g_ow_reset_st = g_ow_read_st = TFW_OK;
+    g_pin_refuse = -1;
+    g_gpio_mode_refuse = -1;
+    g_gpio_write_fail_at = g_gpio_writes = g_gpio_read_fail_at = g_gpio_reads = 0u;
+    g_gpio_write_st = g_adc_init_st = g_pwm_stop_st = TFW_OK;
+    g_adc_lookup_st = g_pwm_lookup_st = TFW_OK;
     g_pins_n = 0u;
     g_adc_pin_asked = g_pwm_pin_asked = g_adc_ch_read = -1;
     for (unsigned i = 0u; i < sizeof g_flash; i++) g_flash[i] = (uint8_t)(i * 7u + 3u);
@@ -577,6 +617,64 @@ static void test_an_i2c_driver_error_fails(void)
     TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
 }
 
+/* The probe would PASS (g_i2c_st is a NACK), so only the refused init can
+ * fail the check, and nothing is probed on a bus that never came up. */
+static void test_a_refused_i2c_init_fails_and_probes_nothing(void)
+{
+    g_i2c_init_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_i2c", "FAIL"));
+    TEST_ASSERT_EQUAL_INT(-1, g_i2c_addr);
+    TEST_ASSERT_NULL(strstr(g_trace, "i2c_init i2c "));
+}
+
+static void test_a_refused_spi_init_fails_transfers_nothing_and_releases_the_chip_select(void)
+{
+    g_spi_init_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_EQUAL_INT(0, g_spi_xfers);
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "spi_init mode:0 "));
+}
+
+/* The chip select is the GPIO check's pin, so that check fails too. No mode
+ * call sits between the I2C probe and the 1-Wire reset: the pin the board
+ * never resolved is neither driven nor released. */
+static void test_a_chip_select_the_board_cannot_resolve_fails_and_drives_nothing(void)
+{
+    g_pin_refuse = 11;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "spi_init"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "i2c ow_reset "));
+}
+
+/* The 1-Wire pin is the pulse check's pin, so that check fails too. */
+static void test_a_1wire_pin_the_board_cannot_resolve_fails_and_resets_nothing(void)
+{
+    g_pin_refuse = 12;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "ow_reset"));
+}
+
+/* No presence and an idle byte would PASS: only the refused reset fails it. */
+static void test_a_refused_1wire_reset_fails_and_reads_nothing(void)
+{
+    g_ow_reset_st = TFW_ERR_TIMEOUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "ow_read"));
+}
+
+static void test_a_refused_1wire_read_fails_though_the_line_looks_idle(void)
+{
+    g_ow_read_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "FAIL"));
+}
+
 static void test_a_gpio_readback_that_differs_fails(void)
 {
     g_gpio_read_as = 0;     /* stuck low: the high read is wrong */
@@ -640,6 +738,45 @@ static void test_a_tone_that_fails_to_start_or_stop_fails(void)
     TEST_ASSERT_TRUE(verdict_is("hal_tone", "FAIL"));
 }
 
+/* A tone that never started is neither waited on nor stopped: the pulse
+ * check's pull-up follows the start at once. */
+static void test_a_refused_tone_start_waits_for_nothing_and_stops_nothing(void)
+{
+    g_tone_start_st = TFW_ERR_BUSY;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "tone:1000 mode:2 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "tone_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* A refused 128 write: no settle, no duty read, no 0 write, no stop. */
+static void test_a_refused_first_pwm_write_reads_no_duty_and_stops_nothing(void)
+{
+    g_pwm_fail_at = 1u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "pwm:128 tone:1000 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "duty?"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm:0"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+}
+
+/* A refused 0 write: the 128 duty was read, but no second read and no stop. */
+static void test_a_refused_second_pwm_write_reads_no_second_duty_and_stops_nothing(void)
+{
+    g_pwm_fail_at = 2u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "pwm:128 delay:20000 duty? pwm:0 tone:1000 "));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+}
+
 /* Nothing drives the pulled-up pin, so only a timeout passes: a measured
  * pulse or any other status fails. */
 static void test_an_unexpected_pulse_result_fails(void)
@@ -653,6 +790,215 @@ static void test_an_unexpected_pulse_result_fails(void)
     g_pulse_st = TFW_ERR_INTERNAL;
     tfw_esp_selfcheck();
     TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "FAIL"));
+}
+
+/* Both duty reads are right, so only the refused stop can fail the check. */
+static void test_a_refused_pwm_stop_fails_though_both_duties_read_right(void)
+{
+    g_pwm_stop_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_pwm"), "at 128: 128, at 0: 0"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "pwm_stop tone:1000 "));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* The pin read 1 high and 0 low, so only the refused return to input can
+ * fail the check. The SPI chip select is released to input too, so that
+ * check fails as well. */
+static void test_a_refused_gpio_restore_to_input_fails_though_both_reads_are_right(void)
+{
+    g_gpio_mode_refuse = (int)TFW_PIN_INPUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_gpio"), "high read 1, low read 0"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 w1 r w0 r mode:0 adc_init ", g_trace,
+                                 strlen("mode:1 w1 r w0 r mode:0 adc_init "));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* The GPIO pin is the SPI chip select too, so that check fails as well. */
+static void test_a_gpio_pin_the_board_cannot_resolve_fails_and_drives_nothing(void)
+{
+    g_pin_refuse = 11;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("adc_init ", g_trace, strlen("adc_init "));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+static void test_a_refused_gpio_output_mode_fails_and_writes_nothing(void)
+{
+    g_gpio_mode_refuse = (int)TFW_PIN_OUTPUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 adc_init ", g_trace, strlen("mode:1 adc_init "));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+static void test_a_refused_gpio_write_fails_and_reads_nothing(void)
+{
+    g_gpio_write_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 w1 adc_init ", g_trace, strlen("mode:1 w1 adc_init "));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+static void test_a_refused_first_gpio_read_writes_no_low_and_restores_nothing(void)
+{
+    g_gpio_read_fail_at = 1u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 w1 r adc_init ", g_trace, strlen("mode:1 w1 r adc_init "));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "PASS"));
+}
+
+static void test_a_refused_low_write_reads_nothing_more_and_restores_nothing(void)
+{
+    g_gpio_write_fail_at = 2u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 w1 r w0 adc_init ", g_trace,
+                                 strlen("mode:1 w1 r w0 adc_init "));
+    /* The SPI check's chip-select write is write 3, so it is not refused. */
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "PASS"));
+}
+
+static void test_a_refused_second_gpio_read_restores_nothing(void)
+{
+    g_gpio_read_fail_at = 2u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "FAIL"));
+    TEST_ASSERT_EQUAL_STRING_LEN("mode:1 w1 r w0 r adc_init ", g_trace,
+                                 strlen("mode:1 w1 r w0 r adc_init "));
+}
+
+static void test_a_refused_chip_select_write_fails_the_spi_check_transfers_nothing_and_releases_it(void)
+{
+    g_gpio_write_fail_at = 3u;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "i2c mode:1 w1 mode:0 ow_reset "));
+    TEST_ASSERT_NULL(strstr(g_trace, "spi_init"));
+    TEST_ASSERT_EQUAL_INT(0, g_spi_xfers);
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_1wire", "PASS"));
+}
+
+static void test_a_refused_chip_select_output_mode_fails_the_spi_check_drives_nothing_and_releases_it(void)
+{
+    /* Refusing OUTPUT also refuses the GPIO check's first step, so hal_gpio
+     * fails too; this test looks only at the SPI check. */
+    g_gpio_mode_refuse = (int)TFW_PIN_OUTPUT;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_bus_spi", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "i2c mode:1 mode:0 ow_reset "));
+    TEST_ASSERT_NULL(strstr(g_trace, "spi_init"));
+    TEST_ASSERT_EQUAL_INT(0, g_spi_xfers);
+    TEST_ASSERT_EQUAL_INT(TFW_PIN_INPUT, g_gpio_mode);
+}
+
+static void test_an_adc_channel_the_board_cannot_resolve_fails_and_reads_nothing(void)
+{
+    g_adc_lookup_st = TFW_ERR_UNSUPPORTED;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "adc_init"));
+    TEST_ASSERT_NULL(strstr(g_trace, "adc_read"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* The read would PASS (2048 is in range), so only the refused init fails it. */
+static void test_a_refused_adc_init_fails_and_reads_nothing(void)
+{
+    g_adc_init_st = TFW_ERR_INTERNAL;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "FAIL"));
+    TEST_ASSERT_NOT_NULL(strstr(g_trace, "adc_init "));
+    TEST_ASSERT_NULL(strstr(g_trace, "adc_read"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+static void test_a_pwm_channel_the_board_cannot_resolve_fails_and_drives_nothing(void)
+{
+    g_pwm_lookup_st = TFW_ERR_UNSUPPORTED;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm:"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pwm_stop"));
+    TEST_ASSERT_NULL(strstr(g_trace, "duty?"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+static void test_a_tone_pin_the_board_cannot_resolve_fails_and_sounds_nothing(void)
+{
+    g_pin_refuse = (int)TFW_TONE_PIN;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "tone:"));
+    TEST_ASSERT_NULL(strstr(g_trace, "tone_stop"));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "PASS"));
+}
+
+/* The pulse read would time out, which is the PASS: a refused pull-up must
+ * fail the check, not be read as that timeout. */
+static void test_a_refused_pulse_pull_up_fails_and_measures_nothing(void)
+{
+    g_gpio_mode_refuse = (int)TFW_PIN_INPUT_PULLUP;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pulse "));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
+}
+
+/* The pulse pin is the 1-Wire pin too, so that check fails as well. */
+static void test_a_pulse_pin_the_board_cannot_resolve_fails_and_measures_nothing(void)
+{
+    g_pin_refuse = 12;
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_pulse_rmt", "FAIL"));
+    TEST_ASSERT_NULL(strstr(g_trace, "mode:2"));
+    TEST_ASSERT_NULL(strstr(g_trace, "pulse "));
+    TEST_ASSERT_TRUE(verdict_is("hal_gpio", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_adc", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_pwm", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_tone", "PASS"));
 }
 
 static void test_a_high_c6_enable_fails_though_the_held_output_reads_zero(void)
@@ -752,6 +1098,22 @@ static void test_a_failed_restore_is_reported_on_its_own_line(void)
     TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "FAIL"));
 }
 
+static void test_a_failed_reread_after_the_restore_fails_the_restore_line(void)
+{
+    char want[64];
+
+    tfw_esp_selfcheck();
+    TEST_ASSERT_EQUAL_UINT(5u, g_reads);    /* a good run's last read is the re-read */
+
+    setUp();
+    g_fail_read_at = 5u;                    /* read 5: the restore's re-read */
+    tfw_esp_selfcheck();
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom", "PASS"));
+    TEST_ASSERT_TRUE(verdict_is("hal_eeprom_restore", "FAIL"));
+    snprintf(want, sizeof want, "FAIL status %d, sector restored 0", (int)TFW_ERR_INTERNAL);
+    TEST_ASSERT_NOT_NULL(strstr(line_of("hal_eeprom_restore"), want));
+}
+
 static void test_a_restore_wrong_outside_the_tested_bytes_fails(void)
 {
     /* The restore reports OK but the sector's first byte did not take: the
@@ -842,6 +1204,7 @@ int main(void)
     RUN_TEST(test_a_failed_erase_restores_the_whole_sector);
     RUN_TEST(test_a_failed_readback_still_restores_the_whole_sector);
     RUN_TEST(test_a_failed_restore_is_reported_on_its_own_line);
+    RUN_TEST(test_a_failed_reread_after_the_restore_fails_the_restore_line);
     RUN_TEST(test_a_restore_wrong_outside_the_tested_bytes_fails);
     RUN_TEST(test_a_pattern_that_reads_back_wrong_fails);
     RUN_TEST(test_the_pattern_written_flips_each_saved_byte_by_its_own_mask);
@@ -854,11 +1217,36 @@ int main(void)
     RUN_TEST(test_a_presence_pulse_on_the_free_pin_fails);
     RUN_TEST(test_a_1wire_line_that_reads_low_fails);
     RUN_TEST(test_an_i2c_driver_error_fails);
+    RUN_TEST(test_a_refused_i2c_init_fails_and_probes_nothing);
+    RUN_TEST(test_a_refused_spi_init_fails_transfers_nothing_and_releases_the_chip_select);
+    RUN_TEST(test_a_refused_chip_select_write_fails_the_spi_check_transfers_nothing_and_releases_it);
+    RUN_TEST(test_a_refused_chip_select_output_mode_fails_the_spi_check_drives_nothing_and_releases_it);
+    RUN_TEST(test_a_chip_select_the_board_cannot_resolve_fails_and_drives_nothing);
+    RUN_TEST(test_a_1wire_pin_the_board_cannot_resolve_fails_and_resets_nothing);
+    RUN_TEST(test_a_refused_1wire_reset_fails_and_reads_nothing);
+    RUN_TEST(test_a_refused_1wire_read_fails_though_the_line_looks_idle);
     RUN_TEST(test_a_gpio_readback_that_differs_fails);
     RUN_TEST(test_an_adc_value_out_of_range_fails);
     RUN_TEST(test_a_wrong_pwm_duty_fails);
     RUN_TEST(test_a_tone_that_fails_to_start_or_stop_fails);
+    RUN_TEST(test_a_refused_tone_start_waits_for_nothing_and_stops_nothing);
+    RUN_TEST(test_a_refused_first_pwm_write_reads_no_duty_and_stops_nothing);
+    RUN_TEST(test_a_refused_second_pwm_write_reads_no_second_duty_and_stops_nothing);
     RUN_TEST(test_an_unexpected_pulse_result_fails);
+    RUN_TEST(test_a_refused_pwm_stop_fails_though_both_duties_read_right);
+    RUN_TEST(test_a_refused_gpio_restore_to_input_fails_though_both_reads_are_right);
+    RUN_TEST(test_a_gpio_pin_the_board_cannot_resolve_fails_and_drives_nothing);
+    RUN_TEST(test_a_refused_gpio_output_mode_fails_and_writes_nothing);
+    RUN_TEST(test_a_refused_gpio_write_fails_and_reads_nothing);
+    RUN_TEST(test_a_refused_first_gpio_read_writes_no_low_and_restores_nothing);
+    RUN_TEST(test_a_refused_low_write_reads_nothing_more_and_restores_nothing);
+    RUN_TEST(test_a_refused_second_gpio_read_restores_nothing);
+    RUN_TEST(test_an_adc_channel_the_board_cannot_resolve_fails_and_reads_nothing);
+    RUN_TEST(test_a_refused_adc_init_fails_and_reads_nothing);
+    RUN_TEST(test_a_pwm_channel_the_board_cannot_resolve_fails_and_drives_nothing);
+    RUN_TEST(test_a_tone_pin_the_board_cannot_resolve_fails_and_sounds_nothing);
+    RUN_TEST(test_a_refused_pulse_pull_up_fails_and_measures_nothing);
+    RUN_TEST(test_a_pulse_pin_the_board_cannot_resolve_fails_and_measures_nothing);
     RUN_TEST(test_a_good_board_sets_up_settles_and_releases_each_peripheral_in_order);
     return UNITY_END();
 }

@@ -100,6 +100,19 @@ def build_manifest(hex_text, board="atmega328p", *make_vars):
             return manifest, f.read()
 
 
+def make_value(board, var, *make_vars):
+    """The value make gives var for board's real profile.mk and make_vars,
+    as the build would use it; nothing is built."""
+    run = subprocess.run(
+        ["make", "-s", "--no-print-directory", "-C", _ROOT, f"BOARD={board}",
+         *make_vars, "--eval", f"tfw-print-value: ; @echo '$({var})'",
+         "tfw-print-value"],
+        capture_output=True, text=True, check=False)
+    if run.returncode != 0:
+        raise AssertionError(f"make {var}: rc={run.returncode}\n{run.stdout}{run.stderr}")
+    return run.stdout
+
+
 class ProvenanceMeasurement(unittest.TestCase):
     def test_a_gap_is_measured_as_the_device_measures_it(self):
         m, image = build_manifest(GAP_HEX)
@@ -265,13 +278,18 @@ ITCM_SLOT_HEX = SLOT_8000_HEX
 ITCM_BOOT_REGION_HEX = ":01000000AA55\n:00000001FF\n"
 # The first byte past the 192 KiB slot, 0x00038000 (the platform block's side).
 ITCM_PAST_SLOT_HEX = ":020000040003F7\n:01800000AAD5\n:00000001FF\n"
+# IMX_BOOT=1's region, 192 KiB from ITCM 0: its last byte, 0x0002FFFF, and the
+# first byte past it, 0x00030000, which is inside the slot's region.
+ITCM_BOOT_LAST_HEX = ":020000040002F8\n:01FFFF00AA57\n:00000001FF\n"
+ITCM_BOOT_PAST_HEX = ":020000040003F7\n:01000000AA55\n:00000001FF\n"
 
 
 class ItcmSlotBoard(unittest.TestCase):
     """frdm-imx95-m7: the application slot at 0x00008000 in the M7's ITCM,
     tfw-boot's region below it. Its profile.mk sets FWHASH_BASE, FWHASH_SIZE
     and F_CPU as board_profile.h's TFW_APP_REGION_BASE, TFW_APP_REGION_SIZE
-    and TFW_CM_CPU_HZ (#49)."""
+    and TFW_CM_CPU_HZ (#49). IMX_BOOT=1 (#473) moves FWHASH_BASE with APP_BASE
+    to ITCM 0; board_profile.h keeps the slot's."""
 
     def test_a_slot_image_measures_from_the_slot_base(self):
         m, image = build_manifest(ITCM_SLOT_HEX, "frdm-imx95-m7")
@@ -285,6 +303,93 @@ class ItcmSlotBoard(unittest.TestCase):
         for text in (ITCM_BOOT_REGION_HEX, ITCM_PAST_SLOT_HEX, GAP_HEX):
             with self.subTest(text=text), self.assertRaises(AssertionError):
                 build_manifest(text, "frdm-imx95-m7")
+
+    def test_an_imx_boot_image_measures_from_the_itcm_base(self):
+        # IMX_BOOT=1 (#473): the boot container's image, linked at ITCM 0.
+        with tempfile.TemporaryDirectory() as build_dir:
+            m, image = build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                      "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+        self.assertIn("(0x00000000 on this board)", m["note"])
+        self.assertEqual(m["image_len"], 1)
+        self.assertEqual(m["fwhash_sha256"], hashlib.sha256(image).hexdigest())
+
+    def test_imx_boot_in_the_default_build_dir_is_refused(self):
+        # make tracks no flag: build/ would reuse the ELF linked at the slot.
+        with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
+            build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7", "IMX_BOOT=1")
+
+    def test_imx_boot_in_the_default_build_dir_is_refused_however_spelled(self):
+        # The guard compares paths, not strings: a trailing slash is build/.
+        for d in ("build/", "./build", "build//", os.path.join(_ROOT, "build")):
+            with self.subTest(build_dir=d):
+                with self.assertRaisesRegex(AssertionError, "IMX_BOOT=1.*BUILD_DIR"):
+                    build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                   "IMX_BOOT=1", "BUILD_DIR=" + d)
+
+    def test_an_imx_boot_image_measures_to_the_end_of_its_region_and_no_further(self):
+        # FWHASH_SIZE is FLASH_BUDGET, the 192 KiB the image is linked into
+        # (__tfw_text_size): the region is [0, 0x30000) under IMX_BOOT=1.
+        with tempfile.TemporaryDirectory() as build_dir:
+            m, image = build_manifest(ITCM_BOOT_LAST_HEX, "frdm-imx95-m7",
+                                      "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+            self.assertEqual(m["image_len"], 196608)
+            self.assertEqual(m["fwhash_sha256"], hashlib.sha256(image).hexdigest())
+            with self.assertRaises(AssertionError):
+                build_manifest(ITCM_BOOT_PAST_HEX, "frdm-imx95-m7",
+                               "IMX_BOOT=1", "BUILD_DIR=" + build_dir)
+            # The same byte is inside the slot's region, so the refusal above
+            # is the ITCM-0 region's end.
+            m, _ = build_manifest(ITCM_BOOT_PAST_HEX, "frdm-imx95-m7")
+            self.assertEqual(m["image_len"], 0x28001)
+
+    def test_imx_boot_other_than_0_or_1_is_refused(self):
+        # A typo must not link the slot image silently.
+        for v in ("yes", "true", "2"):
+            with self.subTest(imx_boot=v):
+                with self.assertRaisesRegex(AssertionError, "IMX_BOOT is 0 or 1"):
+                    build_manifest(ITCM_BOOT_REGION_HEX, "frdm-imx95-m7",
+                                   "IMX_BOOT=" + v)
+
+    def test_imx_boot_links_the_application_at_the_itcm_base(self):
+        # The linker's text base, not only the measurement's: the System
+        # Manager starts the container's M7 image from the vector at ITCM 0.
+        with tempfile.TemporaryDirectory() as build_dir:
+            for make_vars, base in (((), "0x00008000"),
+                                    (("IMX_BOOT=1", "BUILD_DIR=" + build_dir), "0x00000000")):
+                with self.subTest(make_vars=make_vars):
+                    flags = make_value("frdm-imx95-m7", "ARCH_FW_PLACEMENT_LDFLAGS", *make_vars)
+                    self.assertIn("--defsym=__tfw_text_base=" + base + " ", flags)
+                    self.assertIn("--defsym=__tfw_text_size=196608 ", flags)
+
+    def test_imx_boot_and_the_slot_image_never_share_a_directory(self):
+        # make tracks no flag: in one BUILD_DIR the ELF linked for the other
+        # mode would be reused, so IMX_BOOT=1 names its own FW_DIR.
+        with tempfile.TemporaryDirectory() as d:
+            slot = make_value("frdm-imx95-m7", "FW_DIR", "BUILD_DIR=" + d).strip()
+            imx = make_value("frdm-imx95-m7", "FW_DIR", "IMX_BOOT=1", "BUILD_DIR=" + d).strip()
+            off = make_value("frdm-imx95-m7", "FW_DIR", "IMX_BOOT=0", "BUILD_DIR=" + d).strip()
+        self.assertNotEqual(slot, imx)
+        self.assertTrue(imx.endswith("-imxboot"), imx)
+        self.assertEqual(slot, d + "/frdm-imx95-m7/soft")
+        self.assertEqual(off, slot)
+
+    def test_imx_boot_with_a_row_feature_keeps_its_own_directory(self):
+        # A row feature names the directory too: with one on, IMX_BOOT=1
+        # still links into a directory of its own.
+        with tempfile.TemporaryDirectory() as d:
+            row = make_value("frdm-imx95-m7", "FW_DIR", "PWM=1", "BUILD_DIR=" + d).strip()
+            imx = make_value("frdm-imx95-m7", "FW_DIR", "PWM=1", "IMX_BOOT=1",
+                             "BUILD_DIR=" + d).strip()
+        self.assertNotEqual(row, imx)
+        self.assertIn("-imxboot", imx)
+
+    def test_imx_boot_adds_no_shared_build_setting(self):
+        # The -imxboot directory comes from the board's own BOARD_FEATURES_ON,
+        # so no setting outside the board names it.
+        with tempfile.TemporaryDirectory() as d:
+            extra = make_value("frdm-imx95-m7", "BOARD_DIR_SUFFIX", "IMX_BOOT=1",
+                               "BUILD_DIR=" + d).strip()
+        self.assertEqual(extra, "")
 
 
 if __name__ == "__main__":

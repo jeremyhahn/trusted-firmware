@@ -9,7 +9,7 @@ permissions:
 
 env:
   # Keep in lockstep with ci-template's GO_VERSION: the fips job's setup-go reads ${{ env.GO_VERSION }} and an undeclared value resolves to empty, handing setup-go no version at all.
-  GO_VERSION: '1.27.3'
+  GO_VERSION: '1.27.4'
 
 on:
   schedule:

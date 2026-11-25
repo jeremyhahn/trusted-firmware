@@ -57,7 +57,7 @@ this table and in the code comments that carry it.
   `profile.mk` is stated for the day one is added.
 - **TrustZone-M split, built only (TZ=1, #590).** `profile.mk` sets
   `TZ_MAP` to `src/hal/cortex-m/tz/tz_map_nucleo_h563zi.h`, whose SAU table
-  splits the part in five regions (`docs/plans/590.md`):
+  splits the part in five regions:
 
   | Region | Base | Size |
   |---|---|---|

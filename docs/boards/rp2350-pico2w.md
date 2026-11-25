@@ -60,7 +60,7 @@ functions, Go `Test` functions or Python methods in the files named.
 3. **The first bench run** (needs hardware and the bench): factory record,
    the flash part's JEDEC id, the console on GPIO0/1, then tfw-boot and the
    application flashed and the wire protocol answered, then the peripheral
-   check of `docs/plans/429.md` slice 3; it updates this page's "What is not
+   check of #429 slice 3; it updates this page's "What is not
    verified", proven by `make board-record BOARD=rp2350-pico2w` and the
    recorded session.
 4. **The enrolment transport** (owner decision, ADR open question 5, then
@@ -148,7 +148,7 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
 | I2C | I2C0 on GPIO4 (SDA) and GPIO5 (SCL), pico-sdk 2.1.1's `PICO_DEFAULT_I2C`, with the pad pull-ups on; in the default image (`I2C ?= 1`), off in the `soft:I2C=0` row | `profile.mk`, `board_profile.h` |
 | PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz; in the default image, off in the `soft:PERIPH=0` row | `board.c`, `board_profile.h` |
-| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350, so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, docs/plans/429.md slice 3) | `profile.mk`, `board_profile.h` |
+| SPEC gate | the owner lifted the AVR gate (#7) for the RP2350, so the default image carries I2C, PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM (`I2C ?= 1`, `PERIPH ?= 1`; `TFW_CM_I2C`, `TFW_CM_PERIPH`) and `make flash` refuses no row. `soft:I2C=0` and `soft:PERIPH=0` are the rows without them, which size-check also measures; host-tested, not yet run on a board (the bench check follows, #429 slice 3) | `profile.mk`, `board_profile.h` |
 | Not driven | SPI, 1-Wire, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is

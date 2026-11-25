@@ -13,7 +13,7 @@ CM_LDSCRIPT    := mk/arch/cortex-m/imx95.ld
 # The core clock, TFW_CM_CPU_HZ in board_profile.h (to CONFIRM there).
 F_CPU          := 800000000
 
-# The memory map, as the M7 sees it (IMX95RM, the Cortex-M7 memory map; to CONFIRM).
+# The memory map, as the M7 sees it (IMX95RM, the Cortex-M7 memory map; to CONFIRM): ITCM 256 KiB at 0x00000000 for code, DTCM 256 KiB at 0x20000000 for data.
 FLASH_BUDGET   := 196608
 RAM_BUDGET     := 65536
 FLASH_TOTAL    := 262144
@@ -31,6 +31,21 @@ FWHASH_SIZE    := $(FLASH_BUDGET)
 BOOT_SECTION   := 32768
 BOOT_BASE      := 0x00000000
 BOOT_BUDGET    := 32768
+
+# IMX_BOOT=1: the image the boot container carries, linked and measured from ITCM 0 in its own BUILD_DIR (FW_DIR suffix -imxboot).
+IMX_BOOT       ?= 0
+ifneq ($(filter-out 0 1,$(IMX_BOOT)),)
+$(error IMX_BOOT is 0 or 1, not "$(IMX_BOOT)")
+endif
+ifeq ($(IMX_BOOT),1)
+# Absolute paths: build/, ./build and the repo's absolute build/ all match.
+ifeq ($(abspath $(BUILD_DIR)),$(abspath build))
+$(error IMX_BOOT=1 links the application at ITCM 0, not the slot: give it its own BUILD_DIR (make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware), or the ELF linked for the other mode is reused)
+endif
+APP_BASE       := 0x00000000
+FWHASH_BASE    := $(APP_BASE)
+BOARD_FEATURES_ON += IMXBOOT
+endif
 
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is the enclave, and this slice does not touch it.
 BOARD_TIERS    := soft

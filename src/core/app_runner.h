@@ -30,6 +30,11 @@ typedef uint8_t tfw_app_state_t;
  * tfw_app_init. Clears the overrun count. */
 void tfw_app_runner_start(void);
 
+/* Back to IDLE with no overruns, as at power-on, calling no hook. For the host
+ * tests' setUp, as tfw_sys_reset_state is; no firmware
+ * path calls it, so --gc-sections drops it. */
+void tfw_app_runner_reset_state(void);
+
 /* Once per superloop pass. Calls tfw_app_run while RUNNING and counts a call
  * that took longer than TFW_APP_RUN_BUDGET_MS. */
 void tfw_app_runner_poll(void);
@@ -58,5 +63,13 @@ tfw_status_t tfw_app_runner_after_update(void);
  * an image that links app_runner_none.c has no handler to reference. The reply
  * is TFW_APP_INFO_LEN bytes; see include/tfw/protocol.h for the layout. */
 tfw_status_t tfw_app_cmd_info(tfw_reader_t *r, tfw_writer_t *w);
+
+/* APP_CMD, wired beside APP_INFO: the payload is the application's app_op byte
+ * and its arguments. A running application's tfw_app_command answers, timed
+ * against TFW_APP_RUN_BUDGET_MS like run (an overrun counts in APP_INFO); in any
+ * other state the answer is TFW_ERR_BAD_STATE and nothing is called. Serial
+ * only: not on the Ethernet allow-list (src/proto/link_eth.h). See
+ * docs/application-sdk/adr-application-wire-commands.md. */
+tfw_status_t tfw_app_cmd_command(tfw_reader_t *r, tfw_writer_t *w);
 
 #endif /* TFW_CORE_APP_RUNNER_H */

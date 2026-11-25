@@ -2,31 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Put a content-tagged devcontainer image on the Docker daemon, building it
-# only when no copy of it exists (Company Agent m644).
-#
-#   usage: scripts/ensure-image.sh <make-target> <image> [<trusted-image>]
-#   e.g.   scripts/ensure-image.sh docker-build-toolchain "$(make -s toolchain-image)"
-#
-# <image> is tagged by a hash of every input its stages read (mk/docker.mk,
-# `make -s toolchain-hash`), so any copy under that tag is the image this
-# commit would build. <trusted-image> is the same hash in a trust class this
-# run reads but never writes: main's, for a pull request (ci-standard.md §6).
-# The first of these that succeeds wins:
-#
-#   1. <image> is on the daemon;
-#   2. <trusted-image> is on the daemon, and is tagged <image>;
-#   3. with IMAGE_PULL=1, <image> and then <trusted-image> pull from the
-#      registry (a trusted one is tagged <image>);
-#   4. `make <make-target>` builds it, with the registry as its cache.
-#
-# With IMAGE_PUSH=1 a built image is pushed with its moving cache tag
-# (IMAGE_CACHE_REF, the next build's cache-from). A failed push is reported
-# and the job goes on: the image is on the daemon, and the next run builds
-# again. Nothing here removes an image (trim-ci-images.sh bounds them).
-#
-# Legs on one daemon run this at once, so each tag goes through
-# scripts/docker-tag.sh, which passes a lost race to the same image.
+# Put a content-tagged devcontainer image on the Docker daemon, building it only when no copy of it exists.
 set -euo pipefail
 here=$(dirname "$0")
 

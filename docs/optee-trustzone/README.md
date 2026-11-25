@@ -246,7 +246,7 @@ either side.
 
 ## Slices
 
-One PR each (m751).
+One PR each.
 
 1. **Design** (this page, #253): the row's design, its SPEC link and the
    standards to file.
@@ -271,7 +271,7 @@ One PR each (m751).
    keys)? On QEMU the hardware unique key is a fixed test value, so nothing
    sealed there is secret. If keys may live there, who owns them alongside
    go-xkms, and does go-enclave or this project define the blob? Answered for
-   the sealed blob by owner item 177, option (a) (CA m1656, ruling 251), and
+   the sealed blob by owner item 177, option (a), and
    shipped in #288: go-xkms defines the blob, and the TA holds no stored key,
    only one derived on each call from the TA unique key. Still open for signing
    keys and anything stored in secure storage.

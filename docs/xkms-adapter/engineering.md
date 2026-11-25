@@ -232,7 +232,7 @@ All sentinels, all prefixed `avr backend:`. Grouped by what a caller should do:
 
 `ErrUnsupportedByDevice` and `ErrCommandUnavailable` are deliberately separate.
 A software-tier device built with the HMAC signer (the ATmega32U4; the
-ATmega328P has no software tier since owner ruling 2026-10-17 (m522)) asked to mint an alias certificate answers the first: it knows what
+ATmega328P has no software tier since owner ruling 2026-10-17) asked to mint an alias certificate answers the first: it knows what
 a certificate is and has no public half to certify. The ATmega2560's soft root
 has one, a P-256 DeviceID (#48, #130), and mints the certificate. The second says
 the feature was compiled out. One is a part to change and the other is a build
@@ -342,7 +342,7 @@ makes the one `dice.Verify` call, with `RequireDeviceSignedLeaf`. See
 Audited 2026-11-16 (#505) against SPEC row `device-security-event-evidence`
 (`docs/SPEC.md` line 55, status planned; ROADMAP: #283, go-xkms #1765). The
 row is owner ruling 2026-10-31, item 181 (#283), option (b), which carries
-forward item 173 (CA m1656, ruling 251 item 4): "option (b) xkms evidence
+forward item 173: "option (b) xkms evidence
 through the tf xkms adapter, the new command id is allowed"
 (`docs/hsm-self-defence/m7-design.md`, O9). Paths are from the repository
 root; a test is `file: name`.

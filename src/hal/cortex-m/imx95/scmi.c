@@ -140,6 +140,9 @@ int32_t tfw_scmi_check(const struct tfw_scmi_msg *cmd, const struct tfw_scmi_msg
     if (tfw_scmi_word(rsp, 0u, &status) != TFW_SCMI_SUCCESS) {
         return TFW_SCMI_E_SHORT;
     }
+    if ((int32_t)status > 0) {
+        return TFW_SCMI_E_UNNUMBERED;
+    }
     return (int32_t)status;
 }
 

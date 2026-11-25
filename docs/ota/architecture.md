@@ -218,7 +218,7 @@ the image path's key and verifier (`boot/boot_swap.c`, `confirm_requested`).
   |---|---|---|---|
   | 2560 soft base (UECC_OPT 0) | about 250 B: the Sig_structure prefix, the payload encoding, one SHA-256 and verify call, the signature read | only once item 79's soft base is engineered to fit 8192 B; it does not link today (`docs/development/isp-route.md:195`) | one more P-256 verify, about 303 s more, so about 606 s at the activation boot and 303 s more at the confirm-settling boot; every other boot unchanged |
   | 2560 element tier | about 200 B; the verify is the element's | 8192 B: yes on the supported row (`docs/development/isp-route.md:216`, 7832 B) | tens of ms |
-  | 328P and 32U4, 4 KB boot (trailer-only) | about 250 B | not established; the 328P has no soft row (owner ruling 2026-10-17 (m522)) | as the 2560 at the same UECC_OPT |
+  | 328P and 32U4, 4 KB boot (trailer-only) | about 250 B | not established; the 328P has no soft row | as the 2560 at the same UECC_OPT |
 - **One trial.** The trial state is written before the jump, so any reset in
   it, whether the deadline, the watchdog, a crash or a power cut, rolls back.
   There is no attempt counter. The same image is not activated again: at a
@@ -373,7 +373,7 @@ trailer on every row. A board that does not link the reader links
 drops the gate and its image does not grow. The ESP32's layer 0 calls the same
 gate, after the trailer, at the trial boot (`boot/hal/esp32/l0_gate.c`).
 
-Carriage (ruling 109, 2026-10-22; ADR decision 3, open question 5 settled): the
+Carriage: the
 stream carries the envelope after the image, in the padding before the
 trailer, as a little-endian u16 length then the envelope, and `OTA_BEGIN`'s
 total counts it. Erased padding reads as length 0xFFFF and is refused with
@@ -477,8 +477,7 @@ into the secondary (`TFW_OTA_STAGE_DEST`), and the primary is untouched until
 the swap. The move shifts the primary up a unit, top first. Then each unit
 swaps in two writes, and each write's source survives the step after it.
 
-Progress is journalled in two five-byte copies at EEPROM `0x0E0`–`0x0E9`
-(item 56, ruling 72: owner ruling 2026-10-17, CA m499).
+Progress is journalled in two five-byte copies at EEPROM `0x0E0`–`0x0E9`.
 Each copy holds the phase, the step, a sequence number and
 a CRC-16 over the three. The phase also says which way the swap runs and, once
 a forward swap ends, that the slots are swapped. Every advance writes the copy

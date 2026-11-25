@@ -127,6 +127,7 @@ var protoCommands = []struct {
 	{"TFW_CMD_RESET", "CmdReset", CmdReset},
 	{"TFW_CMD_SYS_INFO", "CmdSysInfo", CmdSysInfo},
 	{"TFW_CMD_APP_INFO", "CmdAppInfo", CmdAppInfo},
+	{"TFW_CMD_APP_CMD", "CmdAppCmd", CmdAppCmd},
 	{"TFW_CMD_PIN_MODE", "CmdPinMode", CmdPinMode},
 	{"TFW_CMD_DIGITAL_READ", "CmdDigitalRead", CmdDigitalRead},
 	{"TFW_CMD_DIGITAL_WRITE", "CmdDigitalWrite", CmdDigitalWrite},
@@ -173,7 +174,7 @@ var protoCommands = []struct {
 
 func TestProtocolCommandIDsMatchTheHeader(t *testing.T) {
 	protocolH, _ := protoReadHeaders(t)
-	require.Len(t, protoCommands, 47)
+	require.Len(t, protoCommands, 48)
 
 	protoTabled := map[string]bool{}
 	protoIDs := map[Cmd]string{}

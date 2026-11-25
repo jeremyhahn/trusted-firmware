@@ -11,8 +11,9 @@ symbol table instead and counts a symbol only where it is defined in a
 section the image loads (SHF_ALLOC): a discarded one has no such section.
 
 Usage: app_symbols.py ELF REGEX
-Prints each matching symbol and exits 0, or exits 1 when none matches; a name
-matches when REGEX matches it whole, or up to a '.' suffix the compiler adds
+Prints each matching symbol and exits 0, or exits 1 when none matches, and
+exits 2 when the ELF cannot be read or parsed; a name matches when REGEX
+matches it whole, or up to a '.' suffix the compiler adds
 (tfw_app_init.lto_priv.0). Standard library only: it runs on every
 architecture's ELF, the ESP-IDF image's included, with no toolchain nm.
 """
@@ -63,11 +64,11 @@ def main(argv):
     if len(argv) != 3:
         print("usage: app_symbols.py ELF REGEX", file=sys.stderr)
         return 2
-    with open(argv[1], "rb") as f:
-        data = f.read()
     try:
+        with open(argv[1], "rb") as f:
+            data = f.read()
         names = defined_symbols(data)
-    except (ValueError, KeyError, struct.error) as e:
+    except (OSError, ValueError, KeyError, IndexError, struct.error) as e:
         print("app_symbols.py: %s: %s" % (argv[1], e), file=sys.stderr)
         return 2
     pattern = re.compile("(?:%s)(?:\\..*)?" % argv[2])

@@ -49,8 +49,7 @@ wired as the fleet template wires them:
 
 `make security` is `security-novuln`, the gates that read only the tree and
 what the CI Gate's Security job runs, then `vuln`, which reads the
-vulnerability database and so runs in `scans.yml` on main, never in the CI Gate
-(ruling 742 (1)); `make security` and `make ci` run both.
+vulnerability database and so runs in `scans.yml` on main, never in the CI Gate; `make security` and `make ci` run both.
 
 CI runs `make test` in one Unit job, `unit`, as three steps, each
 `make test-shard-N` over one shard of its gates, then the sdk/go race suite
@@ -99,7 +98,7 @@ jobs, and `integration` (full tier: push, dispatch or the `ci:full` label, which
 takes effect on the next push, update-branch or workflow_dispatch) under
 compose. `make deps-check`, `make vuln` and `trivy image` read upstream
 databases, so they run in `.github/workflows/scans.yml`, on a schedule and on
-workflow_dispatch on main, never in ci.yml (ruling 742 (1)). `CI Gate` is the
+workflow_dispatch on main, never in ci.yml. `CI Gate` is the
 one required check.
 
 `make help` lists every target.
@@ -233,7 +232,7 @@ stops the build at configure time. With a static address no DHCP client runs.
 Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; CI's
 `esp32-build` and `esp32-qemu-test` jobs run them in the devcontainer's `esp32`
 stage, which has it. `esp32-qemu-test` runs on a push to main and nightly, never
-on a pull request (ruling 220(j)). Both refuse any toolchain but the pins in
+on a pull request. Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
 (`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
 are the steps that worked on Debian 13 without root:

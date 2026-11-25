@@ -5,7 +5,7 @@
 >
 > #49's first deliverable was the row's design, sections 1 to 8. Section 9 is
 > the board as built, and section 10 the row's requirements one by one. SPEC
-> rows change at merge (CA m623).
+> rows change at merge.
 
 ## Sources and how they are cited
 
@@ -75,7 +75,7 @@ device for any custom trusted application. The M33's System Manager stays NXP
 firmware, and the EdgeLock Enclave is the hardware root. trusted-firmware
 stays the Cortex-M product, and on the i.MX 95 that is the M7. The board page
 is [`../boards/frdm-imx95-m7.md`](../boards/frdm-imx95-m7.md); hardware work on
-the board is queued after #535 and #536 (ruling 768).
+the board is queued after #535 and #536.
 
 **Non-goals.** No tfw-boot: L0 is NXP's ROM, ELE and System Manager (ref ADR
 decisions 1 and 8). No code on the M33, which runs the System Manager (IMX95CEC
@@ -183,7 +183,7 @@ row below waits on it.
 |---|---|---|
 | `tfw_crypto_init` | `hsm_open_session` (§3.1), then the key store service (§2.3, §3.22) | at most 8 sessions and 32 services (§3.1) |
 | `tfw_crypto_tier` | — | 5 |
-| `tfw_crypto_algorithms` | — | ES256 only (m522) |
+| `tfw_crypto_algorithms` | — | ES256 only |
 | `tfw_crypto_random` | `hsm_get_random` / `hsm_do_rng` (§3.6) | the enclave's TRNG |
 | `tfw_crypto_sha256` | — | `src/crypto/sha256.c`: the input is public, so no round trip to the enclave |
 | `tfw_crypto_hmac` | `hsm_mac_one_go` (§3.10) under an `HSM_KEY_TYPE_HMAC` key permitted `HMAC_SHA256` (§3.2) | the DICE one-way function with the UDS as a key generated in the enclave; which measurement it takes is question 5 |
@@ -282,8 +282,8 @@ the fallback, and who stages, are questions 10 and 11.
 Each is one PR. **Gates:** every slice waits on #7, the AVR end-to-end gate, as
 the #50 design's slices do, unless the owner lifts it for this row as it was
 lifted for `esp32-p4` (`adr-esp-idf-integration.md`, header) and the Cortex-M
-ADRs (CA m623); the hardware order is SE052F, then the
-i.MX 95 M7, then the STM32H5 (`cortex-m` row, ruling 269).
+ADRs; the hardware order is SE052F, then the
+i.MX 95 M7, then the STM32H5.
 
 | # | Slice | Files | Test | Gate |
 |---|---|---|---|---|
@@ -294,7 +294,7 @@ i.MX 95 M7, then the STM32H5 (`cortex-m` row, ruling 269).
 | 5 | **The enclave provider.** | `src/crypto/ele/`; its messaging-unit transport | Host unit against a model of the messaging unit; the board with throwaway keys only | slices 3, 4; questions 3, 4, 6, 16 |
 | 6 | **Our OTA gate on the M7.** | the receive path calling `boot/boot_image.c` and `src/core/suit.c` | Host unit: a good image passes; another board's, a lower version, a bad SUIT and a bad authorization are refused | slice 5; questions 8–12 |
 | 7 | **Ethernet.** | the M7's controller behind `include/tfw/eth.h` | Host unit; then the CLI end to end over TCP on the bench host | slice 3; question 14 |
-| 8 | **Bench.** | the board page | End to end on the bench host's FRDM-IMX95-PRO; factory state recorded first (m346); any fuse write an owner decision | slices 3–6; trusted-imx95's container |
+| 8 | **Bench.** | the board page | End to end on the bench host's FRDM-IMX95-PRO; factory state recorded first; any fuse write an owner decision | slices 3–6; trusted-imx95's container |
 
 Slices 1, 2 and 4 need no board.
 

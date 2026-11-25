@@ -65,7 +65,10 @@ int32_t tfw_scmi_xfer(const struct tfw_scmi_chan *c, const struct tfw_scmi_msg *
 {
     uint32_t room, len, i, w = 0u;
 
-    room = c->shm_len > TFW_SCMI_SHM_PAYLOAD ? c->shm_len - TFW_SCMI_SHM_PAYLOAD : 0u;
+    if (c->shm_len < TFW_SCMI_SHM_PAYLOAD) {
+        return TFW_SCMI_E_TOO_LONG;   /* no room for flags, length and header */
+    }
+    room = (c->shm_len - TFW_SCMI_SHM_PAYLOAD) & ~3u;   /* whole words only */
     if (cmd->len > room || cmd->len > TFW_SCMI_PAYLOAD_MAX || (cmd->len & 3u) != 0u) {
         return TFW_SCMI_E_TOO_LONG;
     }

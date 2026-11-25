@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The TZ=1 secure image (#590, docs/plans/590.md). Not read by ld as it is:
+ * The TZ=1 secure image (#590). Not read by ld as it is:
  * mk/arch/cortex-m-targets.mk runs it through the C preprocessor with the
  * board's src/hal/cortex-m/tz/tz_map_<board>.h, so every address below is
  * that header's, as the SAU table's are.

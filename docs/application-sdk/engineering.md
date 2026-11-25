@@ -383,21 +383,21 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Onboarding by device profile | partial | the device side: `profile` in the descriptor (`include/tfw/app.h:52`), reported by APP_INFO (`src/core/app_runner.c:153`); enrolment by profile is go-trusted-platform's (SPEC row `device-onboarding`, future) | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; slice 5 |
 | One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
 | The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
-| Builds against a released SDK version | done | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; the tag `v0.4.2-alpha` declares `tfw_app_after_update` and `tfw_app_evidence`, and its `include/tfw/app.h` differs from `main`'s in comments only (`git diff v0.4.2-alpha main -- include/tfw/app.h` touches only the trial-boot comments of `tfw_app_init` and `tfw_app_after_update`, #1043: no declaration, symbol or value), so the released hook set is `main`'s; `make app-sdk-check` at `v0.4.2-alpha` (commit `e0ae83d0`), the example built out of tree against the released headers and run on tfwsim, recorded 2026-11-24, #1043 | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
+| Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; the tag `v0.4.2-alpha` declares `tfw_app_after_update` and `tfw_app_evidence`, but its `include/tfw/app.h` lacks `tfw_app_command`, `tfw_app_session_ok` and the `tfw/reader.h` and `tfw/writer.h` includes that `main` adds for APP_CMD (owner ruling 1243), so the current example (`test/app/example/example.c:63` defines `tfw_app_command`) does not build against the released headers; `make app-sdk-check` run in a checkout of `v0.4.2-alpha` builds that tag's own example, not the current application; done when a release carrying the APP_CMD interface exists and `make app-sdk-check` builds the current example against it | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
 | Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`), and for `BOARD=esp32p4-poe` by the `esp32-build` rule (`mk/arch/esp32-targets.mk:63`, the check at `:135`) in CI's ESP32 Build job, in its ESP-IDF image; `BOARD=esp32-qemu`: `esp32-qemu-test` builds the example's esp32c3 image and boots it once, `wirecheck -app-name heartbeat` requiring APP_INFO to name it running (step 7 of `test/integration/esp32/qemu_test.py`); the run is in esp32-qemu-test (#1043), not yet observed; `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
-Counts: 16 done, 4 partial, 0 not started.
+Counts: 15 done, 5 partial, 0 not started.
 
 ### Remaining slices
 
-1. **The released hook set.** Released: `v0.4.2-alpha` carries
-   `after_update` and the evidence hook, its `include/tfw/app.h` the same as
-   `main`'s but for the trial-boot comments of #1043 (comment lines only, no
-   declaration, symbol or value), so no release is needed. Done: `make
-   app-sdk-check` (`mk/app.mk:92`) at `v0.4.2-alpha` (commit `e0ae83d0`), the
-   example built out of tree against the released headers and run on tfwsim,
-   recorded 2026-11-24, #1043; no hardware.
+1. **The released hook set.** Not done: `v0.4.2-alpha` carries
+   `after_update` and the evidence hook but not the APP_CMD interface
+   (`tfw_app_command`, `tfw_app_session_ok`, the `tfw/reader.h` and
+   `tfw/writer.h` includes), so a release carrying it is needed (the next
+   alpha tag; a lane does not tag or release). Then `make app-sdk-check`
+   (`mk/app.mk:92`) against that release, the current example built out of
+   tree; the row moves to done when that run is recorded here; no hardware.
 2. **Applications on every architecture.** Built and checked on all three:
    `mk/stages.mk` runs `make app-firmware-check` for the AVR and Cortex-M
    boards only (`BOARD=atmega2560` and QEMU's `BOARD=mps2-an505`) in the

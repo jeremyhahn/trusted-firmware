@@ -72,6 +72,7 @@ static uint32_t tone_tim_hz = 64000000u;
 #define A_AFRL     (GPIOB + 0x20u)
 #define A_MODER    (GPIOB + 0x00u)
 #define A_PUPDR    (GPIOB + 0x0Cu)
+#define A_BSRR     (GPIOB + 0x18u)
 
 static const tfw_pinref_t d3 = { .port = 1u, .bit = 5u };
 
@@ -216,6 +217,25 @@ static void test_stop_halts_and_holds_the_pin_low(void)
     TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
 }
 
+/* Stop hands PB5 back to the GPIO as an output driven low, as PWM's stop
+ * does, so a digital_write on D3 afterwards drives the pin again. */
+static void test_stop_hands_the_pin_back_as_an_output_driven_low(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL_HEX32(0x1u, (peek(A_MODER) >> 10) & 0x3u);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFF7FFu, peek(A_MODER));   /* other pins as they were */
+    TEST_ASSERT_EQUAL_HEX32(1u << 21, peek(A_BSRR));
+    TEST_ASSERT_TRUE(last(A_BSRR) < last(A_MODER));        /* low before it drives */
+}
+
+static void test_a_zero_hz_stop_hands_the_pin_back_too(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, (peek(A_MODER) >> 10) & 0x3u);
+}
+
 static void test_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
 {
     static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
@@ -272,6 +292,8 @@ int main(void)
     RUN_TEST(test_the_pull_comes_off_before_the_mode);
     RUN_TEST(test_a_second_start_retargets);
     RUN_TEST(test_stop_halts_and_holds_the_pin_low);
+    RUN_TEST(test_stop_hands_the_pin_back_as_an_output_driven_low);
+    RUN_TEST(test_a_zero_hz_stop_hands_the_pin_back_too);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);
     RUN_TEST(test_a_refused_start_leaves_a_sounding_tone_as_it_was);
     RUN_TEST(test_zero_hz_on_any_pin_stops_a_sounding_tone);

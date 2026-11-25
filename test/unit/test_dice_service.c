@@ -427,7 +427,7 @@ static void test_a_buffer_that_wraps_the_address_space_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0xEEEEEEEEu, s_page.got);
 }
 
-/* ---- the vectors sdk/go's dice evidence test reads (docs/plans/590c.md) --- */
+/* ---- the vectors sdk/go's dice evidence test reads (#590) ---------- */
 
 static size_t vec_line(char *out, size_t at, const char *name, const uint8_t *b, size_t n)
 {

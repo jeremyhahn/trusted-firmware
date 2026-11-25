@@ -1401,7 +1401,7 @@ $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
 # The secure-world DICE service (#590 slice b) beside the
 # non-secure path it must match byte for byte: the soft P-256 identity and
 # alias.c's certificate. The suite is its own provider and CDI handoff. It
-# also holds sdk/go's dice evidence vectors (slice c, docs/plans/590c.md) to
+# also holds sdk/go's dice evidence vectors (#590 slice c) to
 # the service's answers.
 DICE_VECTORS := sdk/go/testdata/dice_service_vectors.txt
 $(HOST_DIR)/test_dice_service: test/unit/test_dice_service.c src/tz/dice_service.c $(SOFT_ID_SRCS) \

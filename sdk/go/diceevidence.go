@@ -1,17 +1,11 @@
 package tfw
 
 import (
-	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
-	"time"
 )
 
 // FormatDICE is the fmt of a device-attest-01 attestation object whose
@@ -22,21 +16,8 @@ const FormatDICE = "dice"
 // coseES256 is the attStmt alg: COSE ES256.
 const coseES256 = -7
 
-// diceUEIDLen is the length of the UEID the device writes: the RFC 9711
-// 4.2.1.1 type byte 0x01 (RAND), then the 16-byte device id.
-const diceUEIDLen = 1 + 16
-
-// DICEEvidence is what VerifyDICEAttestation proved: the chain it checked and
-// the alias certificate's claims.
-type DICEEvidence struct {
-	Alias    *x509.Certificate // x5c[0], the alias key's certificate
-	DeviceID *x509.Certificate // x5c[1], under one of the roots
-	UEID     []byte            // claim 256
-	FWHash   []byte            // claim 273's SHA-256 file hash, the TCB measurement
-}
-
 // DICEAttestationObject assembles the device-attest-01 "dice" attestation
-// object from the secure DICE service's outputs (docs/plans/590c.md):
+// object from the secure DICE service's outputs (#590):
 //
 //	{"fmt": "dice",
 //	 "attStmt": {"alg": -7, "sig": ES256 DER, "x5c": [aliasCert, deviceIDCert]},
@@ -80,171 +61,39 @@ func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, 
 	return b, nil
 }
 
-// DICERegistry returns the DeviceID public key the provisioning record
-// registered for ueid (0x01 then the 16-byte device id), and false when the
-// UEID is not registered. The record's ueid, x and y members are where the
-// key comes from. It mirrors device-attest-01's RegisteredDeviceVerifier:
-// the verifier trusts a UEID only with the key registered for it.
-type DICERegistry func(ueid []byte) (*ecdsa.PublicKey, bool)
+// DICEAttestation is a "dice" attestation object's fields as
+// ParseDICEAttestationObject reads them: the inputs DICEAttestationObject took.
+type DICEAttestation struct {
+	AliasCert    []byte // x5c[0], the alias certificate's DER
+	DeviceIDCert []byte // x5c[1], the DeviceID certificate's DER
+	Nonce        []byte // authData, the challenge nonce
+	Sig          []byte // the alias key's r||s over SHA-256(nonce)
+}
 
-// VerifyDICEAttestation checks a "dice" attestation object the way
-// device-attest-01's dice verifier does, with the standard library (sdk/go
-// imports nothing of the stack; docs/plans/590c.md names the go-xkms checks
-// each step mirrors):
-//
-//   - fmt is "dice" and alg is ES256;
-//   - x5c[1], the DeviceID certificate, chains to roots, which must be
-//     non-nil (nil is refused, never the host's system roots);
-//   - x5c[0], the alias certificate, is signed by x5c[1]'s key;
-//   - the alias certificate is valid now (NotBefore to NotAfter);
-//   - the alias certificate has no critical extension but
-//     tcg-dice-UCCS-evidence, the one DICE extension read here;
-//   - the alias certificate is path-validated as the leaf of a chain
-//     through x5c[1] to roots, so the DeviceID's and the root's name and
-//     path-length constraints apply to it;
-//   - the alias certificate's eat_nonce and authData are nonce;
-//   - sig verifies under the alias key, a P-256 key (ES256), over
-//     SHA-256(authData);
-//   - the UEID (claim 256) is present, and is the type byte 0x01 then the
-//     16-byte device id;
-//   - the TCB measurement (claim 273's file hash) is present, and equals
-//     measurement unless that is nil;
-//   - registered, which must be non-nil, knows the UEID (refused as not a
-//     registered device otherwise);
-//   - the key registered for the UEID is x5c[1]'s key: a DeviceID chaining
-//     to roots proves a manufactured device, not which one, so another
-//     device's DeviceID claiming this UEID is refused.
-func VerifyDICEAttestation(obj, nonce []byte, roots *x509.CertPool, registered DICERegistry, measurement []byte) (*DICEEvidence, error) {
-	if roots == nil {
-		return nil, evidenceErr("no trusted roots for the DeviceID certificate")
-	}
-	if registered == nil {
-		return nil, evidenceErr("no registry for the device identity")
-	}
+// ParseDICEAttestationObject reads the object DICEAttestationObject writes,
+// and only that (deterministic CBOR, x5c of exactly two, nothing after), and
+// returns its fields with sig back as r||s. It is a structural parse: it
+// checks no signature, chain, validity, freshness, registered identity or
+// measurement. Verifying DICE evidence is go-xkms's (docs/SPEC.md), not
+// sdk/go's.
+func ParseDICEAttestationObject(obj []byte) (*DICEAttestation, error) {
 	st, err := decodeDICEObject(obj)
 	if err != nil {
 		return nil, errors.Join(evidenceErr("not a dice attestation object"), err)
 	}
-	if len(nonce) != AliasNonceLen || !bytes.Equal(st.authData, nonce) {
-		return nil, evidenceErr("authData is not the challenge nonce")
+	if len(st.authData) != AliasNonceLen {
+		return nil, evidenceErr(fmt.Sprintf("authData is %d bytes, want %d", len(st.authData), AliasNonceLen))
 	}
-	alias, err := x509.ParseCertificate(st.x5c[0])
-	if err != nil {
-		return nil, errors.Join(evidenceErr("x5c[0] is not a certificate"), err)
+	var rs struct{ R, S *big.Int }
+	rest, err := asn1.Unmarshal(st.sig, &rs)
+	if err != nil || len(rest) != 0 || rs.R.Sign() <= 0 || rs.S.Sign() <= 0 ||
+		rs.R.BitLen() > 256 || rs.S.BitLen() > 256 {
+		return nil, errors.Join(evidenceErr("sig is not an ES256 DER signature"), err)
 	}
-	devID, err := x509.ParseCertificate(st.x5c[1])
-	if err != nil {
-		return nil, errors.Join(evidenceErr("x5c[1] is not a certificate"), err)
-	}
-	now := time.Now()
-	if _, err = devID.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
-		return nil, errors.Join(evidenceErr("the DeviceID certificate does not chain to a root"), err)
-	}
-	if err = alias.CheckSignatureFrom(devID); err != nil {
-		return nil, errors.Join(evidenceErr("the alias certificate is not signed by the DeviceID key"), err)
-	}
-	if now.Before(alias.NotBefore) || now.After(alias.NotAfter) {
-		return nil, evidenceErr("the alias certificate is not valid now")
-	}
-	for _, oid := range alias.UnhandledCriticalExtensions {
-		if !oid.Equal(oidUCCSEvidence) {
-			return nil, evidenceErr("the alias certificate has an unhandled critical extension")
-		}
-	}
-	// Path-validate the alias as the leaf of root -> DeviceID -> alias, on a
-	// copy whose tcg-dice-UCCS-evidence (checked above, read by aliasClaims)
-	// is marked handled, so the DeviceID's and root's constraints apply to it.
-	leaf := *alias
-	leaf.UnhandledCriticalExtensions = nil
-	for _, oid := range alias.UnhandledCriticalExtensions {
-		if !oid.Equal(oidUCCSEvidence) {
-			leaf.UnhandledCriticalExtensions = append(leaf.UnhandledCriticalExtensions, oid)
-		}
-	}
-	inter := x509.NewCertPool()
-	inter.AddCert(devID)
-	if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
-		return nil, errors.Join(evidenceErr("the alias certificate does not chain through the DeviceID to a root"), err)
-	}
-	ev := &DICEEvidence{Alias: alias, DeviceID: devID}
-	var gotNonce []byte
-	if gotNonce, ev.UEID, ev.FWHash, err = aliasClaims(st.x5c[0]); err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(gotNonce, nonce) {
-		return nil, evidenceErr("the alias certificate's eat_nonce is not the challenge nonce")
-	}
-	key, ok := alias.PublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, evidenceErr("the alias key is not ECDSA")
-	}
-	if key.Curve != elliptic.P256() {
-		return nil, evidenceErr("the alias key is not P-256 (ES256)")
-	}
-	digest := sha256.Sum256(st.authData)
-	if !ecdsa.VerifyASN1(key, digest[:], st.sig) {
-		return nil, evidenceErr("sig does not verify under the alias key")
-	}
-	if measurement != nil && !bytes.Equal(ev.FWHash, measurement) {
-		return nil, evidenceErr("the TCB measurement is not the reference value")
-	}
-	regKey, ok := registered(bytes.Clone(ev.UEID))
-	if !ok {
-		return nil, evidenceErr("the UEID is not a registered device")
-	}
-	devKey, ok := devID.PublicKey.(*ecdsa.PublicKey)
-	if !ok || regKey == nil || !regKey.Equal(devKey) {
-		return nil, evidenceErr("the DeviceID key is not the one registered for the UEID")
-	}
-	return ev, nil
-}
-
-// aliasClaims reads eat_nonce (10), ueid (256) and the measurement (273,
-// [[258, CoSWID]] with the file hash at evidence/file/hash) from the alias
-// certificate's UCCS, and refuses a claims set whose ueid is absent, not a
-// byte string, or not the type byte 0x01 then the 16-byte device id.
-func aliasClaims(der []byte) (nonce, ueid, fwHash []byte, err error) {
-	uccs, err := AliasUCCS(der)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	v, err := cborDecode(uccs)
-	if err != nil {
-		return nil, nil, nil, errors.Join(evidenceErr("the UCCS is not CBOR"), err)
-	}
-	claims, _ := v.(map[uint64]any)
-	nonce, _ = claims[10].([]byte)
-	ueid, _ = claims[256].([]byte)
-	if len(ueid) == 0 {
-		return nil, nil, nil, evidenceErr("no UEID (claim 256)")
-	}
-	if len(ueid) != diceUEIDLen || ueid[0] != 0x01 {
-		return nil, nil, nil, evidenceErr("the UEID is not 0x01 and a 16-byte device id")
-	}
-	meas, _ := claims[273].([]any)
-	if len(meas) != 1 {
-		return nil, nil, nil, evidenceErr("no TCB measurement (claim 273)")
-	}
-	pair, _ := meas[0].([]any)
-	if len(pair) != 2 || pair[0] != uint64(258) {
-		return nil, nil, nil, evidenceErr("the measurement is not a CoSWID")
-	}
-	raw, _ := pair[1].([]byte)
-	if v, err = cborDecode(raw); err != nil {
-		return nil, nil, nil, errors.Join(evidenceErr("the CoSWID is not CBOR"), err)
-	}
-	coswid, _ := v.(map[uint64]any)
-	evidence, _ := coswid[3].(map[uint64]any)
-	file, _ := evidence[17].(map[uint64]any)
-	hash, _ := file[7].([]any)
-	if len(hash) != 2 || hash[0] != uint64(1) {
-		return nil, nil, nil, evidenceErr("the CoSWID carries no SHA-256 file hash")
-	}
-	fwHash, _ = hash[1].([]byte)
-	if len(fwHash) != sha256.Size {
-		return nil, nil, nil, evidenceErr("the file hash is not 32 bytes")
-	}
-	return nonce, ueid, fwHash, nil
+	sig := make([]byte, 64)
+	rs.R.FillBytes(sig[:32])
+	rs.S.FillBytes(sig[32:])
+	return &DICEAttestation{AliasCert: st.x5c[0], DeviceIDCert: st.x5c[1], Nonce: st.authData, Sig: sig}, nil
 }
 
 type diceStatement struct {

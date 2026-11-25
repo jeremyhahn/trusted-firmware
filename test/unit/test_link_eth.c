@@ -274,6 +274,44 @@ static void test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&c));
 }
 
+/* dhcp_none.c's refusal clears the three addresses and nothing else: nothing
+ * may connect from an address nobody gave. */
+static void test_without_the_client_a_block_asking_for_dhcp_is_refused_with_no_address(void)
+{
+    tfw_netcfg_t c;
+    tfw_netcfg_t want;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &c));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &want));
+    c.flags = TFW_NETCFG_DHCP;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_dhcp_poll(&c));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, c.ip, 4u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, c.mask, 4u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, c.gateway, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.mac, c.mac, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.peer, c.peer, 4u);
+    TEST_ASSERT_EQUAL_HEX16(want.port, c.port);
+}
+
+/* A static block is the address to use, as decoded: field by field, as the
+ * struct has trailing padding. */
+static void test_without_the_client_a_static_block_passes_through_untouched(void)
+{
+    tfw_netcfg_t c;
+    tfw_netcfg_t want;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &c));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &want));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&c));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.mac, c.mac, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.ip, c.ip, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.mask, c.mask, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.gateway, c.gateway, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.peer, c.peer, 4u);
+    TEST_ASSERT_EQUAL_HEX16(want.port, c.port);
+    TEST_ASSERT_EQUAL_HEX8(want.flags, c.flags);
+}
+
 static void test_the_block_from_eeprom_is_what_the_controller_is_given(void)
 {
     tfw_netcfg_t want;
@@ -636,6 +674,8 @@ int main(void)
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
     RUN_TEST(test_a_block_asking_for_dhcp_stays_down_without_the_client);
     RUN_TEST(test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link);
+    RUN_TEST(test_without_the_client_a_block_asking_for_dhcp_is_refused_with_no_address);
+    RUN_TEST(test_without_the_client_a_static_block_passes_through_untouched);
     RUN_TEST(test_the_block_from_eeprom_is_what_the_controller_is_given);
     RUN_TEST(test_every_field_the_controller_is_given_comes_from_the_block);
     RUN_TEST(test_a_refused_eeprom_read_reads_as_unprovisioned);

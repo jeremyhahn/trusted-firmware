@@ -56,6 +56,26 @@ func TestLocateReportsAMissingBinaryWithHowToBuildIt(t *testing.T) {
 	}
 }
 
+// TFWSIM_DIR pointed at tools/, where tools/tfwsim is the source directory.
+func TestLocateRefusesADirectoryUnderTheBinarysName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, Software.Name), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(DirEnv, dir)
+
+	_, err := Locate(Software)
+	var nb *NotBuiltError
+	if !errors.As(err, &nb) {
+		t.Fatalf("err = %v, want *NotBuiltError", err)
+	}
+	for _, want := range []string{"make tfwsim", DirEnv, "directory"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
 func TestDirDefaultsToTheCheckoutsBuildDirectory(t *testing.T) {
 	t.Setenv(DirEnv, "")
 	got := Dir()

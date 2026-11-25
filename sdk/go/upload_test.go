@@ -141,6 +141,49 @@ func TestUploadWholeImage(t *testing.T) {
 	require.Equal(t, 1, s.ends)
 }
 
+// After a failed OTA_DATA the count UploadProgress reports is OTA_STATUS's,
+// the bytes the device holds, never the end of a chunk it did not take.
+func TestUploadProgressIsTheDevicesCount(t *testing.T) {
+	img := uploadStream(4 * OTAChunk)
+	cases := []struct {
+		name string
+		s    *otaSession
+		want []uint32
+	}{
+		{
+			name: "the frame was lost before the device saw it",
+			s:    &otaSession{before: map[uint32]int{120: 1}},
+			want: []uint32{60, 120, 120, 180, 240},
+		},
+		{
+			name: "the device took the bytes and the reply was lost",
+			s:    &otaSession{after: map[uint32]int{120: 1}},
+			want: []uint32{60, 120, 180, 240},
+		},
+		{
+			name: "the last chunk's reply was lost",
+			s:    &otaSession{after: map[uint32]int{180: 1}},
+			want: []uint32{60, 120, 180, 240},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.s
+			var seen []uint32
+			err := New(s).Upload(context.Background(), img, UploadProgress(func(sent, total uint32) {
+				require.Equal(t, uint32(len(s.stored)), sent, "progress is the bytes the device holds")
+				require.Equal(t, uint32(len(img.Stream)), total)
+				seen = append(seen, sent)
+			}))
+			require.NoError(t, err)
+			require.Equal(t, OTAComplete, s.state)
+			require.Equal(t, tc.want, seen)
+			require.Equal(t, uint32(len(img.Stream)), seen[len(seen)-1])
+			require.Equal(t, 1, s.ends)
+		})
+	}
+}
+
 func TestUploadChunksFitMaxPayload(t *testing.T) {
 	img := uploadStream(3*OTAChunk + 1)
 	s := &otaSession{}

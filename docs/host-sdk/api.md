@@ -222,7 +222,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.OTAChunk` | `const OTAChunk = 60` | The most image bytes one OTA_DATA carries: the payload less the offset. |
 | `tfw.OTAInfoLen` | `const OTAInfoLen = 44` | OTA_INFO's reply length. |
 | `tfw.OTAAuthSigLen` | `const OTAAuthSigLen = 64` | OTA_AUTH's payload, the ES256 r\|\|s (#137). |
-| `tfw.ImagePage`, `tfw.ImageTrailerLen`, `tfw.ImageTrailerVersion` | `const` 256, 128, 1 | The OTA stream tools/image-seal writes: whole pages of TFW_OTA_PAGE_MAX, the trailer (TFW_BOOT_TRAILER_LEN) in the last bytes, the one trailer layout ParseImage reads. |
+| `tfw.ImagePage`, `tfw.ImageTrailerLen`, `tfw.ImageTrailerVersion`, `tfw.ImageEnvelopeMax` | `const` 256, 128, 1, 320 | The OTA stream tools/image-seal writes: whole pages of TFW_OTA_PAGE_MAX, the trailer (TFW_BOOT_TRAILER_LEN) in the last bytes, the one trailer layout ParseImage reads, and the longest manifest envelope ParseImage accepts, TFW_SUIT_ENVELOPE_MAX (src/core/suit.h). |
 | `tfw.ErrImagePages`, `tfw.ErrImageMagic`, `tfw.ErrImageVersion`, `tfw.ErrImageLength`, `tfw.ErrImageBoard`, `tfw.ErrImageEnvelope` | `var error` | ParseImage's refusals, each wrapped with its numbers: not whole pages; trailer magic; trailer version not 1; image_len zero or into the trailer; board_id zero; a manifest envelope of length zero or past the padding. |
 | `tfw.ErrUploadCount` | `var ErrUploadCount error` | Upload's refusal of an OTA_STATUS count, after a failed OTA_DATA, that is neither the start nor the end of the chunk in flight, wrapped with the numbers. |
 | `tfw.ErrShortFrame` | `var ErrShortFrame error` | A buffer does not yet hold the frame its length field claims. |

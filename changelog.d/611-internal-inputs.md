@@ -1,0 +1,1 @@
+- ci.yml's mask step reads the image registry from the `CI_IMAGE_REGISTRY` secret only, never a repository variable; `scripts/ci-mask-lan.sh` masks it and fails with an error naming the secret when a job requires it (`CI_MASK_REQUIRE`) and it is unset. Plan 483 names a host by its role (#611).

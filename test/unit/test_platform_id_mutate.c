@@ -6,7 +6,9 @@
  * read clears the serial the good read left (no stale id), a record torn
  * between two writes reads as one of them whole or as nothing (no partial id),
  * and a failed EEPROM read is a refusal too. Refused means what platform_id.c
- * defines: an all-zero serial and an all-zero operator key.
+ * defines: an all-zero serial and an all-zero operator key. And the operator
+ * key is re-read from EEPROM on every call while the serial stays the one
+ * tfw_platform_id_init() cached, as platform_id.h promises.
  *
  * Deterministic: random records come from xorshift32 seeded with a literal,
  * and a failure prints the seed and the case. Every record is a heap buffer of
@@ -178,6 +180,36 @@ static void test_platform_id_mutate_a_failed_eeprom_read_after_a_good_one_clears
     TEST_ASSERT_EQUAL_MEMORY(&rec_b[TFW_BOOT_EE_O_SERIAL], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
 }
 
+/* platform_id.h: the serial is cached by init, the operator key is re-read
+ * on every call. B written over A, then B corrupted, then the read failing,
+ * all without init: each key read follows the EEPROM, the serial stays A's. */
+static void test_platform_id_mutate_the_key_is_reread_while_the_serial_stays_cached(void)
+{
+    uint8_t *ee = tfw_mock_eeprom() + TFW_BOOT_EE_BASE;
+    uint8_t  key[TFW_BOOT_OPERATOR_PUBKEY_LEN];
+
+    load(rec_a);
+    memcpy(ee, rec_b, TFW_BOOT_EE_BLOCK_LEN);
+    memset(key, 0xA5, sizeof key);
+    tfw_platform_id_operator_pubkey(key);
+    TEST_ASSERT_EQUAL_MEMORY(&rec_b[TFW_BOOT_EE_O_OPERATOR_PUBKEY], key, sizeof key);
+    TEST_ASSERT_EQUAL_MEMORY(&rec_a[TFW_BOOT_EE_O_SERIAL], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
+
+    ee[TFW_BOOT_EE_O_SERIAL] ^= 0x01u;
+    memset(key, 0xA5, sizeof key);
+    tfw_platform_id_operator_pubkey(key);
+    TEST_ASSERT_TRUE(all_zero(key, sizeof key));
+    TEST_ASSERT_EQUAL_MEMORY(&rec_a[TFW_BOOT_EE_O_SERIAL], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
+
+    memcpy(ee, rec_b, TFW_BOOT_EE_BLOCK_LEN);
+    tfw_mock_eeprom_read_fails(1u);
+    memset(key, 0xA5, sizeof key);
+    tfw_platform_id_operator_pubkey(key);
+    tfw_mock_eeprom_read_fails(0u);
+    TEST_ASSERT_TRUE(all_zero(key, sizeof key));
+    TEST_ASSERT_EQUAL_MEMORY(&rec_a[TFW_BOOT_EE_O_SERIAL], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
+}
+
 /* Random bytes, half of them given the right magic, layout and CRC: a valid
  * one is read whole, the rest are refused. */
 static void test_platform_id_mutate_random_records_read_whole_or_not_at_all(void)
@@ -206,6 +238,7 @@ int main(void)
     RUN_TEST(test_platform_id_mutate_every_bit_flip_after_a_good_read_clears_the_id);
     RUN_TEST(test_platform_id_mutate_a_torn_or_cut_record_is_one_whole_record_or_none);
     RUN_TEST(test_platform_id_mutate_a_failed_eeprom_read_after_a_good_one_clears_the_id);
+    RUN_TEST(test_platform_id_mutate_the_key_is_reread_while_the_serial_stays_cached);
     RUN_TEST(test_platform_id_mutate_random_records_read_whole_or_not_at_all);
     return UNITY_END();
 }

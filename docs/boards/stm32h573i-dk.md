@@ -247,7 +247,9 @@ CA 583 forbids: option bytes or provisioning).
   PKA/HASH not ported).
 - ST Secure Manager: not taken (ruling 935,
   [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
-  the secure world is our own TrustZone-M firmware.
+  the secure world is upstream TF-M Profile Medium with our DICE layer as an
+  Application RoT partition (ruling 1024, ADR #15 (b1)), not our own
+  TrustZone-M firmware.
 - Factory device certificate: not the identity root under ruling 935; whether
   the part carries one is a hardware fact, owner (provisioning writes; CA 583).
 - Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the
@@ -327,7 +329,7 @@ CA 583 forbids: option bytes or provisioning).
   netif is reconciled with the block first (address, DHCP, MAC), and the
   lwIP and DHCP timers run while a signature is computed (#584).
 - PR #584's outbound-transport image on the board, 2026-11-20 (lane
-  hw-584g, slice 22 of docs/plans/543.md): built at 0bb49390 with `make
+  hw-584g, slice 22 of #543): built at 0bb49390 with `make
   BOARD=stm32h573i-dk ETH_MAC=1 cortex-m-dk-image` (application 40952
   bytes, size-check passes).
   - App-partition-only flash (ruling 945 (3)): failed 2026-11-20. `app.bin`
@@ -471,8 +473,7 @@ that row passing in the whole-list run, 385 s, every row from a probe reset.
   `attest` answers "no provisioned identity" in the 2.0 s a `caps` takes.
   The board was left on the same set's `boot.bin` (provisioned).
   - 2026-11-20, ruling 1021, full three-image flash (lane hw-570): one
-    `make BOARD=stm32h573i-dk cortex-m-dk-image` build at 17d109c9 (SHA-256
-    in docs/plans/570.md), `boot-unprovisioned.bin`, `app.bin` and
+    `make BOARD=stm32h573i-dk cortex-m-dk-image` build at 17d109c9, `boot-unprovisioned.bin`, `app.bin` and
     `platform.bin` written with `pyocd load -t stm32h573iikx -e sector` at
     the `addrs.env` addresses (`stm32h573iikx` after `pyocd pack install`),
     then `pyocd reset`. The console sent the BOOT event (status 0) and no

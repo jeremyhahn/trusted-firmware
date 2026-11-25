@@ -32,6 +32,7 @@ AGREE = [
     "SYS_INFO reply vectors agree: 6 values, both languages",
     "CAPS reply vectors agree: 2 values, both languages",
     "APP_INFO reply vectors agree: 3 values, both languages",
+    "APP_CMD vectors agree: 8 values, both languages",
     "application evidence vectors agree: 3 values, both languages",
     "image trailer vectors agree: 10 values, both languages",
 ]
@@ -140,6 +141,19 @@ class TestVerifyVectors(unittest.TestCase):
         self.write(C, lines)
         r = self.run_script()
         self.assertFails(r, f"no CAPS reply vectors found in {C}")
+
+    # (8) No CRC result, wire frame or SYS_INFO vector on either side is a failure, not an empty agreement.
+    def test_empty_blocks_fail(self):
+        for name, c_key, g_rx, msg in (
+                ("CRC", "TFWV_CRC_", r"^\tCRC[A-Za-z]* *= *0x", "CRC result"),
+                ("frame", "TFWV_FRAME_", r'^\tFrame[A-Za-z0-9]* *= *"', "wire frame"),
+                ("SYS_INFO", "TFWV_SYSINFO_", r'^\tSysInfo[A-Za-z]* *= *"', "SYS_INFO reply")):
+            with self.subTest(name):
+                self.setUp()
+                self.write(C, [l for l in self.read(C) if c_key not in l])
+                self.write(G, [l for l in self.read(G) if not re.search(g_rx, l)])
+                r = self.run_script()
+                self.assertFails(r, f"no {msg} vectors found in {C}")
 
 
 if __name__ == "__main__":

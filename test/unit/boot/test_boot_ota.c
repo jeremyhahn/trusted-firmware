@@ -306,6 +306,34 @@ static void test_end_writes_nothing_after_the_last_whole_page(void)
     TEST_ASSERT_EQUAL_UINT(2u, pages);
 }
 
+/* Kills the RECEIVING guards (boot_ota.c:89-90, 124-125) admitting COMPLETE. */
+static void test_a_completed_image_takes_no_more_data_and_no_second_end(void)
+{
+    tfw_ota_t o;
+    uint8_t  chunk[64];
+    uint8_t  image[PAGE * 2u];
+
+    fresh(&o);
+    memset(chunk, 0x33, sizeof chunk);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_begin(&o, PAGE * 2u));
+    for (uint32_t off = 0u; off < PAGE * 2u; off += 64u) {
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_data(&o, off, chunk, 64u));
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_end(&o));
+    TEST_ASSERT_EQUAL_UINT8(TFW_OTA_COMPLETE, tfw_ota_state(&o));
+    TEST_ASSERT_EQUAL_UINT(2u, pages);
+    memcpy(image, written, sizeof image);
+
+    memset(chunk, 0xCC, sizeof chunk);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BUSY, tfw_ota_data(&o, PAGE * 2u, chunk, 64u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BUSY, tfw_ota_data(&o, 0u, chunk, 64u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BUSY, tfw_ota_end(&o));
+    TEST_ASSERT_EQUAL_UINT8(TFW_OTA_COMPLETE, tfw_ota_state(&o));
+    TEST_ASSERT_EQUAL_UINT32(PAGE * 2u, tfw_ota_received(&o));
+    TEST_ASSERT_EQUAL_UINT(2u, pages);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(image, written, sizeof image);
+}
+
 static void test_abort_returns_to_idle_and_keeps_no_progress(void)
 {
     tfw_ota_t o;
@@ -339,6 +367,7 @@ int main(void)
     RUN_TEST(test_the_chunk_whose_page_fails_returns_the_writers_status);
     RUN_TEST(test_a_second_begin_restarts_the_stream_at_zero);
     RUN_TEST(test_end_writes_nothing_after_the_last_whole_page);
+    RUN_TEST(test_a_completed_image_takes_no_more_data_and_no_second_end);
     RUN_TEST(test_abort_returns_to_idle_and_keeps_no_progress);
     return UNITY_END();
 }

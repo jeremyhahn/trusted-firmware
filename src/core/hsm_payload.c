@@ -32,12 +32,16 @@ static uint16_t shortest(uint32_t v)
 
 /* One head, refused unless it is in the shortest form. An eight-byte
  * argument is past every bound here: too long a form when it fits four
- * bytes, else past 32 bits (tfw_suit_head). */
+ * bytes, else past 32 bits (tfw_suit_head). A major-7 eight-byte head is
+ * a float64, a type the CDDL lacks. */
 static tfw_status_t head(tfw_suit_cur_t *c, uint8_t *major, uint32_t *val)
 {
     uint16_t     before = c->n;
     tfw_status_t st;
 
+    if (c->n != 0u && c->p[0] == 0xFBu) {
+        return TFW_ERR_UNSUPPORTED;
+    }
     if (c->n > 4u && (c->p[0] & 0x1Fu) == 27u
         && (c->p[1] | c->p[2] | c->p[3] | c->p[4]) == 0u) {
         return TFW_ERR_UNSUPPORTED;

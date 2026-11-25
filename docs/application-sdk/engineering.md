@@ -17,6 +17,8 @@ firmware defines the rest.
 | `tfw_app_before_update` | application | `void (void)`, before a reset into the bootloader |
 | `tfw_app_after_update` | application | `tfw_status_t (void)`, once on the trial boot of a new image |
 | `tfw_app_evidence` | application | `tfw_status_t (uint8_t out[TFW_APP_EVIDENCE_LEN])`, 32 bytes for the measurements claim (273) |
+| `tfw_app_command` | application, optional (`APP_COMMANDS := yes`) | `tfw_status_t (uint8_t op, tfw_reader_t *r, tfw_writer_t *w)`, one `APP_CMD` sub-op, only while running |
+| `tfw_app_session_ok` | firmware | `(void)`, answers whether an authenticated session is open, for a sub-op that gates itself |
 | `tfw_app_config_read` | firmware | read the application's EEPROM region |
 | `tfw_app_config_write` | firmware | write the application's EEPROM region |
 | `TFW_APP_STATIC_CHECK(caps, ota)` | firmware | compile-time compatibility check, used at file scope |
@@ -37,6 +39,7 @@ Internal, in `src/core/app_runner.h`. Applications must not include it.
 | `tfw_app_runner_state(void)` | tests |
 | `tfw_app_runner_overruns(void)` | tests |
 | `tfw_app_cmd_info(r, w)` | the dispatcher, for APP_INFO, through `src/core/commands.def` when `TFW_FEATURE_APP` is on |
+| `tfw_app_cmd_command(r, w)` | the dispatcher, for APP_CMD (0x07), through `src/core/commands.def` in the same `TFW_FEATURE_APP` block; it calls `tfw_app_command` only in `RUNNING` |
 
 Link-time selection, in `mk/app.mk`, `mk/firmware.mk` and `mk/host.mk`:
 
@@ -374,6 +377,8 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | OTA slots the images use | done | `TFW_APP_OTA_*` at `include/tfw/app.h:41`; checked at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:135`) | `test_app.c`: `test_more_update_slots_than_the_board_has_are_refused`, `test_the_slots_the_board_has_are_accepted` |
 | APP_INFO (0x06) reports the descriptor and the runner state | done | `tfw_app_cmd_info` at `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`, `test_app_info_reports_a_refused_descriptor_as_written`, `test_app_info_takes_no_payload`; `test_app_example.c`: `test_app_info_reports_the_example`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppReportsItsApplication` |
 | No application: no application logic, the image and wire as before | done | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c`: `test_the_empty_runner_stays_idle`, `test_app_info_is_unknown_without_an_application`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppIsAnUnknownCommandWithoutAnApplication` |
+| APP_CMD (0x07): the application's sub-ops, the three refusals, `APP_COMMANDS` in app.mk (owner ruling 1243) | partial | the host side: `CmdAppCmd` and `Device.AppCommand` in `sdk/go`, `tfwctl app-cmd`; the device side (`tfw_app_cmd_command`, `src/core/app_cmd_none.c`, the example's sub-op `0x00`) lands in the row's APP_CMD slices ([plans/635.md](../plans/635.md), item 22) | `test_app_cmd.c`; `test_app_cmd_none.c`; `test_app_example.c`; `test_app_none.c`; `scripts/test_app_mk.py`; the `TFWV_APPCMD_*` vectors |
+| APP_CMD is serial only, not on the Ethernet allow-list | partial | `tfw_link_admits()` unchanged (`src/proto/link_eth.h`) | `test_link_eth.c` |
 | Inherits the TCB, attestation, OTA and boot and re-implements none: public headers only, no `-Isrc` (invariant 6) | done | `-Iinclude -I$(HAL_DIR) -I$(BOARD_DIR)` at `mk/firmware.mk:705`; `app-header-check` at `mk/app.mk:150` | `make app-header-check` (`mk/app.mk:150`); `make app-header-check-selftest` (`mk/app.mk:181`) |
 | Onboarding by device profile | partial | the device side: `profile` in the descriptor (`include/tfw/app.h:52`), reported by APP_INFO (`src/core/app_runner.c:153`); enrolment by profile is go-trusted-platform's (SPEC row `device-onboarding`, future) | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; slice 5 |
 | One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
@@ -382,7 +387,7 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`), and for `BOARD=esp32p4-poe` by the `esp32-build` rule (`mk/arch/esp32-targets.mk:63`, the check at `:135`) in CI's ESP32 Build job, in its ESP-IDF image; `BOARD=esp32-qemu`: `esp32-qemu-test` builds the example's esp32c3 image and boots it once, `wirecheck -app-name heartbeat` requiring APP_INFO to name it running (step 7 of `test/integration/esp32/qemu_test.py`); the run is in esp32-qemu-test (#1043), not yet observed; `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
-Counts: 16 done, 2 partial, 0 not started.
+Counts: 16 done, 4 partial, 0 not started.
 
 ### Remaining slices
 

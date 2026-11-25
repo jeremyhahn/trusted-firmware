@@ -40,7 +40,7 @@ and on the i.MX 95 that world is the BSP's.
 | SoC | i.MX 95, MIMX9596AVZXNAC; its silicon revision is open | UM12527 §1.2 Table 1; the design, question 16 |
 | Cores | up to six Cortex-A55, one Cortex-M33, one Cortex-M7; the M7 and M33 are two independent real-time domains | the design, section 2.1 (UM12527 §1.2 Table 1, §2.1) |
 | The M7 | up to 800 MHz; 512 kB of TCM with ECC; 32 kB + 32 kB I/D cache, FPU, MPU and NVIC | the design, section 2.1 (IMX95CEC Table 1, Figure 3) |
-| Console | LPUART3, interrupt 64, on one of the CH9114F channels on J22, whose core mapping is not fixed | the design, sections 3 and 9.4, question 13; **to confirm against IMX95RM** |
+| Console | the board's M7 console port is LPUART7 on GPIO_IO36/37 at ALT2 (PR #449 bench record, sections 14 and 15; owner ruling 1243, #474, option (a): "LPUART7 for the imx95 M7 console."); the image is still on LPUART3, interrupt 64, until #474's firmware change | the design, sections 3 and 9.4, question 13; interrupt line **to confirm against IMX95RM** |
 | Watchdog | WDOG5, WDOG32 on the 32 kHz LPO | the design, section 9.4, question 17; **to confirm against IMX95RM** |
 | Ethernet | two RGMII Gigabit ports and a 10 GbE SlimSAS, every PHY on ENET2's MDIO; which the M7 may own is open | the design, section 3 (UM12527 §2.18), question 14 |
 
@@ -55,6 +55,7 @@ value is marked TO CONFIRM in the file that states it (the design, section
 | Architecture | `CPU := cortex-m7`: the M7 is ARMv7E-M with **no TrustZone-M**, so isolation on it is its MPU and the SoC's resource domain controller (TRDC), which the System Manager configuration sets. IMX95CEC Table 1 says "Arm v8-M supporting Trustzone-M"; the ref ADR's decision 1 says Armv7E-M, which the build follows | `boards/frdm-imx95-m7/profile.mk`; the design, sections 1 and 2.1, question 2 (open) |
 | Memory map | ITCM at M7 `0x00000000`: 32 KiB reserved for tfw-boot, the application slot of 192 KiB at `0x00008000`, the platform block in the last 4 KiB at `0x0003F000`; DTCM at `0x20000000`: `.data`, `.bss`, the stack, the reset marker and the handoff block. The A55 sees the ITCM at `0x203C0000` and the DTCM at `0x20400000`. TCM is RAM, so nothing survives a power cycle | `boards/frdm-imx95-m7/profile.mk`; the design, section 9.1; **to confirm against IMX95RM** (question 1) |
 | Loaders | the boot container (AHAB, trusted-imx95's) or Linux's remoteproc on the A55; the application carries an empty remoteproc resource table | `profile.mk`; the design, sections 9.1 and 9.2 |
+| Boot-container image | `IMX_BOOT=1` (#473) links the application at ITCM `0x00000000` and measures it from there. That is where the System Manager loads the container's M7 image and starts it from the vector. The default build links and measures from the `0x00008000` slot. tfw-boot's reserved 32 KiB is not used, because no tfw-boot is built for this board. make tracks no flag, so this build takes its own `BUILD_DIR` (`make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware`). It is refused in the default `build/`, and an `IMX_BOOT` other than 0 or 1 is refused. The container itself is trusted-imx95's | `profile.mk` (`IMX_BOOT`); `scripts/test_provenance.py` (`ItcmSlotBoard`); the design, R12 |
 | Clock | `TFW_CM_CPU_HZ` 800 MHz; the LPUART root at 24 MHz | `board_profile.h`; the design, section 9.4; **to confirm against IMX95RM** |
 | Clocks, pins, power | none set by us: the System Manager on the M33 owns them, reached over SCMI. The SCMI client is called only by `hsm_port.c`'s A1 and A2 actions, host-tested; not in this board's image, whose `profile.mk` does not set `HSM := 1` (question 21) | the design, sections 9.3 and 9.6 |
 | Crypto tier | `BOARD_TIERS := soft` until the EdgeLock Enclave tier lands | `profile.mk`; the design, section 4 |
@@ -121,7 +122,7 @@ exists off the board. A row that is not this board's says why.
 
 - **The `imx95` row's wording.** It does not yet say who owns the A55's secure
   world. The sentence proposed to the owner is in
-  [`../plans/537.md`](../plans/537.md); `docs/SPEC.md` is not edited here.
+  row #537; `docs/SPEC.md` is not edited here.
 - **The design's question 2.** Ruling 771's brief has the M7 as ARMv7-M with
   no TrustZone-M, which agrees with the ref ADR and the build and not with
   IMX95CEC Table 1.

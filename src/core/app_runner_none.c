@@ -15,6 +15,8 @@
 
 void tfw_app_runner_start(void) {}
 
+void tfw_app_runner_reset_state(void) {}
+
 void tfw_app_runner_poll(void) {}
 
 void tfw_app_runner_stop(uint8_t for_update)

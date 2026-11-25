@@ -85,7 +85,7 @@ vtable, and preprocessor conditionals stay in the four places.
   refuses bad configuration is therefore a state a host can cause.
 - **APP_INFO has one byte to spare.** Its reply is 63 bytes
   ([api.md](api.md#app_info)) against `TFW_MAX_PAYLOAD` 64
-  (`include/tfw/config.h:429`).
+  (`include/tfw/config.h:431`).
 
 So an application's claim can reuse the refusal and the report as they stand:
 the status, the flag and the pin page all exist. It cannot reuse the claim
@@ -246,7 +246,7 @@ constant expressions, so a `_Static_assert` in the application cannot read
 them, and which rows carry `IN_USE` depends on the image's features
 (`TFW_PIN_ETH`, `TFW_PIN_OTA_STORE`). The bound alone is a constant: an
 application may check `pin < TFW_PIN_COUNT` at compile time as
-`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:131-139`),
+`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:161-165`),
 and the runner checks it again at boot for one that does not.
 
 Refusing the application, not the one pin, keeps the runner's rule that an

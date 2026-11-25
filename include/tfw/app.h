@@ -25,6 +25,7 @@
 #include "tfw/config.h"
 #include "tfw/progmem.h"
 #include "tfw/boot.h"
+#include "tfw/eth.h"
 #include "tfw/reader.h"
 #include "tfw/writer.h"
 
@@ -47,9 +48,16 @@
 /* A required capability, by its CAPS Features bit (TFW_CAPBIT_* in config.h). */
 #define TFW_APP_CAP(bit)     ((uint32_t)1u << (bit))
 
-/* The application's run-time configuration starts at the first EEPROM byte
- * above the bootloader's, which EEPROM_WRITE already refuses to touch. */
-#define TFW_APP_CONFIG_BASE  TFW_BOOT_EE_LEN
+/* The application's run-time configuration starts at 0x160, the first EEPROM
+ * byte above the network block (include/tfw/eth.h). [0x140, 0x160) is the
+ * network block, reserved on every image, Ethernet or not, so there is one
+ * map (#640, owner ruling 1234). Below it is the bootloader's
+ * [0, TFW_BOOT_EE_LEN), which EEPROM_WRITE already refuses to touch. */
+#define TFW_APP_CONFIG_BASE  (TFW_NETCFG_ADDR + TFW_NETCFG_LEN)
+_Static_assert(TFW_APP_CONFIG_BASE == 0x160u,
+               "application config starts at 0x160 on every image (owner ruling 1234)");
+_Static_assert(TFW_NETCFG_ADDR >= TFW_BOOT_EE_LEN,
+               "the network block starts above the bootloader's EEPROM");
 
 typedef struct {
     uint32_t magic;          /* TFW_APP_MAGIC */

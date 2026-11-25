@@ -4,7 +4,7 @@
   applicable** (#563, owner ruling 1243, option (c)). The part has no secure
   element and the operator session links only on element tiers, so
   `TestFirmwareOTAActivate` and `TestFirmwareOTAConfirm` do not run there; the
-  SPEC `ota` row, the board page and plan 552 say so, and the by-hand run of
+  SPEC `ota` row and the board page say so, and the by-hand run of
   2026-11-19 stays the record.
 - **The imx95 M7 console is LPUART7** (#474, owner ruling 1243, option (a)).
   The SPEC `imx95` row, the board page and the design's question 13 name

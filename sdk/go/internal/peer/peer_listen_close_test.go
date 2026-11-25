@@ -136,7 +136,7 @@ func nonLoopbackIP() string {
 	var v6 string
 	for _, a := range addrs {
 		n, ok := a.(*net.IPNet)
-		if !ok || n.IP.IsLoopback() || !(n.IP.IsGlobalUnicast() || n.IP.IsPrivate()) {
+		if !ok || n.IP.IsLoopback() || (!n.IP.IsGlobalUnicast() && !n.IP.IsPrivate()) {
 			continue
 		}
 		if n.IP.To4() != nil {

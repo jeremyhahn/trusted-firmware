@@ -77,6 +77,20 @@ static void test_start_programs_the_network_and_dials_the_endpoint(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_BUSY, tfw_eth_state());
 }
 
+/* w5x00.c:117: all four bytes of the mask reach SUBR. cfg's mask ends in 0,
+ * the value SUBR holds after a reset, so a /29 is programmed here. */
+static void test_start_programs_every_byte_of_a_mask_that_does_not_end_in_zero(void)
+{
+    tfw_netcfg_t c = cfg;
+    uint8_t      i;
+
+    c.mask[3] = 248u;                                         /* /29 */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_eth_start(&c, 50000u));
+    for (i = 0u; i < 4u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(c.mask[i], w5x_model_common((uint16_t)(0x05u + i)));
+    }
+}
+
 static void test_start_refuses_the_other_chip_and_never_writes_to_it(void)
 {
     w5x_model_reset(OTHER);
@@ -156,6 +170,32 @@ static void test_a_refused_or_timed_out_connect_reads_down(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
 }
 
+/* w5x00.c:236-244: FIN_WAIT 0x18, CLOSING 0x1A, TIME_WAIT 0x1B, LAST_ACK 0x1D. */
+static void test_a_closing_state_reads_down_closes_the_socket_and_drops_the_queued_reply(void)
+{
+    static const uint8_t status[4] = { 0x18u, 0x1Au, 0x1Bu, 0x1Du };
+    static const char *const name[4] = {
+        "SOCK_FIN_WAIT 0x18", "SOCK_CLOSING 0x1A",
+        "SOCK_TIME_WAIT 0x1B", "SOCK_LAST_ACK 0x1D"
+    };
+    static const uint8_t reply[3] = { 7u, 8u, 9u };
+    uint8_t i;
+
+    for (i = 0u; i < 4u; i++) {
+        uint16_t w0;
+
+        setUp();
+        connect();
+        w0 = w5x_model_sock16(S_TX_WR);
+        send_bytes(reply, 3u);
+        w5x_model_set_sr(status[i]);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(TFW_ETH_DOWN, tfw_eth_state(), name[i]);
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(0x00u, w5x_model_sock(S_SR), name[i]);
+        tfw_eth_send();
+        TEST_ASSERT_EQUAL_HEX16_MESSAGE(w0, w5x_model_sock16(S_TX_WR), name[i]);
+    }
+}
+
 static void test_receive_reads_in_order_across_batches_and_returns_the_space(void)
 {
     static const uint8_t a[3] = { 1u, 2u, 3u };
@@ -207,6 +247,47 @@ static void test_send_puts_each_reply_on_the_wire(void)
     TEST_ASSERT_EQUAL_UINT16(2u, w5x_model_peer_recv(wire, sizeof wire));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(b, wire, 2);
     TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
+}
+
+/* A SEND may not be issued over one still in flight: the driver polls Sn_IR
+ * until the previous SEND_OK before it issues the next. */
+static void test_a_send_waits_for_the_previous_one_to_finish(void)
+{
+    static const uint8_t a[2] = { 'h', 'i' };
+    static const uint8_t b[2] = { 'o', 'k' };
+    uint8_t wire[8];
+
+    connect();
+    w5x_model_send_lag(3u);
+    send_bytes(a, 2u);
+    tfw_eth_send();
+    send_bytes(b, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends_over_flight());
+    TEST_ASSERT_EQUAL_UINT16(4u, w5x_model_peer_recv(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(a, wire, 2);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(b, wire + 2, 2);
+}
+
+/* The wait is bounded: a SEND_OK that never comes within W5X_POLL_LIMIT reads
+ * is given up, and the next reply still goes out rather than hang. */
+static void test_a_send_still_in_flight_past_the_bound_is_sent_anyway(void)
+{
+    static const uint8_t a[2] = { 'h', 'i' };
+    static const uint8_t b[2] = { 'o', 'k' };
+    uint8_t wire[8];
+
+    connect();
+    w5x_model_send_lag(255u);
+    send_bytes(a, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT16(2u, w5x_model_peer_recv(wire, sizeof wire));
+    send_bytes(b, 2u);
+    tfw_eth_send();
+    TEST_ASSERT_EQUAL_UINT8(2u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(2u, w5x_model_peer_recv(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(b, wire, 2);
 }
 
 static void test_send_wraps_the_pointer_and_the_buffer(void)
@@ -464,6 +545,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_start_programs_the_network_and_dials_the_endpoint);
+    RUN_TEST(test_start_programs_every_byte_of_a_mask_that_does_not_end_in_zero);
     RUN_TEST(test_start_refuses_the_other_chip_and_never_writes_to_it);
     RUN_TEST(test_start_refuses_an_empty_socket_either_way_miso_floats);
     RUN_TEST(test_a_w5100_is_known_by_its_retry_registers_a_w5500_by_its_version);
@@ -471,9 +553,12 @@ int main(void)
     RUN_TEST(test_every_transaction_reapplies_mode_0_msb_first);
     RUN_TEST(test_state_follows_the_connection_and_a_hang_up_closes_it);
     RUN_TEST(test_a_refused_or_timed_out_connect_reads_down);
+    RUN_TEST(test_a_closing_state_reads_down_closes_the_socket_and_drops_the_queued_reply);
     RUN_TEST(test_receive_reads_in_order_across_batches_and_returns_the_space);
     RUN_TEST(test_receive_wraps_the_pointer_and_the_buffer);
     RUN_TEST(test_send_puts_each_reply_on_the_wire);
+    RUN_TEST(test_a_send_waits_for_the_previous_one_to_finish);
+    RUN_TEST(test_a_send_still_in_flight_past_the_bound_is_sent_anyway);
     RUN_TEST(test_send_wraps_the_pointer_and_the_buffer);
     RUN_TEST(test_send_with_nothing_queued_issues_no_send);
     RUN_TEST(test_a_full_transmit_buffer_refuses_the_byte);

@@ -17,6 +17,7 @@ import (
 // offsets, written out here rather than read from netcfg.go.
 func netcfgByHand(b []byte) NetConfig {
 	return NetConfig{
+		DHCP:     b[5]&0x01 != 0,
 		MAC:      bytes.Clone(b[6:12]),
 		IP:       netip.AddrFrom4([4]byte(b[12:16])),
 		Mask:     netip.AddrFrom4([4]byte(b[16:20])),
@@ -26,8 +27,8 @@ func netcfgByHand(b []byte) NetConfig {
 }
 
 func netcfgEqual(a, b NetConfig) bool {
-	return bytes.Equal(a.MAC, b.MAC) && a.IP == b.IP && a.Mask == b.Mask &&
-		a.Gateway == b.Gateway && a.Endpoint == b.Endpoint
+	return a.DHCP == b.DHCP && bytes.Equal(a.MAC, b.MAC) && a.IP == b.IP &&
+		a.Mask == b.Mask && a.Gateway == b.Gateway && a.Endpoint == b.Endpoint
 }
 
 // TestNetConfigMutations: every single-byte change, flip, truncation and
@@ -61,9 +62,11 @@ func TestNetConfigMutations(t *testing.T) {
 
 // TestNetConfigMutationsPastTheCRC: every single-byte change of the block's
 // first 30 bytes, its CRC made good again, so the change reaches the field
-// checks. A changed magic or version is refused; the flags byte, reserved
-// (api.md, offset 5), decodes to the original; a zero endpoint address or
-// port is refused; any other change decodes to exactly the bytes it carries.
+// checks. A changed magic or version is refused; a changed flags byte (api.md,
+// offset 5: bit 0 is DHCP, the other bits are reserved and ignored) decodes
+// to the original addresses with DHCP equal to bit 0; a zero endpoint address
+// or port is refused; any other change decodes to exactly the bytes it
+// carries.
 func TestNetConfigMutationsPastTheCRC(t *testing.T) {
 	// CRC16 is pinned by its own check vector before it is trusted here.
 	if CRC16([]byte(vectors.CRCCheckInput)) != vectors.CRCCheckResult {
@@ -92,8 +95,10 @@ func TestNetConfigMutationsPastTheCRC(t *testing.T) {
 			case err != nil:
 				t.Fatalf("%v: %v", m, err)
 			case off == 5:
-				if !netcfgEqual(c, orig) {
-					t.Fatalf("%v: the reserved flags byte moved the block to %+v", m, c)
+				want := orig
+				want.DHCP = b[5]&0x01 != 0
+				if !netcfgEqual(c, want) || !netcfgEqual(c, netcfgByHand(b)) {
+					t.Fatalf("%v: flags bit 0 (DHCP) is %v but decoded to %+v", m, want.DHCP, c)
 				}
 			default:
 				if netcfgEqual(c, orig) || !netcfgEqual(c, netcfgByHand(b)) {

@@ -33,6 +33,9 @@
  * refused, not read round the ring": such a size closes the socket. Free
  * sizes are drawn up to 0xFFFF: the driver sends at the end of every reply,
  * long before a fill could pass the ring.
+ *
+ * Through Sn_SR the suite also pins w5x00.c:133's refusal of an OPEN the chip
+ * took but whose status is not the mode's: the socket is closed, no peer set.
  */
 
 #include <string.h>
@@ -453,9 +456,33 @@ static void test_hostile_registers_never_move_the_rings_past_what_they_hold(void
     TEST_ASSERT_EQUAL_UINT8(1u, w5x_model_sends());
 }
 
+/* w5x00.c:133: OPEN taken but the status is not the mode's -- here SOCK_CLOSED
+ * or SOCK_UDP where TCP's SOCK_INIT is due. The driver closes the socket and
+ * refuses, before it writes the peer or sends CONNECT; a part that then
+ * answers truly connects. */
+static void test_an_open_the_status_does_not_confirm_is_closed_and_refused(void)
+{
+    static const uint8_t wrong[2] = { 0x00u, 0x22u };  /* SOCK_CLOSED, SOCK_UDP */
+    uint8_t i;
+
+    for (i = 0u; i < 2u; i++) {
+        memset(&bus, 0, sizeof bus);
+        w5x_model_reset(CHIP);
+        bus.sr.mode = H_FIXED;
+        bus.sr.v    = wrong[i];
+        TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_eth_start(&cfg, 50000u));
+        TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock(S_SR));       /* CLOSE taken */
+        TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock(0x0Cu));      /* Sn_DIPR never written */
+        TEST_ASSERT_EQUAL_HEX16(0u, w5x_model_sock16(0x10u));      /* Sn_DPORT never written */
+        calm();
+        connect();
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_hostile_registers_never_move_the_rings_past_what_they_hold);
+    RUN_TEST(test_an_open_the_status_does_not_confirm_is_closed_and_refused);
     return UNITY_END();
 }

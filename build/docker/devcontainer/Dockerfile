@@ -198,7 +198,7 @@ USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       $(grep '#[[:space:]]*\[toolchain\]' /etc/tfw/packages.txt | sed 's/#.*//' | tr '\n' ' ') \
-      git jq bash make shellcheck \
+      git jq bash make shellcheck cmake \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*'
 COPY --from=tools /out/ /usr/local/bin/

@@ -319,6 +319,20 @@ static void test_without_the_signature_nothing_moves(void)
     original_activates();
 }
 
+/* The signature's store write fails: ACTIVATE answers that status and writes no MARK. */
+static void test_a_failed_signature_write_marks_nothing(void)
+{
+    snprintf(why, sizeof why, "MARK sector erase fails");
+    stage_ended();
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    authorize();
+    tfw_nor_model_fail_erases(1u, TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_TIMEOUT, activate(0u), why);
+    TEST_ASSERT_FALSE_MESSAGE(marked(), why);
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0u, tfw_sys_reset_pending(), why);
+    original_activates();
+}
+
 /* IDLE, RECEIVING and FAILED: no ended image, so nothing to activate in any
  * boot state, and the store is never touched. */
 static void refused_in_every_boot_state(const char *stage)
@@ -547,6 +561,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_every_boot_and_ota_state_with_an_ended_image);
     RUN_TEST(test_without_the_signature_nothing_moves);
+    RUN_TEST(test_a_failed_signature_write_marks_nothing);
     RUN_TEST(test_every_stage_state_but_complete_is_refused);
     RUN_TEST(test_every_mode_byte);
     RUN_TEST(test_every_byte_of_the_block_at_every_other_value);

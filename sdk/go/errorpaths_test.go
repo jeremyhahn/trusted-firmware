@@ -322,11 +322,52 @@ func TestECDSADERToRawRefusals(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+	// A P-256 r and s are each in 1..n-1: zero, and n itself, are no
+	// signature this curve can have produced.
+	zero, n := big.NewInt(0), elliptic.P256().Params().N
+	for _, tc := range []struct {
+		name string
+		der  []byte
+	}{
+		{"zero r", der(zero, one)},
+		{"zero s", der(one, zero)},
+		{"r = n", der(n, one)},
+		{"s = n", der(one, n)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := ecdsaDERToRaw(tc.der)
+			require.ErrorIs(t, err, errASN1BadSig)
+			require.Nil(t, raw)
+		})
+	}
 	raw, err := ecdsaDERToRaw(der(one, big.NewInt(2)))
 	require.NoError(t, err)
 	require.Len(t, raw, 64)
 	require.Equal(t, byte(1), raw[31])
 	require.Equal(t, byte(2), raw[63])
+
+	nMinus1 := new(big.Int).Sub(n, one)
+	raw, err = ecdsaDERToRaw(der(nMinus1, nMinus1))
+	require.NoError(t, err)
+	want := nMinus1.FillBytes(make([]byte, 32))
+	require.Equal(t, append(append([]byte{}, want...), want...), raw)
+}
+
+// TestAuthResponseRefusesOutOfRangeScalar: a signer whose signature has r = 0
+// is an *AuthSignError, and nothing goes on the link.
+func TestAuthResponseRefusesOutOfRangeScalar(t *testing.T) {
+	der, err := asn1.Marshal(ecdsaASN1Sig{R: big.NewInt(0), S: big.NewInt(1)})
+	require.NoError(t, err)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	link := &frameLink{reply: authResponseFrame}
+	err = New(link).AuthResponse(context.Background(), failingSigner{key.Public(), der},
+		make([]byte, AuthNonceLen), make([]byte, SerialLen))
+	var se *AuthSignError
+	require.True(t, errors.As(err, &se), "error %v is not an AuthSignError", err)
+	require.Equal(t, "decode signature", se.Op)
+	require.ErrorIs(t, err, errASN1BadSig)
+	require.Nil(t, link.sent)
 }
 
 func TestWriteNetConfigRefusals(t *testing.T) {

@@ -55,10 +55,13 @@ static uint8_t           uds[32];
 static int               uds_burned;
 static esp_efuse_block_t uds_block;
 static int               hmac_refuse_from;   /* the call that fails; 0 = none */
+static int               hmac_refuse_writes; /* a refused call still writes the MAC */
 static int               hmac_calls;
 static hmac_key_id_t     hmac_last_key;
 static uint8_t           test_handoff[TFW_BOOT_HANDOFF_LEN];
 static int               log_count[256];
+static uint8_t           test_nvm[TFW_BOOT_EE_LEN];
+static tfw_status_t      nvm_status;
 
 bool esp_efuse_find_purpose(esp_efuse_purpose_t purpose, esp_efuse_block_t *block)
 {
@@ -77,6 +80,10 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message,
     hmac_calls++;
     hmac_last_key = key_id;
     if (hmac_refuse_from != 0 && hmac_calls >= hmac_refuse_from) {
+        if (hmac_refuse_writes) {   /* the bytes are there, the status is not */
+            tfw_hmac_sha256(uds, (uint8_t)sizeof uds, (const uint8_t *)message,
+                            (uint16_t)message_len, hmac);
+        }
         return ESP_ERR_INVALID_STATE;
     }
     if (!uds_burned || (int)key_id != (int)uds_block - (int)EFUSE_BLK_KEY0) {
@@ -153,12 +160,16 @@ void mock_esp_log(char level, const char *tag, const char *fmt, ...)
 
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
 
-/* No platform block: test_esp_opsess owns operator_bind (row #606). */
+/* The platform block, all zero unless a test writes the operator_bind tag
+ * (row #606). A read past it fails; any read answers `nvm_status` after the
+ * copy, so a refused read still hands back the bytes. */
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
-    (void)addr;
-    memset(buf, 0, len);
-    return TFW_OK;
+    if ((uint32_t)addr + len > sizeof test_nvm) {
+        return TFW_ERR_CRC;
+    }
+    memcpy(buf, &test_nvm[addr], len);
+    return nvm_status;
 }
 
 /* ---- helpers --------------------------------------------------------------- */
@@ -204,10 +215,13 @@ void setUp(void)
     memset(uds, 0, sizeof uds);
     uds_burned       = 0;
     uds_block        = EFUSE_BLK_KEY0;
-    hmac_refuse_from = 0;
-    hmac_calls       = 0;
-    hmac_last_key    = HMAC_KEY_MAX;
+    hmac_refuse_from   = 0;
+    hmac_refuse_writes = 0;
+    hmac_calls         = 0;
+    hmac_last_key      = HMAC_KEY_MAX;
     memset(log_count, 0, sizeof log_count);
+    memset(test_nvm, 0, sizeof test_nvm);
+    nvm_status = TFW_OK;
 }
 
 void tearDown(void) {}
@@ -362,6 +376,71 @@ static void test_random_with_the_adc_held_is_busy_and_draws_nothing(void)
     TEST_ASSERT_EACH_EQUAL_HEX8(0x11u, out, sizeof out);
 }
 
+/* ---- the operator key (row #606): bound by the UDS, or refused ------------- */
+
+/* As test_esp_opsess.c's: HMAC(UDS, "tfw-opsess-v1" || pub), computed here
+ * without the peripheral. */
+static void bind_tag(const uint8_t pub[TFW_BOOT_OPERATOR_PUBKEY_LEN], uint8_t tag[32])
+{
+    static const char label[] = "tfw-opsess-v1";
+    uint8_t           msg[sizeof label - 1u + TFW_BOOT_OPERATOR_PUBKEY_LEN];
+
+    memcpy(msg, label, sizeof label - 1u);
+    memcpy(msg + sizeof label - 1u, pub, TFW_BOOT_OPERATOR_PUBKEY_LEN);
+    tfw_hmac_sha256(uds, (uint8_t)sizeof uds, msg, (uint16_t)sizeof msg, tag);
+}
+
+/* A booted part whose platform block holds the true tag of a fixed operator
+ * key, and that key's ES256 signature of DIGEST. */
+static void bind_operator(uint8_t pub[64], uint8_t sig[64])
+{
+    uint8_t priv[32], tag[TFW_BOOT_OPERATOR_BIND_LEN];
+    uint8_t i;
+
+    for (i = 0u; i < 32u; i++) { priv[i] = (uint8_t)(0x40u + i); }
+    burn_uds(EFUSE_BLK_KEY1);
+    boot_with((uint8_t)TFW_CRYPTO_SECURE_ELEMENT, 0xC1);
+    TEST_ASSERT_TRUE(uECC_compute_public_key(priv, pub, uECC_secp256r1()));
+    TEST_ASSERT_TRUE(uECC_sign(priv, DIGEST, sizeof DIGEST, sig, uECC_secp256r1()));
+    bind_tag(pub, tag);
+    memcpy(&test_nvm[TFW_BOOT_EE_O_OPERATOR_BIND], tag, sizeof tag);
+}
+
+/* The live check the two refusals below are measured against. */
+static void test_a_bound_operator_key_and_its_signature_verify(void)
+{
+    uint8_t pub[64], sig[64];
+
+    bind_operator(pub, sig);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(DIGEST, sig, pub));
+}
+
+/* The block reads back the true tag but the read reports failure: refused
+ * before any MAC is computed. */
+static void test_an_unreadable_platform_block_refuses_the_operator(void)
+{
+    uint8_t pub[64], sig[64];
+    int     calls;
+
+    bind_operator(pub, sig);
+    nvm_status = TFW_ERR_CRC;
+    calls      = hmac_calls;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(DIGEST, sig, pub));
+    TEST_ASSERT_EQUAL(calls, hmac_calls);
+}
+
+/* The peripheral writes the true tag but reports failure: refused. */
+static void test_a_refused_bind_hmac_refuses_the_operator(void)
+{
+    uint8_t pub[64], sig[64];
+
+    bind_operator(pub, sig);
+    hmac_refuse_from   = hmac_calls + 1;
+    hmac_refuse_writes = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(DIGEST, sig, pub));
+    TEST_ASSERT_EQUAL(hmac_refuse_from, hmac_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -376,5 +455,8 @@ int main(void)
     RUN_TEST(test_a_second_init_forgets_the_first_boots_identity);
     RUN_TEST(test_random_is_drawn_with_the_entropy_source_on);
     RUN_TEST(test_random_with_the_adc_held_is_busy_and_draws_nothing);
+    RUN_TEST(test_a_bound_operator_key_and_its_signature_verify);
+    RUN_TEST(test_an_unreadable_platform_block_refuses_the_operator);
+    RUN_TEST(test_a_refused_bind_hmac_refuses_the_operator);
     return UNITY_END();
 }

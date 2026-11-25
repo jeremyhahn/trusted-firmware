@@ -235,6 +235,33 @@ static void test_a_manifest_over_0xffff_is_refused_with_room_for_it(void)
     TEST_ASSERT_EQUAL_HEX8(GUARD, out[0]);
 }
 
+/* The install sequence is 10 + strlen(uri) bytes from 24 characters up, in a
+ * 64-byte buffer: 54 characters fill it and 55 must be refused before the
+ * sequence is copied into the manifest. */
+static void test_an_install_uri_past_its_buffer_is_refused_before_it_is_copied(void)
+{
+    uint8_t out[256];
+    char    fits[55], over[56];
+
+    fits[0] = '#';
+    memset(&fits[1], 'a', 53u);
+    fits[54] = '\0';
+    over[0] = '#';
+    memset(&over[1], 'a', 54u);
+    over[55] = '\0';
+
+    memset(out, GUARD, sizeof out);
+    TEST_ASSERT_NOT_EQUAL(0u, tfw_suit_emit_manifest_integrated(
+                                  out, sizeof out, SUIT_POLICY_DIGEST, sizeof SUIT_POLICY_BODY,
+                                  3u, vendor, class_id, fits));
+
+    memset(out, GUARD, sizeof out);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_manifest_integrated(
+                                     out, sizeof out, SUIT_POLICY_DIGEST,
+                                     sizeof SUIT_POLICY_BODY, 3u, vendor, class_id, over));
+    TEST_ASSERT_EQUAL_HEX8(GUARD, out[0]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -245,5 +272,6 @@ int main(void)
     RUN_TEST(test_a_manifest_of_0xffff_bytes_is_taken);
     RUN_TEST(test_an_empty_manifest_signs_the_empty_digest);
     RUN_TEST(test_a_manifest_over_0xffff_is_refused_with_room_for_it);
+    RUN_TEST(test_an_install_uri_past_its_buffer_is_refused_before_it_is_copied);
     return UNITY_END();
 }

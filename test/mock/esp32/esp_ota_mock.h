@@ -41,6 +41,8 @@ typedef struct {
     esp_err_t            write_err;
     esp_err_t            end_err;
     esp_err_t            metadata_err;
+    uint8_t              no_hash;      /* metadata reports no appended SHA-256, when set */
+    esp_err_t            read_err;     /* esp_partition_read's answer, when set */
     esp_err_t            set_boot_err;
     esp_err_t            mark_err;
     tfw_status_t         auth_err;     /* tfw_esp_part_write's answer, when set */

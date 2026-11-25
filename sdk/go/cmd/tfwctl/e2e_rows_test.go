@@ -279,7 +279,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestCSRSignatureIsOverTheNonce":               {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt":  {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne":      {lacks: tfw.FeatureAttestCSR, tier: softTier},
-	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {not: partTCP}, // meddler waits for a BOOT
+	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {}, // any board: meddler keeps the read deadline, openPeer waits for no BOOT on TCP (#48)
 	"TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt":        {caps: tfw.FeatureAttestCSR, has: partIdentity},
 
 	// e2e_auth_test.go: the operator session, and the key TFW_HW_OPERATOR_KEY names
@@ -486,9 +486,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned",
 			"TestFirmwareEEPROM", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst",
 			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
+			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
 		}, []string{
 			"TestFirmwareToneRefusesTheShieldsPin",
-			"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)
@@ -608,13 +608,13 @@ func TestBoardRunDropsTheRowsAStackedPROwns(t *testing.T) {
 	}
 }
 
-// The caps-bit refusal row wraps its connection in meddler, which hides
-// SetReadDeadline, and waits for a BOOT: a TCP connect resets nothing, so
-// on the P4 the row would block until the test timeout (Codex, #567).
-func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
+// The caps-bit refusal row runs on a TCP board as on a serial one: meddler
+// passes SetReadDeadline through and openPeer waits for no BOOT where the
+// connect resets nothing (TestMeddlerRefusesAttestCSRWithoutABoot, #48).
+func TestBoardRunRunsTheMeddlerRowOnATCPBoard(t *testing.T) {
 	const row = "TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported"
-	if boardRun(t, "esp32p4-poe", false).MatchString(row) {
-		t.Fatalf("the esp32p4-poe run selects %s, which hangs on TCP", row)
+	if !boardRun(t, "esp32p4-poe", false).MatchString(row) {
+		t.Fatalf("the esp32p4-poe run lost %s", row)
 	}
 	if !boardRun(t, "atmega2560", false).MatchString(row) {
 		t.Fatalf("the atmega2560 run lost %s", row)

@@ -38,7 +38,10 @@ func cborDecode(b []byte) (any, error) {
 	return v, nil
 }
 
-// head reads an item's initial byte and argument.
+// head reads an item's initial byte and argument. An argument not in its
+// shortest head (24 in two bytes, 255 in three) is refused: core-deterministic
+// CBOR uses preferred serialization (RFC 8949 §4.2.1), so the device never
+// writes one.
 func (r *cborReader) head() (major byte, arg uint64, err error) {
 	if len(r.b) == 0 {
 		return 0, 0, fmt.Errorf("truncated")
@@ -47,17 +50,18 @@ func (r *cborReader) head() (major byte, arg uint64, err error) {
 	r.b = r.b[1:]
 	major, info := ib>>5, ib&0x1f
 	var n int
+	var least uint64
 	switch {
 	case info < 24:
 		return major, uint64(info), nil
 	case info == 24:
-		n = 1
+		n, least = 1, 24
 	case info == 25:
-		n = 2
+		n, least = 2, 1<<8
 	case info == 26:
-		n = 4
+		n, least = 4, 1<<16
 	case info == 27:
-		n = 8
+		n, least = 8, 1<<32
 	default:
 		return 0, 0, fmt.Errorf("additional information %d is not a definite length", info)
 	}
@@ -67,7 +71,11 @@ func (r *cborReader) head() (major byte, arg uint64, err error) {
 	var buf [8]byte
 	copy(buf[8-n:], r.b[:n])
 	r.b = r.b[n:]
-	return major, binary.BigEndian.Uint64(buf[:]), nil
+	v := binary.BigEndian.Uint64(buf[:])
+	if v < least {
+		return 0, 0, fmt.Errorf("argument %d is not in its shortest head (RFC 8949 §4.2.1)", v)
+	}
+	return major, v, nil
 }
 
 // count turns an argument into a length no larger than the bytes left, each

@@ -6,8 +6,7 @@
 > ADR #14 ([`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md)),
 > the Ethernet transport ADR
 > ([`../ethernet-transport/adr-wire-protocol-over-w5x00.md`](../ethernet-transport/adr-wire-protocol-over-w5x00.md)),
-> board page [`../boards/stm32h573i-dk.md`](../boards/stm32h573i-dk.md),
-> plan [`../plans/540.md`](../plans/540.md)
+> board page [`../boards/stm32h573i-dk.md`](../boards/stm32h573i-dk.md)
 > · Scope: trusted-firmware, documentation only · Last verified: 2026-11-17
 >
 > Ruling 768's completion plan includes the STM32H573I-DK's Ethernet rows:

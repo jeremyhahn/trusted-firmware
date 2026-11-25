@@ -6,15 +6,18 @@
  *
  * Eight-bit duty at about 1 kHz, the resolution the wire carries and roughly
  * the frequency an Arduino's analogWrite gives, so a load moved from an AVR
- * board behaves the same. The tone generator (hal_tone.c) owns the last LEDC
- * timer; the board's PWM table never names it.
+ * board behaves the same. Duty 255 is LEDC's full period (2^8), high all
+ * cycle as on the AVR, since an 8-bit LEDC duty of 255 is 255/256. The tone
+ * generator (hal_tone.c) owns the last LEDC timer; the board's PWM table
+ * never names it.
  */
 
 #include "driver/ledc.h"
 
 #include "tfw/hal.h"
 
-#define PWM_HZ 1000u
+#define PWM_HZ   1000u
+#define PWM_FULL (1u << 8)
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
@@ -30,7 +33,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
         .speed_mode = (ledc_mode_t)p->mode,
         .channel    = (ledc_channel_t)p->channel,
         .timer_sel  = (ledc_timer_t)p->timer,
-        .duty       = duty,
+        .duty       = (duty == 255u) ? PWM_FULL : duty,
         .hpoint     = 0,
     };
 

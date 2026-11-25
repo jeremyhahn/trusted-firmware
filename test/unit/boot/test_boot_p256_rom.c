@@ -17,6 +17,7 @@
 #include "esp_rom_ecdsa_mock.h"
 #include "rom/ecdsa.h"
 #include "sha256.h"
+#include "tfw/crypto.h"
 #include "wycheproof_p256.h"
 
 /* The host test's key slot, in place of the generated one. */
@@ -148,6 +149,36 @@ static void test_an_erased_slot_refuses_without_asking_the_rom(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_rom_ecdsa_mock_calls());
 }
 
+/* One programmed byte anywhere in the slot is a key: the ROM judges it,
+ * and its 1 passes and its 0 refuses. A check that read one byte, or
+ * stopped short of the last, would take the slot for erased. */
+static void test_one_programmed_byte_is_a_key_the_rom_judges(void)
+{
+    static const uint8_t idx[] = {0u, 31u, 32u, 63u};
+    uint8_t  digest[32];
+    uint8_t  sig[64];
+    char     msg[16];
+    unsigned calls;
+    size_t   n;
+
+    memset(digest, 0x5Au, sizeof digest);
+    memset(sig, 0xA5u, sizeof sig);
+    for (n = 0u; n < sizeof idx; n++) {
+        memset(tfw_boot_p256_key, 0xFF, sizeof tfw_boot_p256_key);
+        tfw_boot_p256_key[idx[n]] = 0x00u;
+
+        calls = tfw_rom_ecdsa_mock_calls();
+        tfw_rom_ecdsa_mock_answer(1);
+        snprintf(msg, sizeof msg, "slot byte %u", (unsigned)idx[n]);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(TFW_OK, tfw_crypto_verify_image(digest, sig), msg);
+        TEST_ASSERT_EQUAL_UINT_MESSAGE(calls + 1u, tfw_rom_ecdsa_mock_calls(), msg);
+
+        tfw_rom_ecdsa_mock_answer(0);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(TFW_ERR_CRYPTO, tfw_crypto_verify_image(digest, sig), msg);
+        TEST_ASSERT_EQUAL_UINT_MESSAGE(calls + 2u, tfw_rom_ecdsa_mock_calls(), msg);
+    }
+}
+
 static void test_the_contract_matches_p256_soft(void)
 {
     uint8_t buf[TFW_BOOT_PUBKEY_LEN];
@@ -181,6 +212,7 @@ int main(void)
     RUN_TEST(test_a_bit_flipped_anywhere_is_refused);
     RUN_TEST(test_only_the_roms_1_passes);
     RUN_TEST(test_an_erased_slot_refuses_without_asking_the_rom);
+    RUN_TEST(test_one_programmed_byte_is_a_key_the_rom_judges);
     RUN_TEST(test_the_contract_matches_p256_soft);
     RUN_TEST(test_the_backend_names_es256);
     return UNITY_END();

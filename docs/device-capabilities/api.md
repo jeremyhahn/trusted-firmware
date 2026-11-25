@@ -50,7 +50,26 @@ TIMER_QUERY   req  pin:u8                                     resp  active:u8  h
 ```
 
 `ms` must be in `[1, 0x7FFFFFFF]`. `remaining_ms` is clamped to zero for a
-deadline that has passed but not yet been swept.
+deadline that has passed but not yet been swept, or whose revert the HAL
+refused.
+
+`TIMER_SET` checks in this order: a reserved or in-use pin is
+`TFW_ERR_RESERVED_PIN`, a pin the board does not have returns the pin lookup's
+status, a `level` above 1 or an `ms` outside the bound is `TFW_ERR_RANGE`, and
+a new pin while all `TFW_SCHED_SLOTS` slots are held is `TFW_ERR_NO_SLOT`.
+Re-arming a pin that already has a timer reuses its slot and replaces its
+deadline and level; `slot` is that slot's index. A mode or level write the HAL
+refuses returns the HAL's status and arms nothing, so a failed re-arm keeps the
+first deadline. `TIMER_CANCEL` with an `apply_final` above 1 is
+`TFW_ERR_RANGE`, and of a pin with no timer is `TFW_ERR_NO_SLOT`.
+`apply_final` 1 drives the revert level (the complement of the held level);
+if the HAL refuses it, the command returns that status and the timer stays
+armed. `apply_final` 0 drops the timer and leaves the pin where it is.
+`TIMER_QUERY` of a pin with no timer answers `active` 0, `held_level` 0,
+`remaining_ms` 0. At the deadline the sweep drives the revert level; a write
+the HAL refuses keeps the timer armed and every later sweep retries it, so
+until one succeeds `TIMER_QUERY` answers `active` 1, the held level, and
+`remaining_ms` 0, for as long as the HAL keeps refusing.
 
 ## Analog
 
@@ -124,6 +143,12 @@ it takes in the swap journal at `0x0E0`-`0x0E9`) is refused
 (`TFW_ERR_PROTECTED_REGION`). A read of those bytes passes `tfw_auth_gate`: it
 needs an authenticated session on a build that has one
 (`TFW_ERR_AUTH_REQUIRED` otherwise).
+
+A read with `len` 0 returns `TFW_OK` and an empty `data`; `addr` is still
+checked (`TFW_ERR_RANGE` at or past `TFW_EEPROM_SIZE`), and an `addr` below
+`TFW_EEPROM_RESERVED_END` still passes `tfw_auth_gate`. A write with no `data`
+(a 2-byte payload) is below the 3-byte minimum and is refused at dispatch with
+`TFW_ERR_BAD_ARGC`.
 
 > Corrected 2026-10-16: this said `addr` below `0x080` was refused on write and
 > permitted on read. The bound is `TFW_EEPROM_RESERVED_END` = `TFW_BOOT_EE_LEN`

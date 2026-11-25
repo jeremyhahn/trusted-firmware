@@ -217,7 +217,7 @@ def _anchor(text, i, anchors, lines=None):
 
 def _anchors(lines, skip):
     """Return the anchors of every mapping value and list item in lines (see
-    _anchor), outside block scalar content (skip)."""
+    _anchor), outside multi-line scalar content (skip, see _scalar_lines)."""
     anchors, last = {}, -1
     for i, line in enumerate(lines):
         if i <= last or i in skip:
@@ -266,7 +266,11 @@ def _labels(value, anchors, i):
     label with a `${{ ... }}` expression anywhere in it. The value and its
     items are raw text (see _node): a quoted scalar is one label, read as
     written; an alias, as a value or an item, is read at its anchor (see
-    _alias)."""
+    _alias). A _Decoded block scalar is one label, taken as is."""
+    if isinstance(value, _Decoded):
+        if not 0 <= value.find("${{") < value.find("}}"):
+            yield value
+        return
     value = _alias(_node(value), anchors, i)
     items = [value]
     if value.startswith("[") and value.endswith("]"):
@@ -280,7 +284,10 @@ def _labels(value, anchors, i):
 def _value_labels(value, anchors, i):
     """Yield the labels of a scalar, flow-list or flow-mapping value on line
     i, an alias read at its anchor; of a flow mapping only its `labels:`
-    entry counts."""
+    entry counts; a _Decoded block scalar is one label (see _labels)."""
+    if isinstance(value, _Decoded):
+        yield from _labels(value, anchors, i)
+        return
     value = _alias(_node(value), anchors, i)
     if value.startswith("{") and value.endswith("}"):
         entries = (FLOW_ENTRY.match(e) for e in _split_flow(value[1:-1]))
@@ -365,35 +372,91 @@ def _indent(line):
     return len(line) - len(line.lstrip())
 
 
-def _block_scalars(lines):
-    """Return the indexes of the content lines of every block scalar: the
-    lines after a `|` or `>` header (with any indentation or chomping
-    indicator, anchor, tag or ` # comment`) that are blank or deeper than the
-    column of the header's key or `-`."""
+def _scalar_lines(lines):
+    """Return the indexes of the lines inside a multi-line scalar, which hold
+    no keys: the content lines of every block scalar, the lines after a `|`
+    or `>` header (with any indentation or chomping indicator, anchor, tag or
+    ` # comment`) that are blank or deeper than the column of the header's
+    key or `-`; and the continuation lines of every multi-line quoted scalar,
+    the lines after a mapping value or list item that starts with `'` or `"`
+    up to the line on which its quote closes (to the end of the file if it
+    never closes). A quote later in a plain scalar (`run: echo "x`) opens no
+    quoted scalar."""
     skip, i = set(), 0
     while i < len(lines):
         col, value = _line_node(lines[i])
         i += 1
-        if value is not None and BLOCK_SCALAR.fullmatch(_node(value) or ""):
+        node = "" if value is None else _node(value)
+        if BLOCK_SCALAR.fullmatch(node):
             while i < len(lines) and (
                 not lines[i].strip() or _indent(lines[i]) > col
             ):
                 skip.add(i)
                 i += 1
+        elif node[:1] in ("'", '"'):
+            scanner = _Scanner()
+            for _ in scanner.feed(value):
+                pass
+            while scanner.quote is not None and i < len(lines):
+                skip.add(i)
+                for _ in scanner.feed(lines[i]):
+                    pass
+                i += 1
     return skip
 
 
-def _block_text(header, content):
-    """Return the text of a block scalar: its content lines, stripped, joined
-    with a blank (`>` folds) or a line break (`|` keeps them), ending in a
-    line break unless the header's chomping indicator is `-` (strip)."""
-    body = [line.strip() for line in content]
+class _Decoded(str):
+    """A decoded block scalar: one label as is, never trimmed, unquoted,
+    comment-stripped, read as an alias or split as a flow."""
+
+
+def _block_text(header, content, col):
+    """Return the text of a block scalar as YAML decodes it. Only the
+    content indentation is removed: col plus the header's indentation
+    indicator, else the indentation of the first non-blank content line;
+    deeper spaces are kept. `|` keeps every line break; `>` folds the break
+    between two non-blank lines that are not more indented into a space, a
+    blank line between them being one break. Chomping: `-` strips every
+    trailing break, `+` keeps them all (trailing blank lines included), none
+    (clip) keeps one."""
+    digits = [c for c in header if c.isdigit()]
+    if digits:
+        indent = col + int(digits[0])
+    else:
+        indent = next((_indent(line) for line in content if line.strip()), 0)
+    body = []
+    for line in content:
+        if not line.strip() and len(line) <= indent:
+            body.append("")
+        elif line[:indent].strip():
+            body.append(line.lstrip())
+        else:
+            body.append(line[indent:])
+    trailing = 0
     while body and not body[-1]:
         body.pop()
-    text = (" " if header[0] == ">" else "\n").join(body)
-    if body and "-" not in header:
-        text += "\n"
-    return text
+        trailing += 1
+    if header[0] == "|":
+        text = "\n".join(body)
+    else:
+        text, prev, empty = "", None, 0
+        for line in body:
+            if not line:
+                empty += 1
+                continue
+            if prev is None:
+                text += "\n" * empty
+            elif prev[0] in " \t" or line[0] in " \t":
+                text += "\n" * (empty + 1)
+            else:
+                text += "\n" * empty if empty else " "
+            text += line
+            prev, empty = line, 0
+    if "-" in header:
+        return text
+    if "+" in header:
+        return text + "\n" * ((1 if body else 0) + trailing)
+    return text + "\n" if body else text
 
 
 def _read_value(lines, i, col, value, skip):
@@ -403,21 +466,21 @@ def _read_value(lines, i, col, value, skip):
     from it, and a label it holds is reported at line i, its key's line:
     - a block scalar header (`>-`, `|`, anchored, tagged or with a
       ` # comment`) is the text of its content lines, every blank line or
-      line deeper than col after it (see _block_scalars and _block_text),
-      quoted so it stays one scalar;
+      line deeper than col after it (see _scalar_lines and _block_text),
+      returned as a _Decoded label, whitespace and all;
     - a flow list or mapping is read to the line where it closes (_flow);
     - a plain or quoted scalar takes the following lines deeper than col
       that are not a key, an item, a comment or block scalar content
       (skip), joined with a blank as YAML folds them, so `${{ matrix.os`
       then `}}` is one expression; a quoted scalar takes them only while
-      its quote is open, up to the line that closes it."""
+      its quote is open, up to the line that closes it (those lines are in
+      skip as its own continuation lines, so skip does not stop it)."""
     node = _node(value)
     if BLOCK_SCALAR.fullmatch(node):
         j = i + 1
         while j < len(lines) and (not lines[j].strip() or _indent(lines[j]) > col):
             j += 1
-        text = _block_text(node, lines[i + 1 : j]).strip()
-        return '"' + text + '"', j - 1
+        return _Decoded(_block_text(node, lines[i + 1 : j], col)), j - 1
     if node.startswith(("[", "{")):
         return _flow(lines, i, node)
     if not node or node.startswith("*"):
@@ -436,7 +499,8 @@ def _read_value(lines, i, col, value, skip):
         line = lines[j]
         if not line.strip():
             continue
-        if j in skip or _indent(line) <= col:
+        if (j in skip and not quoted) or _indent(line) <= col:
+            # A quoted scalar's own continuation lines are in skip.
             break
         if not quoted and (
             ENTRY.match(line) or ITEM.match(line) or line.lstrip().startswith("#")
@@ -496,10 +560,13 @@ def plain_labels(text):
 
     The content lines of a block scalar (`run: |`, `>-`, `|2`, anchored or
     tagged), every blank line or line deeper than its key or `-` after the
-    header, are not read as keys, so a `runs-on:` in a script is not a key.
+    header, are not read as keys, so a `runs-on:` in a script is not a key;
+    nor are the continuation lines of a multi-line quoted scalar (`run: "echo`
+    then `  runs-on: x` then `  done"`), up to the line its quote closes on
+    (see _scalar_lines).
     """
     lines = text.splitlines()
-    skip = _block_scalars(lines)
+    skip = _scalar_lines(lines)
     anchors = _anchors(lines, skip)
     # The last line of a multi-line runs-on value already read.
     done = -1
@@ -519,7 +586,7 @@ def plain_labels(text):
             # A flow that never closes yields nothing; read on from line i.
             done = i
             continue
-        if value:
+        if value or isinstance(value, _Decoded):
             for label in _value_labels(value, anchors, i):
                 yield i + 1, label
         else:
@@ -560,7 +627,7 @@ def plain_labels(text):
                     )
                     if value is None:
                         break
-                    if value:
+                    if value or isinstance(value, _Decoded):
                         for label in _labels(value, anchors, j):
                             yield j + 1, label
                     else:
@@ -569,7 +636,9 @@ def plain_labels(text):
 
 def unknown(workflow_dir, allowed):
     """Return `file:line: label` for each label neither built in nor matched
-    by an allowlist glob pattern."""
+    by an allowlist glob pattern. A label with leading or trailing
+    whitespace or a line break (a block scalar's decoded text) is printed
+    as its repr (`w.yml:3: 'ci-gate\\n'`), so the whitespace shows."""
     workflow_dir = pathlib.Path(workflow_dir)
     found = []
     paths = [*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")]
@@ -582,7 +651,10 @@ def unknown(workflow_dir, allowed):
             if label.lower() not in BUILTIN | GITHUB_HOSTED and not any(
                 fnmatch.fnmatchcase(label, p) for p in allowed
             ):
-                found.append(f"{name}:{lineno}: {label}")
+                shown = label
+                if label != label.strip() or "\n" in label:
+                    shown = repr(str(label))
+                found.append(f"{name}:{lineno}: {shown}")
     return found
 
 
@@ -938,8 +1010,8 @@ class RunnerLabelsTest(unittest.TestCase):
                 (">-\n      codex", []),
                 (">-\n      qwne", ["3: qwne"]),
                 ("|-\n      qwne", ["3: qwne"]),
-                (">\n      qwne", ["3: qwne"]),
-                ("|+\n      qwne\n", ["3: qwne"]),
+                (">\n      qwne", ["3: 'qwne\\n'"]),
+                ("|+\n      qwne\n", ["3: 'qwne\\n\\n'"]),
                 (">- # note\n      qwne", ["3: qwne"]),
                 ("&r >-\n      qwne", ["3: qwne"]),
                 ("!!str >-\n      qwne", ["3: qwne"]),
@@ -981,6 +1053,45 @@ class RunnerLabelsTest(unittest.TestCase):
             ),
             head="    runs-on:",
         )
+
+    def test_a_multi_line_quoted_scalar_line_is_not_a_key(self):
+        head = "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        step = "    steps:\n      - run: "
+        after = "  next:\n    runs-on: qwne\n"
+        for body in (
+            step + '"echo\n          runs-on: qwne\n          done"\n',
+            step + "'echo\n          runs-on: qwne\n          done'\n",
+            step + '"echo\n          runs-on: [self-hosted, qwne]\n          done"\n',
+            step + '"echo\n          jobs: {b: {runs-on: qwne}}\n          done"\n',
+            '    env:\n      X: "a\n        runs-on: qwne\n        b"\n',
+            step + '"echo \\"x\n          runs-on: qwne\n          done"\n',
+            step + "'it''s\n          runs-on: qwne\n          done'\n",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(self.check(head + body), [])
+                line = (head + body).count("\n") + 2
+                found = self.check(head + body + after)
+                self.assertEqual(found, [f"w.yml:{line}: qwne"])
+        # A quote inside a plain scalar opens no quoted scalar.
+        body = step + 'echo "a\n'
+        line = (head + body).count("\n") + 2
+        self.assertEqual(self.check(head + body + after), [f"w.yml:{line}: qwne"])
+
+    def test_a_block_scalar_label_keeps_its_whitespace(self):
+        allowed = allowlist(ACTIONLINT) + ["ci-gate"]
+        head = "jobs:\n  build:\n    runs-on: "
+        for value, want in (
+            ("|\n      ci-gate\n", ["w.yml:3: 'ci-gate\\n'"]),
+            (">\n      ci-gate\n", ["w.yml:3: 'ci-gate\\n'"]),
+            ("|+\n      ci-gate\n\n", ["w.yml:3: 'ci-gate\\n\\n'"]),
+            ("|2-\n        ci-gate\n", ["w.yml:3: '  ci-gate'"]),
+            ("|-\n      ci-gate\n        x\n", ["w.yml:3: 'ci-gate\\n  x'"]),
+            (">-\n      ci-gate\n", []),
+            ("|-\n      ci-gate\n", []),
+            (">-\n      ${{ matrix.runner }}\n", []),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(self.check(head + value, allowed), want)
 
     def test_a_hash_in_an_expression_on_a_continuation_line_is_kept(self):
         for value in (

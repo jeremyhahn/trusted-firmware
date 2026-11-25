@@ -214,6 +214,25 @@ static void test_a_failed_write_is_a_bad_pin(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_write(&p, 0u));
 }
 
+static void test_a_write_of_a_pin_the_part_lacks_is_a_bad_pin_untouched(void)
+{
+    static const uint8_t bad[] = { 1u, 4u, 6u, 32u, 34u, 53u, 55u, 63u, 64u, 255u };
+    unsigned i;
+    uint8_t  level;
+
+    /* 55 is GPIO_NUM_MAX: in the mask here, so only the range check refuses it. */
+    mock_gpio_valid_mask |= 1ULL << GPIO_NUM_MAX;
+    for (i = 0u; i < sizeof bad; i++) {
+        for (level = 0u; level <= 1u; level++) {
+            tfw_pinref_t p = { bad[i] };
+
+            ncalls = 0u;
+            TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_gpio_write(&p, level));
+            TEST_ASSERT_EQUAL_UINT(0u, ncalls);   /* no SET call */
+        }
+    }
+}
+
 static void test_a_read_is_0_or_1(void)
 {
     static const struct {
@@ -261,6 +280,7 @@ int main(void)
     RUN_TEST(test_a_mode_releases_the_tone_on_its_pin);
     RUN_TEST(test_a_write_is_0_or_1);
     RUN_TEST(test_a_failed_write_is_a_bad_pin);
+    RUN_TEST(test_a_write_of_a_pin_the_part_lacks_is_a_bad_pin_untouched);
     RUN_TEST(test_a_read_is_0_or_1);
     RUN_TEST(test_a_read_of_a_pin_the_part_lacks_is_a_bad_pin_untouched);
     return UNITY_END();

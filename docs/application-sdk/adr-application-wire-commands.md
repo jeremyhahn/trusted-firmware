@@ -1,18 +1,20 @@
 # ADR: application-defined wire commands
 
-> **Status: PROPOSED** · Row: `application-sdk` · Scope: trusted-firmware
+> **Status: ACCEPTED (owner ruling 1243, 2026-11-24)** · Row: `application-sdk` · Scope: trusted-firmware
 > (device and `sdk/go`) · Last verified: 2026-10-20, against
 > `include/tfw/protocol.h`, `src/core/commands.def`, `src/core/dispatch.c`,
 > `src/proto/transport.c`, `src/proto/link_eth.c` and `src/core/app_runner.c`
 >
-> Nothing in the code changes until the owner rules. Every decision below is a
-> recommendation with its alternatives. The open questions are listed at the
-> end.
+> Owner ruling 1243 accepted decisions 1-6 as recommended, with the answers
+> recorded under the open questions at the end. The code implements them in
+> `src/core/commands.def`, `src/core/dispatch.c`, `src/core/app_runner.c` and
+> `src/core/app_cmd_none.c`.
 
 ## The question
 
-The `application-sdk` row names application-defined wire commands as a
-proposed follow-up ([architecture.md](architecture.md#what-it-does-not-do)).
+The `application-sdk` row named application-defined wire commands as a
+follow-up ([architecture.md](architecture.md#what-it-does-not-do)), now
+decided here.
 Today an application can read its configuration region and report its 32
 bytes of evidence, but a host cannot ask it anything. The first application,
 the secure BMC, needs that: power control and sensor reads are its own
@@ -46,7 +48,7 @@ preprocessor conditionals stay in the four places.
   `TFW_ERR_BAD_ARGC` and `TFW_ERR_TOO_LONG` come from one place.
 - `APP_INFO` (`0x06`) is present only in an image built with an `APP_DIR`
   (`TFW_FEATURE_APP`, `src/core/commands.def:33`). It is on the Ethernet
-  allow-list (`src/proto/link_eth.c:127`), read-only and unauthenticated.
+  allow-list (`src/proto/link_eth.h:19`), read-only and unauthenticated.
 - The hooks are strong symbols the application defines. Weak defaults and a
   table of function pointers are both rejected
   ([architecture.md](architecture.md#rejected-alternatives)).
@@ -54,7 +56,7 @@ preprocessor conditionals stay in the four places.
   EEPROM reads. Every other tier links the permissive gate. The application
   may include only `include/tfw/*.h` and has no interface to the auth session.
 
-## Decisions proposed
+## Decisions
 
 ### 1. One firmware id, `APP_CMD` `0x07`, with the application's own sub-op
 
@@ -161,7 +163,7 @@ read-only sub-ops, such as a sensor read, cost a challenge round.
 
 `APP_CMD` is not added to `tfw_link_admits()`, so over Ethernet it answers
 `TFW_ERR_UNKNOWN_CMD`, as every command off the list does. The allow-list is
-a decision about what the network may ask for (`src/proto/link_eth.c:125`).
+a decision about what the network may ask for (`src/proto/link_eth.h:15`).
 The OTA ADR took the same decision for `OTA_INFO`, `OTA_ACTIVATE` and
 `OTA_CONFIRM`. The BMC on the ESP32-P4 speaks only Ethernet, so for it this
 leaves the commands unreachable until the owner rules (open question 2).
@@ -195,18 +197,25 @@ pin its request and reply, the `BAD_STATE` and `UNSUPPORTED` refusals and the
 ## Open questions for the owner
 
 1. Decision 1: one id with a sub-op byte (A), a block of ids (B), or a wider
-   OP (C)? Recommended: A, at `0x07`.
+   OP (C)? Recommended: A, at `0x07`. **Answered (owner ruling 1243):**
+   A, at `0x07`.
 2. Decision 6: is `APP_CMD` admitted over Ethernet? If it is, it is admitted
    for every application, or per application by a second `app.mk` knob that
    links one of two `.c` files. The BMC needs it on the network.
+   **Answered (owner ruling 1243):** serial only; `APP_CMD` is not on the
+   Ethernet allow-list.
 3. Decision 5: does the application decide per sub-op (b), or is every
-   `APP_CMD` gated on the element tier (c)? Recommended: b.
+   `APP_CMD` gated on the element tier (c)? Recommended: b. **Answered
+   (owner ruling 1243):** b, through `tfw_app_session_ok()`.
 4. Should the device answer a `0x7F` request at all? Today it answers with OP
    `0xFF`, which reads as an event. Ignoring it, as it ignores a request with
-   the response bit set, would be a wire change with a vector.
+   the response bit set, would be a wire change with a vector. **Open:**
+   ruling 1243 does not decide it; the device's answer to `0x7F` is
+   unchanged.
 5. Decision 3: does a stopped or failed application answer
    `TFW_ERR_BAD_STATE` (19, widened), or a new status code (20)? Recommended:
-   19.
+   19. **Answered (owner ruling 1243):** `TFW_ERR_BAD_STATE` (19), its
+   comment widened; no new code.
 
 The pin reservation, the row's other proposed follow-up, is a separate
 decision and is not taken here.

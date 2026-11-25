@@ -181,7 +181,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
-                            test/unit/test_app_none.c \
+                            test/unit/test_app_none.c test/unit/test_app_cmd_none.c test/unit/test_app_cmd_gate.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
@@ -1129,14 +1129,34 @@ $(HOST_DIR)/test_app_none: test/unit/test_app_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_app_cmd_none: APP_CMD against the stand-in hook, an application that
+# defines no tfw_app_command of its own (the test file is that application).
+$(HOST_DIR)/test_app_cmd_none: test/unit/test_app_cmd_none.c \
+                        $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        src/core/app_cmd_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_app_cmd_gate: the application's session view with a gate that closes.
+# The test file is the gate, so the permissive one is left out of the link.
+$(HOST_DIR)/test_app_cmd_gate: test/unit/test_app_cmd_gate.c \
+                        $(filter-out src/core/auth_session_none.c,$(HOST_LIB_SRCS)) \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # test_app_example: the example application, compiled as an application is --
 # APP_HOST_BASE_CFLAGS, no -Isrc -- and driven through the runner by the suite.
 $(HOST_DIR)/test-app-example/example.o: test/app/example/example.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(APP_HOST_BASE_CFLAGS) -MMD -MP -c -o $@ $<
 
+# The stand-in command hook too, while the example's app.mk leaves APP_COMMANDS
+# unset, as mk/app.mk links it for an image.
+TEST_APP_EXAMPLE_CMD_SRCS := $(if $(filter yes,$(shell sed -n 's/^APP_COMMANDS *:*= *//p' test/app/example/app.mk)),,src/core/app_cmd_none.c)
+
 $(HOST_DIR)/test_app_example: test/unit/test_app_example.c \
                         $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        $(TEST_APP_EXAMPLE_CMD_SRCS) \
                         $(HOST_DIR)/test-app-example/example.o \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -1685,6 +1705,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_tfwsim_main_mutate \
                     $(HOST_DIR)/test_suit_emit_main_mutate $(HOST_DIR)/test_suit_emit_main_unbound \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
+                    $(HOST_DIR)/test_app_cmd_none $(HOST_DIR)/test_app_cmd_gate \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_dhcp_w5100 $(HOST_DIR)/test_dhcp_w5500 $(HOST_DIR)/test_link_dhcp \
@@ -2689,7 +2710,15 @@ APP_HOST_ELEMENT_DIR  := $(HOST_DIR)/app-$(APP_NAME)-atecc608a
 APP_HOST_ELEMENT_OBJS := $(patsubst %.c,$(APP_HOST_ELEMENT_DIR)/%.o,$(APP_SRCS))
 APP_HOST_CFLAGS       := $(APP_HOST_BASE_CFLAGS) -ffile-prefix-map=$(CURDIR)=. $(APP_PREFIX_MAP) $(APP_CFLAGS)
 
+# mk/app.mk's selection stamp: every tfwsim link of an application depends on
+# it, so changing APP_COMMANDS relinks. Empty with no application.
+APP_HOST_CONFIG       :=
+
 ifneq ($(APP_SRCS),)
+APP_HOST_CONFIG := $(HOST_DIR)/app-$(APP_NAME).config
+$(APP_HOST_CONFIG): FORCE | $(HOST_DIR)
+	$(APP_CONFIG_STAMP)
+
 $(APP_HOST_OBJS): $(APP_HOST_DIR)/%.o: $(APP_ABS)/%.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(filter-out $(TFWSIM_SOFT_OFF),$(APP_HOST_CFLAGS)) -MMD -MP -c -o $@ $<
@@ -2717,7 +2746,7 @@ $(HOST_DIR)/test_eth_socket_mutate: test/unit/test_eth_socket_mutate.c tools/tfw
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(and $(filter command line,$(origin CRYPTO)),$(filter atecc608a,$(CRYPTO))),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
-        $(APP_HOST_OBJS) | $(HOST_DIR)
+        $(APP_HOST_OBJS) $(APP_HOST_CONFIG) | $(HOST_DIR)
 	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_BOOT_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
 	   $(APP_HOST_OBJS) -Wl,--wrap=tfw_hal_reset $(EXTRA_LDFLAGS)
@@ -2761,7 +2790,7 @@ TFWSIM_IMAGE_KEY_NONE := tools/tfwsim/image_key_none.c
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(APP_HOST_CONFIG) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
@@ -2792,7 +2821,7 @@ TFWSIM_MANIFEST_SRCS += tools/tfwsim/image_key.c
 
 ## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
 tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX) $(HOST_DIR)/suit-emit
-$(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(APP_HOST_CONFIG) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
@@ -2823,7 +2852,7 @@ TFWSIM_PROV_DEFS := -DTFW_FEATURE_PROVISION=1
 
 ## tfwsim-prov: build the element-tier simulator as a provisioning jig image (PROV_* commands, blank element)
 tfwsim-prov: $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(APP_HOST_CONFIG) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_PROV_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
@@ -2861,7 +2890,7 @@ $(TFWSIM_AUTO_DIR)/auth_element.o: src/core/auth_session.c
 
 ## tfwsim-auto: build the CRYPTO=auto simulator (element if it answers, else soft; --no-element)
 tfwsim-auto: $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(APP_HOST_CONFIG) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)

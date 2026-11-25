@@ -47,7 +47,7 @@
  * are different keys with different lifetimes and conflating them would mean
  * that revoking a signing key required re-provisioning every device's identity.
  */
-#define SLOT_IMAGE_SIGNING TFW_ATECC_SLOT_IMAGE   /* board-profile data, tfw/config.h */
+#define SLOT_IMAGE_SIGNING 2u
 
 tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
 {

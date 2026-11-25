@@ -50,9 +50,9 @@ func TestE2EWritePubKeyWritesASlotOnceTheConfigIsLocked(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The template's placeholder block 2 clears SlotLocked (bytes 88-89), which
-	// slot-locks every slot. Here every slot stays writable, slot 15 included.
+	// slot-locks every slot. Here slot 2 stays writable and slot 15 is locked.
 	tmpl.Blocks[2] = append([]byte(nil), tmpl.Blocks[2]...)
-	tmpl.Blocks[2][88-64], tmpl.Blocks[2][89-64] = 0xff, 0xff
+	tmpl.Blocks[2][88-64], tmpl.Blocks[2][89-64] = 0xff, 0x7f
 	for _, b := range tmpl.blocks() {
 		if err := dev.ProvWriteConfig(ctx, b, tmpl.Blocks[b]); err != nil {
 			t.Fatalf("config block %d: %v", b, err)
@@ -62,25 +62,18 @@ func TestE2EWritePubKeyWritesASlotOnceTheConfigIsLocked(t *testing.T) {
 		t.Fatalf("lock config zone: %v", err)
 	}
 
-	if err := writePubKey(ctx, dev, tfw.SlotSecureBootKey, pemG); err != nil {
-		t.Fatalf("--write-pubkey of G into slot 15: %v", err)
+	if err := writePubKey(ctx, dev, tfw.SlotImageSigning, pemG); err != nil {
+		t.Fatalf("--write-pubkey of G into slot 2: %v", err)
 	}
 	// A second write replaces the first: the slot is not locked.
-	if err := writePubKey(ctx, dev, tfw.SlotSecureBootKey, raw2G); err != nil {
-		t.Fatalf("--write-pubkey of 2G into slot 15: %v", err)
-	}
-	// Once slot 15 is slot-locked over 2G, a write into it is refused.
-	if err := dev.ProvSlotLock(ctx, tfw.SlotSecureBootKey, atCRC16(slot15Image(raw2G))); err != nil {
-		t.Fatalf("slot-lock slot 15 over 2G: %v", err)
+	if err := writePubKey(ctx, dev, tfw.SlotImageSigning, raw2G); err != nil {
+		t.Fatalf("--write-pubkey of 2G into slot 2: %v", err)
 	}
 	if err := writePubKey(ctx, dev, tfw.SlotSecureBootKey, pemG); !errors.As(err, &st) || st != tfw.StatusErrProtectedRegion {
 		t.Fatalf("--write-pubkey into slot-locked slot 15: %v, want PROTECTED_REGION", err)
 	}
-	// Any slot but the image slot is out of range: the DeviceID slot, and
-	// slot 2, the old blank-part map's, which no shipped image accepts.
-	for _, s := range []uint8{tfw.SlotDeviceID, 2} {
-		if err := writePubKey(ctx, dev, s, pemG); !errors.As(err, &st) || st != tfw.StatusErrRange {
-			t.Fatalf("--write-pubkey into slot %d: %v, want RANGE", s, err)
-		}
+	// Any slot but the two public-key slots is out of range.
+	if err := writePubKey(ctx, dev, tfw.SlotDeviceID, pemG); !errors.As(err, &st) || st != tfw.StatusErrRange {
+		t.Fatalf("--write-pubkey into the DeviceID slot: %v, want RANGE", err)
 	}
 }

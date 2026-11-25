@@ -312,15 +312,4 @@ _Static_assert(TFW_EEPROM_SIZE == (E2END + 1u), "EEPROM size");
 #define TFW_ELEMENT_PIN_SDA  20u   /* D20, PD1 */
 #define TFW_ELEMENT_PIN_SCL  21u   /* D21, PD0 */
 
-/* The TFLXTLS ships configured, so our roles take its slots: option (a1) of
- * docs/device-provisioning/adr-trustflex-608c-slot-map.md, approved by owner
- * ruling 1243. The UDS is seeded into slot 6 and slot-locked; the
- * image-signing key is written to slot 15 and slot-locked. */
-#ifndef TFW_ATECC_SLOT_UDS
-#define TFW_ATECC_SLOT_UDS   6u
-#endif
-#ifndef TFW_ATECC_SLOT_IMAGE
-#define TFW_ATECC_SLOT_IMAGE 15u
-#endif
-
 #endif /* TFW_BOARD_ATMEGA2560_H */

@@ -45,10 +45,6 @@ var b64 = base64.RawURLEncoding.Strict()
 type provRecord struct {
 	UEID string        `json:"ueid"`
 	Cnf  *confirmation `json:"cnf,omitempty"`
-	// ElementConfig is the element's whole 128-byte config zone, base64url,
-	// as the TrustFLEX plan read it before writing anything: the part's
-	// shipped slot policy, which no template states.
-	ElementConfig string `json:"tfw_element_config,omitempty"`
 }
 
 type confirmation struct {
@@ -111,11 +107,6 @@ func readRecord(path string) (*provRecord, error) {
 	if err != nil || len(id) != 1+tfw.SerialLen || id[0] != ueidTypeRAND {
 		return nil, &recordError{fmt.Sprintf("%s: ueid is not 0x01 followed by a %d-byte serial", path, tfw.SerialLen)}
 	}
-	if r.ElementConfig != "" {
-		if cfg, err := b64.DecodeString(r.ElementConfig); err != nil || len(cfg) != elementConfigLen {
-			return nil, &recordError{fmt.Sprintf("%s: tfw_element_config is not %d bytes, base64url", path, elementConfigLen)}
-		}
-	}
 	if r.Cnf != nil {
 		if r.Cnf.JWK == nil {
 			return nil, &recordError{path + ": cnf has no jwk"}
@@ -138,9 +129,8 @@ type memberNames map[string]memberNames
 // recordMembers is the record's members, case-sensitive as JWT and JWK
 // member names are (RFC 7519 §4, RFC 7517 §4).
 var recordMembers = memberNames{
-	"ueid":               nil,
-	"cnf":                {"jwk": {"kty": nil, "crv": nil, "x": nil, "y": nil}},
-	"tfw_element_config": nil,
+	"ueid": nil,
+	"cnf":  {"jwk": {"kty": nil, "crv": nil, "x": nil, "y": nil}},
 }
 
 // checkMembers walks the next value and refuses a member that is not exactly
@@ -265,40 +255,5 @@ func recordPoint(path string, xy []byte) error {
 		return nil
 	}
 	r.Cnf = &confirmation{JWK: k}
-	return writeRecord(path, r)
-}
-
-// elementConfigLen is the element's whole config zone: four 32-byte blocks.
-const elementConfigLen = 4 * 32
-
-// recordTrustFLEX joins a pre-locked part's config zone and its shipped
-// DeviceID point to the record, before the TrustFLEX plan writes anything.
-// The point is Microchip's, so a record that already names this same point
-// and config is this device's record and is kept; one that names another is
-// another device's and is refused, unwritten.
-func recordTrustFLEX(path string, cfg, xy []byte) error {
-	r, err := readRecord(path)
-	if err != nil {
-		return err
-	}
-	if len(cfg) != elementConfigLen {
-		return &recordError{fmt.Sprintf("config zone is %d bytes, want %d", len(cfg), elementConfigLen)}
-	}
-	k, err := jwkOf(xy)
-	if err != nil {
-		return err
-	}
-	enc := b64.EncodeToString(cfg)
-	if r.Cnf != nil && *r.Cnf.JWK != *k {
-		return &recordError{path + " holds a different DeviceID point: this element is a different device; not overwritten"}
-	}
-	if r.ElementConfig != "" && r.ElementConfig != enc {
-		return &recordError{path + " holds a different config zone: this element is a different device; not overwritten"}
-	}
-	if r.Cnf != nil && r.ElementConfig != "" {
-		return nil
-	}
-	r.Cnf = &confirmation{JWK: k}
-	r.ElementConfig = enc
 	return writeRecord(path, r)
 }

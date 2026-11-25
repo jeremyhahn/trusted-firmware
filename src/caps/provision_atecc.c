@@ -167,18 +167,31 @@ tfw_status_t tfw_prov_genkey(uint8_t slot, uint8_t pub[64])
     return st;
 }
 
-/* The CRC-16 of the UDS this boot's PROV_SEED_UDS wrote, for PROV_SLOT_LOCK
- * of that slot; valid from a successful seed until the slot lock succeeds. */
-static uint16_t s_uds_crc;
-static uint8_t  s_uds_crc_valid;
+tfw_status_t tfw_prov_pubkey(uint8_t slot, uint8_t pub[64])
+{
+    tfw_status_t st;
+
+    if (slot != TFW_ATECC_SLOT_DEVICEID) {
+        return TFW_ERR_RANGE;
+    }
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
+    }
+    /* Public mode recomputes the point from the private key already in the
+     * slot. It does NOT generate a new one -- that is PROV_GENKEY, and keeping
+     * them separate is why `tfwprov --verify` can read a device back without any
+     * chance of replacing the identity it is verifying. */
+    st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
+                       slot, 0, 0u, pub, 64u, TFW_ATECC_T_GENKEY);
+    (void)tfw_atecc_sleep();
+    return st;
+}
 
 tfw_status_t tfw_prov_seed_uds(uint8_t slot)
 {
     uint8_t     rnd[32];
     tfw_status_t st;
 
-    /* A refused or failed seed leaves no CRC behind. */
-    s_uds_crc_valid = 0u;
     if (slot != TFW_ATECC_SLOT_UDS) {
         return TFW_ERR_RANGE;
     }
@@ -215,14 +228,6 @@ tfw_status_t tfw_prov_seed_uds(uint8_t slot)
                            (uint8_t)(TFW_ATECC_ZONE_DATA | TFW_ATECC_ZONE_32),
                            (uint16_t)((uint16_t)slot << 3), rnd, 32u, 0, 0u, TFW_ATECC_T_WRITE);
     }
-    /* PROV_SLOT_LOCK of this slot needs the UDS's CRC and the host never
-     * holds the UDS, so it is taken here, while the value is still in SRAM.
-     * The CRC spans the 32 bytes written. Whether the real part's SlotLock
-     * CRC spans the whole 36-byte slot is a bench question. */
-    if (st == TFW_OK) {
-        s_uds_crc       = tfw_atecc_crc16(rnd, 32u);
-        s_uds_crc_valid = 1u;
-    }
     /* The copy in SRAM is scrubbed whether or not the write succeeded. A
      * failed provisioning attempt must not leave the secret in a buffer for
      * the next command to reuse. */
@@ -232,15 +237,10 @@ tfw_status_t tfw_prov_seed_uds(uint8_t slot)
 }
 
 /* The data slots PROV_WRITE_PUBKEY writes: the image-signing key's slot as
- * tfw-boot reads it (board-profile data, tfw/config.h), and slot 15, the
- * TFLXTLS's secure-boot public key. On a board that follows the slot-map ADR's
- * option (a1) the two are the same slot, and the check names it once. */
-#define PUBKEY_SLOT_TFLXTLS 15u
-
-static uint8_t pubkey_slot_ok(uint8_t slot)
-{
-    return (uint8_t)(slot == TFW_ATECC_SLOT_IMAGE || slot == PUBKEY_SLOT_TFLXTLS);
-}
+ * tfw-boot reads it today, and slot 15, the TFLXTLS's secure-boot public key,
+ * where the slot-map ADR's option (a) moves it. That ADR is PROPOSED, so the
+ * set is one table and ratifying a slot changes one line. */
+static const uint8_t kPubkeySlots[] = { TFW_ATECC_SLOT_IMAGE, 15u };
 
 /* A stored P-256 public key is 72 bytes, pad4|X|pad4|Y, the form Verify's
  * stored mode reads. It is read back as two 32-byte blocks and then two 4-byte
@@ -263,37 +263,6 @@ static tfw_status_t pubkey_read(uint8_t slot, uint8_t stored[PUBKEY_STORED_LEN])
     return st;
 }
 
-tfw_status_t tfw_prov_pubkey(uint8_t slot, uint8_t pub[64])
-{
-    uint8_t      stored[PUBKEY_STORED_LEN];
-    tfw_status_t st;
-
-    if (slot != TFW_ATECC_SLOT_DEVICEID && !pubkey_slot_ok(slot)) {
-        return TFW_ERR_RANGE;
-    }
-    if (tfw_atecc_wake() != TFW_OK) {
-        return TFW_ERR_NACK;
-    }
-    if (slot == TFW_ATECC_SLOT_DEVICEID) {
-        /* Public mode recomputes the point from the private key already in
-         * the slot. It does NOT generate a new one -- that is PROV_GENKEY, and
-         * keeping them separate is why `tfwprov --verify` can read a device
-         * back without any chance of replacing the identity it is verifying. */
-        st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
-                           slot, 0, 0u, pub, 64u, TFW_ATECC_T_GENKEY);
-    } else {
-        /* A public-key slot holds no private key for GenKey to work from: its
-         * stored key is read back in its pad4|X|pad4|Y form. */
-        st = pubkey_read(slot, stored);
-        if (st == TFW_OK) {
-            memcpy(pub, &stored[4], 32u);
-            memcpy(&pub[32], &stored[40], 32u);
-        }
-    }
-    (void)tfw_atecc_sleep();
-    return st;
-}
-
 tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coord[32],
                                    uint8_t back[64])
 {
@@ -302,7 +271,9 @@ tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coo
     uint8_t      i;
     tfw_status_t st;
 
-    if (!pubkey_slot_ok(slot) || half > 1u) {
+    for (i = 0u; i < sizeof kPubkeySlots && kPubkeySlots[i] != slot; i++) {
+    }
+    if (i == sizeof kPubkeySlots || half > 1u) {
         return TFW_ERR_RANGE;
     }
     if (tfw_atecc_wake() != TFW_OK) {
@@ -339,115 +310,6 @@ tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coo
         memcpy(back, &stored[4], 32u);
         memcpy(&back[32], &stored[40], 32u);
     }
-    (void)tfw_atecc_sleep();
-    return st;
-}
-
-/* The 32-byte message of SlotLock's UDS pre-check. Fixed, so the check says
- * only "this slot keys an HMAC"; its output is never sent. */
-static const uint8_t kUdsCheckMsg[32] = { 0u };
-
-/* ADR step 4: before the UDS slot is locked for good, prove the element will
- * key an HMAC with it. A slot that cannot is not worth locking -- the lock
- * would only make the failure permanent. The output is derived from the UDS,
- * so it is scrubbed here and never reaches the reply. */
-static tfw_status_t uds_hmac_check(uint8_t slot)
-{
-    uint8_t           mac[32];
-    volatile uint8_t *v = mac;
-    uint8_t           i;
-    tfw_status_t      st;
-
-    st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_START, slot,
-                       0, 0u, 0, 0u, TFW_ATECC_T_SHA);
-    if (st == TFW_OK) {
-        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_END,
-                           (uint16_t)sizeof kUdsCheckMsg, kUdsCheckMsg,
-                           (uint8_t)sizeof kUdsCheckMsg, mac, 32u, TFW_ATECC_T_SHA);
-    }
-    for (i = 0u; i < 32u; i++) {
-        v[i] = 0u;
-    }
-    return st;
-}
-
-tfw_status_t tfw_prov_slot_lock(uint8_t slot, uint16_t crc)
-{
-    uint8_t      blk2[32];
-    tfw_status_t st;
-
-    /* Only the two slots the slot map gives us. Any other slot on a TrustFLEX
-     * part belongs to Microchip's configuration, and locking it is not ours to
-     * do; nothing is sent for it. */
-    if (slot != TFW_ATECC_SLOT_UDS && slot != TFW_ATECC_SLOT_IMAGE) {
-        return TFW_ERR_RANGE;
-    }
-    /* The host never holds the UDS, so it cannot know its CRC: the wire's crc
-     * is 0 for that slot and the firmware uses the one this boot's
-     * PROV_SEED_UDS took. With no seed this boot there is nothing to lock
-     * against. The image slot's CRC is the host's, and 0 is no CRC. */
-    if (slot == TFW_ATECC_SLOT_UDS) {
-        if (crc != 0u) {
-            return TFW_ERR_BAD_ARGC;
-        }
-        if (!s_uds_crc_valid) {
-            return TFW_ERR_BAD_STATE;
-        }
-        crc = s_uds_crc;
-    } else if (crc == 0u) {
-        return TFW_ERR_BAD_ARGC;
-    }
-    if (tfw_atecc_wake() != TFW_OK) {
-        return TFW_ERR_NACK;
-    }
-    /* SlotLocked, config bytes 88-89: a clear bit is a slot already locked.
-     * The status is PROV_WRITE_PUBKEY's for the same bit, so a host reads one
-     * cause the same way from both commands. */
-    st = tfw_atecc_exec(TFW_ATECC_OP_READ,
-                       (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
-                       (uint16_t)(2u * BLOCK_WORDS), 0, 0u, blk2, 32u, TFW_ATECC_T_READ);
-    if (st == TFW_OK) {
-        uint16_t unlocked = (uint16_t)(blk2[88u - 64u] | ((uint16_t)blk2[89u - 64u] << 8));
-
-        if (((unlocked >> slot) & 1u) == 0u) {
-            st = TFW_ERR_PROTECTED_REGION;
-        }
-    }
-    if (st == TFW_OK && slot == TFW_ATECC_SLOT_UDS) {
-        st = uds_hmac_check(slot);
-    }
-    /* Always with the CRC, as PROV_LOCK: the element checks the slot holds
-     * what was written -- the host's image key, or the UDS this boot's seed
-     * drew -- before the irreversible step. */
-    if (st == TFW_OK) {
-        st = tfw_atecc_exec(TFW_ATECC_OP_LOCK,
-                           (uint8_t)(TFW_ATECC_LOCK_SLOT |
-                                     (uint8_t)(slot << TFW_ATECC_LOCK_SLOT_SHIFT)),
-                           crc, 0, 0u, 0, 0u, TFW_ATECC_T_LOCK);
-    }
-    if (st == TFW_OK && slot == TFW_ATECC_SLOT_UDS) {
-        s_uds_crc_valid = 0u;
-    }
-    (void)tfw_atecc_sleep();
-    return st;
-}
-
-tfw_status_t tfw_prov_config_read(uint8_t block, uint8_t out[32])
-{
-    tfw_status_t st;
-
-    /* The whole config zone, ADR step 1: the host records it and checks the
-     * slot policies before anything irreversible. The config zone holds no
-     * secret; PROV_INFO forwards only block 0 and the lock bytes. */
-    if (block >= CONFIG_ZONE_WORDS / BLOCK_WORDS) {
-        return TFW_ERR_RANGE;
-    }
-    if (tfw_atecc_wake() != TFW_OK) {
-        return TFW_ERR_NACK;
-    }
-    st = tfw_atecc_exec(TFW_ATECC_OP_READ,
-                       (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
-                       (uint16_t)(block * BLOCK_WORDS), 0, 0u, out, 32u, TFW_ATECC_T_READ);
     (void)tfw_atecc_sleep();
     return st;
 }

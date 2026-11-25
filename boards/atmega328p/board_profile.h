@@ -257,15 +257,4 @@ _Static_assert(COM2A1_BIT == COM2A1, "COM2A1 bit position");
 #define TFW_ELEMENT_PIN_SDA  18u   /* A4, PC4 */
 #define TFW_ELEMENT_PIN_SCL  19u   /* A5, PC5 */
 
-/* The TFLXTLS ships configured, so our roles take its slots: option (a1) of
- * docs/device-provisioning/adr-trustflex-608c-slot-map.md, approved by owner
- * ruling 1243. The UDS is seeded into slot 6 and slot-locked; the
- * image-signing key is written to slot 15 and slot-locked. */
-#ifndef TFW_ATECC_SLOT_UDS
-#define TFW_ATECC_SLOT_UDS   6u
-#endif
-#ifndef TFW_ATECC_SLOT_IMAGE
-#define TFW_ATECC_SLOT_IMAGE 15u
-#endif
-
 #endif /* TFW_BOARD_ATMEGA328P_H */

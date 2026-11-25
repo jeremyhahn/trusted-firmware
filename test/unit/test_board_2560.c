@@ -333,16 +333,6 @@ static void test_the_click_element_is_on_the_twi_pins_at_0x36(void)
     expect_pin(TFW_ELEMENT_PIN_SCL, TFW_ADDR_PIND, 0u);
 }
 
-/* The TFLXTLS slot map, option (a1) of
- * docs/device-provisioning/adr-trustflex-608c-slot-map.md (owner ruling 1243):
- * the UDS in slot 6 and the image-signing key in slot 15, DeviceID in slot 0
- * as shipped. */
-static void test_the_click_element_uses_the_trustflex_slot_map(void)
-{
-    TEST_ASSERT_EQUAL_UINT8(6u, TFW_ATECC_SLOT_UDS);
-    TEST_ASSERT_EQUAL_UINT8(15u, TFW_ATECC_SLOT_IMAGE);
-}
-
 /* Clear of the Ethernet shield: D10 (W5x00 select), D4 (SD select) and the
  * Mega's SPI on D50-D53. */
 static void test_the_click_element_does_not_collide_with_the_ethernet_shield(void)
@@ -362,7 +352,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_click_element_is_on_the_twi_pins_at_0x36);
-    RUN_TEST(test_the_click_element_uses_the_trustflex_slot_map);
     RUN_TEST(test_the_click_element_does_not_collide_with_the_ethernet_shield);
     RUN_TEST(test_digital_0_through_5_zigzag_across_ports_e_and_g);
     RUN_TEST(test_digital_6_through_9_map_to_port_h);

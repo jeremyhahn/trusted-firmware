@@ -108,9 +108,6 @@ static uint8_t  clear_slots[16][72];
 #define CLEAR_READ_SLOTS 0xFD04u
 static uint8_t  config_locked;
 static uint8_t  data_locked;
-/* A pre-locked ATECC608C-TFLXTLS (tfw_model_trustflex): its UDS slot takes the
- * TempKey write with the data zone locked, until the slot is slot-locked. */
-static uint8_t  trustflex;
 
 /* The SHA engine, modelled for real.
  *
@@ -313,7 +310,7 @@ void tfw_model_reset(void)
     memset(config, 0, sizeof config);
     memset(slots, 0, sizeof slots);
     memset(clear_slots, 0, sizeof clear_slots);
-    config_locked = 0u; data_locked = 0u; trustflex = 0u;
+    config_locked = 0u; data_locked = 0u;
     sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
     i2c_init_fails = 0u;
     wake_fail_armed = 0u; wakes_left = 0u; cmd_fail_armed = 0u; commands_left = 0u;
@@ -351,45 +348,10 @@ void tfw_model_provision(void)
               slots[TFW_ATECC_SLOT_UDS]);
     provisioned = 1u;
 }
-
-/* A pre-locked ATECC608C-TFLXTLS as the TrustFLEX (a1) plan of #53 expects it
- * (docs/device-provisioning/adr-trustflex-608c-slot-map.md): both zones locked,
- * the TEST DeviceID key in slot 0, no UDS yet, and slots 6 (UDS) and 15 (image
- * key) not slot-locked, slot-lockable, slot 6 secret. THE BIT POSITIONS ARE THE
- * ADR'S ASSUMPTIONS ABOUT THE PART, NOT BENCH FACTS: SlotConfig IsSecret is bit
- * 7 and KeyConfig Lockable bit 5, as tfwprov's checks read them. */
-void tfw_model_trustflex(void)
-{
-    uint8_t priv[32], pub[64];
-
-    tfw_model_test_deviceid(priv, pub);
-    install_key(priv, pub);
-    config_locked = 1u; config[87] = 0x00u;   /* LockConfig */
-    data_locked   = 1u; config[86] = 0x00u;   /* LockValue */
-    config[88] = 0xFFu;                       /* SlotLocked: none locked */
-    config[89] = 0xFFu;
-    config[20u + 2u * TFW_ATECC_SLOT_UDS] |= (uint8_t)(1u << 7);          /* IsSecret */
-    config[96u + 2u * TFW_ATECC_SLOT_UDS] |= (uint8_t)(1u << 5);          /* Lockable */
-    config[96u + 2u * TFW_ATECC_SLOT_IMAGE] |= (uint8_t)(1u << 5);
-    trustflex = 1u;
-}
 uint8_t tfw_model_config_locked(void) { return config_locked; }
 uint8_t tfw_model_data_locked(void)   { return data_locked; }
 const uint8_t *tfw_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
 const uint8_t *tfw_model_clear_slot(uint8_t n) { return n < 16u ? clear_slots[n] : 0; }
-
-/* The CRC a SlotLock of slot n must carry: the element's CRC-16 over the
- * slot as the model holds it -- the clear-readable copy for a slot in
- * CLEAR_READ_SLOTS, the secret copy for any other. The part sizes slots
- * differently (36 or 72 bytes); the model's contents are what it checks. */
-uint16_t tfw_model_slot_crc(uint8_t n)
-{
-    n = (uint8_t)(n & 0x0Fu);
-    if (((CLEAR_READ_SLOTS >> n) & 1u) != 0u) {
-        return tfw_atecc_crc16(clear_slots[n], (uint8_t)sizeof clear_slots[0]);
-    }
-    return tfw_atecc_crc16(slots[n], (uint8_t)sizeof slots[0]);
-}
 void tfw_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
 void tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64])
 {
@@ -683,16 +645,7 @@ static void handle_command(const uint8_t *p, uint8_t n)
          * source, so what lands is what Nonce loaded rather than what the
          * packet carried. Modelling that is the point -- it is how the test can
          * assert the secret never crossed the wire. */
-        if (data_locked) {
-            /* The TFLXTLS's UDS slot is the one exception, and only until it
-             * is slot-locked (ADR (a1), an assumption about the part). */
-            uint16_t unlocked = (uint16_t)(config[88] | ((uint16_t)config[89] << 8));
-            if (!trustflex || param2 >> 3 != TFW_ATECC_SLOT_UDS ||
-                ((unlocked >> TFW_ATECC_SLOT_UDS) & 1u) == 0u) {
-                respond_status(0x0Fu);
-                return;
-            }
-        }
+        if (data_locked) { respond_status(0x0Fu); return; }
         if (param2 >> 3 < 16u) {
             memcpy(slots[param2 >> 3], tfw_model_tempkey(), 32u);
             /* The UDS PROV_SEED_UDS wrote is as present as the one
@@ -708,24 +661,6 @@ static void handle_command(const uint8_t *p, uint8_t n)
     }
 
     case TFW_ATECC_OP_LOCK:
-        /* SlotLock mode (mode bits 0-1 = 2, slot in bits 2-5): param2 is the
-         * CRC of the slot's contents, which the part checks before it clears
-         * the slot's SlotLocked bit (config 88-89). A slot already locked, or a
-         * CRC that does not match, is an execution error and changes nothing. */
-        if ((param1 & 0x03u) == TFW_ATECC_LOCK_SLOT) {
-            uint8_t  s   = (uint8_t)((param1 >> TFW_ATECC_LOCK_SLOT_SHIFT) & 0x0Fu);
-            uint16_t bit = (uint16_t)(1u << s);
-            uint16_t unlocked = (uint16_t)(config[88] | ((uint16_t)config[89] << 8));
-
-            if ((param1 & TFW_ATECC_LOCK_NO_CRC) != 0u)  { respond_status(0x03u); return; }
-            if ((unlocked & bit) == 0u)                  { respond_status(0x0Fu); return; }
-            if (param2 != tfw_model_slot_crc(s))         { respond_status(0x0Fu); return; }
-            unlocked = (uint16_t)(unlocked & (uint16_t)~bit);
-            config[88] = (uint8_t)(unlocked & 0xFFu);
-            config[89] = (uint8_t)(unlocked >> 8);
-            respond_status(0x00u);
-            return;
-        }
         /* The summary CRC is in param2. A zero would be the no-CRC form, which
          * the firmware refuses before it ever reaches here -- so the model
          * treats it as the parse error the part would give. */

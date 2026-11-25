@@ -4,7 +4,6 @@
 package tfw
 
 import (
-	"bytes"
 	"context"
 	"testing"
 
@@ -106,64 +105,4 @@ func TestProvWriteConfigRefusesAWrongSizedBlock(t *testing.T) {
 	for _, n := range []int{0, 31, 33} {
 		require.Error(t, d.ProvWriteConfig(context.Background(), 2, make([]byte, n)))
 	}
-}
-
-func TestProvSlotLockSendsTheSlotAndItsCRC(t *testing.T) {
-	link := &recordingLink{}
-	require.NoError(t, New(link).ProvSlotLock(context.Background(), SlotSecureBootKey, 0xBEEF))
-	assert.Equal(t, CmdProvSlotLock, link.cmd)
-	assert.Equal(t, []byte{15, 0xEF, 0xBE}, link.payload)
-}
-
-// The UDS slot's CRC is the firmware's: the host never holds the UDS, so the
-// request carries a zero CRC and the firmware uses the one this boot's
-// PROV_SEED_UDS took. Slot 6 is the UDS slot of every board's map.
-func TestProvSlotLockUDSSendsTheSlotAndAZeroCRC(t *testing.T) {
-	link := &recordingLink{}
-	require.NoError(t, New(link).ProvSlotLockUDS(context.Background(), SlotTrustFLEXUDS))
-	assert.Equal(t, CmdProvSlotLock, link.cmd)
-	assert.Equal(t, []byte{6, 0, 0}, link.payload)
-}
-
-// The slot-map ADR (adr-trustflex-608c-slot-map.md) keeps SlotDeviceID and
-// SlotUDS at their values (the blank-part map, include/tfw/config.h) and puts
-// SlotTrustFLEXUDS, the TrustFLEX map every board profile builds, beside them.
-func TestSlotConstantsKeepTheADRValues(t *testing.T) {
-	assert.Equal(t, uint8(0), SlotDeviceID)
-	assert.Equal(t, uint8(1), SlotUDS)
-	assert.Equal(t, uint8(6), SlotTrustFLEXUDS)
-}
-
-func TestProvSlotLockRefusesAZeroCRCBeforeSending(t *testing.T) {
-	link := &recordingLink{}
-	err := New(link).ProvSlotLock(context.Background(), SlotSecureBootKey, 0)
-	var rangeErr *ArgRangeError
-	require.ErrorAs(t, err, &rangeErr)
-	assert.Equal(t, Cmd(0), link.cmd, "nothing may reach the wire")
-}
-
-func TestProvConfigReadReturnsTheBlock(t *testing.T) {
-	block := bytes.Repeat([]byte{0xA5}, 32)
-	link := &recordingLink{cannedLink: cannedLink{payload: block}}
-	got, err := New(link).ProvConfigRead(context.Background(), 2)
-	require.NoError(t, err)
-	assert.Equal(t, CmdProvConfigRead, link.cmd)
-	assert.Equal(t, []byte{2}, link.payload)
-	assert.Equal(t, block, got)
-}
-
-func TestProvConfigReadRefusesABlockPastThreeBeforeSending(t *testing.T) {
-	link := &recordingLink{}
-	_, err := New(link).ProvConfigRead(context.Background(), 4)
-	var rangeErr *ArgRangeError
-	require.ErrorAs(t, err, &rangeErr)
-	assert.Equal(t, Cmd(0), link.cmd, "nothing may reach the wire")
-}
-
-func TestProvConfigReadRefusesAShortReply(t *testing.T) {
-	link := &cannedLink{payload: make([]byte, 31)}
-	_, err := New(link).ProvConfigRead(context.Background(), 0)
-	var short *ShortReplyError
-	require.ErrorAs(t, err, &short)
-	assert.Equal(t, 32, short.Need)
 }

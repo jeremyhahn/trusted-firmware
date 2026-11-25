@@ -133,8 +133,6 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
 #define TFW_ATECC_LOCK_CONFIG     0x00u
 #define TFW_ATECC_LOCK_DATA       0x01u
 #define TFW_ATECC_LOCK_NO_CRC     0x80u
-#define TFW_ATECC_LOCK_SLOT       0x02u  /* SlotLock: one data slot, slot in mode bits 2-5 */
-#define TFW_ATECC_LOCK_SLOT_SHIFT 2u
 #define TFW_ATECC_ZONE_CONFIG     0x00u
 #define TFW_ATECC_ZONE_DATA       0x02u
 #define TFW_ATECC_ZONE_32         0x80u
@@ -146,9 +144,8 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
  * the element would simply refuse, or worse, succeed against the wrong key.
  */
 #define TFW_ATECC_SLOT_DEVICEID 0u  /* ECC private key, never readable, the DICE ECA key */
-/* TFW_ATECC_SLOT_UDS (the UDS, as an HMAC key that never leaves the part) and
- * TFW_ATECC_SLOT_IMAGE (the image-signing public key, boot's slot) are
- * board-profile data: include/tfw/config.h. */
+#define TFW_ATECC_SLOT_UDS      1u  /* the UDS, as an HMAC key that never leaves the part */
+#define TFW_ATECC_SLOT_IMAGE    2u  /* the board id's image-signing public key (boot's slot) */
 #define TFW_ATECC_COUNTER_BOOT  0u  /* monotonic boot count and the anti-rollback floor */
 
 /* The largest command payload tfw_atecc_exec's SHARED, FILE-STATIC buffer

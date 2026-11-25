@@ -115,25 +115,3 @@ tfw_status_t tfw_prov_cmd_write_pubkey(tfw_reader_t *r, tfw_writer_t *w)
     }
     return st;
 }
-
-tfw_status_t tfw_prov_cmd_slot_lock(tfw_reader_t *r, tfw_writer_t *w)
-{
-    uint8_t  slot = tfw_read_u8(r);
-    uint16_t crc  = tfw_read_u16(r);
-
-    (void)w;
-    return tfw_prov_slot_lock(slot, crc);
-}
-
-tfw_status_t tfw_prov_cmd_config_read(tfw_reader_t *r, tfw_writer_t *w)
-{
-    uint8_t      block = tfw_read_u8(r);
-    uint8_t      cfg[32];
-    tfw_status_t st;
-
-    st = tfw_prov_config_read(block, cfg);
-    if (st == TFW_OK) {
-        tfw_write_blob(w, cfg, 32u);
-    }
-    return st;
-}

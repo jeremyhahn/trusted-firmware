@@ -233,25 +233,4 @@ const (
 	// FrameProvWritePubKeyProtectedResp is its refusal of a slot whose
 	// SlotLocked bit is clear: TFW_ERR_PROTECTED_REGION (16).
 	FrameProvWritePubKeyProtectedResp = "\xa5\x03\x07\xfb\x10\x86\x47"
-
-	// FrameProvSlotLockReq is TFW_CMD_PROV_SLOT_LOCK (0x7D), seq 9: slot 15,
-	// slot CRC 0xBEEF little-endian.
-	FrameProvSlotLockReq = "\xa5\x05\x09\x7d\x0f\xef\xbe\x36\xf4"
-	// FrameProvSlotLockResp is its response, status OK, no payload.
-	FrameProvSlotLockResp = "\xa5\x03\x09\xfd\x00\x10\xe4"
-	// FrameProvSlotLockRangeResp is its refusal of a slot other than the UDS
-	// and image slots: TFW_ERR_RANGE (11).
-	FrameProvSlotLockRangeResp = "\xa5\x03\x09\xfd\x0b\x7b\x55"
-	// FrameProvSlotLockProtectedResp is its refusal of a slot already
-	// slot-locked: TFW_ERR_PROTECTED_REGION (16).
-	FrameProvSlotLockProtectedResp = "\xa5\x03\x09\xfd\x10\x21\xf6"
-	// FrameProvConfigReadReq is TFW_CMD_PROV_CONFIG_READ (0x7E), seq 10:
-	// block 2.
-	FrameProvConfigReadReq = "\xa5\x03\x0a\x7e\x02\xc9\xd3"
-	// FrameProvConfigReadResp is its response, status OK: the 32-byte block,
-	// here 40 41 .. 5F.
-	FrameProvConfigReadResp = "\xa5\x23\x0a\xfe\x00\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4a\x4b\x4c\x4d\x4e\x4f\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f\x38\xf2"
-	// FrameProvConfigReadRangeResp is its refusal of a block past the config
-	// zone: TFW_ERR_RANGE (11).
-	FrameProvConfigReadRangeResp = "\xa5\x03\x0a\xfe\x0b\x78\x59"
 )

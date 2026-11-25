@@ -6,11 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
@@ -29,10 +27,6 @@ func (t *template) blocks() []uint8 {
 }
 
 func plan(t *template, info *tfw.ElementInfo) {
-	if t.Plan == planTrustFLEX {
-		planTrustFLEXSteps(t, info)
-		return
-	}
 	fmt.Printf("\nplan (template %q) -- DRY RUN, nothing will be written\n\n", t.Name)
 	for _, b := range t.blocks() {
 		fmt.Printf("  write config block %d   %s\n", b, hex.EncodeToString(t.Blocks[b][:8])+"...")
@@ -61,9 +55,6 @@ func plan(t *template, info *tfw.ElementInfo) {
 // generating one. The separation of ProvPubKey from ProvGenKey is what makes
 // this safe to run against a provisioned device.
 func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) ([]byte, error) {
-	if t.Plan == planTrustFLEX {
-		return runVerifyTrustFLEX(ctx, dev, t, info)
-	}
 	var problems []string
 	var point []byte
 
@@ -110,9 +101,6 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 // refuses -- but it leaves a part partway through a procedure that cannot be
 // restarted.
 func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) ([]byte, error) {
-	if t.Plan == planTrustFLEX {
-		return runCommitTrustFLEX(ctx, dev, t, info, nil)
-	}
 	if info.DataLocked {
 		return nil, &commitError{"the data zone is already locked; this part cannot be reconfigured"}
 	}
@@ -163,9 +151,6 @@ func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 // element is touched: a refusal after the data zone locks would leave a
 // device no record names.
 func commitRecorded(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo, recordPath string) error {
-	if t.Plan == planTrustFLEX {
-		return commitRecordedTrustFLEX(ctx, dev, t, info, recordPath)
-	}
 	if recordPath != "" {
 		if err := recordReadyForPoint(recordPath); err != nil {
 			return err
@@ -189,258 +174,11 @@ func verifyRecorded(ctx context.Context, dev *tfw.Device, t *template, info *tfw
 	if err != nil || recordPath == "" {
 		return err
 	}
-	if t.Plan == planTrustFLEX {
-		// The point is Microchip's: the record must already name it, from
-		// the commit, rather than learn it here.
-		r, err := readRecord(recordPath)
-		if err != nil {
-			return err
-		}
-		if r.Cnf == nil {
-			return &recordError{recordPath + " names no DeviceID point: run --commit with --record first"}
-		}
-	}
 	if err := recordPoint(recordPath, pub); err != nil {
 		return err
 	}
 	fmt.Printf("record: %s names this element's DeviceID\n", recordPath)
 	return nil
-}
-
-// The config-zone fields the TrustFLEX plan reads (ATECC608 config map;
-// DS40002515B §3.2.3 for the shipped values). Each is a little-endian 16-bit
-// word: SlotConfig[n] at 20+2n, SlotLocked at 88 (bit n clear: slot n is
-// slot-locked), KeyConfig[n] at 96+2n.
-const (
-	cfgSlotConfig = 20
-	cfgSlotLocked = 88
-	cfgKeyConfig  = 96
-
-	slotConfigIsSecret         = 1 << 7  // the slot is never read in the clear
-	keyConfigLockable          = 1 << 5  // option 1: a SlotLock can still lock it
-	keyConfigPersistentDisable = 1 << 12 // usable only after a SecureBoot sets the Persistent Latch
-)
-
-func cfgWord(cfg []byte, off int) uint16 { return binary.LittleEndian.Uint16(cfg[off:]) }
-
-func cfgSlotIsLocked(cfg []byte, slot uint8) bool {
-	return cfgWord(cfg, cfgSlotLocked)&(1<<slot) == 0
-}
-
-// atCRC16 is the element's CRC-16 (polynomial 0x8005, each byte taken least
-// significant bit first, register starting at zero), the summary a SlotLock
-// checks the slot's contents against. It goes on the wire low byte first.
-func atCRC16(data []byte) uint16 {
-	const poly = 0x8005
-	var crc uint16
-	for _, b := range data {
-		for shift := 0; shift < 8; shift++ {
-			dataBit := uint16(b>>shift) & 1
-			crcBit := crc >> 15
-			crc <<= 1
-			if dataBit != crcBit {
-				crc ^= poly
-			}
-		}
-	}
-	return crc
-}
-
-// slot15Image is slot 15's 72 bytes after PROV_WRITE_PUBKEY, which stores the
-// key in the element's public-key format, pad4‖X‖pad4‖Y with zero pads
-// (docs/device-provisioning/api.md). An element whose slot holds anything else
-// answers the SlotLock with an error and locks nothing, so a wrong image fails
-// safe.
-func slot15Image(key []byte) []byte {
-	img := make([]byte, 0, 72)
-	img = append(img, 0, 0, 0, 0)
-	img = append(img, key[:32]...)
-	img = append(img, 0, 0, 0, 0)
-	return append(img, key[32:64]...)
-}
-
-// readConfigZone reads the whole 128-byte config zone, block by block.
-func readConfigZone(ctx context.Context, dev *tfw.Device) ([]byte, error) {
-	cfg := make([]byte, 0, elementConfigLen)
-	for b := uint8(0); b < 4; b++ {
-		blk, err := dev.ProvConfigRead(ctx, b)
-		if err != nil {
-			return nil, fmt.Errorf("read config block %d: %w", b, err)
-		}
-		cfg = append(cfg, blk...)
-	}
-	return cfg, nil
-}
-
-// trustflexStops is step 1's stop conditions, from the config zone alone.
-func trustflexStops(cfg []byte) []string {
-	var stops []string
-	for _, s := range []uint8{tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey} {
-		if cfgWord(cfg, cfgKeyConfig+2*int(s))&keyConfigLockable == 0 {
-			stops = append(stops, fmt.Sprintf("slot %d is permanent (option 2): it cannot be written and slot-locked", s))
-		}
-		if cfgSlotIsLocked(cfg, s) {
-			stops = append(stops, fmt.Sprintf("slot %d is already slot-locked (config bytes 88-89)", s))
-		}
-	}
-	if cfgWord(cfg, cfgKeyConfig+2*int(tfw.SlotDeviceID))&keyConfigPersistentDisable != 0 {
-		stops = append(stops, "slot 0 is tied to the Persistent Latch: it signs only after a SecureBoot, which tfw-boot does not run")
-	}
-	return stops
-}
-
-func planTrustFLEXSteps(t *template, info *tfw.ElementInfo) {
-	fmt.Printf("\nplan (template %q, TrustFLEX) -- DRY RUN, nothing will be written\n\n", t.Name)
-	fmt.Println("  1. read the config zone into the record; stop if slot 6 or 15 is permanent,")
-	fmt.Println("     slot 0 is latched, or slot 6 or 15 is already slot-locked")
-	fmt.Printf("  2. read the DeviceID point  slot %d, into the record\n", tfw.SlotDeviceID)
-	fmt.Printf("  3. seed UDS from the element's TRNG  slot %d\n", tfw.SlotTrustFLEXUDS)
-	fmt.Printf("  4. check HMAC keyed by slot %d  (the firmware, before the lock in step 6)\n", tfw.SlotTrustFLEXUDS)
-	fmt.Printf("  5. write the image-signing key (--image-key)  slot %d\n", tfw.SlotSecureBootKey)
-	fmt.Printf("  6. slot-lock slots %d and %d   IRREVERSIBLE\n", tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey)
-	fmt.Println("  7. then run --verify: slot 0 holds a key, slot 6 is not readable, slot 15 holds")
-	fmt.Println("     the key, and slots 6 and 15 are slot-locked")
-	fmt.Println()
-	if !info.ConfigLocked || !info.DataLocked {
-		fmt.Println("  NOTE: this part's zones are not both locked: it is not a pre-locked TrustFLEX")
-		fmt.Println("        part, and --commit will refuse it. Use the blank-part template.")
-	}
-}
-
-// runCommitTrustFLEX runs the TrustFLEX (a1) plan's steps 1 to 6 in order and
-// stops at the first failure. Every stop condition is checked before anything
-// is written, and no SlotLock is sent until both slots' CRCs are known.
-// record, if set, takes the config zone and the slot-0 point after step 2,
-// before anything is written.
-func runCommitTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo,
-	record func(cfg, xy []byte) error) ([]byte, error) {
-	if len(t.ImageKey) != 64 {
-		return nil, &commitError{"the TrustFLEX plan needs the image-signing key: pass --image-key"}
-	}
-	if !info.ConfigLocked || !info.DataLocked {
-		return nil, &commitError{"this part's zones are not both locked: it is not a pre-locked TrustFLEX part"}
-	}
-
-	fmt.Println("  1. reading the config zone")
-	cfg, err := readConfigZone(ctx, dev)
-	if err != nil {
-		return nil, err
-	}
-	if stops := trustflexStops(cfg); len(stops) > 0 {
-		return nil, &commitError{"nothing written: " + strings.Join(stops, "; ")}
-	}
-
-	fmt.Println("  2. reading the DeviceID point")
-	pub, err := dev.ProvPubKey(ctx, tfw.SlotDeviceID)
-	if err != nil {
-		return nil, fmt.Errorf("read DeviceID point: %w", err)
-	}
-	if bytes.Equal(pub, make([]byte, 64)) {
-		return nil, &commitError{"slot 0 holds no key; nothing written"}
-	}
-	fmt.Printf("  deviceid %s\n", hex.EncodeToString(pub))
-	if record != nil {
-		if err := record(cfg, pub); err != nil {
-			return nil, err
-		}
-	}
-
-	fmt.Println("  3. seeding the UDS from the element's TRNG")
-	if err := dev.ProvSeedUDS(ctx, tfw.SlotTrustFLEXUDS); err != nil {
-		return nil, fmt.Errorf("seed UDS: %w", err)
-	}
-
-	fmt.Println("  4. the HMAC check keyed by slot 6 runs in the firmware before its lock in step 6")
-
-	fmt.Println("  5. writing the image-signing key")
-	if err := dev.ProvWritePubKey(ctx, tfw.SlotSecureBootKey, t.ImageKey); err != nil {
-		return nil, fmt.Errorf("write image-signing key: %w", err)
-	}
-
-	// Slot 6's CRC is the firmware's, of the UDS step 3 drew (ProvSlotLockUDS
-	// sends none); slot 15's is the host's, of the key step 5 wrote.
-	keyCRC := atCRC16(slot15Image(t.ImageKey))
-	if keyCRC == 0 {
-		return nil, &commitError{"slot 15's lock CRC is zero, which would lock without checking; nothing locked"}
-	}
-	fmt.Println("  6. slot-locking slots 6 and 15 (irreversible)")
-	if err := dev.ProvSlotLockUDS(ctx, tfw.SlotTrustFLEXUDS); err != nil {
-		return nil, fmt.Errorf("slot-lock slot %d: %w", tfw.SlotTrustFLEXUDS, err)
-	}
-	if err := dev.ProvSlotLock(ctx, tfw.SlotSecureBootKey, keyCRC); err != nil {
-		return nil, fmt.Errorf("slot-lock slot %d: %w", tfw.SlotSecureBootKey, err)
-	}
-
-	fmt.Printf("\nrecord this, it is the provisioning record's DeviceID:\n  %s\n", hex.EncodeToString(pub))
-	return pub, nil
-}
-
-func commitRecordedTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo, recordPath string) error {
-	var record func(cfg, xy []byte) error
-	if recordPath != "" {
-		// Refused before touching the element, as on a blank part.
-		if _, err := readRecord(recordPath); err != nil {
-			return err
-		}
-		record = func(cfg, xy []byte) error { return recordTrustFLEX(recordPath, cfg, xy) }
-	}
-	if _, err := runCommitTrustFLEX(ctx, dev, t, info, record); err != nil || recordPath == "" {
-		return err
-	}
-	fmt.Printf("record: %s joins the serial to this DeviceID and config zone\n", recordPath)
-	return nil
-}
-
-// runVerifyTrustFLEX checks step 7's expectations. It reads the config zone
-// and public points and writes nothing.
-func runVerifyTrustFLEX(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) ([]byte, error) {
-	var problems []string
-	var point []byte
-	if !info.ConfigLocked || !info.DataLocked {
-		problems = append(problems, "the zones are not both locked: not a pre-locked TrustFLEX part")
-	}
-
-	cfg, err := readConfigZone(ctx, dev)
-	if err != nil {
-		problems = append(problems, fmt.Sprintf("config zone unreadable: %v", err))
-	} else {
-		if cfgWord(cfg, cfgSlotConfig+2*int(tfw.SlotTrustFLEXUDS))&slotConfigIsSecret == 0 {
-			problems = append(problems, "slot 6 is readable: its SlotConfig is not secret")
-		}
-		for _, s := range []uint8{tfw.SlotTrustFLEXUDS, tfw.SlotSecureBootKey} {
-			if !cfgSlotIsLocked(cfg, s) {
-				problems = append(problems, fmt.Sprintf("slot %d is not slot-locked", s))
-			}
-		}
-	}
-
-	pub, err := dev.ProvPubKey(ctx, tfw.SlotDeviceID)
-	switch {
-	case err != nil:
-		problems = append(problems, fmt.Sprintf("DeviceID public key unreadable: %v", err))
-	case bytes.Equal(pub, make([]byte, 64)):
-		problems = append(problems, "DeviceID slot holds no key")
-	default:
-		fmt.Printf("deviceid  %s\n", hex.EncodeToString(pub))
-		point = pub
-	}
-
-	key, err := dev.ProvPubKey(ctx, tfw.SlotSecureBootKey)
-	switch {
-	case err != nil:
-		problems = append(problems, fmt.Sprintf("slot 15 unreadable: %v", err))
-	case bytes.Equal(key, make([]byte, 64)):
-		problems = append(problems, "slot 15 holds no key")
-	case t.ImageKey != nil && !bytes.Equal(key, t.ImageKey):
-		problems = append(problems, fmt.Sprintf("slot 15 holds %s, not the --image-key", hex.EncodeToString(key)))
-	case t.ImageKey == nil:
-		fmt.Println("unchecked slot 15 against a key: pass --image-key to compare")
-	}
-
-	if len(problems) > 0 {
-		return nil, &verifyError{problems}
-	}
-	return point, nil
 }
 
 type verifyError struct{ problems []string }

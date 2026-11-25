@@ -31,8 +31,6 @@ const (
 	CmdProvPubKey      Cmd = 0x74
 	CmdProvSeedUDS     Cmd = 0x75
 	CmdProvWritePubKey Cmd = 0x7B // [slot:1][half:1][coordinate:32] -> X||Y read back
-	CmdProvSlotLock    Cmd = 0x7D // [slot:1][crc:2 LE] -> empty
-	CmdProvConfigRead  Cmd = 0x7E // [block:1] 0..3 -> the 32 bytes of that block
 )
 
 // Element zones, for Lock. Locking is irreversible on the part; see
@@ -46,33 +44,15 @@ const (
 // A template that disagrees with these produces a part that is configured for a
 // firmware other than the one that will run on it, and the element cannot be
 // unlocked to correct it.
-//
-// Two maps sit beside each other, and the slot-map ADR
-// (docs/device-provisioning/adr-trustflex-608c-slot-map.md) has SlotDeviceID
-// and SlotUDS keep their values:
-//   - SlotDeviceID and SlotUDS (0, 1) are the blank-part map, the default
-//     TFW_ATECC_SLOT_UDS in include/tfw/config.h, which tfwprov's blank-part
-//     plan seeds.
-//   - SlotTrustFLEXUDS (6) is the TrustFLEX map every board profile builds
-//     (boards/*/board_profile.h TFW_ATECC_SLOT_UDS, (a1)): the DeviceID in
-//     slot 0, as a pre-locked ATECC608C-TFLXTLS ships it, and the UDS in slot
-//     6, whose shipped I/O-protection role it takes over. tfwprov's TrustFLEX
-//     plan seeds and slot-locks it.
 const (
-	SlotDeviceID     uint8 = 0
-	SlotUDS          uint8 = 1
-	SlotTrustFLEXUDS uint8 = 6
+	SlotDeviceID uint8 = 0
+	SlotUDS      uint8 = 1
 )
 
-// The slots ProvWritePubKey writes. SlotSecureBootKey, 15, is the image
-// slot of every board's map (TFW_ATECC_SLOT_IMAGE) and the TrustFLEX part's
-// secure-boot public key (DS40002515B table 3-16).
+// The slots ProvWritePubKey writes: the boot image-signing public key
+// (docs/device-provisioning/adr-trustflex-608c-slot-map.md) and the
+// TrustFLEX part's secure-boot public key (DS40002515B table 3-16).
 const (
-	// SlotImageSigning names slot 2, the image slot before the TrustFLEX
-	// map; no shipped image accepts it any more (PROV_WRITE_PUBKEY answers
-	// StatusErrRange).
-	//
-	// Deprecated: use SlotSecureBootKey.
 	SlotImageSigning  uint8 = 2
 	SlotSecureBootKey uint8 = 15
 )
@@ -172,57 +152,6 @@ func (d *Device) ProvLock(ctx context.Context, zone uint8, summaryCRC uint16) er
 	return err
 }
 
-// ProvSlotLock locks one data slot of a part whose zones are already locked,
-// the element's Lock in SlotLock mode. THIS CANNOT BE UNDONE.
-//
-// crc is the CRC-16 of the slot's contents, and like ProvLock's summary CRC it
-// is mandatory: the element locks only if the slot holds what the host
-// believes it holds. The firmware accepts only the board's UDS slot and
-// image slot (StatusErrRange otherwise) and refuses a slot already locked
-// (StatusErrProtectedRegion). This is the image slot's lock: the UDS slot's
-// CRC is of a secret the host never holds, so a non-zero crc for it is
-// StatusErrBadArgc; lock it with ProvSlotLockUDS.
-func (d *Device) ProvSlotLock(ctx context.Context, slot uint8, crc uint16) error {
-	if crc == 0 {
-		return &ArgRangeError{Cmd: CmdProvSlotLock, Arg: "crc", Value: 0, Min: 1, Max: 0xFFFF, Unit: ""}
-	}
-	payload := []byte{slot, 0, 0}
-	binary.LittleEndian.PutUint16(payload[1:], crc)
-	_, err := d.Do(ctx, CmdProvSlotLock, payload)
-	return err
-}
-
-// ProvSlotLockUDS slot-locks the UDS slot, the element's Lock in SlotLock
-// mode. THIS CANNOT BE UNDONE.
-//
-// The UDS comes from the element's TRNG and never crosses the host link
-// (ProvSeedUDS), so the host cannot compute its CRC. The request carries a
-// zero CRC and the firmware locks against the CRC this boot's PROV_SEED_UDS
-// took, after checking that an HMAC keyed by the slot works. With no seed
-// this boot the firmware answers StatusErrBadState; a slot other than the
-// board's UDS slot is StatusErrBadArgc or StatusErrRange from the firmware.
-func (d *Device) ProvSlotLockUDS(ctx context.Context, slot uint8) error {
-	_, err := d.Do(ctx, CmdProvSlotLock, []byte{slot, 0, 0})
-	return err
-}
-
-// ProvConfigRead reads one 32-byte block, 0 to 3, of the element's config
-// zone. It writes nothing.
-func (d *Device) ProvConfigRead(ctx context.Context, block uint8) ([]byte, error) {
-	if block > 3 {
-		return nil, &ArgRangeError{Cmd: CmdProvConfigRead, Arg: "block", Value: int64(block), Min: 0, Max: 3, Unit: ""}
-	}
-	f, err := d.Do(ctx, CmdProvConfigRead, []byte{block})
-	if err != nil {
-		return nil, err
-	}
-	const need = 32
-	if len(f.Payload) != need {
-		return nil, &ShortReplyError{Cmd: CmdProvConfigRead, Got: len(f.Payload), Need: need}
-	}
-	return append([]byte(nil), f.Payload...), nil
-}
-
 // ProvGenKey generates the DeviceID keypair inside the element and returns the
 // public point. The private half never exists anywhere else.
 //
@@ -232,11 +161,9 @@ func (d *Device) ProvGenKey(ctx context.Context, slot uint8) ([]byte, error) {
 	return d.provKey(ctx, CmdProvGenKey, slot)
 }
 
-// ProvPubKey reads a public point back without writing anything. For slot 0,
-// the DeviceID, the firmware recomputes it from the private key already in
-// the slot; for the image slot (SlotSecureBootKey) it reads the stored key
-// back from the slot. It generates nothing, which is what makes `tfwprov
-// --verify` safe to run against a provisioned part.
+// ProvPubKey recomputes the public point from the private key already in the
+// slot. It generates nothing, which is what makes `tfwprov --verify` safe to run
+// against a provisioned part.
 func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error) {
 	return d.provKey(ctx, CmdProvPubKey, slot)
 }

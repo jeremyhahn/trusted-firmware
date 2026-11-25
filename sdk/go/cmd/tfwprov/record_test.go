@@ -160,42 +160,6 @@ func TestRecordPointRefusesAnotherDevicesPoint(t *testing.T) {
 	}
 }
 
-func TestRecordTrustFLEXJoinsTheConfigAndThePoint(t *testing.T) {
-	path := recordPath(t)
-	if err := recordSerial(path, testSerial(t, testSerialHex)); err != nil {
-		t.Fatal(err)
-	}
-	cfg := bytes.Repeat([]byte{0xC3}, elementConfigLen)
-	point := mustHex(t, p256GeneratorHex)
-	if err := recordTrustFLEX(path, cfg, point); err != nil {
-		t.Fatal(err)
-	}
-	r, err := readRecord(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := b64.DecodeString(r.ElementConfig); !bytes.Equal(got, cfg) || r.Cnf == nil {
-		t.Fatalf("record = %+v", r)
-	}
-	written := readFile(t, path)
-	if err := recordTrustFLEX(path, cfg, point); err != nil {
-		t.Fatalf("the same part again: %v", err)
-	}
-	wantRecordError(t, recordTrustFLEX(path, cfg, mustHex(t, p256DoubleHex)), "another point")
-	other := bytes.Repeat([]byte{0x3C}, elementConfigLen)
-	wantRecordError(t, recordTrustFLEX(path, other, point), "another config zone")
-	if readFile(t, path) != written {
-		t.Fatal("a refused join touched the record")
-	}
-}
-
-func TestReadRecordRefusesAConfigZoneOfTheWrongSize(t *testing.T) {
-	path := recordPath(t)
-	writeFile(t, path, "{\"ueid\": \"AQABAgMEBQYHCAkKCwwNDg8\", \"tfw_element_config\": \"AAAA\"}\n")
-	_, err := readRecord(path)
-	wantRecordError(t, err, "short config zone")
-}
-
 func TestRecordPointRefusesAPointNotOnTheCurve(t *testing.T) {
 	path := recordPath(t)
 	if err := recordSerial(path, testSerial(t, testSerialHex)); err != nil {

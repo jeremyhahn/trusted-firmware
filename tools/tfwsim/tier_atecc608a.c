@@ -22,16 +22,6 @@
  *                                              tfwsim-manifest also puts the
  *                                              TEST image key in the image
  *                                              slot (kImageKeySeed)
- *   pre-locked TrustFLEX    --trustflex-element  an ATECC608C-TFLXTLS as it ships:
- *                                              both zones locked, the TEST
- *                                              DeviceID key in slot 0, slots 6
- *                                              and 15 slot-lockable and not
- *                                              slot-locked, slot 6 secret; for
- *                                              `tfwprov --commit` on the
- *                                              TrustFLEX template (#53). Off by
- *                                              default. The config bit
- *                                              positions are the ADR's
- *                                              assumptions, not bench facts
  *   tfw-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
  *                                              builder tfw-boot uses
  *                                              (boot/boot_handoff.c)
@@ -78,7 +68,6 @@ static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
 static size_t   eeprom_len;
 static uint8_t  provision_element;
 static uint8_t  no_element;
-static uint8_t  trustflex_element;
 static uint8_t  have_image_hash;
 static uint8_t  boot_tier = (uint8_t)TFW_CRYPTO_SECURE_ELEMENT;
 static uint8_t  image_hash[TFW_BOOT_MEASURE_LEN];
@@ -231,11 +220,6 @@ int tfwsim_tier_option(int argc, char **argv)
         provision_element = 1u;
         return 1;
     }
-    /* #53: a pre-locked ATECC608C-TFLXTLS (tfw_model_trustflex). */
-    if (strcmp(argv[0], "--trustflex-element") == 0) {
-        trustflex_element = 1u;
-        return 1;
-    }
     /* tfwsim-auto (issue #130): a board with no element fitted. The model
      * NACKs every transfer, as an empty bus does, so CRYPTO=auto's probe
      * finds nothing and the image runs the soft root. */
@@ -314,9 +298,6 @@ void tfwsim_tier_seed(void)
 {
     tfw_model_reset();
     tfw_model_set_absent(no_element);
-    if (trustflex_element) {
-        tfw_model_trustflex();
-    }
     if (provision_element) {
         tfw_model_provision();
         /* The image slot's TEST key on tfwsim-manifest, nothing elsewhere:

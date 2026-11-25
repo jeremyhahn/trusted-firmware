@@ -2823,10 +2823,6 @@ $(HOST_DIR)/suit-emit: tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/
 # made. Never a template for an image: a device that answers PROV_* has no
 # identity worth attesting to.
 TFWSIM_PROV_SRCS := $(TFWSIM_ELEMENT_SRCS) src/caps/provision.c src/caps/provision_atecc.c tools/tfwsim/reboot.c
-# The jig takes the board's slot map (board_profile.h: UDS 6, image 15, the
-# TrustFLEX map of #53), the one tfwprov's slot plan provisions.
-# --trustflex-element starts it on a pre-locked ATECC608C-TFLXTLS instead of a
-# blank part.
 TFWSIM_PROV_DEFS := -DTFW_FEATURE_PROVISION=1
 
 ## tfwsim-prov: build the element-tier simulator as a provisioning jig image (PROV_* commands, blank element)

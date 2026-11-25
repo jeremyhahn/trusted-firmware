@@ -366,32 +366,6 @@
  * (16), no payload. */
 #define TFWV_FRAME_PROV_WRITE_PUBKEY_PROTECTED_RESP "\xa5\x03\x07\xfb\x10\x86\x47"
 
-/* PROV_SLOT_LOCK and PROV_CONFIG_READ (#53, the TrustFLEX slot map), produced
- * by the same independent CRC-16/CCITT-FALSE after it reproduced
- * TFWV_FRAME_PROV_WRITE_PUBKEY_X_REQ and _RANGE_RESP, then frozen. */
-
-/* TFW_CMD_PROV_SLOT_LOCK (0x7D), seq 0x09: slot 15, slot CRC 0xBEEF (LE). */
-#define TFWV_FRAME_PROV_SLOT_LOCK_REQ "\xa5\x05\x09\x7d\x0f\xef\xbe\x36\xf4"
-
-/* Its response, status OK: no payload. */
-#define TFWV_FRAME_PROV_SLOT_LOCK_RESP "\xa5\x03\x09\xfd\x00\x10\xe4"
-
-/* Its refusal of a slot other than the UDS and image slots: TFW_ERR_RANGE (11). */
-#define TFWV_FRAME_PROV_SLOT_LOCK_RANGE_RESP "\xa5\x03\x09\xfd\x0b\x7b\x55"
-
-/* Its refusal of a slot already slot-locked: TFW_ERR_PROTECTED_REGION (16),
- * the status PROV_WRITE_PUBKEY returns for the same state. */
-#define TFWV_FRAME_PROV_SLOT_LOCK_PROTECTED_RESP "\xa5\x03\x09\xfd\x10\x21\xf6"
-
-/* TFW_CMD_PROV_CONFIG_READ (0x7E), seq 0x0A: block 2. */
-#define TFWV_FRAME_PROV_CONFIG_READ_REQ "\xa5\x03\x0a\x7e\x02\xc9\xd3"
-
-/* Its response, status OK: the 32-byte block, here 40 41 .. 5F. */
-#define TFWV_FRAME_PROV_CONFIG_READ_RESP "\xa5\x23\x0a\xfe\x00\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4a\x4b\x4c\x4d\x4e\x4f\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f\x38\xf2"
-
-/* Its refusal of a block past the config zone: TFW_ERR_RANGE (11). */
-#define TFWV_FRAME_PROV_CONFIG_READ_RANGE_RESP "\xa5\x03\x0a\xfe\x0b\x78\x59"
-
 /* --------------------------------------------- application evidence (#51) */
 /* The claims set ATTEST_CERT and ATTEST_CSR carry, with and without an
  * application's evidence: the inputs of testdata/uccs_vectors.h, and as claim

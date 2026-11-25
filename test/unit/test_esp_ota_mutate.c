@@ -9,11 +9,13 @@
  *   - OTA_BEGIN's length at one past the trailer and at the slot's size, and
  *     a refused esp_ota_begin with a session in flight (one abort, no stale
  *     handle);
+ *   - OTA_BEGIN's per-boot budget: spent by a failed esp_ota_begin, not by a
+ *     refusal before the erase, and refilled by a successful activate;
  *   - OTA_DATA's last byte exactly, and one past it;
  *   - the activate check's image end at each bound of its range (the
  *     digest, the slot, the trailer's room), a slot-filling image, an
- *     unreadable digest or description, and a measurement wrong in its last
- *     byte only;
+ *     unreadable digest, description or trailer, an image with no appended
+ *     SHA-256, and a measurement wrong in its last byte only;
  *   - the trailer outside the uploaded stream: a session that sent no
  *     trailer, with an earlier session's left on the slot past its digest;
  *   - the uploaded stream's bound on each side: a session one byte short of
@@ -224,6 +226,66 @@ static void test_a_refused_begin_over_a_session_aborts_its_handle_once(void)
     TEST_ASSERT_EQUAL_UINT(1u, mock_esp.aborts);
 }
 
+/* The per-boot budget is spent by the erase, whether or not it succeeds: a
+ * failing esp_ota_begin cannot be retried without bound. */
+static void test_a_failed_esp_ota_begin_spends_the_budget(void)
+{
+    uint32_t i, before;
+
+    mock_esp.begin_err = ESP_FAIL;
+    for (i = 0u; i < (uint32_t)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, begin(APP_LEN));
+    }
+    mock_esp.begin_err = ESP_OK;
+    before = mock_esp.begins;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(APP_LEN));
+    TEST_ASSERT_EQUAL_UINT(before, mock_esp.begins);   /* refused before the erase */
+    tfw_stage_init();   /* a reset */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(APP_LEN));
+    abandon();
+}
+
+/* A BEGIN refused before the erase (a bad length, no update slot) is free:
+ * malformed BEGINs do not lock out the real upload. */
+static void test_a_begin_refused_before_the_erase_spends_none(void)
+{
+    uint32_t i;
+
+    for (i = 0u; i < (uint32_t)TFW_OTA_BEGIN_BUDGET + 1u; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0u));
+    }
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(MOCK_ESP_SLOT_LEN + 1u));
+    mock_esp.no_next = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, begin(APP_LEN));
+    mock_esp.no_next = 0u;
+    for (i = 0u; i < (uint32_t)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, begin(APP_LEN));
+    }
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(APP_LEN));
+    abandon();
+}
+
+/* A successful activate refills the budget. */
+static void test_a_successful_activate_refills_the_budget(void)
+{
+    uint32_t i;
+
+    mock_esp.begin_err = ESP_FAIL;
+    for (i = 0u; i + 1u < (uint32_t)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, begin(APP_LEN));
+    }
+    mock_esp.begin_err = ESP_OK;
+    stage_signed(2u);   /* spends the last one */
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));   /* mode 0: no reset */
+    /* The test's stand-in for the install no longer pending: otadata names
+     * the running slot again. The budget is what is tested here. */
+    mock_esp.boot_slot = (uint8_t)mock_esp.running;
+    for (i = 0u; i < (uint32_t)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, begin(APP_LEN));
+    }
+    abandon();
+}
+
 /* -------------------------------------------------------------- OTA_DATA */
 
 static void test_data_takes_the_last_byte_exactly(void)
@@ -368,6 +430,25 @@ static void test_an_unreadable_description_is_internal(void)
     expect_nothing_activated();
 }
 
+static void test_an_image_with_no_appended_digest_is_range(void)
+{
+    stage_signed(2u);
+    mock_esp.no_hash = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    mock_esp.no_hash = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+}
+
+static void test_an_unreadable_trailer_is_internal(void)
+{
+    stage_signed(2u);
+    mock_esp.read_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, authorized_activate(0u));
+    expect_nothing_activated();
+    TEST_ASSERT_EQUAL_UINT(0u, mock_esp.auth_writes);
+}
+
 static void test_a_measurement_wrong_in_its_last_byte_is_crypto(void)
 {
     signed_image(APP_LEN, 2u, 2u);
@@ -454,6 +535,9 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_begin_takes_one_past_the_trailer_and_the_whole_slot);
     RUN_TEST(test_a_refused_begin_over_a_session_aborts_its_handle_once);
+    RUN_TEST(test_a_failed_esp_ota_begin_spends_the_budget);
+    RUN_TEST(test_a_begin_refused_before_the_erase_spends_none);
+    RUN_TEST(test_a_successful_activate_refills_the_budget);
     RUN_TEST(test_data_takes_the_last_byte_exactly);
     RUN_TEST(test_an_image_end_at_the_digest_alone_is_range);
     RUN_TEST(test_an_image_end_one_past_the_digest_is_not_range);
@@ -466,6 +550,8 @@ int main(void)
     RUN_TEST(test_an_upload_that_stops_before_the_digest_is_range);
     RUN_TEST(test_an_unreadable_digest_is_internal);
     RUN_TEST(test_an_unreadable_description_is_internal);
+    RUN_TEST(test_an_image_with_no_appended_digest_is_range);
+    RUN_TEST(test_an_unreadable_trailer_is_internal);
     RUN_TEST(test_a_measurement_wrong_in_its_last_byte_is_crypto);
     RUN_TEST(test_a_repeated_activate_answers_by_the_mode_it_was_given);
     RUN_TEST(test_activate_while_receiving_is_bad_state);

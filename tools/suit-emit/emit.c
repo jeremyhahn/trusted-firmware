@@ -153,6 +153,9 @@ size_t tfw_suit_emit_manifest_integrated(uint8_t *out, size_t cap,
     put(&i, (const uint8_t *)uri, un);
     head(&i, 0u, 21u);  head(&i, 0u, 15u);   /* fetch, report all */
     head(&i, 0u, 3u);   head(&i, 0u, 15u);   /* image match, report all */
+    if (done(&i) == 0u) {              /* checked before inst is copied */
+        return 0u;
+    }
 
     head(&m, 5u, 4u);
     head(&m, 0u, 1u);  head(&m, 0u, 1u);
@@ -160,7 +163,7 @@ size_t tfw_suit_emit_manifest_integrated(uint8_t *out, size_t cap,
     head(&m, 0u, 3u);  bstr(&m, common_b, c.n);
     head(&m, 0u, 20u); bstr(&m, inst, i.n);  /* suit-install */
 
-    if (done(&c) == 0u || done(&i) == 0u || done(&m) == 0u) {
+    if (done(&c) == 0u || done(&m) == 0u) {
         return 0u;
     }
     bstr(&o, man, m.n);

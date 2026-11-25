@@ -17,7 +17,8 @@ import (
 // The HSM channel (0x76-0x7A, 0x7C; docs/wire-protocol/api.md), one verb per
 // SDK method. Every verb but the record reads prints the engine's state after
 // the command; a refusal is the device's status, returned as every other verb
-// returns one.
+// returns one. hsm-records prints the entries read before a refusal, then
+// returns the refusal.
 
 // hsmStateJSON is HSMState with its flag bits named.
 type hsmStateJSON struct {
@@ -129,6 +130,12 @@ func runHSM(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJ
 		}
 		entries, rerr := dev.HSMRecordReadAll(ctx)
 		if rerr != nil {
+			// The SDK hands back the entries read before the refusal.
+			if len(entries) > 0 {
+				if eerr := emitHSMRecord(out, asJSON, 0, entries); eerr != nil {
+					return eerr
+				}
+			}
 			return rerr
 		}
 		return emitHSMRecord(out, asJSON, 0, entries)

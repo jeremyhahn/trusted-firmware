@@ -80,12 +80,14 @@ uint8_t tfw_hsm_port_sense(void)
 }
 
 /* The enclave: SESSION_OPEN answered with a fresh handle, hsm_get_event with
- * `events`, and `fail_status` in place of success to request `fail_at`. */
+ * `events`, `fail_status` in place of success to request `fail_at`, and
+ * nothing at all to request `silent_at`. */
 static uint32_t ele_cmd[ELE_MSGS];
 static uint32_t ele_w1[ELE_MSGS];
 static uint32_t ele_n;
 static uint32_t fail_at;
 static uint32_t fail_status;
+static uint32_t silent_at;
 static uint32_t events[2];
 static uint32_t n_events;
 
@@ -101,6 +103,10 @@ static void enclave(struct tfw_imx95_model *mm)
     ele_n++;
     mm->ele.req_len = 0u;
     mm->ele.rsp_pos = 0u;
+    if (ele_n == silent_at) {
+        mm->ele.rsp_len = 0u;   /* the enclave never answers */
+        return;
+    }
     mm->ele.rsp[0]  = 0xE1000006u | (cmd << 16) | (n << 8);
     mm->ele.rsp[1]  = (ele_n == fail_at) ? fail_status : 0xD6u;
     if (cmd == TFW_ELE_SESSION_OPEN) {
@@ -134,6 +140,7 @@ void setUp(void)
     ele_n       = 0u;
     fail_at     = 0u;
     fail_status = 0u;
+    silent_at   = 0u;
     n_events    = 0u;
     events[0]   = 0u;
     events[1]   = 0u;
@@ -162,6 +169,20 @@ static void test_s1_notification_raises_the_tamper_signal_once(void)
     tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
     tfw_hsm_loop_poll();
     TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+}
+
+static void test_s1_back_to_back_notifications_raise_two_signals(void)
+{
+    no_s2();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();   /* the second arrives while the first is high */
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[0]);
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
 }
 
@@ -196,6 +217,20 @@ static void test_s5_pin_raises_the_hotplug_signal_once(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
 }
 
+static void test_s5_back_to_back_pins_raise_two_signals(void)
+{
+    no_s2();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();   /* the second arrives while the first is high */
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
+}
+
 static void test_s1_and_s5_in_one_pass_raise_both(void)
 {
     no_s2();
@@ -205,6 +240,46 @@ static void test_s1_and_s5_in_one_pass_raise_both(void)
     TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[0]);
     TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
+}
+
+/* Each signal defers only on its own bit: an S5 pin that arrives while S1 is
+ * high (and an S1 while S5 is high) is raised on the very pass it arrives,
+ * not one pass later. */
+static void test_one_signal_held_high_does_not_delay_the_other(void)
+{
+    no_s2();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[0]);
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[1]);
+
+    setUp();
+    no_s2();
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_HOTPLUG, raised[0]);
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+}
+
+static void test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes(void)
+{
+    no_s2();
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_imx95_hsm_pin(&in);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);   /* counters taken in: no re-raise */
 }
 
 static void test_s2_event_raises_the_ahab_signal_on_one_session(void)
@@ -227,6 +302,114 @@ static void test_s2_event_raises_the_ahab_signal_on_one_session(void)
     TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
     TEST_ASSERT_EQUAL_UINT32(4u, ele_n);          /* no second SESSION_OPEN */
     TEST_ASSERT_EQUAL_HEX32(0x101u, ele_w1[3]);
+}
+
+/* Pins the header's "late, but never lost" for S2: an AHAB event fetched
+ * on the pass right after another is one more edge, raised one pass late,
+ * not folded into the first (hsm_get_event has drained it already). */
+static void test_s2_back_to_back_events_raise_two_signals(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT32(5u, ele_n);          /* one SESSION_OPEN, four get_events */
+}
+
+/* Pins that a deferred S2 event is still raised on a pass whose get_event
+ * the enclave refuses: the event was fetched already, the refusal is not
+ * a reason to drop it, and a refusal other than a lost session keeps it. */
+static void test_s2_a_deferred_event_survives_a_refused_fetch(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    fail_at     = 4u;                             /* pass 3's get_event */
+    fail_status = 0x00000029u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, in.session);
+}
+
+/* Pins that an S2 event deferred one pass is raised when the get_event that
+ * follows loses the session, and that the refused re-open after it clears
+ * the edge: the next S2 event, fetched on the session opened after that, is
+ * raised on its own pass and not deferred again. */
+static void test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reopen(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();                          /* a second event: deferred */
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    fail_at     = 4u;                             /* pass 3's get_event */
+    fail_status = 0x00000729u;                    /* failure, unknown handle */
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[1]);
+    TEST_ASSERT_EQUAL_HEX32(0u, in.session);
+    fail_at     = 5u;                             /* pass 4's SESSION_OPEN */
+    fail_status = 0x00000029u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT32(5u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(0u, in.session);
+    tfw_hsm_loop_poll();                          /* opened, the event fetched */
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[2]);
+    TEST_ASSERT_EQUAL_UINT32(7u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[5]);
+    TEST_ASSERT_EQUAL_HEX32(0x106u, in.session);
+}
+
+/* Pins hsm_intake.h's "several in one batch are one edge": two S2 events in
+ * one get_event batch raise the AHAB signal once, with nothing deferred. */
+static void test_s2_two_events_in_one_batch_are_one_edge(void)
+{
+    events[0] = S2_EVENT;
+    events[1] = S2_EVENT;
+    n_events  = 2u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+}
+
+/* Pins that s2_high is kept apart from the S1/S5 edge state: an S1 arriving
+ * on the pass an S2 event is deferred is raised on that pass, and the
+ * deferred S2 follows on the next. */
+static void test_a_deferred_s2_does_not_delay_s1(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[0]);
+    tfw_imx95_hsm_notified(&in, &ids, HDR(TFW_SCMI_TYPE_NOTIFICATION, S1_PROTO, S1_MSG));
+    tfw_hsm_loop_poll();                          /* S2 deferred, S1 not */
+    TEST_ASSERT_EQUAL_UINT32(2u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_TAMPER_PIN, raised[1]);
+    n_events = 0u;
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[2]);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(3u, n_raised);
 }
 
 static void test_s2_other_events_raise_nothing(void)
@@ -281,6 +464,39 @@ static void test_s2_other_refusal_keeps_the_session(void)
     TEST_ASSERT_EQUAL_HEX32(EVT_CMD, ele_cmd[2]);
 }
 
+static void test_s2_an_unanswered_get_event_raises_nothing_and_keeps_the_session(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    silent_at = 2u;                               /* the first hsm_get_event */
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(0u, n_raised);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, in.session);  /* a timeout keeps it */
+    TEST_ASSERT_EQUAL_UINT32(2u, ele_n);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(EVT_CMD, ele_cmd[2]); /* no second SESSION_OPEN */
+    TEST_ASSERT_EQUAL_HEX32(0x101u, ele_w1[2]);
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_SIG_AHAB_FAILURE, raised[0]);
+}
+
+static void test_s2_an_unanswered_session_open_is_opened_again_and_nothing_polled(void)
+{
+    events[0] = S2_EVENT;
+    n_events  = 1u;
+    silent_at = 1u;                               /* the first SESSION_OPEN */
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(0u, in.session);
+    TEST_ASSERT_EQUAL_UINT32(0u, n_raised);
+    tfw_hsm_loop_poll();
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_HEX32(EVT_CMD, ele_cmd[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x102u, ele_w1[2]);
+    TEST_ASSERT_EQUAL_UINT32(1u, n_raised);
+}
+
 static void test_s2_with_anything_unknown_sends_nothing(void)
 {
     events[0] = S2_EVENT;
@@ -301,15 +517,26 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_s1_notification_raises_the_tamper_signal_once);
+    RUN_TEST(test_s1_back_to_back_notifications_raise_two_signals);
     RUN_TEST(test_s1_takes_only_its_own_notification);
     RUN_TEST(test_s1_with_its_protocol_unknown_takes_nothing);
     RUN_TEST(test_s5_pin_raises_the_hotplug_signal_once);
+    RUN_TEST(test_s5_back_to_back_pins_raise_two_signals);
     RUN_TEST(test_s1_and_s5_in_one_pass_raise_both);
+    RUN_TEST(test_one_signal_held_high_does_not_delay_the_other);
+    RUN_TEST(test_one_s1_and_one_s5_stay_one_edge_each_over_later_passes);
     RUN_TEST(test_s2_event_raises_the_ahab_signal_on_one_session);
+    RUN_TEST(test_s2_back_to_back_events_raise_two_signals);
+    RUN_TEST(test_s2_a_deferred_event_survives_a_refused_fetch);
+    RUN_TEST(test_s2_a_deferred_event_survives_a_lost_session_and_a_refused_reopen);
+    RUN_TEST(test_s2_two_events_in_one_batch_are_one_edge);
+    RUN_TEST(test_a_deferred_s2_does_not_delay_s1);
     RUN_TEST(test_s2_other_events_raise_nothing);
     RUN_TEST(test_s2_session_the_enclave_lost_is_opened_again);
     RUN_TEST(test_s2_refused_session_is_retried_and_nothing_polled);
     RUN_TEST(test_s2_other_refusal_keeps_the_session);
+    RUN_TEST(test_s2_an_unanswered_get_event_raises_nothing_and_keeps_the_session);
+    RUN_TEST(test_s2_an_unanswered_session_open_is_opened_again_and_nothing_polled);
     RUN_TEST(test_s2_with_anything_unknown_sends_nothing);
     return UNITY_END();
 }

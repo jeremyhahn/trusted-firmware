@@ -3,7 +3,7 @@
 /*
  * The secure-world DICE service (#590 slice b, ruling 935): the DeviceID key,
  * the alias key and the alias certificate behind four non-secure-callable
- * entry points. docs/plans/590b.md is the contract.
+ * entry points.
  *
  * The UDS-derived seed, the CDI and every private scalar stay in this
  * service's static state: no entry point returns one. Every caller buffer is

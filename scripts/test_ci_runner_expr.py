@@ -15,10 +15,11 @@
    where exactly [self-hosted, linux, x64, bigdisk] passes too, and set to
    the fallback `"ubuntu-latest"`, where it must give a standard image; the
    schedule guard's AGENT_TOKEN is passed off github.com only.
-4. ci-template v1.50 and v1.51 (DS-9792): a short queued list is a lower
-   bound for the overflow, and every runs-on is also read under
-   pull_request_target.
-5. ci-template v1.52 (DS-9857, DS-9862, DS-9887): a
+4. ci-template v1.50 and v1.51, code-review-template v5.12.8 (DS-9792): a
+   short queued list is a lower bound for the overflow, every runs-on is
+   also read under pull_request_target, and code-review.yml's new-head
+   cancel step cancels only older runs on another head.
+5. ci-template v1.52, code-review-template v5.12.10 (DS-9857, DS-9862, DS-9887): a
    fork's pull request, under pull_request as under pull_request_target,
    never reaches a self-hosted runner, so preflight's runs-on names the
    fork clause before the variable.
@@ -31,12 +32,27 @@
    fork's head to the hosted default with a ::notice.
 8. Codex round 1 P1 on #1042: the balancing decision is run against a fake
    API with run and job lists per URL: the lower of hosted use H/HS and
-   self-hosted use max(S1/C1, S2/C2) wins and a tie goes hosted; one full
-   pool sends the run to the other, both full take the shorter queue and
-   equal queues go hosted; uncounted jobs stay uncounted; a fork's head
-   stays hosted where self-hosted would win. Both self-hosted label lists
+   self-hosted use max(S1/C1, S2/C2) wins and a tie goes self-hosted; one
+   full pool sends the run to the other, both full take the shorter queue
+   and equal queues go self-hosted; uncounted jobs stay uncounted; a fork's head
+   stays hosted where self-hosted would win, and so does an event the
+   self-hosted runners refuse (anything but a push to main and a pull
+   request). Both self-hosted label lists
    are asserted exactly, and each test also asserts the self-hosted side
    of its boundary.
+9. code-review-template v5.12.11 (ruling 1079): code-review.yml is the
+   handbook template byte for byte; the header names v5.12.11.
+10. #653 Codex round 2: a runs-on is read under every event the release
+   guard knows (workflow_run, merge_group, release, create, issue_comment,
+   repository_dispatch), so a format()-built `release`, an unwaived
+   `self-hosted` or a `codex` label gated on github.event_name cannot pass.
+11. #653 Codex round 3: a runs-on that computes a value (format, join, toJSON,
+   fromJSON of a literal) is refused unless waived, and a waived one is
+   checked as a release job.
+12. ci-template v1.54 and code-review-template v5.12.12 (DS-10252):
+   code-review.yml's scope job may take exactly the bigdisk pool literal,
+   fromJSON of ["self-hosted","linux","x64","bigdisk"], for a same-repository
+   head only.
 
 Run: python3 scripts/test_ci_runner_expr.py
 """
@@ -127,6 +143,29 @@ class RunnerExpression(unittest.TestCase):
         r = run_policy(job(ro, cond))
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_computed_ref_comparison_is_not_hosted(self):
+        # #653 Codex round 3: no literal names develop or release, so the
+        # sampled refs never select the computed value.
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="release"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+        r = run_policy(job(OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+                                  " && 'self-hosted' || 'ubuntu-latest' }}"))
+        with self.subTest(runs_on="self-hosted"):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("(c)", r.stdout)
+
+    def test_waived_computed_ref_is_checked_as_release(self):
+        ro = (OPEN + " github.ref_name == format('{0}{1}', 'de', 'velop')"
+              " && format('{0}{1}', 're', 'lease') || 'ubuntu-latest' }}   # self-hosted: hardware: bench")
+        r = run_policy(job(ro))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("names `release`", r.stdout)
+        cond = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+        r = run_policy(job(ro, cond))
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_known_operands_still_pass(self):
         for ro in ("ubuntu-latest",
                    OPEN + " github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}"):
@@ -138,6 +177,37 @@ class RunnerExpression(unittest.TestCase):
         r = subprocess.run(["python3", "-I", "-"], input=policy_script(), cwd=REPO,
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    # v1.54 (DS-10252): code-review.yml v5.12.12's scope job takes the bigdisk
+    # pool literal for a same-repository head only.
+    POOL = "fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]')"
+    SAME_REPO = "github.event.pull_request.head.repo.full_name == github.repository"
+
+    def test_guarded_pool_literal_passes_in_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_unguarded_pool_literal_is_refused(self):
+        ro = OPEN + " github.server_url == 'https://github.com' && (%s || 'ubuntu-latest') || 'bigdisk' }}" % self.POOL
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("(c)", r.stdout)
+
+    def test_guarded_pool_literal_is_refused_outside_code_review(self):
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, self.POOL))
+        r = run_policy(job(ro), name="ci.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+
+    def test_other_literal_is_still_computed(self):
+        pool = self.POOL.replace("bigdisk", "bigdisk-docker")
+        ro = (OPEN + " github.server_url == 'https://github.com' && (%s && %s || 'ubuntu-latest') || 'bigdisk' }}"
+              % (self.SAME_REPO, pool))
+        r = run_policy(job(ro), name="code-review.yml")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("format/join/toJSON/fromJSON", r.stdout)
 
 
 RELEASE_RO = "[self-hosted, release]   # self-hosted: hardware: bench"
@@ -201,9 +271,29 @@ class ReleaseGuardBranches(unittest.TestCase):
         r = run_policy(job(ro))
         self.assertNotEqual(r.returncode, 0, r.stdout)
 
+    def test_runs_on_is_tried_on_every_guarded_event(self):
+        # #653 Codex round 2: a runs-on gated on an event the release guard
+        # knows is read under that event, not only under the hosted ones.
+        for ev in ("workflow_run", "merge_group", "release", "create",
+                   "issue_comment", "repository_dispatch"):
+            with self.subTest(event=ev):
+                head = "on:\n  %s:\n" % ev
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 're', 'lease') || 'ubuntu-latest' }}}}   # self-hosted: hardware: bench"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("release", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && 'self-hosted' || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                # Under release the event name itself names `release`: (b) first.
+                self.assertIn("(b) names `release`" if ev == "release" else "(c)", r.stdout)
+                ro = OPEN + f" github.event_name == '{ev}' && format('{{0}}{{1}}', 'co', 'dex') || 'ubuntu-latest' }}}}"
+                r = run_policy(job(ro).replace("on:\n  push:\n  pull_request:\n", head))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
 
-PRE_RO = (OPEN + " github.server_url == 'https://github.com' && (!startsWith(github.event_name, 'pull_request')"
-          " || github.event.pull_request.head.repo.full_name == github.repository)"
+
+PRE_RO = (OPEN + " github.server_url == 'https://github.com' && ((github.event_name == 'push' && github.ref == 'refs/heads/main')"
+          " || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))"
           " && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
 # v1.51's runs-on: no fork clause, so a fork's pull request took the Dells.
@@ -247,6 +337,21 @@ class PreflightRunsOn(unittest.TestCase):
         r = run_policy(job(ro, name="preflight"), "ci.yml")
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertIn('CI_PREFLIGHT_RUNS_ON set to "ubuntu-latest"', r.stdout)
+
+    def test_preflight_takes_the_dells_only_where_their_hook_runs_a_job(self):
+        # With the variable unset: a push to main and a same-repository pull
+        # request reach bigdisk; a schedule, a dispatch or another branch is hosted.
+        ns = {}
+        exec(policy_script().split("\nfiles = sorted(", 1)[0], ns)
+        ro = PRE_RO
+        dells = ["self-hosted", "linux", "x64", "bigdisk"]
+        for event, ref, head, want in (("push", "refs/heads/main", "", dells),
+                                       ("pull_request", "refs/pull/1/merge", "o/r", dells),
+                                       ("schedule", "refs/heads/main", "", ["ubuntu-latest"]),
+                                       ("workflow_dispatch", "refs/heads/main", "", ["ubuntu-latest"]),
+                                       ("push", "refs/heads/feature", "", ["ubuntu-latest"])):
+            with self.subTest(event=event, ref=ref):
+                self.assertEqual(ns["runs_on_labels"](ro, event, ref, head, "unset"), want)
 
     def test_repository_preflight_reads_the_variable(self):
         jobs = load(CI)["jobs"]
@@ -344,7 +449,8 @@ class OverflowShortList(unittest.TestCase):
     the hosted default, with a ::warning on a short listing or a reply that is
     not 200, and with a ::notice for a fork's head."""
 
-    def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}'):
+    def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}',
+               ref="refs/heads/main"):
         run = step_run(CI, "Balanced runner pool (ruling 1137)")
         with tempfile.TemporaryDirectory() as d:
             bindir = os.path.join(d, "bin")
@@ -355,7 +461,7 @@ class OverflowShortList(unittest.TestCase):
             os.chmod(curl, 0o755)
             out = os.path.join(d, "out")
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
-                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r", REF=ref,
                        API="https://api.github.com/repos/o/r/actions", RUN_ID="7", JOB_TOKEN="t",
                        HS="12", C1="2", C2="1", RUNNER_TEMP=d, GITHUB_OUTPUT=out,
                        FAKE_CODE=code, FAKE_BODY=body)
@@ -391,7 +497,7 @@ class OverflowShortList(unittest.TestCase):
         out, outputs = self.select(event="pull_request", head="o/r")
         self.assertNotIn("::warning::", out)
         self.assertIn("::notice::runner selection: use hosted 0/12", out)
-        self.assert_hosted(outputs)
+        self.assertEqual(outputs, SELF_OUT, out)
 
 
 @unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
@@ -402,7 +508,7 @@ class BalancedPool(unittest.TestCase):
     by URL (run 100 is this run). Every test also asserts a case on the
     other side of its boundary, so an unconditional hosted pick fails it."""
 
-    def balance(self, routes, hs="10", c1="10", c2="10", event="push", head=""):
+    def balance(self, routes, hs="10", c1="10", c2="10", event="push", head="", ref="refs/heads/main"):
         run = step_run(CI, "Balanced runner pool (ruling 1137)")
         with tempfile.TemporaryDirectory() as d:
             bindir = os.path.join(d, "bin")
@@ -417,7 +523,7 @@ class BalancedPool(unittest.TestCase):
             with open(paths["routes.json"], "w", encoding="utf-8") as f:
                 json.dump(routes, f)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
-                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r",
+                       SERVER="https://github.com", EVENT=event, HEAD_REPO=head, REPO="o/r", REF=ref,
                        API="https://api.github.com/repos/o/r/actions", RUN_ID="100", JOB_TOKEN=TOKEN,
                        HS=hs, C1=c1, C2=c2, RUNNER_TEMP=d, GITHUB_OUTPUT=paths["out"],
                        FAKE_ROUTES=paths["routes.json"], FAKE_LOG=paths["log"], FAKE_TOKEN=TOKEN)
@@ -443,7 +549,7 @@ class BalancedPool(unittest.TestCase):
         for s in says:
             self.assertIn(s, out)
 
-    # A. balance: hosted H/HS against max(S1/C1, S2/C2); a tie goes hosted.
+    # A. balance: hosted H/HS against max(S1/C1, S2/C2); a tie goes self-hosted.
 
     def test_self_hosted_outputs_are_the_two_label_lists(self):
         out, outputs, _ = self.balance(pool(h=5, s1=2, s2=2))
@@ -458,19 +564,20 @@ class BalancedPool(unittest.TestCase):
         self.assert_pick("hosted", pool(h=2, s2=5))
         self.assert_pick("self", pool(h=5, s2=2))
 
-    def test_tie_goes_hosted(self):
-        self.assert_pick("hosted", pool(h=3, s2=3), ["use hosted 3/10, bigdisk 0/10, bigdisk-docker 3/10"])
-        self.assert_pick("self", pool(h=3, s2=2))
-        self.assert_pick("hosted", pool(h=1, s1=1))
-        self.assert_pick("self", pool(h=1))
-        self.assert_pick("hosted", pool(), ["hosted 0 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+    def test_tie_goes_self_hosted(self):
+        self.assert_pick("self", pool(h=3, s2=3), ["use hosted 3/10, bigdisk 0/10, bigdisk-docker 3/10"])
+        self.assert_pick("hosted", pool(h=3, s2=4))
+        self.assert_pick("self", pool(h=1, s1=1))
+        self.assert_pick("hosted", pool(h=1, s1=2))
+        self.assert_pick("self", pool(), ["hosted 0 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
+        self.assert_pick("hosted", pool(s1=1))
 
     def test_tie_by_cross_multiplication(self):
         # 2/10 against 4/20, and 4/20 against 3/15 with HS=20, C2=15.
-        self.assert_pick("hosted", pool(h=2, s1=4), c1="20")
-        self.assert_pick("self", pool(h=2, s1=3), c1="20")
-        self.assert_pick("hosted", pool(h=4, s2=3), hs="20", c2="15")
-        self.assert_pick("self", pool(h=4, s2=2), hs="20", c2="15")
+        self.assert_pick("self", pool(h=2, s1=4), c1="20")
+        self.assert_pick("hosted", pool(h=2, s1=5), c1="20")
+        self.assert_pick("self", pool(h=4, s2=3), hs="20", c2="15")
+        self.assert_pick("hosted", pool(h=4, s2=4), hs="20", c2="15")
 
     def test_larger_self_hosted_kind_decides(self):
         # S2/C2 3/6 is above hosted 4/20 though S1 is 0; 9/20 is above 1/6 and 1/6.
@@ -485,18 +592,19 @@ class BalancedPool(unittest.TestCase):
 
     def test_uncounted_jobs(self):
         # Completed, unlabelled and other self-hosted jobs, and a self-hosted
-        # job naming a hosted image, count nowhere; one hosted job makes it self.
+        # job naming a hosted image, count nowhere: with one hosted job or none
+        # the run goes self-hosted, which one counted self-hosted job would stop.
         extra = ([jobj(101, "completed", SH_DOCKER) for _ in range(30)]
                  + [jobj(101, "in_progress", []) for _ in range(5)]
                  + [jobj(101, "in_progress", ["self-hosted", "linux", "x64", "release"])]
                  + [jobj(101, "in_progress", ["self-hosted", "ubuntu-latest"])])
         self.assert_pick("self", pool(h=1, extra=extra), ["hosted 1 of", "bigdisk 0 of", "bigdisk-docker 0 of"])
-        self.assert_pick("hosted", pool(extra=extra), ["hosted 0 of", "bigdisk 0 of"])
+        self.assert_pick("self", pool(extra=extra), ["hosted 0 of", "bigdisk 0 of"])
 
     def test_bigdisk_docker_job_counts_as_s2_only(self):
         both = [jobj(101, "in_progress", ["self-hosted", "bigdisk", "bigdisk-docker"])]
         self.assert_pick("self", pool(h=5, extra=both), ["bigdisk 0 of", "bigdisk-docker 1 of"])
-        self.assert_pick("hosted", pool(h=1, extra=both), ["bigdisk-docker 1 of"])
+        self.assert_pick("hosted", pool(extra=both), ["bigdisk-docker 1 of"])
 
     def test_this_runs_jobs_are_not_read(self):
         mine = [["runs/100/jobs", 200, jobs(*[jobj(100, "in_progress", SH_DOCKER) for _ in range(50)])]]
@@ -523,7 +631,7 @@ class BalancedPool(unittest.TestCase):
 
     def test_hosted_full_goes_self_hosted(self):
         self.assert_pick("self", pool(h=10, s1=9, s2=9), ["the hosted pool is full (10 of 10)"])
-        self.assert_pick("hosted", pool(h=9, s1=9, s2=9))
+        self.assert_pick("hosted", pool(h=8, s1=9, s2=9))
 
     def test_self_hosted_full_goes_hosted(self):
         self.assert_pick("hosted", pool(h=9, s1=10, s2=10), ["the self-hosted pool is full"])
@@ -547,12 +655,12 @@ class BalancedPool(unittest.TestCase):
                          ["both pools full: hosted 1 queued, self-hosted 2 queued"])
 
     def test_both_full_self_hosted_queue_counts_both_kinds(self):
-        self.assert_pick("hosted", pool(h=8, hq=2, s1=8, s1q=1, s2=9, s2q=1), ["self-hosted 2 queued"])
+        self.assert_pick("hosted", pool(h=9, hq=1, s1=8, s1q=1, s2=9, s2q=1), ["hosted 1 queued, self-hosted 2 queued"])
         self.assert_pick("self", pool(h=8, hq=2, s1=8, s1q=1, s2=10), ["self-hosted 1 queued"])
 
-    def test_both_full_equal_queues_go_hosted(self):
-        self.assert_pick("hosted", pool(h=12, s1=12), ["both pools full: hosted 0 queued, self-hosted 0 queued"])
-        self.assert_pick("self", pool(h=12, hq=1, s1=12), ["both pools full: hosted 1 queued, self-hosted 0 queued"])
+    def test_both_full_equal_queues_go_self_hosted(self):
+        self.assert_pick("self", pool(h=12, s1=12), ["both pools full: hosted 0 queued, self-hosted 0 queued"])
+        self.assert_pick("hosted", pool(h=12, s1=12, s1q=1), ["both pools full: hosted 0 queued, self-hosted 1 queued"])
 
     # E. a fork's head stays hosted even where self-hosted would win.
 
@@ -567,6 +675,26 @@ class BalancedPool(unittest.TestCase):
                 self.assertIn("::notice::runner selection: this pull request's head repository is not "
                               "this repository (a fork)", out)
                 self.assertEqual(calls, [])
+
+    # G. an event the self-hosted runners refuse (their job-started hook takes a
+    # push to main and a same-repository pull request only): hosted, no call.
+
+    def test_refused_event_stays_hosted_where_self_hosted_wins(self):
+        win = pool(h=9)
+        self.assert_pick("self", win, event="push", ref="refs/heads/main")
+        for event, ref in (("schedule", "refs/heads/main"), ("workflow_dispatch", "refs/heads/main"),
+                           ("push", "refs/heads/feature"), ("pull_request_target", "refs/heads/main")):
+            with self.subTest(event=event, ref=ref):
+                out, outputs, calls = self.balance(win, event=event, head="o/r", ref=ref)
+                self.assertEqual(outputs, HOSTED_OUT, out)
+                self.assertIn(f"::notice::runner selection: event {event} on {ref} is not a push to main "
+                              "or a pull request, which the self-hosted runners refuse", out)
+                self.assertEqual(calls, [])
+
+    def test_quiet_schedule_run_stays_hosted(self):
+        out, outputs, calls = self.balance(pool(), event="schedule")
+        self.assertEqual(outputs, HOSTED_OUT, out)
+        self.assertEqual(calls, [])
 
 
 class PullRequestTarget(unittest.TestCase):

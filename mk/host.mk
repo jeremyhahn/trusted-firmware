@@ -1396,7 +1396,7 @@ $(HOST_DIR)/test_atecc_provider_mutate: test/unit/test_atecc_provider_mutate.c $
 $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-# The secure-world DICE service (#590 slice b, docs/plans/590b.md) beside the
+# The secure-world DICE service (#590 slice b) beside the
 # non-secure path it must match byte for byte: the soft P-256 identity and
 # alias.c's certificate. The suite is its own provider and CDI handoff.
 $(HOST_DIR)/test_dice_service: test/unit/test_dice_service.c src/tz/dice_service.c $(SOFT_ID_SRCS) \

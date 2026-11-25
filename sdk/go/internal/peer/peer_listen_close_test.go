@@ -126,17 +126,56 @@ func TestOpenOnABusyTCPListenPortFailsAtOnceNamingIt(t *testing.T) {
 	_ = a.Close()
 }
 
+// nonLoopbackIP returns the host's first non-loopback global unicast or
+// private address, IPv4 first, or "" when it has only loopback.
+func nonLoopbackIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	var v6 string
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP.IsLoopback() || !(n.IP.IsGlobalUnicast() || n.IP.IsPrivate()) {
+			continue
+		}
+		if n.IP.To4() != nil {
+			return n.IP.String()
+		}
+		if v6 == "" {
+			v6 = n.IP.String()
+		}
+	}
+	return v6
+}
+
 // TestABareTCPListenPortBindsEveryInterface: tcp-listen:<port> with no host
-// listens on every interface (docs/boards/stm32h573i-dk.md), so a board
-// dialling the host by name connects and its bytes arrive (#599).
+// listens on every interface (docs/boards/stm32h573i-dk.md): listenTCP's bound
+// address is unspecified, and where the host has a non-loopback address a
+// board dialling it reaches Open and its bytes arrive (#599).
 func TestABareTCPListenPortBindsEveryInterface(t *testing.T) {
 	_, p, err := net.SplitHostPort(freeAddr(t))
 	if err != nil {
 		t.Fatal(err)
 	}
+	l, err := listenTCP(p)
+	if err != nil {
+		t.Fatalf("listenTCP(%q): %v", p, err)
+	}
+	bound := l.Addr().(*net.TCPAddr)
+	_ = l.Close()
+	if !bound.IP.IsUnspecified() {
+		t.Fatalf("listenTCP(%q) bound %s; want every interface (an unspecified IP)", p, bound)
+	}
+
+	host := nonLoopbackIP()
+	if host == "" {
+		host = "localhost"
+		t.Log("the host has only loopback; the dial exercises loopback only")
+	}
 	stop := make(chan struct{})
 	defer close(stop)
-	got := dialUntil(net.JoinHostPort("localhost", p), stop)
+	got := dialUntil(net.JoinHostPort(host, p), stop)
 
 	c, err := Open(TCPListenPrefix+p, 5*time.Second)
 	if err != nil {

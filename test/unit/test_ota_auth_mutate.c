@@ -6,7 +6,8 @@
  * The oracle is the hold's rule: tfw_ota_auth_take hands back the 64 bytes of
  * the last OTA_AUTH only when that OTA_AUTH was the last command dispatched,
  * it finished TFW_OK, and nothing has taken the hold since. Any other length
- * is refused and drops an earlier hold; a take always drops it.
+ * is refused and drops an earlier hold; a take always drops it. An OTA_AUTH of
+ * any length marks one arrived until tfw_ota_auth_settle (ota_auth.h, m1117 (1)).
  */
 #include <stdint.h>
 #include <string.h>
@@ -219,6 +220,30 @@ static void test_a_second_auth_replaces_the_first(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, sig, TFW_OTA_AUTH_SIG_LEN);
 }
 
+/* m1117 (1): a refused length is still a new attempt, not a lost reply. */
+static void test_every_ota_auth_length_arrives_until_settled(void)
+{
+    tfw_ota_auth_settle();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_ota_auth_arrived());
+    for (uint8_t len = 0; len <= TFW_OTA_AUTH_SIG_LEN + 2u; len++) {
+        tfw_status_t want = len == TFW_OTA_AUTH_SIG_LEN ? TFW_OK : TFW_ERR_BAD_ARGC;
+        TEST_ASSERT_EQUAL(want, auth(len));
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_auth_arrived());
+        tfw_ota_auth_settle();
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_ota_auth_arrived());
+    }
+}
+
+static void test_a_take_leaves_arrived_set(void)
+{
+    tfw_ota_auth_settle();
+    TEST_ASSERT_EQUAL(TFW_OK, auth(TFW_OTA_AUTH_SIG_LEN));
+    TEST_ASSERT_NOT_NULL(tfw_ota_auth_take());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_ota_auth_arrived()); /* only a settle clears it */
+    tfw_ota_auth_settle();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_ota_auth_arrived());
+}
+
 static void test_the_reply_is_empty(void)
 {
     tfw_reader_t r;
@@ -285,6 +310,8 @@ int main(void)
     RUN_TEST(test_no_auth_since_boot_takes_nothing);
     RUN_TEST(test_a_second_auth_replaces_the_first);
     RUN_TEST(test_the_reply_is_empty);
+    RUN_TEST(test_every_ota_auth_length_arrives_until_settled);
+    RUN_TEST(test_a_take_leaves_arrived_set);
     RUN_TEST(test_the_element_session_and_ota_auth_are_each_needed_to_activate);
     return UNITY_END();
 }

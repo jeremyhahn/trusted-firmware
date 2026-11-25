@@ -60,6 +60,8 @@ func TestParseImageSplitsAGoodStream(t *testing.T) {
 		{"one byte before the trailer", sealedStream(1, 127, nil), 127, nil},
 		{"envelope fills to the trailer", sealedStream(1, 128-2-len(envelope), envelope),
 			uint32(128 - 2 - len(envelope)), envelope},
+		{"envelope at TFW_SUIT_ENVELOPE_MAX", sealedStream(4, 300, bytes.Repeat([]byte{0xA5}, 320)),
+			300, bytes.Repeat([]byte{0xA5}, 320)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -128,6 +130,10 @@ func TestParseImageRefusesEachStructuralFault(t *testing.T) {
 			b := good()
 			b[300], b[301] = 83, 0x00 // 84 bytes of room hold 82 after the length
 			return b
+		}, ErrImageEnvelope},
+		// 1024 bytes leave 596 of room: only the device's bound refuses 321.
+		{"envelope past TFW_SUIT_ENVELOPE_MAX", func() []byte {
+			return sealedStream(4, 300, make([]byte, 321))
 		}, ErrImageEnvelope},
 	}
 	for _, c := range cases {

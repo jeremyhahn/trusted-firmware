@@ -1,22 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# sdk/go is a real Go module and carries the FULL Go gate set -- gofmt, vet,
-# govulncheck, `go mod verify`. The substitution table in the plan applies to
-# the C firmware, where those tools have no meaning; it does not excuse the Go
-# half of the repository from the standards every other Go module here meets.
+# sdk/go is a real Go module and carries the FULL Go gate set, gofmt, vet, govulncheck, `go mod verify`.
 
 GO       ?= go
 SDK_DIR  := sdk/go
 
-# GO_BUILD_TAGS is the CI template's tag set (devcontainer.md §6), space
-# separated: ci.yml passes it to every stage it calls. go-tags joins a module's
-# own tags (its second argument) with it into the deduplicated comma list the Go
-# tools take, behind the tool's flag (the first): $(call go-tags,-tags,a) is
-# " -tags a,b" with GO_BUILD_TAGS=b. With no tag at all it is nothing, so an
-# unset or empty GO_BUILD_TAGS leaves every command line as it was. Every Go
-# build, test, vet and scanner below takes its tags from here, and
-# go-tags-selftest holds them to it.
+# GO_BUILD_TAGS is the CI template's tag set, space separated: ci.yml passes it to every stage it calls.
 GO_BUILD_TAGS ?=
 go_tags_empty :=
 go_tags_space := $(go_tags_empty) $(go_tags_empty)
@@ -24,11 +14,7 @@ go_tags_comma := ,
 go-tag-list = $(subst $(go_tags_space),$(go_tags_comma),$(sort $(1) $(GO_BUILD_TAGS)))
 go-tags = $(if $(call go-tag-list,$(2)), $(1) $(call go-tag-list,$(2)))
 
-# go-cover-floor prints a `go test -cover` log ($(2)) and fails if any one
-# package in it is under the floor ($(1)). The owner's standard is 90 % per
-# package (m655, #163), so a well-covered package must not carry a thin one
-# past a floor taken on the module's total. A package with no statements has
-# no percentage and is not counted.
+# go-cover-floor prints a `go test -cover` log ($(2)) and fails if any one package in it is under the floor ($(1)).
 go-cover-floor = ( low=0; while IFS= read -r l; do printf '%s\n' "$$l"; \
   case $$l in *'coverage: '*'% of statements'*) p=$${l\#\#*coverage: }; p=$${p%%.*}; \
     if [ "$$p" -lt "$(1)" ]; then echo "package under the $(1)% floor (m655)"; low=1; fi ;; esac; \
@@ -40,26 +26,10 @@ sdk-build:
 	@echo "sdk/go builds"
 
 ## sdk-test: run the Go tests, including the cross-implementation suite
-# Depends on both simulators: the cross-implementation tests talk to the REAL
-# firmware compiled for the host, so a stale or missing binary would leave the
-# only check that the two codecs agree silently untested. tfwsim-atecc608a is the
-# element tier, the only peer that produces DICE evidence; tfwsim-app-example the
-# only one with an application, so the only one that answers APP_INFO;
-# tfwsim-auto the Mega's default tier, which picks one of those two at startup;
-# tfwsim-prov the element tier as a jig image, the only one tfwprov --commit
-# provisions over the wire; tfwsim-otaboot the 2560 image without the stager,
-# the only one whose RESET(1) reaches a session (#52); tfwsim-manifest the
-# element tier with OTA_ACTIVATE's manifest gate, the only one that refuses an
-# image without a matching SUIT manifest (#52).
-# Every test that starts a simulator carries the tfwsim build tag (#163), so
-# this is the one target that compiles them in.
 sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot tfwsim-manifest
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
 ## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor
-# Unit tests only (#163): without the tfwsim tag no simulator-driven test is
-# compiled, so the floor is what the unit tests reach on their own and no
-# simulator is built for it. sdk-test runs the cross-implementation suite.
 SDK_COVERAGE_FLOOR ?= 90
 sdk-coverage:
 	@mkdir -p coverage
@@ -73,78 +43,6 @@ sdk-coverage:
 	  fi
 
 ## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, HW_ETH=, HW_ETH_LISTEN=, HW_RESET=)
-# The same tfwctl TestFirmware* scenarios sdk-test runs against tfwsim, pointed
-# at the board on PORT through their one transport seam, sdk/go/internal/peer.
-# BOARD tells the scenarios which board's pins to expect, and CAPS must report
-# that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
-# does not exist and a board that does not answer all fail; none of them is a
-# skip. PORT=tcp:<ip:port> dials a board whose wire is a TCP server (the
-# ESP32 port) instead, with no reset. Flash the image first (`make flash`); the scenarios do not. -p 1 because
-# every scenario opens, and so resets, the one board. Every TestFirmware*
-# scenario reaches its peer through that seam; a test that starts a simulator
-# itself is named otherwise, so none needs a host binary here. They live in
-# sdk/go/cmd/tfwctl's e2e_firmware, e2e_dice, e2e_auth, e2e_attestcsr, e2e_ota
-# and e2e_app test files, which carry the tfwsim build tag; e2e_peer_test.go is
-# the seam. Each row checks the tier it needs and names it when the board's
-# differs, so one command runs them all and a row for another image fails, not
-# skips: docs/development/testing.md tables which board each row needs. A row
-# about one feature (analog, a bus, dice, auth, attestcsr) asks CAPS for it,
-# and one about what CAPS has no bit for (the OTA stager, an application) asks
-# the command; either fails, naming it and the board, when the image lacks it
-# (#7). Which rows run is chosen by name, never by a row returning early: an
-# AVR board runs the rows its default image serves, refusal rows included,
-# from its entry in boardImages and each row's in firmwareRowNeeds
-# (cmd/tfwctl/e2e_rows_test.go; TestMain asks for it through TFW_HW_ROWS). A
-# row in no list fails the run, as does a board with no list. HW_TEST_RUN,
-# when given, is the run instead: the QEMU wire script names each image's rows
-# that way. The hwtest tag adds the refusal rows of families every simulator
-# has (e2e_refusal_board_test.go).
-#
-# HW_ETH adds the TestEthernet* rows (e2e_ethernet_test.go, and the staging rows
-# in e2e_ota_test.go): the ip:port on the bench host that the board's network
-# block dials, which the rows listen on. It has no default: the address is the
-# bench's, and none is written here. It is not ETH, which is the firmware
-# build's switch and which a board profile may set (the 2560's says ETH ?= 1):
-# shared, that 1 reached the rows as an endpoint. HW_ETH_LISTEN, unset for
-# HW_ETH, is where the rows listen when that is another address: a suite behind
-# a published port listens on its own, e.g. HW_ETH=192.0.2.1:7020
-# HW_ETH_LISTEN=0.0.0.0:7020. The identity rows also take the board's
-# DeviceID key, DEVICEID (the hex X||Y, as hw-enroll takes it), and
-# CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
-# for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
-# OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
-# provisioned to trust. ESP_TARGET (TFW_HW_ESP_TARGET) is the machine an
-# esp32-qemu run emulates, whose chip id the staged image carries.
-#
-# HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
-# it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
-# system_reset, which is how integration-test-cortex-m-wire runs the rows on a
-# QEMU board (mk/arch/cortex-m-targets.mk); cmd:<program and arguments> runs
-# that command, the probe tool's reset, after purging the port and then waits
-# for the board's BOOT bytes, as after a DTR pulse. HW_RESET_<board> is a
-# board's default when HW_RESET is unset.
-#
-# The boards with a row list and pin facts: atmega328p, atmega2560 and
-# stm32h573i-dk (peerBoards in e2e_pins_test.go). The STM32H573I-DK's
-# rows are the default image's this checkout builds: GPIO, the timer, and the
-# analog, PWM, pulse, EEPROM, I2C, SPI and 1-Wire refusals; the #535 bench
-# image's and the I2C=1 image's rows run by name, HW_TEST_RUN='TestFirmwarePWM'
-# and so on. TestFirmwareAttestRefusedUnprovisioned is held out of its list
-# until #570 (boardImage.drop). Its ST-LINK VCOM carries
-# DTR to no reset line, so the DTR pulse would not reset it: its rows reset it
-# through the ST-LINK with STM32CubeProgrammer (HW_RESET_stm32h573i-dk), so each
-# row starts from the BOOT event and clean framer counters. PORT names only the
-# VCOM, not the ST-LINK the programmer resets, so that reset names the probe,
-# CM_PROBE_SERIAL (mk/arch/cortex-m.mk), and hw-test refuses it with none: with
-# two ST-LINKs attached, an unnamed reset could reset the other board.
-# PORT=tcp:<board>:21574 (the ETH_MAC=1 image's wire) takes no default reset
-# and so no CM_PROBE_SERIAL: the rows dial the board as it runs and select
-# the TCP rows of its Ethernet allow-list; an HW_RESET given runs before the dial.
-# PORT=tcp-listen:<host-port> (the board dials the host) is treated the same.
-# A PORT=tcp: board has no DTR line:
-# RESET_PORT (TFW_HW_RESET_PORT) names a serial port the boot-event row pulses
-# DTR on to reset it, and only that row resets; unset, that row skips, naming
-# RESET_PORT (#550).
 HW_TEST_RUN ?=
 HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD sn=$(CM_PROBE_SERIAL) mode=HOTPLUG -rst
 hw-test: HW_RESET_DEFAULT := $(if $(HW_RESET)$(filter tcp:% tcp-listen:%,$(PORT)),,$(HW_RESET_$(BOARD)))
@@ -162,10 +60,6 @@ api-doc-check:
 	@python3 -B scripts/api-doc-check.py $(CURDIR)
 
 ## sdk-lint: gofmt and vet the Go SDK, and check its API page
-# vet compiles the tests, so it downloads their modules. That download goes
-# first, through deps-check.py's bounded retry: a proxy that is down for a
-# moment is asked again, a module that is wrong or missing fails at once, and
-# gofmt and vet then run once, from the cache, so a real finding fails first time.
 sdk-lint: api-doc-check
 	@python3 scripts/deps-check.py download $(SDK_DIR)
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
@@ -175,11 +69,6 @@ sdk-lint: api-doc-check
 	@echo "sdk/go: gofmt and vet clean"
 
 ## sdk-verify: check the module graph carries no in-house dependency
-# THE LAYER 0 INVARIANT, enforced rather than trusted. This module is imported
-# by go-xkms (Layer 3) and go-trusted-platform (Layer 5); a dependency on
-# anything in the stack would invert the graph and make it unimportable by the
-# very projects it exists for. The check is one grep because the property is
-# one property.
 sdk-verify:
 	@cd $(SDK_DIR) && $(GO) mod verify >/dev/null
 	@if cd $(SDK_DIR) && $(GO) list -m all | grep -E 'jeremyhahn/(go-|xkey)' | grep -v 'trusted-firmware'; then \
@@ -187,49 +76,23 @@ sdk-verify:
 	fi
 	@echo "sdk/go: zero in-house dependencies -- Layer 0 invariant holds"
 
-# xkms/ is a SEPARATE module from sdk/go and sits above it: it adapts the AVR
-# device to go-xkms's backend interfaces, so it imports go-xkms (Layer 3) and
-# the SDK (Layer 0), which sdk/go itself must never do. It requires a TAGGED
-# sdk/go, not this tree, so the SDK's source sits in the read-only module cache
-# and the simulators cannot be found relative to it: a run that starts one
-# (hw-enroll on a board does not; xkms/e2e TestHardwareEnrollment by hand with
-# no board does) hands the test the built binaries' directory through TFWSIM_DIR.
-#
-# codec_json is go-xkms's build tag for its ACME client, which the end-to-end
-# test drives; without it that test would silently not be compiled.
+# xkms/ is a separate module from sdk/go and sits above it: it adapts the AVR device to go-xkms's backend interfaces, so it imports go-xkms (Layer 3) and the SDK (Layer 0), which sdk/go itself must never do.
 XKMS_DIR            := xkms
 XKMS_TAGS           ?= codec_json
 XKMS_COVERAGE_FLOOR ?= 90
 XKMS_SIM_DIR        ?= $(abspath build/host)
 
 ## xkms-test: run the xkms adapter's tests, all but the e2e package
-# Depends on both simulators for the reason sdk-test does: the adapter's tests
-# talk to the REAL firmware compiled for the host, never a downloaded binary.
-# ./e2e is left out: it is TestHardwareEnrollment's package, which hw-enroll runs
-# against a board (#163 decision 2). Out of the list, not skipped inside it.
-# Every xkms test that starts a simulator carries the tfwsim build tag, as the
-# sdk's do (xkms/avr's field-link tests), so this is the one xkms target that
-# compiles them in; xkms-coverage leaves them out.
 xkms-test: tfwsim tfwsim-atecc608a
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS) tfwsim) \
 	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS) tfwsim) ./... | grep -v '/e2e$$')
 
-## xkms-e2e-soft: enrol the no-element CRYPTO=auto image through device-attest-01 on its soft root (#130)
-# Separate from xkms-test because xkms/e2e is TestHardwareEnrollment's package,
-# which stays out of it (#163 decision 2). These tests in it need no board:
-# two start tfwsim-auto with no element on the bus, the second through
-# hw-enroll's own harness with SOFT_ROOT=1 (#7), and the third reads DEVICE and
-# SOFT_ROOT only, so they are named here and run in integration-test-host.
+## xkms-e2e-soft: enrol the no-element CRYPTO=auto image through device-attest-01 on its soft root
 xkms-e2e-soft: tfwsim-auto
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
 	  -run '^(TestSoftRootEnrollsThroughDeviceAttest01|TestHardwareEnrollmentAdmitsASoftRootWhenAsked|TestEnrollTargetsTransportFromDevice)$$' ./e2e
 
 ## xkms-coverage: xkms adapter unit-test statement coverage, failing if it or any package is under the floor
-# Unit tests only (#163), as sdk-coverage is: xkms/e2e, the one package that
-# starts a simulator, is left out of the package list, so no simulator is built
-# or found for it and the floor is what the unit tests reach on their own. The
-# device-attest-01 checks run in xkms/avr against recorded simulator frames.
-# xkms-test leaves xkms/e2e out too; hw-enroll runs it against a board.
 xkms-coverage:
 	@mkdir -p coverage
 	@cd $(XKMS_DIR) && pkgs=$$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$') && \
@@ -243,19 +106,6 @@ xkms-coverage:
 	  fi
 
 ## hw-enroll: enroll one board through device-attest-01 and write its run record (#7)
-# NOT in `ci`, for the reason bench-check is not: it needs a board on the bench.
-# The harness it runs is xkms/e2e TestHardwareEnrollment; `xkms-test` leaves
-# its package out (#163 decision 2).
-# DEVICE is the board; there is no default and no fallback to the simulator,
-# because a hardware run that cannot reach hardware is a failure. Its form picks
-# the transport: a host:port is TCP, the address this host listens on for the
-# board to dial (CONNECT_WAIT bounds the wait); anything else is a serial port.
-# DEVICEID is the hex X||Y tfwprov --commit printed, for the in-process ACME
-# server; ACME_DIRECTORY names a control plane instead, ACME_ROOTS the PEM its
-# TLS chains to. SOFT_ROOT=1 admits a soft root (#7): the relying party permits
-# notSecure, and with no DEVICEID the registry takes the DeviceID the device
-# attests, as a soft root has no tfwprov provisioning; unset, it is refused.
-# Procedure: docs/development/hardware-enrollment.md.
 HW_ENROLL_RECORDS ?= docs/development/enrollment-runs
 hw-enroll:
 	@if [ -z "$(DEVICE)" ]; then \
@@ -270,8 +120,6 @@ hw-enroll:
 	  $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) -run '^TestHardwareEnrollment$$' -v ./e2e/
 
 ## go-tags-selftest: every Go invocation the CI stages reach carries GO_BUILD_TAGS; empty changes none
-# The boot bridge runs on integration-test-boot's store row; its AVR
-# prerequisites are taken as built, since a dry run cannot link them.
 go-tags-selftest:
 	@GO_TAGS_BRIDGE='BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1 CRYPTO=soft' \
 	 GO_TAGS_BRIDGE_PREREQS="$$($(MAKE) --no-print-directory -s go-tags-bridge-prereqs \

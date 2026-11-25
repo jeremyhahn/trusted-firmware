@@ -60,7 +60,7 @@ another row, hardware or the AVR gate (#7), in this order:
    it touches `boards/esp32p4-poe/`, `src/hal/esp32/` and `boot/hal/esp32/`,
    and is proven on the bench, not here. This row's "The ESP32-P4 first" line
    turns shipped when that row does.
-2. **The AVR gate** (#7; owner decision): the owner records that AVR has every
+2. **The AVR gate**: the owner records that AVR has every
    primitive and a proven physical end-to-end run, or lifts the gate for a
    named part as for the P4; no file of this tree changes, and this row's last
    line turns from "not yet, by rule" to open.

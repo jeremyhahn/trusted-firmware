@@ -115,7 +115,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
             TWDR = wr[i];
             TWCR = (uint8_t)(_BV(TWINT) | _BV(TWEN));
             if (!twi_wait()) { return TFW_ERR_TIMEOUT; }
-            if ((TWSR & 0xF8u) != 0x28u) { return TFW_ERR_NACK; }
+            if ((TWSR & 0xF8u) != 0x28u) {
+                TWCR = (uint8_t)(_BV(TWINT) | _BV(TWSTO) | _BV(TWEN));
+                return TFW_ERR_NACK;
+            }
         }
     }
     if (rlen) {

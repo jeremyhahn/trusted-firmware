@@ -18,6 +18,9 @@
  * evidence is internally inconsistent parses cleanly everywhere and means
  * nothing -- and TFWV_ALIAS_CERT_BAD_INNER is exactly that certificate. It is
  * the failure this project has to fear, so it has a vector and a test.
+ *
+ * Each mint reads a running application's evidence afresh, so a second
+ * challenge carries the second value and ATTEST_CSR's measurement follows it.
  */
 
 #include <string.h>
@@ -867,6 +870,81 @@ static void test_an_application_that_supplies_none_leaves_the_firmware_measureme
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, doc, total);
 }
 
+/* Mints with challenge and leaves the certificate unpaged. */
+static void mint_with(const uint8_t *challenge)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, challenge, TFW_ALIAS_NONCE_LEN);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+}
+
+/*
+ * #635. Every challenge reads the application's evidence afresh: the fake
+ * answers the next byte pattern on each call, so a mint that kept the first
+ * value across challenges would put stale evidence into a certificate bound
+ * to a fresh nonce, and ATTEST_CSR would sign it. Pages read nothing, the old
+ * nonce's measurement is gone, and an application that stops supplying
+ * evidence leaves the firmware measurement, not its last answer.
+ */
+static void test_each_challenge_reads_the_applications_evidence_afresh(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t  fw[TFW_SHA256_LEN], m[TFW_SHA256_LEN], want[TFW_SHA256_LEN];
+    uint8_t  other[TFW_ALIAS_NONCE_LEN], out[TFW_MAX_PAYLOAD], page;
+    uint16_t i;
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    for (i = 0u; i < sizeof fw; i++) { fw[i] = (uint8_t)(0x70u + i); }
+    {
+        uint8_t block[TFW_BOOT_HANDOFF_LEN], cdi[32];
+        memset(cdi, 0, sizeof cdi);
+        tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, fw, 1u, 0u);
+        memcpy(test_handoff, block, sizeof test_handoff);
+        tfw_boot_handoff_init();
+    }
+    provision();
+    app_st = TFW_OK;
+    memcpy(app_ev, EV, sizeof app_ev);
+
+    mint_with(NONCE);
+    TEST_ASSERT_EQUAL_UINT(1u, app_calls);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_measurement_for(NONCE, m));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EV, m, sizeof m);
+
+    /* The second challenge carries the fake's second answer. */
+    memcpy(other, NONCE, sizeof other);
+    other[0] ^= 0xFFu;
+    mint_with(other);
+    TEST_ASSERT_EQUAL_UINT(2u, app_calls);
+    memcpy(want, EV, sizeof want);
+    want[0] = (uint8_t)(want[0] + 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_measurement_for(other, m));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, m, sizeof m);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_alias_measurement_for(NONCE, m));
+
+    /* Its pages are served from the mint, not read again. */
+    for (page = 1u; page <= 2u; page++) {
+        tfw_reader_init(&r, &page, 1u);
+        tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+    }
+    TEST_ASSERT_EQUAL_UINT(2u, app_calls);
+
+    /* An application that stops supplying evidence: the firmware measurement. */
+    app_st = TFW_ERR_UNSUPPORTED;
+    other[1] ^= 0xFFu;
+    mint_with(other);
+    TEST_ASSERT_EQUAL_UINT(3u, app_calls);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_measurement_for(other, m));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(fw, tfw_attest_fw_hash(), sizeof fw);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(fw, m, sizeof m);
+}
+
 /* A fresh challenge replaces the document. Serving the previous one would be
  * serving evidence bound to a nonce the host has moved on from. */
 static void test_a_new_nonce_replaces_the_certificate(void)
@@ -1000,6 +1078,7 @@ int main(void)
     RUN_TEST(test_a_running_applications_evidence_is_the_claim_every_page_carries);
     RUN_TEST(test_an_application_that_supplies_none_leaves_the_firmware_measurement);
     RUN_TEST(test_a_new_nonce_replaces_the_certificate);
+    RUN_TEST(test_each_challenge_reads_the_applications_evidence_afresh);
     RUN_TEST(test_a_wrong_sized_argument_is_refused);
     RUN_TEST(test_a_page_past_the_end_is_refused);
     RUN_TEST(test_a_page_and_its_header_fit_one_payload);

@@ -2,18 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# usage: ccdeps.sh CC ARGS... -o OUT ARGS...
-#
-# Runs the compile as given, then writes OUT.d: a make fragment naming every
-# header the sources of that command include, as prerequisites of OUT.
-#
-# The host binaries are compiled and linked in ONE cc invocation over many
-# sources. gcc's own -MMD cannot serve there: with several sources and one -o it
-# writes a single .d file and each source overwrites the one before, so the
-# header list of all but the last is silently lost -- the failure this file
-# exists to prevent. -MM runs preprocess-only, concatenates every source's
-# dependencies on stdout, and -MT pins the target to OUT for all of them.
-# -MP adds an empty rule per header so a deleted header is not a build error.
+# usage: ccdeps.sh CC ARGS... -o out ARGS...
 
 set -e
 

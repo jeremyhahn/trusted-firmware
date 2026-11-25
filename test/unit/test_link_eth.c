@@ -594,6 +594,8 @@ static void test_ethernet_admits_the_enrolment_attestation_and_staging_commands_
         }
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(want, tfw_link_admits((uint8_t)id), "allow-list moved");
     }
+    /* APP_CMD is serial only: wire-commands ADR, decision 6. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_link_admits(TFW_CMD_APP_CMD));
 }
 
 static void test_serial_admits_every_command(void)

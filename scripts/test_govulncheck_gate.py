@@ -77,6 +77,16 @@ class Allowlist(unittest.TestCase):
         with self.assertRaises(ValueError):
             gg.read_allow(self.write("xkms GO-1\n"), "xkms")
 
+    def test_an_id_listed_twice_for_one_module_is_refused(self):
+        path = self.write("xkms GO-1 the first reason\nxkms GO-1 a second reason\n")
+        with self.assertRaisesRegex(ValueError, r":2: .*GO-1.*line 1"):
+            gg.read_allow(path, "xkms")
+
+    def test_the_same_id_under_two_modules_is_read_for_each(self):
+        path = self.write("xkms GO-1 one reason\nsdk/go GO-1 another\n")
+        self.assertEqual(gg.read_allow(path, "xkms"), {"GO-1": "one reason"})
+        self.assertEqual(gg.read_allow(path, "sdk/go"), {"GO-1": "another"})
+
     def test_the_allowlist_in_this_tree_parses(self):
         for module in ("xkms", "sdk/go", "test/integration/esp32"):
             for osv, reason in gg.read_allow(gg.ALLOW, module).items():

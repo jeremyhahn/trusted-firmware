@@ -22,7 +22,7 @@ make bootloader BOARD=atmega328p BOOT_TIER=atecc608a \
 | `BOARD` | a name under `boards/` (`atmega328p`, `atmega32u4`, `atmega2560`, …) | — | yes |
 | `BOOT_TIER` | `soft`, `atecc608a` | `atecc608a` on a 4 KB section, else `soft` | no |
 | `BOOT_MEASURE` | `soft`, `atecc608a` | `BOOT_TIER` | no |
-| `BOOT_SIG` | `ed25519-donna`, `atecc608a`, `p256-soft` | the row's P-256 verifier: `atecc608a` on the element tier, `p256-soft` on the soft tier (item 79, owner ruling 2026-10-17); `ed25519-donna` for `bootloader-budget` and `boot-core-size` | no |
+| `BOOT_SIG` | `ed25519-donna`, `atecc608a`, `p256-soft` | the row's P-256 verifier: `atecc608a` on the element tier, `p256-soft` on the soft tier; `ed25519-donna` for `bootloader-budget` and `boot-core-size` | no |
 | `BOOT_OTA` | `0`, `1` | `1` with `BOOT_SIG=atecc608a` on an 8 KB section, else `0` | no |
 
 Produces `build/<board>/boot/<config>/tfw-boot.hex`, where `<config>` encodes
@@ -137,7 +137,7 @@ make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
 | Flag | Values | Default | Required |
 |---|---|---|---|
 | `BOARD` | a board name | — | yes |
-| `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | the board's supported row: `atecc608a`, `atecc608a`, `atecc608a`, `0` on a 4 KB section; `soft`, `soft`, `p256-soft`, `0` on the 2560 (item 79, owner ruling 2026-10-17) | no |
+| `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | the board's supported row: `atecc608a`, `atecc608a`, `atecc608a`, `0` on a 4 KB section; `soft`, `soft`, `p256-soft`, `0` on the 2560 | no |
 | `ISP_PROG` | any `avrdude -c` programmer id | `usbasp` | no |
 | `ISP_PORT` | any `avrdude -P` port | `usb` | no |
 | `BOOT_FIRST_FLASH` | `0`, `1` | `0` | no: the board's first boot flash, below |
@@ -170,7 +170,7 @@ Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0` | 8 190 | — | yes: 2 bytes spare (lane-verify, 935494f) |
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0`, `BOOT_STORE=1` | 2 680 over | — | no: not a row; it sheds OTA, never verification |
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `1` | 3 836 over | — | no: not a row; it sheds OTA, never verification |
-| `atmega328p` | 4 096 B | `soft` `soft` `p256-soft` | `0` | 4 030 over | — | no: not a row; the 328P is element-only (owner ruling 2026-10-17 (m522)) |
+| `atmega328p` | 4 096 B | `soft` `soft` `p256-soft` | `0` | 4 030 over | — | no: not a row; the 328P is element-only |
 | `atmega32u4` | 4 096 B | `soft` `soft` `p256-soft` | `0` | — | — | no: not a row |
 | `attiny85` | none | — | — | — | — | no: the part has no boot section |
 

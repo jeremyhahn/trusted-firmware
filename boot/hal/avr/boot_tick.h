@@ -26,4 +26,8 @@
 #define TFW_BOOT_POLL_CYCLES 77uL
 #define TFW_BOOT_TICK_HZ     ((uint32_t)F_CPU / TFW_BOOT_POLL_CYCLES)
 
+/* The type of serve's pass counter. The 77-cycle figure is measured with the
+ * counter in SRAM, so volatile keeps it there whatever serve grows (#640). */
+#define TFW_BOOT_POLL_COUNTER_T volatile uint32_t
+
 #endif /* TFW_BOOT_TICK_H */

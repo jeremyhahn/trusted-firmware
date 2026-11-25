@@ -5,7 +5,7 @@
 > ([`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md)),
 > #15 ([`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md)),
 > board page [`../boards/stm32h573i-dk.md`](../boards/stm32h573i-dk.md)
-> · Scope: trusted-firmware, documentation only · Last verified: 2026-10-17
+> · Scope: trusted-firmware, documentation only · Last verified: 2026-11-21
 >
 > Owner ruling, 2026-10-17 05:51Z, queue item 26: each arrived board gets one
 > docs-only onboarding ADR. This is the STM32H573I-DK's. The port itself stays
@@ -15,15 +15,18 @@
 
 > **Ruling 935 (owner queue 236)** closes this ADR's open questions 1, 2 and
 > 5 and the `stm32h5` row's open decision: the secure world on this board is
-> our own TrustZone-M firmware holding the DICE layer, the DeviceID and the
-> alias keys, with evidence through go-xkms device-attest-01. ST's Secure
-> Manager and a PSA token verifier are **not taken**; see
-> [`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md). The hardware
+> upstream TF-M Profile Medium (ADR #15 (b1), ruling 1024, 2026-11-20, which
+> replaced ruling 935's "our own TrustZone-M firmware") with our DICE layer,
+> the DeviceID and the alias keys as an Application RoT partition, with
+> evidence through go-xkms device-attest-01. ST's Secure Manager and a PSA
+> token verifier are **not taken**; see
+> [`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md) (its "Amended
+> by ruling 1024" section). The hardware
 > facts below stand; the passages that offered the Secure Manager are marked.
 
 ## The question
 
-The STM32H573I-DK has arrived (CA m311). Before any port starts, the project
+The STM32H573I-DK has arrived. Before any port starts, the project
 needs a record of:
 
 1. what the board is for here, and which SPEC row it serves;
@@ -70,7 +73,7 @@ line with no test has none on main. Nothing below has run on either board.
 
 | # | Requirement | Status | Code | Test |
 |---|---|---|---|---|
-| 1 | STM32H573I-DK as data on the generic Cortex-M port, board id 0x43 (#14, DS-2971) | done | `boards/stm32h573i-dk/board_profile.h`, `boards/stm32h573i-dk/board.c`, `boards/stm32h573i-dk/profile.mk` | `test/unit/test_board_stm32h573i-dk.c`: `test_the_board_is_its_registered_id` |
+| 1 | STM32H573I-DK as data on the generic Cortex-M port, board id 0x43 | done | `boards/stm32h573i-dk/board_profile.h`, `boards/stm32h573i-dk/board.c`, `boards/stm32h573i-dk/profile.mk` | `test/unit/test_board_stm32h573i-dk.c`: `test_the_board_is_its_registered_id` |
 | 2 | The `stm32h5` SoC's clock: HSI at 64 MHz, flash wait states | done | `src/hal/cortex-m/stm32h5/hal_soc.c`, `src/hal/cortex-m/stm32h5/h5_calc.h` | `test/unit/test_stm32h5_soc.c`: `test_early_sets_flash_latency_3_for_64mhz`; `test/unit/test_stm32h5_calc.c`: `test_the_hsi_needs_three_wait_states` |
 | 3 | The SoC's watchdog (IWDG) | done | `src/hal/cortex-m/stm32h5/hal_soc.c` | `test/unit/test_stm32h5_soc.c`: `test_arm_timeout_is_4_seconds`, `test_pet_writes_the_reload_key_only` |
 | 4 | The SoC's GPIO | done | `src/hal/cortex-m/stm32h5/hal_gpio.c` | `test/unit/test_stm32h5_gpio.c`: `test_output_is_moder_01_no_pull_and_push_pull` |
@@ -83,12 +86,12 @@ line with no test has none on main. Nothing below has run on either board.
 | 11 | Onboarding: read-only factory record before any write; flash refused without it; restore writes the record back; no option-byte operation (section 4) | done (host-tested; never run) | `mk/arch/cortex-m.mk` (`board-record`, `flash`, `board-restore`), `boards/stm32h573i-dk/profile.mk` (`CM_FLASH_TOOL := stm32cubeprog`) | `scripts/test_cortex_m_flash.py`: `TestRecordWriteRestore.test_stm32h573i_dk`, `TestRefusals.test_write_without_record_is_refused`, `TestDryRun.test_no_refused_operation_in_any_line` |
 | 12 | Runs on the STM32H573I-DK (console, `CAPS`, tfw-boot verify and boot) | not started (hardware) | none | none |
 | 13 | Enrols over Ethernet through the MCU's MAC (no W5x00) | not started | none: no Ethernet MAC driver under `src/hal/cortex-m/stm32h5/` | none |
-| 14 | Cortex-M33 TrustZone secure world: ADR #15 (b1), TF-M Profile Medium with our DICE partition, MCUboot as BL2 | not started (owner decision, open question 1) | none: the part runs with TrustZone off (`src/hal/cortex-m/stm32h5/soc_regs.h`) | none |
+| 14 | Cortex-M33 TrustZone secure world: ADR #15 (b1), TF-M Profile Medium with our DICE partition, MCUboot as BL2 | not started | none: the part runs with TrustZone off (`src/hal/cortex-m/stm32h5/soc_regs.h`) | none |
 | 15 | Hardware crypto on the STM32H573 (PKA, HASH, RNG) | not started | none: the board's one tier is `soft` (`BOARD_TIERS` in `profile.mk`) | none |
-| 16 | ST Secure Manager with its PSA attestation token verified on go-xkms's EAT path | not started (owner decision, open questions 1 and 5; go-xkms) | none | none |
+| 16 | ST Secure Manager with its PSA attestation token verified on go-xkms's EAT path | not taken (ruling 935: no Secure Manager, no PSA token verifier; open questions 1 and 5 closed) | none | none |
 | 17 | Factory device certificate as the DeviceID's endorsement | not started (open question 4; unconfirmed in any ST document; go-xkms) | none | none |
 | 18 | NUCLEO-H563ZI proves our own secure world and software crypto on a part without ST's services | not started (the SPEC text predates ADR #15 (b1); see Follow-ups) | none | none |
-| 19 | DICE layer 0 and UDS on the part (open questions 2, 3) | not started (owner decision) | none | none |
+| 19 | DICE layer 0 and UDS on the part (open questions 2, 3) | not started | none | none |
 | 20 | Every "to confirm" replaced by a cited ST document section (open question 9) | not started (needs network access to st.com) | none | none |
 
 Open question 8 is answered by row 1: the board took id `0x43` when the port
@@ -116,10 +119,10 @@ started.
    ethernet-transport row does; it needs an owner ruling first, since that row
    states no IP stack of ours runs on the device and the MCU's MAC, unlike a
    W5x00, has no hardware TCP/IP stack.
-6. The M33 secure world on this board: our own TrustZone-M firmware with the
-   DICE layer, per ruling 935
-   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md), slices (a)
-   to (d)); not ST's Secure Manager, not TF-M (b1) on this part.
+6. The M33 secure world on this board: upstream TF-M Profile Medium with our
+   DICE partition, MCUboot as BL2, per ADR #15 (b1) and ruling 1024
+   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md), its "Amended
+   by ruling 1024" section and slices (a) to (d)); not ST's Secure Manager.
 7. DICE layer 0 and the UDS on the part (open question 3), then
    enrolment (device-attest-01) over Ethernet; blocked on slices 5 and 6.
 8. Hardware crypto (PKA, HASH, RNG) as a tier beside `soft`, under the secure
@@ -155,14 +158,15 @@ row, as its second target and first M33.
 | Product state | the part's lifecycle, held in option bytes, which sets what debug and flash access remain. Its states, which transitions are allowed, and which of them erase or are irreversible, are **to confirm** from RM0481 | RM0481, section to confirm |
 | HDP | the hide-protection area: boot code that hides itself from later code before handing over, so later stages cannot read it. Its levels and how they advance are **to confirm** | RM0481, section to confirm |
 | Secure firmware install (SFI) | ST's encrypted install of firmware and option bytes into a part in the provisioning state, driven by STM32CubeProgrammer | RM0481 and UM2237, sections to confirm; the SFI application note's number is to confirm |
-| Secure Manager | ST's PSA-compatible secure world (secure boot, crypto, internal trusted storage, initial attestation, firmware update), whose access kit is export-controlled. **Not taken** as our secure world (ruling 935, [`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)) | UM3254, section to confirm; board page |
+| Secure Manager | ST's PSA-compatible secure world (secure boot, crypto, internal trusted storage, initial attestation, firmware update), whose access kit is export-controlled. **Not taken** as our secure world | UM3254, section to confirm; board page |
 
 ### The map onto DICE, as candidates only
 
 Ruling 935 settles the rows that named the Secure Manager: the DICE layer,
 the measurement of the next layer and the DeviceID and alias keys are in our
-own TrustZone-M secure world
-([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)). The table is
+DICE partition under TF-M (ruling 1024;
+[`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md), its "Amended
+by ruling 1024" section). The table is
 kept as the candidates first recorded.
 
 TCG's DICE hardware requirements (Revision 78) ask for a Unique Device Secret
@@ -174,9 +178,9 @@ AVR). On this part each element has more than one candidate:
 |---|---|---|
 | DICE engine (immutable) | the boot ROM's STiRoT path, or an OEMiRoT we write, installed in a hidden area | open questions 1, 2 |
 | UDS | a hardware unique key reachable only by secure code before HDP closes (whether the H573 has one usable this way is to confirm in RM0481), or a secret we provision through SFI | open question 3 |
-| Measurement of the next layer | taken by STiRoT, by the Secure Manager, or by our layer 0 | open question 2 |
+| Measurement of the next layer | taken by STiRoT, by the Secure Manager (not taken, ruling 935), or by our layer 0 | open question 2 |
 | Isolation of the CDI from later layers | HDP, the TrustZone boundary, or both | open question 3 |
-| DeviceID and alias | the Secure Manager's initial attestation key, or a key in our TF-M partition (ADR #15 (b1), accepted) | open questions 2, 4 |
+| DeviceID and alias | the Secure Manager's initial attestation key (not taken, ruling 935), or a key in our TF-M partition (ADR #15 (b1), accepted) | open questions 2, 4 |
 
 What does not change on any candidate: the device signs only the three fixed
 structures (`docs/dice-attestation/architecture.md`), the alias certificate
@@ -195,15 +199,19 @@ and decides nothing.
   machine.
 - **ADR #15** decides, for the M33, (b1): TF-M Profile Medium with our DICE
   attestation code as an Application RoT partition in the secure world, MCUboot
-  as BL2. It names this board as TF-M's upstream platform, and it leaves open
-  whether our partition sits on ST's Secure Manager or on upstream TF-M (its
-  open question 2, which is the `stm32h5` row's open decision). Our own secure
+  as BL2. It names this board as TF-M's upstream platform. Whether our
+  partition sits on ST's Secure Manager or on upstream TF-M was its open
+  question 2, the `stm32h5` row's open decision, and is closed: ruling 935
+  took no vendor secure world, and ruling 1024 took upstream TF-M Profile
+  Medium with our DICE partition. Our own secure
   world, ADR #15 (a), is held in reserve for M33 parts TF-M has no port for; it
   is not an option on this board.
 - **Ruling 935** (after both ADRs) names our own TrustZone-M firmware as the
   secure world on the STM32H5, not ST's Secure Manager
-  ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)); on this
-  board that replaces both the Secure Manager option and (b1).
+  ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)), and ruling
+  1024 (2026-11-20) then replaced "our own TrustZone-M firmware" with (b1)
+  (that ADR's "Amended by ruling 1024" section); so on this board (b1) stands
+  and only the Secure Manager option is replaced.
 - **Before ruling 935**: Under (b1) MCUboot, not tfw-boot, boots this board
   (ADR #15: "Under (b1), tfw-boot runs on neither bench board"), so ADR #14's
   HAL table and ADR #15 agree. The Secure Manager option, under which the boot
@@ -249,9 +257,10 @@ None is decided here. Owner ruling 632 item 208 a (2026-11-14) accepted ADRs
 attestation partition (ADR #15 (b1)), so our own secure world (ADR #15 (a)) is
 no longer offered for this board.
 
-1. **Closed by ruling 935: which secure world.** Neither ST's Secure Manager
-   with its PSA token nor a TF-M build: our own TrustZone-M firmware
-   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md)).
+1. **Closed by rulings 935 and 1024: which secure world.** TF-M Profile
+   Medium with our DICE partition; not ST's Secure Manager, no PSA token
+   ([`adr-mcu-dice-attestation.md`](adr-mcu-dice-attestation.md), its
+   "Amended by ruling 1024" section).
 2. **Closed by ruling 935: DICE layer 0.** Ours, in our secure world, which
    measures the next layer and derives the CDI; not the Secure Manager's.
 3. **The UDS.** Which secret is the UDS, who provisions it (ST at the factory, or
@@ -283,7 +292,9 @@ no longer offered for this board.
 - The `stm32h5` row in `docs/SPEC.md` still reads "our own TrustZone secure
   world"; aligning it with ADR #15 (b1) is a SPEC change for the CA, not this
   ADR's.
-- When the owner answers open question 1, update this ADR and ADR #15 follow-up
-  F3 in one change.
+- Open question 1 is closed by rulings 935 and 1024 (TF-M Profile Medium with
+  our DICE partition, ADR #15 (b1)). ADR #15 follow-up F3 (`architecture.md`
+  §6 and the `cortex-m` and `stm32h5` SPEC rows) is the CA's SPEC change, not
+  this ADR's.
 - The first slice of the port reads the ST documents above at their current
   revisions and replaces every "to confirm" with a cited section.

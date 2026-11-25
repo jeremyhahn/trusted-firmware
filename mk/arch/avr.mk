@@ -1,32 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The AVR architecture: the one file that knows what an AVR toolchain is called,
-# what it is told, how its images are measured and written, and where its linker
-# is asked to put the CDI handoff block.
-#
-# Included by mk/firmware.mk, after the board's profile.mk has said ARCH := avr
-# -- so MCU, F_CPU, RAM_END and the rest of the profile are already defined here.
-# Nothing outside mk/arch/ names a toolchain binary, a -m flag or an avrdude
-# switch. Adding an architecture is adding a sibling of this file, a
-# src/hal/<arch>/ and a boot/hal/<arch>/ -- see docs/boards/adding-a-board.md.
-#
-# The contract with mk/firmware.mk and mk/boot.mk. Every name below is required,
-# and a new architecture that leaves one out fails at the first use of it:
-#
-#   ARCH_CC, ARCH_OBJCOPY, ARCH_SIZE   the toolchain binaries
-#   ARCH_RAM_USED                      $(call ...,elf): static RAM the image takes
-#   ARCH_LIBC                          named in the SBOM
-#   ARCH_MACH_CFLAGS                   which machine, and the clock it runs at
-#   ARCH_OPT_CFLAGS                    optimisation and section/LTO policy
-#   ARCH_LDFLAGS                       the link flags every image shares
-#   ARCH_FW_PLACEMENT_LDFLAGS          where the application puts the handoff
-#   ARCH_BOOT_PLACEMENT_LDFLAGS        where tfw-boot puts .text and the handoff
-#   ARCH_BOOT_START_SRC, _LDFLAGS      tfw-boot's own startup, in place of the crt
-#   ARCH_UECC_CFLAGS                   micro-ecc's word size and platform in tfw-boot
-#   ARCH_FLASH, ARCH_BOOT_FLASH        recipes that write the image to a part
-#   ARCH_BOARD_RESTORE                 the recipe that puts the factory state back
-#   ARCH_LOCK_CHECK                    the recipe that reads the lock bits back
+# The AVR architecture: the one file that knows what an AVR toolchain is called, what it is told, how its images are measured and written, and where its linker is asked to put the CDI handoff block.
 
 ARCH_CC      := avr-gcc
 ARCH_OBJCOPY := avr-objcopy
@@ -34,66 +9,23 @@ ARCH_SIZE    := avr-size
 ARCH_NM      := avr-nm
 ARCH_LIBC    := avr-libc
 
-# Static RAM an image occupies: every section the ELF places in SRAM, read from
-# the section table by address. Not avr-size's berkeley `data`: a .data that
-# holds only constants is flagged READONLY and berkeley counts it as text, so
-# a gate built on it would pass an image whose .data does not fit. avr-ld maps
-# the data space at 0x800000 and EEPROM at 0x810000; SRAM is what lies between.
+# Static RAM an image occupies: every section the ELF places in SRAM, read from the section table by address.
 ARCH_RAM_USED = $(ARCH_SIZE) -A -d $(1) | awk '$$3 >= 8388608 && $$3 < 8454144 { s += $$2 } END { if (NR) print s + 0 }'
 
-# -flto and --gc-sections together are what make link-time HAL substitution pay
-# off: an unused peripheral's code is not merely unreferenced, it is gone, and
-# tfw_hal_gpio_write inlines to a two-instruction sbi at its call site.
+# Link-time optimisation (-flto) and --gc-sections together drop an unused peripheral's code entirely.
 ARCH_MACH_CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL
 ARCH_OPT_CFLAGS  := -Os -flto -ffunction-sections -fdata-sections \
                     -fno-fat-lto-objects
 
 ARCH_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 
-# Code size before speed, for tfw-boot alone (issue #75): -mcall-prologues
-# replaces each function's register saves and restores with a call to one
-# shared libgcc routine. A few cycles a call, which a bootloader that waits on
-# the element and the UART never notices, against 358 bytes on the 2560's
-# OTA-in-boot row and less on every other row; none grows. It is a code
-# generation choice only, so the image decides what it decided before. LTO
-# records it in each object, so the link needs no copy. The application is not
-# built so.
-#
-# -mstrict-X keeps the X pointer register to plain loads and stores, so the
-# compiler stops synthesising displacement addressing through it; and
-# -fno-tree-scev-cprop stops loop exit values being recomputed after a loop
-# where they are already in a register. Both are code generation only, and
-# measured on every row: neither grows any, and together they take 12 bytes
-# off each 4 KB row, 32 off the 2560's OTA row, 46 off its store row and 60
-# off the two together.
+# Code size before speed, for tfw-boot alone: -mcall-prologues replaces each function's register saves and restores with a call to one shared libgcc routine.
 ARCH_BOOT_OPT_CFLAGS := -mcall-prologues -mstrict-X -fno-tree-scev-cprop
 
-# micro-ecc's word for BOOT_SIG=p256-soft (mk/boot.mk): one byte, the AVR's own,
-# which its platform detection would pick anyway; stated so the host test's
-# UECC_WORD default and the part build name the same word path.
+# Micro-ecc's word for BOOT_SIG=p256-soft (mk/boot.mk): one byte, the AVR's own, which its platform detection would pick anyway; stated so the host test's UECC_WORD default and the part build name the same word path.
 ARCH_UECC_CFLAGS := -DuECC_WORD_SIZE=1
 
-# The CDI handoff block's SRAM address, and the stack kept below it -- issue
-# #6/#18. THE SAME FORMULA for the application and for tfw-boot, because the two
-# images must land on the identical address with no shared linker script to
-# enforce it; one formula, derived once from the board's own RAM_END, is the only
-# way the two cannot drift apart on it. Without the stack move the C runtime's
-# default __stack -- the physical top of SRAM -- puts the application's own stack
-# exactly where the handoff block lives, and the first deep call overwrites the
-# CDI before tfw_boot_handoff_init ever reads it.
-#
-# Guarded on RAM_END because not every board has a bootloader to hand anything
-# off, and the ATtiny85's profile.mk states so by defining neither.
-#
-# `.handoff`, NOT the generic `.noinit` output section -- src/hal/avr/
-# hal_early.c's tfw_hal_early_flags lives in ordinary (unpinned) `.noinit` too,
-# for the same "must survive past .init3" reason, and pinning the generic
-# section's address would carry every object assigned to it to this one fixed
-# spot, overflowing the 112 bytes (TFW_BOOT_HANDOFF_LEN, version 4) meant for
-# the handoff block alone.
-#
-# AVR data addresses carry the 0x800000 offset the linker uses to tell flash from
-# SRAM.
+# The CDI handoff block's SRAM address, and the stack kept below it.
 ifneq ($(RAM_END),)
 ARCH_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 111 )))
 ARCH_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 112 )))
@@ -104,24 +36,7 @@ else
 ARCH_FW_PLACEMENT_LDFLAGS :=
 endif
 
-# tfw-boot: .text at the boot section's start, and the stack below the handoff
-# block. TFW_BOOT_HANDOFF_LEN bytes at the top of SRAM belong to the CDI handoff,
-# so the bootloader's stack must start below them or the first deep call writes
-# over the thing it is about to hand across.
-#
-# Guarded on BOOT_SECTION because not every board has one. These lines are
-# expanded on EVERY make invocation, whatever the target, so a board whose
-# profile states no boot geometry -- the ATtiny85 has no boot-loader section at
-# all -- turned `make firmware` into a shell arithmetic error printed before the
-# first compile, pointing at nothing. The bootloader targets still fail for that
-# board, which is correct; they now fail on the linker script rather than on
-# every unrelated build.
-#
-# BOOT_BASE is the profile's, but on AVR it has exactly one right value: BOOTRST
-# enters the boot section at the top of flash, so the section must end there. A
-# profile that says otherwise links a bootloader the part never runs, and the
-# reset vector lands in whatever the application left at the real address --
-# refused here rather than found on a bench.
+# tfw-boot: .text at the boot section's start, and the stack below the handoff block.
 ifneq ($(BOOT_SECTION),)
 ifneq ($(shell echo $$(( $(BOOT_BASE) + $(BOOT_SECTION) ))),$(FLASH_TOTAL))
 $(error BOOT_BASE "$(BOOT_BASE)" + BOOT_SECTION $(BOOT_SECTION) is not FLASH_TOTAL $(FLASH_TOTAL): BOOTRST puts the AVR boot section at the top of flash)
@@ -131,10 +46,7 @@ ARCH_BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 112 )))
 ARCH_BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 111 )))
 endif
 
-# And tfw-boot starts in its own boot/hal/avr/boot_start_avr.S, not the crt:
-# -nostartfiles drops the crt's interrupt vector table, which a boot that takes
-# no interrupt does not need (228 bytes on the 2560). The file says what of the
-# crt it keeps.
+# And tfw-boot starts in its own boot/hal/avr/boot_start_avr.S, not the crt: -nostartfiles drops the crt's interrupt vector table, which a boot that takes no interrupt does not need (228 bytes on the 2560).
 ARCH_BOOT_START_SRC := boot/hal/avr/boot_start_avr.S
 ARCH_BOOT_START_LDFLAGS := -nostartfiles
 
@@ -144,73 +56,26 @@ ARCH_BOOT_PLACEMENT_LDFLAGS := $(ARCH_BOOT_START_LDFLAGS) -Wl,-T,mk/handoff.ld \
                                -Wl,--defsym=__stack=$(ARCH_BOOT_STACK_TOP) \
                                -Wl,--defsym=__TEXT_REGION_LENGTH__=$(FLASH_TOTAL)
 
-# The text region's length is the part's flash, given again. -nostartfiles
-# drops the crt object that supplied it, and the linker script's default is
-# 1 MB: ld then never refuses an oversized boot -- no "region `text'
-# overflowed" -- and .text runs on past the top of flash. The application
-# links the crt (mk/firmware.mk has no -nostartfiles), so it needs no copy.
+# The text region's length is the part's flash, given again. -nostartfiles drops the crt object that supplied it, and the linker script's default is 1 MB: ld then never refuses an oversized boot, no "region `text' overflowed", and .text runs on past the top of flash.
 
-# Writing an image. Recipes, not rules: mk/firmware.mk and mk/boot.mk own the
-# targets, so the one `flash` and the one `boot-flash` exist for every
-# architecture and only the programmer differs. The AVRDUDE_* settings come
-# from the board's profile.mk.
+# Writing an image.
 ARCH_FLASH = avrdude -v -p$(AVRDUDE_PART) -c$(AVRDUDE_PROG) -P$(AVRDUDE_PORT) \
              -b$(AVRDUDE_BAUD) -D -Uflash:w:$<:i
 
-# NOT the `arduino` programmer. That one talks TO a bootloader, and the boot
-# section is the one place a bootloader cannot write. This needs an ISP.
+# Not the `arduino` programmer: a bootloader cannot write the boot section, so this needs ISP.
 ISP_PROG ?= usbasp
 ISP_PORT ?= usb
 
 ARCH_ISP = avrdude -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT)
 
-# NEVER A BARE CHIP ERASE. Over ISP a flash page cannot be rewritten without
-# the chip erase, so replacing the boot section needs one -- and the erase takes
-# the EEPROM with it unless EESAVE is programmed. The EEPROM holds the platform
-# block, the device's serial and with it its identity: a board flashed this way
-# comes back as a different device, or as none (CA m233, item 4).
-#
-# So the fuse is read first. Which fuse byte and bit is EESAVE is the board's
-# (BOOT_EESAVE_FUSE, BOOT_EESAVE_BIT in boards/<board>/profile.mk); an AVR fuse
-# bit is programmed when it reads 0.
-#
-#   EESAVE programmed      flash as before; the erase keeps the EEPROM.
-#   not, by default        refuse, and print the three ways on: the exact hfuse
-#                          write that programs EESAVE and nothing else, worked
-#                          out from the byte just read, or one of the opt-ins
-#                          below.
-#   BOOT_FIRST_FLASH=1     the board's first boot flash (SPEC device-provisioning,
-#                          owner ruling 2026-10-17 item 25): write the factory
-#                          record, then program EESAVE, read the fuse back, and
-#                          flash only if it now reads programmed. See
-#                          ARCH_BOOT_FIRST_FLASH below.
-#   BOOT_EEPROM_RESTORE=1  read the EEPROM to a timestamped file under
-#                          $(BUILD_DIR)/, erase and flash, write it back with -D,
-#                          read it back and compare. A mismatch fails and the
-#                          saved file stays where it is.
-#
-# No fuse is written here unless the operator asks for the first boot flash, and
-# then only the EESAVE bit: a fuse write is an operator's decision, made with the
-# command in front of them.
+# Never a bare chip erase: it takes the EEPROM, which holds the platform block, unless EESAVE is programmed.
 BOOT_EEPROM_RESTORE ?= 0
 BOOT_FIRST_FLASH    ?= 0
 
-# The bytes a factory record holds: every fuse byte and the lock byte of a
-# classic AVR, by avrdude's memory names. The values are the part's, read here.
+# The bytes a factory record holds: every fuse byte and the lock byte of a classic AVR, by avrdude's memory names.
 ARCH_FACTORY_BYTES := lfuse hfuse efuse lock
 
-# The first boot flash. Entered only with EESAVE read as not programmed ($$fuse,
-# the byte just read). In order, and nothing written to the part before step 3:
-#
-#   1. read every byte of ARCH_FACTORY_BYTES, the EEPROM and the flash;
-#   2. write the factory record, $(BUILD_DIR)/factory-<board>-<UTC>.mk: the
-#      FACTORY_* lines of boards/<board>/profile.mk, the bytes as read, beside
-#      the raw EEPROM and flash reads and their SHA-256 (R8);
-#   3. program EESAVE: the EESAVE byte with that bit cleared and no other bit
-#      changed, worked out from the byte read in 1 (R7);
-#   4. read the byte back. Anything but the value written refuses, before the
-#      erase: the bench Mega's 2026-10-16 write of EESAVE did not hold;
-#   5. flash, the erase keeping the EEPROM.
+# The first boot flash.
 ARCH_BOOT_FIRST_FLASH = \
     rec=$(BUILD_DIR)/factory-$(BOARD)-$$(date -u +%Y%m%dT%H%M%SZ); \
     echo "$@: first boot flash: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); writing the factory record first"; \
@@ -292,13 +157,7 @@ ARCH_BOOT_FLASH = \
     exit 1; \
   fi
 
-# `make lock-check`: the lock bits over the soft root's UDS, read back after the
-# operator's last avrdude step (SPEC device-provisioning R6). Read only: setting
-# them cannot be undone without a chip erase, so it stays the operator's write
-# (docs/device-provisioning/user.md). The bits that must read programmed (0)
-# are the board's BOOT_LOCK_PROGRAMMED, bit:name; more bits programmed pass. Any
-# of them reading 1 refuses, and each one is named. mk/boot.mk refuses a board
-# whose profile names none before this runs.
+# `make lock-check`: the lock bits over the soft root's UDS, read back after the operator's last avrdude step (SPEC device-provisioning R6).
 ARCH_LOCK_CHECK = \
   lock=$$($(ARCH_ISP) -q -q -U lock:r:-:h) || exit 1; \
   case "$$lock" in 0x[0-9a-fA-F]*) ;; \

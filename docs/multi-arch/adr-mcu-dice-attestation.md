@@ -1,6 +1,6 @@
 # ADR: one MCU attestation path, TCG DICE through device-attest-01 in the secure world
 
-> **Status: ACCEPTED (Tenant Agent ruling 935, owner queue 236)** · Issue:
+> **Status: ACCEPTED** · Issue:
 > #586 · SPEC rows: `stm32h5`, `cortex-m`, `esp32-p4` · Scope:
 > trusted-firmware (the MCU secure worlds and their evidence); go-xkms (what it
 > verifies, seam only) · Related: ADR #15
@@ -20,7 +20,7 @@
 
 ## Amended by ruling 1024 (owner, 2026-11-20)
 
-The owner decided on 2026-11-20 (Tenant Agent ruling 1024 (a), row #608),
+The owner decided on 2026-11-20,
 verbatim:
 
 > "the TrustZone-M secure world is built on Trusted Firmware-M with our DICE
@@ -68,8 +68,8 @@ Ruling 935 (owner queue 236), verbatim:
 
 | MCU | Secure world | DICE layer and keys |
 |---|---|---|
-| STM32H5: NUCLEO-H563ZI and STM32H573I-DK | upstream TF-M Profile Medium (ruling 1024; was our own TrustZone-M secure firmware under ruling 935); not ST's Secure Manager | our DICE layer, an Application RoT partition in TF-M, holds: the CDI derived from the UDS and the measurement of the next layer, the DeviceID key and the alias key. None of them is exported to the non-secure side, which reaches them only through the partition's PSA client calls over TF-M's non-secure-callable (NSC) veneers |
-| nRF54L15 | upstream TF-M Profile Medium, as on the H5 (ruling 1024) | the same DICE partition, with the keys held through the part's Key Management Unit (KMU) |
+| STM32H5: NUCLEO-H563ZI and STM32H573I-DK | upstream TF-M Profile Medium; not ST's Secure Manager | our DICE layer, an Application RoT partition in TF-M, holds: the CDI derived from the UDS and the measurement of the next layer, the DeviceID key and the alias key. None of them is exported to the non-secure side, which reaches them only through the partition's PSA client calls over TF-M's non-secure-callable (NSC) veneers |
+| nRF54L15 | upstream TF-M Profile Medium, as on the H5 | the same DICE partition, with the keys held through the part's Key Management Unit (KMU) |
 | ESP32-P4 | ESP-TEE, once ESP-IDF supports the P4 | until then the current HMAC-peripheral design ([`esp32-p4-design.md`](esp32-p4-design.md)): the CDI from the eFuse UDS through the HMAC peripheral |
 | every MCU | no firmware TPM | |
 

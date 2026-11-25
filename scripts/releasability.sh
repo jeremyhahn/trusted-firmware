@@ -3,25 +3,6 @@
 # SPDX-License-Identifier: commercial
 #
 # The public-releasability gate (docs/development/releasability.md).
-#
-# Scans every file that would be published -- the tracked files minus those
-# .gitattributes marks export-ignore -- for the generic leak shapes listed in
-# scripts/releasability.patterns, and prints `file:line: class` for each. Exits 1
-# on any. Export-ignored files are reported as `file: strip-at-publish`, which
-# is information and not a finding. A tracked symlink's target text, which is
-# what git archive publishes for it, is checked against each pattern and
-# reported as `file: class (symlink target)`. Needs no network.
-#
-#   RELEASABILITY_ROOT      the git work tree to scan (default: the current directory)
-#   RELEASABILITY_PATTERNS  the pattern list (default: releasability.patterns beside this script)
-#
-# A list line the gate cannot use (an unknown class, an empty pattern, a regex
-# grep -E refuses) exits 2, as do a list with no rules (only blank and `#`
-# lines), a list the gate cannot read, and a published file it cannot read.
-#
-# A line is waived by `lab-string-ok:` followed by a reason, in the file's own
-# comment syntax, on the line itself or the line above. The marker with no
-# reason is not a waiver.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

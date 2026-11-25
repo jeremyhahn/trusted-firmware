@@ -155,7 +155,7 @@ after the serial cable is gone.
 | D. The session over Ethernet: `0x61`/`0x62` admitted, `OTA_BEGIN` gated on `tfw_auth_gate()`, the session ending with its connection (OTA ADR open question 8) | every effect, on the element tier only | two ids added to the allow-list (reopens item 48) | ≈ 20–40 B; RAM 0 | closes nothing: item 48's 328P Ethernet node is the soft tier, whose gate is the permissive stub |
 | E. Rate-limit `OTA_BEGIN` by time | the wear rate, not its total | none new | RAM 4 B (a deadline); flash ≈ 30 B | as B |
 
-The owner chose **B** (ruling 130, item 150). It makes `OTA_BEGIN` answer `TFW_ERR_BAD_STATE`, before it erases
+The owner chose **B**. It makes `OTA_BEGIN` answer `TFW_ERR_BAD_STATE`, before it erases
 anything:
 
 1. **while an activation is pending**: from a successful `OTA_ACTIVATE` mode 0
@@ -199,7 +199,7 @@ not the total: a year at one `OTA_BEGIN` a minute is over 5 × 10⁵ erases.
 | D. The block becomes tfw-boot's: `EEPROM_WRITE` refuses it, and a request record is applied at reset | as B, and on the soft tier | `EEPROM_WRITE` to `TFW_NETCFG_ADDR` starts answering `TFW_ERR_PROTECTED_REGION` (16), which breaks `sdk/go`'s existing writer; a new command id for the request | tfw-boot gains the apply path, ≈ 100 B or more in the bootloader | the same, in the 328P's bootloader |
 | E. A lock bit: flags bit 1, reserved and ignored today (`include/tfw/eth.h:31-32`), marks the block locked; a write overlapping a locked block answers `TFW_ERR_PROTECTED_REGION` (16) without a session | as B, and on the soft tier once locked; a locked soft-tier block then changes only by ISP | a flag bit assigned, an extension. Older firmware ignores it, so a host learns from the image version whether the lock holds | RAM 0; flash ≈ 30–40 B (one EEPROM byte read) | ≈ 30–40 B |
 
-The owner chose **B** (ruling 130, item 150). It mirrors the read gate the same file already has for the reserved region
+The owner chose **B**. It mirrors the read gate the same file already has for the reserved region
 (`src/caps/storage.c:82-87`), and it is the same accepted gap on the soft
 tier (`:37-42`): a soft-tier image has no session to gate with. On the
 element tier, a redirect then takes the operator's signature, the same as the
@@ -216,7 +216,7 @@ operator key. C closes nothing against the serial holder, who can send
 `RESET`. D breaks an existing writer and costs bootloader flash. E is the only
 option that reaches the soft tier. It is additive on top of B, which it
 contains, and it trades a site renumbering on a locked soft-tier device for
-an ISP visit ([ruling 5](#owner-rulings-and-open-questions): not now).
+an ISP visit.
 
 ### 3. What the host sees
 

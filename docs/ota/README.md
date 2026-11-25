@@ -64,12 +64,12 @@ Over the commands on main (`src/core/commands.def`, [api.md](api.md)):
 2. It streams the sealed image with `OTA_BEGIN` (`0x68`, the total length),
    `OTA_DATA` (`0x69`) and `OTA_END` (`0x6A`), polling `OTA_STATUS` (`0x6B`).
    The stream is the image, a little-endian u16 length and the SUIT envelope,
-   then trailer v1 (ruling 109; ADR decision 3). On AVR the application stages
+   then trailer v1. On AVR the application stages
    it in the external store (#75); this leg also runs over TCP.
 3. It sends `OTA_AUTH` (`0x6F`), the row key's 64-byte ES256 signature over
    the action, the measurement and the version, then `OTA_ACTIVATE` (`0x6D`).
    On the ATmega2560's element tier the application checks the manifest there,
-   before it writes the authorization (ruling 121). Serial only today.
+   before it writes the authorization. Serial only today.
 4. At the next reset tfw-boot checks the activate authorization, the trailer's
    board id, the image signature and the floor, copies or swaps the image in,
    arms the watchdog and boots it once on trial. The application calls
@@ -134,10 +134,10 @@ requirements on each repo are in the ADR, "Seams".
 
 ## Requirements for the row's later slices
 
-One PR per row (m751). Items 3, 7, 8 and 11 are done on main, each with where;
+One PR per row. Items 3, 7, 8 and 11 are done on main, each with where;
 every other item is unmet on main ([engineering.md](engineering.md)).
 
-1. The ATmega328P store row does not fit its boot section. Question 1 is ruled, option (a) (owner queue 176, 2026-10-30; Company Agent, OD-4): the 328P's tfw-boot keeps signature verification and activation and drops the `PREV` restore and the confirm. There is no boot-time rollback on the 328P row; a failed activation is recovered by reflash; rollback stays on the 2560 and 32U4 rows where it fits. The row links `boot_swap_none.c` in place of `boot_prev.c` (`BOOT_PREV` in the 328P's `profile.mk`). tfw-boot links no manifest check on any AVR row, and the 328P application already links `ota_manifest_none.c` (`OTA_MANIFEST` is set only in the 2560's `profile.mk`). At `cb104cf4`, `make bootloader-check` (avr-gcc 14.2.0) found the 328P store row with the restore dropped overflows its 4096-byte boot section (the part's largest `BOOTSZ`) by 1498 bytes, while the base row fits at 3712 / 4096. The 328P store row is therefore not in `BOOT_SUPPORTED`, and activation on the 328P goes back to the owner (#52) ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)).
+1. The ATmega328P store row does not fit its boot section. Question 1 is ruled, option (a): the 328P's tfw-boot keeps signature verification and activation and drops the `PREV` restore and the confirm. There is no boot-time rollback on the 328P row; a failed activation is recovered by reflash; rollback stays on the 2560 and 32U4 rows where it fits. The row links `boot_swap_none.c` in place of `boot_prev.c` (`BOOT_PREV` in the 328P's `profile.mk`). tfw-boot links no manifest check on any AVR row, and the 328P application already links `ota_manifest_none.c` (`OTA_MANIFEST` is set only in the 2560's `profile.mk`). At `cb104cf4`, `make bootloader-check` (avr-gcc 14.2.0) found the 328P store row with the restore dropped overflows its 4096-byte boot section (the part's largest `BOOTSZ`) by 1498 bytes, while the base row fits at 3712 / 4096. The 328P store row is therefore not in `BOOT_SUPPORTED`, and activation on the 328P goes back to the owner (#52) ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)).
 2. The ATmega32U4: the same, with an Ethernet controller wired and the stager measured. The controller is wired in the build: `boards/atmega32u4/profile.mk` names `ETH_CHIP ?= w5100`, and `board.c` flags the shield's D4, D10 and ICSP pins (14 to 16) `TFW_PIN_ETH`; no physical wire is needed. `ETH` stays 0 by default and the `ETH=1` image is not measured against the 14 336 budget (the coordinator's verify measures it). The restore from `PREV` is not on a `BOOT_SUPPORTED` row: its candidate, `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`, is recorded 1 724 B over the 4 096 section at `9a338a82` ([engineering.md](engineering.md), [architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)), BOOTSZ is at its maximum, and the owner's ruling of 2026-10-30 (OD-4) keeps the 32U4's rollback only where it fits. Until the core shrinks or the row is measured to fit, the 32U4 boot is the `:0:0` row.
 3. The ATmega2560 application's size with the manifest check, measured before and after on the CI image. Done: measured at f2e8d4e3 ("Measurements" below; [engineering.md](engineering.md), "The row on main").
 4. The manifest check on the 328P and 32U4. Ruled: not on these parts (owner queue 176, option (a)). Both applications link `ota_manifest_none.c`, and `make` refuses `OTA_MANIFEST=1` on `BOARD=atmega328p` and `BOARD=atmega32u4` (`mk/firmware.mk`; `scripts/test_manifest_refused.py`).

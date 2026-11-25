@@ -137,12 +137,11 @@ static void test_uart_init_routes_the_pads_once_before_the_reset(void)
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
 }
 
-/* The SM may refuse the pad request (it routed the pads already, or the
- * agent lacks the right): the console still comes up on LPUART7. */
 /* A refused or failed pad request (the SM's refusal, a timeout, a reply whose
  * CRC is wrong, any other error): the routing failure comes back mapped and
- * the LPUART is left untouched, so a refused RX never leaves a TX-only
- * console. A refusal does not establish the pads were routed already. */
+ * the LPUART's TE, RE and interrupt are turned off, whatever a previous image
+ * left on, so a refused RX never leaves a TX-only console. A refusal does not
+ * establish the pads were routed already. */
 static void test_a_failed_pad_request_leaves_the_console_off(void)
 {
     static const struct {
@@ -162,12 +161,16 @@ static void test_a_failed_pad_request_leaves_the_console_off(void)
     for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
         setUp();
         route_rc = cases[i].rc;
+        /* A previous image left the console on: TE, RE, RIE, TIE, IRQ 68. */
+        m->lpuart.ctrl   = 0x00AC0000u;
+        m->nvic.iser[2] = 0x00000010u;
         TEST_ASSERT_EQUAL_MESSAGE(cases[i].want, tfw_hal_uart_init(115200u), "mapped status");
-        m = tfw_imx95_model_get();
         TEST_ASSERT_EQUAL_UINT32(1u, routes);
         TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.resets, "no LPUART reset");
-        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x000C0000u, "TE and RE clear");
-        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->nvic.iser[2], "interrupt 68 not enabled");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x00AC0000u,
+                                        "TE, RE, RIE and TIE clear");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->nvic.iser[2] & 0x10u, "interrupt 68 disabled");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x0F000004u, m->lpuart.baud, "BAUD untouched");
     }
 }
 

@@ -36,12 +36,12 @@ says the same with the bench runs beside it.
 | `tfwctl netcfg set --dhcp` writes a DHCP block and refuses `--ip`, `--mask`, `--gateway` beside it | done | `sdk/go/cmd/tfwctl/netcfg.go` | `sdk/go/cmd/tfwctl/netcfg_test.go` `TestNetcfgSetDHCPWritesTheFlagAndNoAddress`, `TestNetcfgSetDHCPRefusesAStaticAddressBesideIt`; `e2e_netcfg_test.go` `TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice` |
 | `tfwprov --bake-netblock --dhcp` does the same | done | `sdk/go/cmd/tfwprov/netblock.go` | `sdk/go/cmd/tfwprov/netblock_test.go` `TestNetblockDHCPIsTheFlagAndNoAddress`, `TestNetblockDHCPRefusesAStaticAddressBesideIt` |
 | Until the shields' MACs are supplied, a locally administered MAC derived from the DeviceID | partial: the derived MAC is done; the shields' values are the owner's (slice 4) | `sdk/go/netcfg.go` `DerivedMAC` | `sdk/go/netcfg_test.go` `TestDerivedMACIsPinned`, `TestDerivedAndStickerMACsAreAccepted` |
-| Reference boards: the Nano (ATmega328P) with a W5100 shield, the Mega 2560 with the Arduino Ethernet shield | partial: both profiles name the W5100; the Mega has run over serial only, and no Nano image builds Ethernet: the flash budget is raised (ruling 1243), the element `ETH=1` image is 97 bytes over RAM (slices 1 and 3) | `ETH_CHIP ?= w5100` in both boards' `profile.mk` | `test_w5x00.c` `test_the_sd_card_is_parked_and_the_chip_select_is_d10` |
+| Reference boards: the Nano (ATmega328P) with a W5100 shield, the Mega 2560 with the Arduino Ethernet shield | partial: both profiles name the W5100; the Mega has run over serial only, and no Nano image builds Ethernet (slices 1 and 3) | `ETH_CHIP ?= w5100` in both boards' `profile.mk` | `test_w5x00.c` `test_the_sd_card_is_parked_and_the_chip_select_is_d10` |
 | The Mega enrols on the soft DICE root when no element answers; the Nano only with an element | partial: the tier choice is done; the enrolment run is open (slice 1) | `src/crypto/auto/provider.c`; `BOARD_TIERS` and `BOARD_REFUSED_TIERS` in both boards' `profile.mk` | `test/unit/test_crypto_auto.c` `test_no_element_runs_the_soft_root`; `scripts/test_board_rows.py` `test_the_nanos_one_tier_is_the_element`, `test_crypto_soft_on_the_nano_is_refused` |
 | The ATECC608C element tier runs once the owner wires it | not started: the owner's wiring; nothing waits on it (slice 5) | `src/crypto/atecc608a/provider.c` | `test_crypto_auto.c` `test_an_element_that_answers_is_chosen` (host only) |
 | `ETH=1` is the ATmega2560 default; the shieldless bench Mega is an explicit `ETH=0` row | done | `ETH ?= 1` and `BOARD_ROWS` in `boards/atmega2560/profile.mk` | `scripts/test_board_rows.py` `test_the_mega_keeps_its_soft_and_auto_tiers`; every row built by `make firmware-matrix` |
-| The soft-crypto 328P Ethernet node is withdrawn; no 328P row builds Ethernet | done; the element `ETH=1` row waits on RAM (row below) | `boards/atmega328p/profile.mk` (no `BOARD_ROWS`, `BOARD_REFUSED_TIERS := soft`); the refusal in `mk/firmware.mk` | `scripts/test_board_rows.py` `test_the_matrix_builds_no_soft_nano`, `test_crypto_soft_on_the_nano_is_refused` |
-| The 328P's flash budget is its 28 672-byte application region and its element image carries `ATTEST_CSR` (owner ruling 1243, ADR option (a)) | done; the `ETH=1` image stays out of `BOARD_ROWS` on RAM (1 121 / 1 024 at the last measurement) | `FLASH_BUDGET` in `boards/atmega328p/profile.mk`; `TFW_FLASH_BUDGET` and `TFW_FEATURE_ATTEST_CSR` in `boards/atmega328p/board_profile.h` | `test_board_328p.c` `test_the_element_image_carries_the_alias_certificate_and_attest_csr`; `test_dispatch.c` `test_attest_csr_is_present_in_a_328p_build_and_caps_says_so`; [Flash and RAM](#flash-and-ram) below |
+| The soft-crypto 328P Ethernet node is withdrawn; no 328P row builds Ethernet | done | `boards/atmega328p/profile.mk` (no `BOARD_ROWS`, `BOARD_REFUSED_TIERS := soft`); the refusal in `mk/firmware.mk` | `scripts/test_board_rows.py` `test_the_matrix_builds_no_soft_nano`, `test_crypto_soft_on_the_nano_is_refused` |
+| The 328P element image is over its flash budget with `ETH=1` (W5100) | done, but the row's figure is stale (slice 6) | `size-check` in `mk/firmware.mk` | [Flash and RAM](#flash-and-ram) below: 21 612 / 16 384 bytes and 1 121 / 1 024 of RAM; the row still says 18 036 and 1 652 over |
 | `sdk/go` gains a TCP transport beside serial | done | `sdk/go/tcp.go` | `sdk/go/tcp_test.go` `TestAcceptReturnsAWorkingDeviceWithoutWaitingForBoot`; `sdk/go/tfwsim/fake_test.go` `TestStartElementEthernetAcceptsTheConnectionTheDeviceOpens` |
 | Serial or network chosen at build time by object list, never `#if` in logic | done | `LINK_SRCS` in `mk/firmware.mk` (`link_eth.c` or `link_serial.c`); `TFW_PIN_ETH` in `include/tfw/board.h` uses the flag as a value | `lint-conditionals` in `mk/host.mk` |
 | Seam: go-trusted-platform's device-facing endpoint accepts these connections | not started here: that repository's side (slice 2) | none in this repository | none in this repository |
@@ -149,14 +149,14 @@ change to `shipped` is the owner's.
 
 Measured on main 48d85486 with avr-gcc 14.2.0 by `make firmware`'s size check,
 against each board's flash and RAM budgets: 16 384 and 1 024 bytes on the
-ATmega328P at the time (28 672 and 1 024 since owner ruling 1243, below), 65 536 and 2 048 on the ATmega2560. The Mega builds `ETH=1` by
+ATmega328P, 65 536 and 2 048 on the ATmega2560. The Mega builds `ETH=1` by
 default, so its serial-only rows pass `ETH=0`; `auto` is the default crypto.
 
 | Image | Flash / budget | RAM / budget | Result |
 |---|---|---|---|
-| ATmega328P, `CRYPTO=atecc608a` | 16 138 / 16 384 | 987 / 1 024 | passes; before `ATTEST_CSR` |
-| ATmega328P, `CRYPTO=atecc608a ETH=1` (W5100) | 21 612 / 16 384 | 1 121 / 1 024 | **over by 5 228 and 97**; before `ATTEST_CSR` |
-| ATmega328P, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 21 668 / 16 384 | 1 121 / 1 024 | **over by 5 284 and 97**; before `ATTEST_CSR` |
+| ATmega328P, `CRYPTO=atecc608a` | 16 138 / 16 384 | 987 / 1 024 | passes |
+| ATmega328P, `CRYPTO=atecc608a ETH=1` (W5100) | 21 612 / 16 384 | 1 121 / 1 024 | **over by 5 228 and 97** |
+| ATmega328P, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 21 668 / 16 384 | 1 121 / 1 024 | **over by 5 284 and 97** |
 | ATmega2560, `CRYPTO=atecc608a ETH=0` | 18 626 / 65 536 | 1 058 / 2 048 | passes |
 | ATmega2560, `CRYPTO=atecc608a ETH=1` (W5100) | 28 802 / 65 536 | 1 210 / 2 048 | passes |
 | ATmega2560, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 28 858 / 65 536 | 1 210 / 2 048 | passes |
@@ -166,14 +166,8 @@ default, so its serial-only rows pass `ETH=0`; `auto` is the default crypto.
 | ATmega2560, `ETH=1 DHCP=1` | 41 322 / 65 536 | 1 520 / 2 048 | passes |
 
 Owner ruling 2026-10-17 (m522) made the 328P element-only and refuses
-`CRYPTO=soft` on it at build time. Owner ruling 1243 (#53, 2026-11-24) applies
-the ADR's option (a): the 328P's flash budget is its 28 672-byte application
-region (32 KB less the 4 KB boot section) and its element image carries
-`ATTEST_CSR`. On flash the `ETH=1` image now fits (21 612 bytes before
-`ATTEST_CSR`, which cost about 500). RAM is unchanged at 1 024, and the last
-measurement of the `ETH=1` image is 1 121 bytes, 97 over. So no 328P row builds
-Ethernet yet, and the RAM overrun is with the owner. The images with `ATTEST_CSR`
-have not been re-measured here; `make size-check` in CI gates them.
+`CRYPTO=soft` on it at build time. No 328P row builds Ethernet: its one tier,
+the element, is over both its flash and its RAM budget with `ETH=1`.
 
 On the Mega's `CRYPTO=atecc608a` image, Ethernet costs 10 176 bytes of flash and
 152 of RAM. The DHCP client costs 4 030 bytes of flash and 44 of RAM on both Mega

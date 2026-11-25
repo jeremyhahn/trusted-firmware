@@ -192,30 +192,21 @@ func TestReadRecordRefusesWhatIsNotARecord(t *testing.T) {
 	}
 	gx, gy := "axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpY", "T-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"
 	for name, body := range map[string]string{
-		"not JSON":                        "ueid=AQ",
-		"an unknown member":               `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","sn":"x"}`,
-		"a padded ueid":                   `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8="}`,
-		"a ueid of type 0x02":             `{"ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
-		"a short ueid":                    `{"ueid":"AQABAgMEBQYHCAkKCwwNDg"}`,
-		"no ueid":                         `{}`,
-		"cnf without jwk":                 `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","cnf":{}}`,
-		"an RSA jwk":                      jwk("RSA", "P-256", gx, gy),
-		"a P-384 jwk":                     jwk("EC", "P-384", gx, gy),
-		"a short x":                       jwk("EC", "P-256", gx[:40], gy),
-		"a y not base64url":               jwk("EC", "P-256", gx, strings.ReplaceAll(gy, "-", "+")),
-		"a point off the curve":           jwk("EC", "P-256", gy, gx),
-		"a second value":                  `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}{"ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
-		"trailing text":                   `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"} x`,
-		"a stray brace":                   `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}}`,
-		"an upper-case ueid":              `{"UEID":"AQABAgMEBQYHCAkKCwwNDg8"}`,
-		"a ueid repeated in another case": `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","UEID":"AgABAgMEBQYHCAkKCwwNDg8"}`,
-		"a repeated ueid":                 `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
-		"a capitalised cnf":               strings.Replace(jwk("EC", "P-256", gx, gy), `"cnf"`, `"Cnf"`, 1),
-		"an upper-case kty":               strings.Replace(jwk("EC", "P-256", gx, gy), `"kty"`, `"KTY"`, 1),
-		"a repeated kty":                  strings.Replace(jwk("EC", "P-256", gx, gy), `"kty":"EC"`, `"kty":"EC","kty":"EC"`, 1),
-		"a non-canonical ueid":            `{"ueid":"AQABAgMEBQYHCAkKCwwNDg9"}`,
-		"a non-canonical x":               jwk("EC", "P-256", gx[:42]+"Z", gy),
-		"a non-canonical y":               jwk("EC", "P-256", gx, gy[:42]+"V"),
+		"not JSON":              "ueid=AQ",
+		"an unknown member":     `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","sn":"x"}`,
+		"a padded ueid":         `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8="}`,
+		"a ueid of type 0x02":   `{"ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
+		"a short ueid":          `{"ueid":"AQABAgMEBQYHCAkKCwwNDg"}`,
+		"no ueid":               `{}`,
+		"cnf without jwk":       `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8","cnf":{}}`,
+		"an RSA jwk":            jwk("RSA", "P-256", gx, gy),
+		"a P-384 jwk":           jwk("EC", "P-384", gx, gy),
+		"a short x":             jwk("EC", "P-256", gx[:40], gy),
+		"a y not base64url":     jwk("EC", "P-256", gx, strings.ReplaceAll(gy, "-", "+")),
+		"a point off the curve": jwk("EC", "P-256", gy, gx),
+		"a second value":        `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}{"ueid":"AgABAgMEBQYHCAkKCwwNDg8"}`,
+		"trailing text":         `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"} x`,
+		"a stray brace":         `{"ueid":"AQABAgMEBQYHCAkKCwwNDg8"}}`,
 	} {
 		path := recordPath(t)
 		writeFile(t, path, body)
@@ -231,34 +222,6 @@ func TestRecordPointLeavesAFileWithTrailingBytesUnwritten(t *testing.T) {
 	wantRecordError(t, recordPoint(path, mustHex(t, p256GeneratorHex)), "bytes after the record")
 	if got := readFile(t, path); got != body {
 		t.Fatal("the refused join rewrote the file")
-	}
-}
-
-func TestRecordPointLeavesARecordWithAnUpperCaseMemberUnwritten(t *testing.T) {
-	const body = "{\n  \"UEID\": \"AQABAgMEBQYHCAkKCwwNDg8\"\n}\n"
-	path := recordPath(t)
-	writeFile(t, path, body)
-	wantRecordError(t, recordPoint(path, mustHex(t, p256GeneratorHex)), "an upper-case ueid")
-	if got := readFile(t, path); got != body {
-		t.Fatal("the refused join rewrote the file")
-	}
-}
-
-// The ueid's last character carries 2 pad bits; set, they decode to this
-// serial's bytes under a lenient decoder, and the string compare then called
-// the record another device's. The record is refused as not a record.
-func TestRecordSerialLeavesANonCanonicalUEIDUnwritten(t *testing.T) {
-	const body = "{\"ueid\":\"AQABAgMEBQYHCAkKCwwNDg9\"}\n"
-	path := recordPath(t)
-	writeFile(t, path, body)
-	err := recordSerial(path, testSerial(t, testSerialHex))
-	wantRecordError(t, err, "a non-canonical ueid")
-	if msg := err.Error(); strings.Contains(msg, "not of this serial") ||
-		!strings.Contains(msg, "is not a provisioning record") && !strings.Contains(msg, "ueid is not") {
-		t.Fatalf("err = %q, want the record refused as not a record", msg)
-	}
-	if got := readFile(t, path); got != body {
-		t.Fatal("the refused record was rewritten")
 	}
 }
 

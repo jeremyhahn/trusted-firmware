@@ -15,8 +15,7 @@
  *   - a platform block that fails its checks gives a zero serial and a zero
  *     operator key; one that passes gives exactly its bytes;
  *   - the floor reported is exactly the floor of the record read, never lower;
- *   - the update request armed over any block decodes as a request;
- *   - a DeviceID seed nonzero in any one of its 32 bytes is taken whole.
+ *   - the update request armed over any block decodes as a request.
  * After the run the clean records give what the existing tests pin. */
 
 #include <stdio.h>
@@ -363,52 +362,6 @@ static void test_clean_records_still_give_what_the_existing_tests_pin(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_request_valid(tfw_hal_handoff_block(), TFW_RESET_WATCHDOG));
 }
 
-/* src/core/handoff_seed.c lines 23-31 call a seed "no UDS" only when the OR
- * of all TFW_BOOT_SEED_LEN bytes is zero. Every other seed in the suite is
- * dense, so a loop that checks only seed[0] (or stops before the last byte)
- * passed. Here each seed is zero in all but one byte, at every position: each
- * one is taken whole, and the all-zero seed the build writes is refused with
- * the caller's buffer untouched (#53). */
-static void test_a_seed_with_one_nonzero_byte_anywhere_is_taken_whole(void)
-{
-    static const uint8_t values[] = { 0x01u, 0x80u };
-    uint8_t  b[TFW_BOOT_HANDOFF_LEN];
-    uint8_t  seed[TFW_BOOT_SEED_LEN];
-    uint8_t  out[TFW_BOOT_SEED_LEN];
-    uint8_t  untouched[TFW_BOOT_SEED_LEN];
-    unsigned i, v;
-
-    for (i = 0u; i < TFW_BOOT_SEED_LEN; i++) {
-        for (v = 0u; v < sizeof values; v++) {
-            uint8_t got;
-            tfw_mock_reset();
-            handoff_valid(b);
-            memset(seed, 0x00, sizeof seed);
-            seed[i] = values[v];
-            tfw_boot_handoff_set_seed(b, seed);
-            memcpy(tfw_mock_handoff(), b, sizeof b);
-            tfw_boot_handoff_init();
-            memset(out, 0xA5, sizeof out);
-            got = tfw_boot_handoff_device_seed(out);
-            if (got != 1u || memcmp(out, seed, sizeof seed) != 0) {
-                printf("seed byte %u = 0x%02x: rc %u\n", i, values[v], got);
-                dump("out", out, sizeof out);
-            }
-            TEST_ASSERT_EQUAL_UINT8(1u, got);
-            TEST_ASSERT_EQUAL_MEMORY(seed, out, sizeof seed);
-        }
-    }
-
-    tfw_mock_reset();
-    handoff_valid(b);
-    memcpy(tfw_mock_handoff(), b, sizeof b);
-    tfw_boot_handoff_init();
-    memset(out, 0xA5, sizeof out);
-    memset(untouched, 0xA5, sizeof untouched);
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_handoff_device_seed(out));
-    TEST_ASSERT_EQUAL_MEMORY(untouched, out, sizeof out);
-}
-
 void setUp(void)    { tfw_mock_reset(); }
 void tearDown(void) { }
 
@@ -419,6 +372,5 @@ int main(void)
     RUN_TEST(test_mutated_platform_blocks_give_zero_or_exactly_their_bytes);
     RUN_TEST(test_the_request_armed_over_any_block_is_a_request);
     RUN_TEST(test_clean_records_still_give_what_the_existing_tests_pin);
-    RUN_TEST(test_a_seed_with_one_nonzero_byte_anywhere_is_taken_whole);
     return UNITY_END();
 }

@@ -128,8 +128,5 @@ func loadTemplate(path string) (*template, error) {
 	if t.ConfigLockCRC == 0 || t.DataLockCRC == 0 {
 		return nil, errors.New("template must carry both lock summary CRCs; zero would ask the element to lock without checking")
 	}
-	if t.Name == "" {
-		return nil, errors.New("template must carry a name; a nameless template cannot be matched to its review")
-	}
 	return t, nil
 }

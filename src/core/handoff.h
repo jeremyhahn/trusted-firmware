@@ -47,9 +47,8 @@ const uint8_t *tfw_boot_handoff_tier(void);
  * CONSUMING. Copies the handed-off CDI into `out` and zeroizes this module's
  * own copy of it -- there is exactly one call site per image, the crypto
  * provider's own tfw_crypto_init(), and after that call nothing here holds it
- * any longer. Returns 0, with `out` untouched, when there was no valid
- * handoff, when the valid handoff carried tfw-boot's all-zero "unprovisioned"
- * CDI, or when the CDI was already taken; 1 otherwise.
+ * any longer. Returns 0 when there was no valid handoff (`out` is untouched),
+ * 1 otherwise.
  */
 uint8_t tfw_boot_handoff_take_cdi(uint8_t out[TFW_BOOT_MEASURE_LEN]);
 

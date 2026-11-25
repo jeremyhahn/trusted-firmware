@@ -16,11 +16,6 @@
 > ("The 328P budget", below). The owner ruled on 2026-10-15 how an image selects
 > its transport (decision 7); that ruling does not make the choice. Nothing shipped changes until then: Ethernet is off
 > in every default image.
->
-> 2026-11-24: owner ruling 1243 (#53) applies option (a). The 328P's flash
-> budget is its 28 672-byte application region, and its element image carries
-> `ATTEST_CSR`. Its `ETH=1` image now fits flash but was last measured at 1 121
-> of 1 024 bytes of RAM, so it is not yet a row ("The 328P budget", below).
 
 ## The question
 
@@ -447,15 +442,11 @@ Whichever is chosen, the 328P cannot enrol through device-attest-01 until it
 also carries `ATTEST_CSR`, which the owner excluded on flash grounds. Option (a)
 is the only one that also fits that.
 
-**Option (a) is applied** by owner ruling 1243 (issue #53, 2026-11-24, the
-DICE-only enrolment seam's T3): `TFW_FLASH_BUDGET` and `FLASH_BUDGET` are 28 672
-on the 328P, and its element image carries `ATTEST_CSR`. Nothing is dropped. On
-flash the element `ETH=1` image fits: 21 612 bytes at the last measurement,
-before `ATTEST_CSR`'s 500 or so. RAM stays at its 1 024-byte budget, and that
-image's last figure is 1 121, 97 over. So the 328P still has no Ethernet row in
-`BOARD_ROWS`, and the RAM overrun goes back to the owner. The images with
-`ATTEST_CSR` were not re-measured in the change that applied it, which had no AVR
-toolchain; CI's size check gates the serial image and records its figures.
+No option is applied. Nothing is dropped: the 328P's profile names its controller
+so the image can be measured, and its default image is unchanged. Since owner
+ruling 2026-10-17 (m522) no 328P row builds Ethernet: the element tier is the
+328P's only tier, and with `ETH=1` it is 1 652 bytes over the flash budget
+(table above).
 
 ## Rejected alternatives
 

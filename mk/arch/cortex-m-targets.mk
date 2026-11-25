@@ -440,26 +440,9 @@ TZ_CFLAGS   = -mcpu=$(CPU) -mthumb -mfloat-abi=soft -std=c11 -Os -g -ffreestandi
               -Wall -Wextra -Werror -Wconversion -Wshadow \
               -include $(TZ_MAP) -Iinclude -I$(TZ_SRC)
 TZ_LDFLAGS  = -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments
-# The DICE service (src/tz/dice_service.c, ruling 935) and what it needs:
-# secure image only, so the DeviceID seed, the CDI and the alias key exist
-# nowhere else. Its four TFW_NSC calls land in the import library.
-TZ_DICE_SRCS = src/tz/dice_service.c src/crypto/deviceid_p256.c src/crypto/sha256.c \
-               src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
-               src/core/reader.c src/core/writer.c src/core/secure_zero.c
-TZ_S_SRCS   = $(TZ_SRC)/tz_s_main.c $(TZ_SRC)/tz_veneer.c $(TZ_SRC)/tz_regions.c $(TZ_SOC_SRCS) \
-              $(TZ_DICE_SRCS)
-# The non-secure test path hashes the DeviceID public key and verifies an
-# alias signature: SHA-256 and micro-ecc's verify, public operations only.
-TZ_NS_SRCS  = $(TZ_SRC)/tz_ns_main.c src/crypto/sha256.c
-TZ_HDRS    := $(wildcard $(TZ_SRC)/*.h) include/tfw/tz_s_api.h src/tz/dice_service.h
-# micro-ecc as the firmware compiles it (FW_UECC_CFLAGS), without our warning
-# set; one object, linked into each image.
-TZ_UECC_CFLAGS = -mcpu=$(CPU) -mthumb -mfloat-abi=soft -std=gnu11 -Os -g -ffreestanding \
-                 -ffunction-sections $(UECC_DEFS) $(ARCH_UECC_CFLAGS)
-
-$(TZ_DIR)/uECC.o: src/third_party/micro-ecc/uECC.c
-	@mkdir -p $(@D)
-	@$(ARCH_CC) $(TZ_UECC_CFLAGS) -c -o $@ $<
+TZ_S_SRCS   = $(TZ_SRC)/tz_s_main.c $(TZ_SRC)/tz_veneer.c $(TZ_SRC)/tz_regions.c $(TZ_SOC_SRCS)
+TZ_NS_SRCS  = $(TZ_SRC)/tz_ns_main.c
+TZ_HDRS    := $(wildcard $(TZ_SRC)/*.h) include/tfw/tz_s_api.h
 
 tz-guard:
 	@if [ -z "$(TZ_MAP)" ]; then \
@@ -470,22 +453,20 @@ $(TZ_DIR)/%.ld: mk/arch/cortex-m/%.ld $(TZ_MAP)
 	@mkdir -p $(@D)
 	@$(ARCH_CC) -E -P -x c -include $(TZ_MAP) $< -o $@
 
-$(TZ_DIR)/tz_s.elf: $(TZ_S_SRCS) $(TZ_HDRS) $(TZ_MAP) $(TZ_DIR)/tz_s.ld $(TZ_DIR)/uECC.o
-	@$(ARCH_CC) $(TZ_CFLAGS) -mcmse -Isrc/third_party/micro-ecc $(TZ_LDFLAGS) -T $(TZ_DIR)/tz_s.ld \
-	   -ffunction-sections -fdata-sections -Wl,--gc-sections \
+$(TZ_DIR)/tz_s.elf: $(TZ_S_SRCS) $(TZ_HDRS) $(TZ_MAP) $(TZ_DIR)/tz_s.ld
+	@$(ARCH_CC) $(TZ_CFLAGS) -mcmse $(TZ_LDFLAGS) -T $(TZ_DIR)/tz_s.ld \
 	   -Wl,--section-start=.gnu.sgstubs=$$(echo TZ_NSC_BASE | $(ARCH_CC) -E -P -x c -include $(TZ_MAP) -) \
 	   -Wl,--cmse-implib -Wl,--out-implib=$(TZ_DIR)/tz_s_veneers.o \
-	   -o $@ $(TZ_S_SRCS) $(TZ_DIR)/uECC.o -lc -lgcc
+	   -o $@ $(TZ_S_SRCS) -lgcc
 	@echo "built $@"
 
 # Written by the secure link above.
 $(TZ_DIR)/tz_s_veneers.o: $(TZ_DIR)/tz_s.elf
 	@test -f $@
 
-$(TZ_DIR)/tz_ns.elf: $(TZ_NS_SRCS) $(TZ_HDRS) $(TZ_MAP) $(TZ_DIR)/tz_ns.ld $(TZ_DIR)/tz_s_veneers.o $(TZ_DIR)/uECC.o
-	@$(ARCH_CC) $(TZ_CFLAGS) $(UECC_DEFS) -Isrc/third_party/micro-ecc $(TZ_LDFLAGS) \
-	   -Wl,--gc-sections -ffunction-sections -T $(TZ_DIR)/tz_ns.ld \
-	   -o $@ $(TZ_NS_SRCS) $(TZ_DIR)/tz_s_veneers.o $(TZ_DIR)/uECC.o -lc -lgcc
+$(TZ_DIR)/tz_ns.elf: $(TZ_NS_SRCS) $(TZ_HDRS) $(TZ_MAP) $(TZ_DIR)/tz_ns.ld $(TZ_DIR)/tz_s_veneers.o
+	@$(ARCH_CC) $(TZ_CFLAGS) $(TZ_LDFLAGS) -Wl,--gc-sections -ffunction-sections -T $(TZ_DIR)/tz_ns.ld \
+	   -o $@ $(TZ_NS_SRCS) $(TZ_DIR)/tz_s_veneers.o -lgcc
 	@echo "built $@"
 
 ## tz-firmware: TZ=1 boards (mps2-an505, nucleo-h563zi): the secure image, its veneer import library and the non-secure image, size-checked
@@ -518,7 +499,7 @@ cortex-m-qemu-tz-run: tz-firmware
 	@$(ARCH_OBJCOPY) -O binary $(TZ_DIR)/tz_s.elf $(TZ_DIR)/tz_s.bin
 	@$(ARCH_OBJCOPY) -O binary $(TZ_DIR)/tz_ns.elf $(TZ_DIR)/tz_ns.bin
 	@sym() { $(ARCH_NM) $(TZ_DIR)/$$1.elf | awk -v s="$$2" '$$3 == s { print "0x" $$1 }'; }; \
-	 TZ_NM=$(ARCH_NM) test/integration/cortex-m/qemu_tz_test.sh $(TZ_DIR) $(QEMU_MACHINE) \
+	 test/integration/cortex-m/qemu_tz_test.sh $(TZ_DIR) $(QEMU_MACHINE) \
 	   "$$(sym tz_s __tz_load)" "$$(sym tz_ns __tz_load)" "$$(sym tz_ns __tz_s_ram)"
 
 .PHONY: tz-guard tz-firmware tz-size-check integration-test-cortex-m-tz cortex-m-qemu-tz-run

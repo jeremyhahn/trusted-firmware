@@ -104,7 +104,7 @@ config lock), `TFW_ERR_UNKNOWN_CMD` (production image).
 `sdk/go/cmd/tfwprov/template.go`:
 
 ```
-name            = <string>                     # required, non-empty; printed in --dry-run
+name            = <string>                     # free-form, printed in --dry-run
 block<N>        = <64 hex chars>                # N is 2 or 3; exactly 32 bytes, written via PROV_WRITE_CONFIG
 config_lock_crc = 0x<1-4 hex chars>             # non-zero; sent as PROV_LOCK's summary_crc for zone 0x00
 data_lock_crc   = 0x<1-4 hex chars>             # non-zero; sent as PROV_LOCK's summary_crc for zone 0x01

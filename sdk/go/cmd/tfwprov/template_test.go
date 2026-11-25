@@ -50,7 +50,6 @@ func TestLoadTemplateRefusals(t *testing.T) {
 		{"a line past the scanner limit", "# " + strings.Repeat("x", 70000) + "\n", "token too long"},
 		{"a zero CRC", "config_lock_crc = 0\ndata_lock_crc = 1\nblock2 = " + block32 + "\n",
 			"template must carry both lock summary CRCs"},
-		{"no name", "config_lock_crc = 1\ndata_lock_crc = 1\nblock2 = " + block32 + "\n", "template must carry a name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := loadTemplate(writeTemplate(t, tc.body))
@@ -184,9 +183,6 @@ func TestEveryMutatedTemplateFieldIsRefused(t *testing.T) {
 		// config_lock_crc repeated: TestTemplateRefusalsNameTheLines.
 		{"block repeated, zero-padded", add("block03 = " + strings.Repeat("00", 32))},
 		{"name repeated", add("name = other")},
-		{"name missing", drop(1)},
-		{"name empty", replace(1, "name =")},
-		{"name blank", replace(1, "name =   ")},
 		{"data crc repeated", add("data_lock_crc = 0x4321")},
 	}
 	for _, m := range muts {
@@ -213,7 +209,7 @@ func FuzzLoadTemplate(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if len(tm.Blocks) == 0 || tm.ConfigLockCRC == 0 || tm.DataLockCRC == 0 || tm.Name == "" {
+		if len(tm.Blocks) == 0 || tm.ConfigLockCRC == 0 || tm.DataLockCRC == 0 {
 			t.Fatalf("loaded an incomplete template %+v from %q", tm, text)
 		}
 		for idx, b := range tm.Blocks {

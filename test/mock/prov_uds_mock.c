@@ -20,8 +20,6 @@ static unsigned     burns;
 static tfw_status_t random_st;
 static tfw_status_t burn_st;
 static tfw_status_t hmac_st;
-static const uint8_t *burned_from;
-static int          scrubbed_at_hmac;
 
 void tfw_mock_prov_uds_reset(uint8_t fill)
 {
@@ -33,8 +31,6 @@ void tfw_mock_prov_uds_reset(uint8_t fill)
     random_st = TFW_OK;
     burn_st   = TFW_OK;
     hmac_st   = TFW_OK;
-    burned_from      = 0;
-    scrubbed_at_hmac = -1;
 }
 
 void tfw_mock_prov_uds_fail_random(tfw_status_t st) { random_st = st; }
@@ -44,7 +40,6 @@ void tfw_mock_prov_uds_fail_hmac(tfw_status_t st)   { hmac_st = st; }
 const uint8_t *tfw_mock_prov_uds_burned(void) { return have_key ? key : 0; }
 unsigned       tfw_mock_prov_uds_draws(void)  { return draws; }
 unsigned       tfw_mock_prov_uds_burns(void)  { return burns; }
-int            tfw_mock_prov_uds_scrubbed_at_hmac(void) { return scrubbed_at_hmac; }
 
 int tfw_prov_uds_present(void)
 {
@@ -78,22 +73,11 @@ tfw_status_t tfw_prov_uds_burn(const uint8_t uds[32])
     }
     memcpy(key, uds, sizeof key);
     have_key = 1u;
-    burned_from = uds;
     return TFW_OK;
 }
 
 tfw_status_t tfw_prov_uds_hmac(const uint8_t *msg, size_t len, uint8_t out[32])
 {
-    if (burned_from != 0) {
-        uint8_t  acc = 0u;
-        unsigned i;
-
-        for (i = 0u; i < 32u; i++) {
-            acc |= burned_from[i];
-        }
-        scrubbed_at_hmac = acc == 0u ? 1 : 0;
-        burned_from      = 0;
-    }
     if (hmac_st != TFW_OK || !have_key) {
         return hmac_st != TFW_OK ? hmac_st : TFW_ERR_CRYPTO;
     }

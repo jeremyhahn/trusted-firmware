@@ -24,19 +24,9 @@ static uint8_t have[TFW_BOOT_EE_BLOCK_LEN];
 tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_BLOCK_LEN])
 {
     tfw_boot_platform_t parsed;
-    uint8_t             nonzero = 0u;
-    size_t              i;
 
     /* Never write a block the bootloader would reject. */
     if (tfw_boot_platform_parse(want, &parsed) != TFW_OK) {
-        return TFW_BAKE_REFUSED;
-    }
-
-    /* All-zero is the unprovisioned sentinel tfwprov refuses for --serial. */
-    for (i = 0; i < TFW_BOOT_SERIAL_LEN; i++) {
-        nonzero |= want[TFW_BOOT_EE_O_SERIAL + i];
-    }
-    if (nonzero == 0u) {
         return TFW_BAKE_REFUSED;
     }
 

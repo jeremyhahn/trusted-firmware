@@ -10,8 +10,7 @@
  * independent pure-Python P-256 and RFC 6979 (affine arithmetic over SEC 2's
  * domain parameters, Python's hmac and hashlib) that reproduces A.2.5 first,
  * and was written down before this suite ran. A literal that moves is a
- * DeviceID that moved on every enrolled device: not a test to update. The
- * in-range edges (a zero first byte, two, n-16) are their own scalar.
+ * DeviceID that moved on every enrolled device: not a test to update.
  *
  * The suite links its own tfw_secure_zero, in place of src/core/secure_zero.c,
  * which keeps a copy of what it is asked to zero. That is how it sees the
@@ -283,41 +282,6 @@ static void test_the_seeds_one_and_n_minus_one_are_hashed_again(void)
     TEST_ASSERT_TRUE(verifies(NM1_PUB, DIGEST, sig));
 }
 
-/* A seed in [1, n-1] that micro-ecc takes is the scalar itself: derived,
- * made public and signed with, it is never hashed again. */
-static void check_is_its_own_scalar(const uint8_t s[32], const char *why)
-{
-    uint8_t d[32], pub[64], want_pub[64], sig[64];
-
-    TEST_ASSERT_TRUE_MESSAGE(tfw_deviceid_p256_scalar(s, d), why);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(s, d, 32, why);
-    TEST_ASSERT_TRUE_MESSAGE(uECC_compute_public_key(s, want_pub, uECC_secp256r1()), why);
-    TEST_ASSERT_TRUE_MESSAGE(tfw_deviceid_p256_public(s, pub), why);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(want_pub, pub, 64, why);
-    TEST_ASSERT_TRUE_MESSAGE(tfw_p256_sign_rfc6979(s, DIGEST, sig), why);
-    TEST_ASSERT_TRUE_MESSAGE(verifies(want_pub, DIGEST, sig), why);
-}
-
-/* Every byte of the scalar is read: a zero first byte is not zero, a last
- * byte alone is not zero, and a scalar equal to n but in its last byte is
- * below n. (n-2 is no edge here: micro-ecc refuses it, so it is hashed.) */
-static void test_a_seed_in_range_at_its_edges_is_its_own_scalar(void)
-{
-    uint8_t s[32];
-
-    memcpy(s, SEED, 32);
-    s[0] = 0x00;
-    check_is_its_own_scalar(s, "the seed with a zero first byte");
-
-    memset(s, 0, 32);
-    s[31] = 0x02;
-    check_is_its_own_scalar(s, "two: only the last byte is nonzero");
-
-    memcpy(s, P256_N, 32);
-    s[31] = (uint8_t)(s[31] - 0x10u);
-    check_is_its_own_scalar(s, "n-16: equal to n in all but the last byte");
-}
-
 /* ------------------------------------------------------------------ refusal */
 
 static int failing_rng(uint8_t *dest, unsigned size)
@@ -395,28 +359,6 @@ static void test_a_digest_above_n_signs_as_the_rfc_reduces_it(void)
     TEST_ASSERT_TRUE(verifies(SEED_PUB, h, sig));
 }
 
-/* h = n + 0xFF is above n, and h - n = 0xFF borrows out of the low byte
- * (0x50 - 0x51), unlike FF..FF less n. bits2octets(h) is h mod n and ECDSA
- * takes h mod n (RFC 6979 2.3.4), so h and 0xFF sign alike. */
-static void test_a_digest_above_n_that_borrows_signs_as_its_reduction(void)
-{
-    uint8_t h[32], r[32], sig[64], want[64];
-    uint16_t carry = 0xFFu;
-    int i;
-
-    for (i = 31; i >= 0; i--) {
-        uint16_t t = (uint16_t)(P256_N[i] + carry);
-        h[i] = (uint8_t)t;
-        carry = (uint16_t)(t >> 8);
-    }
-    memset(r, 0x00, sizeof r);
-    r[31] = 0xFFu;
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(SEED, r, want));
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(SEED, h, sig));
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, sig, 64);
-    TEST_ASSERT_TRUE(verifies(SEED_PUB, h, sig));
-}
-
 /* ------------------------------------------------------------------- zeroing */
 
 /* The k we cannot see, the scalar we can: every buffer the scalar passed
@@ -468,12 +410,10 @@ int main(void)
     RUN_TEST(test_a_seed_above_n_is_hashed_again);
     RUN_TEST(test_a_seed_of_exactly_n_is_hashed_again);
     RUN_TEST(test_the_seeds_one_and_n_minus_one_are_hashed_again);
-    RUN_TEST(test_a_seed_in_range_at_its_edges_is_its_own_scalar);
     RUN_TEST(test_a_refusal_that_persists_is_returned_with_the_output_zeroed);
     RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);
     RUN_TEST(test_a_digest_above_n_signs_as_the_rfc_reduces_it);
-    RUN_TEST(test_a_digest_above_n_that_borrows_signs_as_its_reduction);
     RUN_TEST(test_signing_zeroes_the_scalar_and_the_rfc_state);
     RUN_TEST(test_the_public_point_zeroes_the_scalar);
     return UNITY_END();

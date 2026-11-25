@@ -45,29 +45,15 @@ func AliasUCCS(der []byte) ([]byte, error) {
 		if !ext.Id.Equal(oidUCCSEvidence) {
 			continue
 		}
-		// encoding/asn1 accepts elements after the last field of a struct, so
-		// the SEQUENCE is taken raw and its one element decoded by hand, as
-		// go-xkms's dice.ParseUccsEvidence reads it.
-		var seq asn1.RawValue
-		rest, err := asn1.Unmarshal(ext.Value, &seq)
+		var ev struct{ UCCS []byte }
+		rest, err := asn1.Unmarshal(ext.Value, &ev)
 		if err != nil {
 			return nil, errors.Join(evidenceErr("tcg-dice-UCCS-evidence is not a UccsEvidence"), err)
-		}
-		if seq.Class != asn1.ClassUniversal || seq.Tag != asn1.TagSequence || !seq.IsCompound {
-			return nil, evidenceErr("tcg-dice-UCCS-evidence is not a UccsEvidence")
 		}
 		if len(rest) != 0 {
 			return nil, evidenceErr("trailing bytes after the UccsEvidence")
 		}
-		var uccs []byte
-		extra, err := asn1.Unmarshal(seq.Bytes, &uccs)
-		if err != nil {
-			return nil, errors.Join(evidenceErr("tcg-dice-UCCS-evidence is not a UccsEvidence"), err)
-		}
-		if len(extra) != 0 {
-			return nil, evidenceErr("UccsEvidence carries more than its one uccs")
-		}
-		return uccs, nil
+		return ev.UCCS, nil
 	}
 	return nil, evidenceErr("no tcg-dice-UCCS-evidence extension")
 }

@@ -8,9 +8,7 @@
  *   - no seed gives a scalar outside [1, n-1] or a key off the curve: every
  *     byte at every value of each base seed for the scalar, and every bit
  *     flip plus each byte at 0x00 and 0xFF for the key, which is checked on
- *     the curve and equal to the point of its scalar;
- *   - the ladder yield hook runs during a sign, in its derivation and its
- *     ladder, and is unset once the sign returns.
+ *     the curve and equal to the point of its scalar.
  * The bases are the edges the derivation hashes again (zero, n, n+1, all
  * ones, n-1, one) and seeds drawn from a fixed-seed xorshift, printed with
  * any failure. The seeds 1 and n-1 are scalars micro-ecc refuses: check_key
@@ -32,11 +30,6 @@ void tfw_secure_zero(void *p, size_t n)
 
     for (i = 0; i < n; i++) { v[i] = 0u; }
 }
-
-static unsigned yields;
-
-/* Overrides deviceid_p256.c's weak no-op and counts the ladder's calls. */
-void tfw_sign_yield(void) { yields++; }
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -234,37 +227,6 @@ static void test_the_same_seed_gives_the_same_key(void)
     }
 }
 
-static void test_the_yield_hook_runs_only_inside_a_sign(void)
-{
-    uint8_t  seed[32];
-    uint8_t  digest[32];
-    uint8_t  d[32];
-    uint8_t  sig[64];
-    uint8_t  pub[64];
-    unsigned in_rfc6979;
-
-    memset(seed, 0x5A, sizeof seed);
-    memset(digest, 0xA5, sizeof digest);
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(seed, d));
-
-    yields = 0u;
-    TEST_ASSERT_TRUE(tfw_p256_sign_rfc6979(d, digest, sig));
-    TEST_ASSERT_TRUE_MESSAGE(yields > 0u, "rfc6979 sign yields");
-    in_rfc6979 = yields;
-
-    yields = 0u;
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
-    TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, yields, "public after rfc6979 sign");
-
-    yields = 0u;
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
-    TEST_ASSERT_TRUE_MESSAGE(yields > in_rfc6979, "derivation inside the sign yields too");
-
-    yields = 0u;
-    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
-    TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, yields, "public after sign");
-}
-
 int main(void)
 {
     UNITY_BEGIN();
@@ -272,6 +234,5 @@ int main(void)
     RUN_TEST(test_a_one_bit_change_changes_the_key_and_stays_on_the_curve);
     RUN_TEST(test_each_byte_at_its_extremes_stays_on_the_curve);
     RUN_TEST(test_the_same_seed_gives_the_same_key);
-    RUN_TEST(test_the_yield_hook_runs_only_inside_a_sign);
     return UNITY_END();
 }

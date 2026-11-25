@@ -38,10 +38,6 @@ import (
 // ueidTypeRAND is RFC 9711 §4.2.1's UEID type byte for a random number.
 const ueidTypeRAND = 0x01
 
-// b64 is base64url without padding that refuses non-zero pad bits: one
-// encoding per value, so the record's string compares are byte compares.
-var b64 = base64.RawURLEncoding.Strict()
-
 type provRecord struct {
 	UEID string        `json:"ueid"`
 	Cnf  *confirmation `json:"cnf,omitempty"`
@@ -65,7 +61,7 @@ type recordError struct{ msg string }
 func (e *recordError) Error() string { return "--record: " + e.msg }
 
 func ueidOf(serial [tfw.SerialLen]byte) string {
-	return b64.EncodeToString(append([]byte{ueidTypeRAND}, serial[:]...))
+	return base64.RawURLEncoding.EncodeToString(append([]byte{ueidTypeRAND}, serial[:]...))
 }
 
 // jwkOf encodes the DeviceID point PROV_GENKEY and PROV_PUBKEY return, X||Y.
@@ -77,14 +73,13 @@ func jwkOf(xy []byte) (*ecJWK, error) {
 	return &ecJWK{
 		Kty: "EC",
 		Crv: "P-256",
-		X:   b64.EncodeToString(xy[:half]),
-		Y:   b64.EncodeToString(xy[half:]),
+		X:   base64.RawURLEncoding.EncodeToString(xy[:half]),
+		Y:   base64.RawURLEncoding.EncodeToString(xy[half:]),
 	}, nil
 }
 
 // readRecord reads a record and refuses anything that is not one: an unknown
-// member, a member in another case or repeated (encoding/json takes either),
-// or bytes after the record's object, would be dropped or renamed by the
+// member, or bytes after the record's object, would be dropped by the
 // rewrite, and a UEID of another shape is not a device this tool baked.
 func readRecord(path string) (*provRecord, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- the operator names the record
@@ -100,10 +95,7 @@ func readRecord(path string) (*provRecord, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, &recordError{path + " is not a provisioning record: bytes after its object"}
 	}
-	if err := checkMembers(json.NewDecoder(bytes.NewReader(raw)), recordMembers); err != nil {
-		return nil, &recordError{fmt.Sprintf("%s is not a provisioning record: %v", path, err)}
-	}
-	id, err := b64.DecodeString(r.UEID)
+	id, err := base64.RawURLEncoding.DecodeString(r.UEID)
 	if err != nil || len(id) != 1+tfw.SerialLen || id[0] != ueidTypeRAND {
 		return nil, &recordError{fmt.Sprintf("%s: ueid is not 0x01 followed by a %d-byte serial", path, tfw.SerialLen)}
 	}
@@ -122,58 +114,12 @@ func readRecord(path string) (*provRecord, error) {
 	return &r, nil
 }
 
-// memberNames is the names an object of the record may hold, each with the
-// names of its own object; a nil entry is a member that is not an object.
-type memberNames map[string]memberNames
-
-// recordMembers is the record's members, case-sensitive as JWT and JWK
-// member names are (RFC 7519 §4, RFC 7517 §4).
-var recordMembers = memberNames{
-	"ueid": nil,
-	"cnf":  {"jwk": {"kty": nil, "crv": nil, "x": nil, "y": nil}},
-}
-
-// checkMembers walks the next value and refuses a member that is not exactly
-// one of its object's names, or that repeats within its object. readRecord
-// calls it only on bytes Decode has accepted, so a member that is not an
-// object here is a string or null.
-func checkMembers(dec *json.Decoder, names memberNames) error {
-	tok, err := dec.Token()
-	if err != nil {
-		return err
-	}
-	if d, ok := tok.(json.Delim); !ok || d != '{' {
-		return nil
-	}
-	seen := make(map[string]bool)
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		key, _ := tok.(string)
-		inner, ok := names[key]
-		if !ok {
-			return fmt.Errorf("member %q is not one of its object's names", key)
-		}
-		if seen[key] {
-			return fmt.Errorf("member %q is repeated", key)
-		}
-		seen[key] = true
-		if err := checkMembers(dec, inner); err != nil {
-			return err
-		}
-	}
-	_, err = dec.Token()
-	return err
-}
-
 func pointOf(k *ecJWK) ([]byte, error) {
 	if k.Kty != "EC" || k.Crv != "P-256" {
 		return nil, fmt.Errorf("cnf.jwk is %s %s, want EC P-256", k.Kty, k.Crv)
 	}
-	x, errX := b64.DecodeString(k.X)
-	y, errY := b64.DecodeString(k.Y)
+	x, errX := base64.RawURLEncoding.DecodeString(k.X)
+	y, errY := base64.RawURLEncoding.DecodeString(k.Y)
 	if errX != nil || errY != nil || len(x) != 32 || len(y) != 32 {
 		return nil, errors.New("cnf.jwk x and y are not 32 bytes each, base64url")
 	}

@@ -23,7 +23,7 @@ CI runs. "none" means this audit found no test that proves it.
 | 7 | ATmega2560: A/B slots by swap-move | done | `boot/boot_swap.c` | `test/unit/boot/test_boot_swap.c: test_an_image_refused_in_the_secondary_is_never_swapped`; `test/unit/boot/test_boot_swap.c: test_a_cut_at_any_page_resumes` |
 | 8 | ATmega328P: one internal slot, the backup in the store (row limit: no restore, owner queue 176 (a)) | partial | `boot/boot_swap_none.c`, `boards/atmega328p/profile.mk` (`BOOT_PREV`) | none: the store row overflows its boot section by 1498 B and is not in `BOOT_SUPPORTED` (slice 1) |
 | 9 | ATmega32U4: one internal slot with the restore from the store | not started | `boot/boot_prev.c` (written, on no supported row) | none on a supported row (slice 2) |
-| 10 | ATtiny85: no OTA (ruling 109, 2026-10-26) | done | nothing linked | none: a decision |
+| 10 | ATtiny85: no OTA | done | nothing linked | none: a decision |
 | 11 | Cortex-M33: MCUboot, TF-M and PSA Firmware Update composed | not started | none | none (slice 9) |
 | 12 | Generic Cortex-M port: the same swap-move as boot-HAL data | done | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_slots.h` | `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go: TestQEMUABRollback`; `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go: TestQEMUABFloor` |
 | 13 | ESP32-P4: ESP-IDF's OTA composed (#48) | done | `src/hal/esp32/hal_ota.c` | `test/unit/test_esp_ota.c: test_info_reports_the_running_slot_and_the_session`; `test/unit/test_esp_ota.c: test_auth_activate_and_confirm_are_on_the_wire` |
@@ -31,7 +31,7 @@ CI runs. "none" means this audit found no test that proves it.
 | 15 | Trailer v1 with the board id; tfw-boot refuses another board's image | done | `boot/boot_image.c`, `boot/boot_policy.c` | `test/unit/boot/test_boot_policy.c: test_a_signed_image_for_another_board_is_refused`; `test/unit/boot/test_boot_policy.c: test_a_relabelled_board_id_is_refused` |
 | 16 | ESP32-P4: the trailer inside the signed image (item 23) | done | `boot/hal/esp32/boot_l0.c` | `test/unit/boot/test_boot_l0_esp32.c: test_another_boards_image_is_refused` |
 | 17 | Composed platforms: the trailer beside the vendor's signature | not started | none | none (slices 9, 10) |
-| 18 | SUIT-subset manifest (ES256, SHA-256) checked before activation: ATmega2560 element tier, in the application at `OTA_ACTIVATE` (ruling 121) | done | `src/core/ota_manifest.c`, `src/core/suit.c` (`tfw_suit_gate`) | `test/unit/test_ota_manifest.c: test_a_good_manifest_activates`; `test/unit/test_ota_manifest.c: test_another_boards_class_id_is_refused`; `sdk/go/cmd/tfwctl/e2e_ota_manifest_test.go: TestE2EOTAManifestAcceptsAnImageItNames` |
+| 18 | SUIT-subset manifest (ES256, SHA-256) checked before activation: ATmega2560 element tier, in the application at `OTA_ACTIVATE` | done | `src/core/ota_manifest.c`, `src/core/suit.c` (`tfw_suit_gate`) | `test/unit/test_ota_manifest.c: test_a_good_manifest_activates`; `test/unit/test_ota_manifest.c: test_another_boards_class_id_is_refused`; `sdk/go/cmd/tfwctl/e2e_ota_manifest_test.go: TestE2EOTAManifestAcceptsAnImageItNames` |
 | 19 | The same, ESP32 layer 0 | done | `boot/hal/esp32/boot_l0.c` | `test/unit/boot/test_boot_l0_esp32.c: test_a_manifest_sequence_below_the_floor_is_refused` |
 | 20 | The same, soft tier | not started | none: no stored key (owner question 5) | none (slice 4) |
 | 21 | The 4 KB parts (328P, 32U4) trailer-only; `make` refuses `OTA_MANIFEST=1` there | done | `mk/firmware.mk`, `src/core/ota_manifest_none.c` | `scripts/test_manifest_refused.py` |
@@ -163,9 +163,9 @@ base row fits at 3712 / 4096; activation on the 328P goes back to the owner
 The restore logic itself is covered on the host by
 `test/unit/boot/test_boot_prev.c` (328P profile).
 
-### The split gate, measured per row (ruling 121)
+### The split gate, measured per row
 
-Owner ruling 121 (decision 106, option (b), CA m957, 2026-10-21) lets the
+Owner ruling 121 lets the
 application check the manifest fields at `OTA_ACTIVATE` on a row where boot
 cannot fit them. tfw-boot keeps the P-256 verify over image and trailer on every
 row, and the soft row keeps the full gate in boot. The ruling asks for each
@@ -258,7 +258,7 @@ until then.
 | File | Role |
 |---|---|
 | `src/core/ota_stage.c`, `src/core/ota_stage.h` | Application stager: `OTA_BEGIN`, `OTA_DATA`, `OTA_END`, `OTA_STATUS` into the external store's `STAGE` area; checks the trailer, board id and SHA-256 at `OTA_END`, then writes `MARK` |
-| `src/core/ota_manifest.c`, `src/core/ota_manifest_none.c` | `OTA_ACTIVATE`'s manifest check (ruling 121): reads the envelope after the staged image and holds it to the staged trailer through `tfw_suit_gate`. The stub, which answers `TFW_OK`, on every stager that does not link the reader |
+| `src/core/ota_manifest.c`, `src/core/ota_manifest_none.c` | `OTA_ACTIVATE`'s manifest check: reads the envelope after the staged image and holds it to the staged trailer through `tfw_suit_gate`. The stub, which answers `TFW_OK`, on every stager that does not link the reader |
 | `src/core/ota_stage_none.c` | Linked instead where no stager is built: a no-op `tfw_stage_init`, which `main.c` calls on every image |
 | `src/hal/esp32/hal_ota.c` | The ESP32's stager and `OTA_INFO` on ESP-IDF's `esp_ota` (#48): the inactive app slot, ESP-IDF's image check at `OTA_END`, nothing that activates ([api.md](api.md), "ESP32") |
 | `src/store/spi_nor.c` | The store driver the board's `OTA_STORE` names |

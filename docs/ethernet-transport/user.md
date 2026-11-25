@@ -12,7 +12,7 @@
   certificate and enrolment. Without it, the Mega 2560 runs the software tier
   (`CRYPTO=soft`), which signs `ATTEST` evidence ES256 under a P-256 DeviceID
   derived from its UDS. The Nano and Uno have no software tier (owner ruling
-  2026-10-17 (m522)): `CRYPTO=soft` is refused on the 328P.
+  2026-10-17): `CRYPTO=soft` is refused on the 328P.
 - A serial connection for provisioning and for writing the network settings.
 
 The shield uses D10 for the controller's chip select, D4 for its SD card, and
@@ -22,7 +22,7 @@ Tone is refused in an Ethernet image on both boards: its pin is D11, the SPI
 data line, on the 328P and D10, the chip select, on the Mega.
 
 No 328P row builds Ethernet now: the element tier, the 328P's only one since
-owner ruling 2026-10-17 (m522), is 1 652 bytes over the board's flash budget
+owner ruling 2026-10-17, is 1 652 bytes over the board's flash budget
 with `ETH=1`; see the ADR. The Mega's Ethernet image builds.
 
 ## Build

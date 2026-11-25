@@ -84,7 +84,7 @@ changes.
 
 One line per row of `docs/SPEC.md`'s table, in its order; "SPEC" is the
 row's status there. Every row that applies to this board is **not run**: the
-board is queued after #535 and #536 (ruling 768), and trusted-imx95 must first
+board is queued after #535 and #536, and trusted-imx95 must first
 give the M7 its logical machine, console and boot-container slot
 (`docs/cortex-m/engineering.md`, Remaining slices, item 5). "Evidence" is what
 exists off the board. A row that is not this board's says why.
@@ -107,7 +107,7 @@ exists off the board. A row that is not this board's says why.
 | `rp2350` | in progress | not this board's | 2026-11-20 | another Cortex-M board | — |
 | `nrf54l15` | future | not this board's | 2026-11-20 | another Cortex-M board | — |
 | `mcxn947` | in progress | not this board's | 2026-11-20 | another Cortex-M board | — |
-| `optee-trustzone` | future | not this board's | 2026-11-20 | a TrustZone-A secure world on QEMU `virt`; on the i.MX 95 that world is the BSP's (ruling 771, above) | — |
+| `optee-trustzone` | future | not this board's | 2026-11-20 | a TrustZone-A secure world on QEMU `virt`; on the i.MX 95 that world is the BSP's | — |
 | `optee-vault-ta` | future | not this board's | 2026-11-20 | runs on `optee-trustzone`'s QEMU `virt` stack | — |
 | `esp32` | in progress | not this board's | 2026-11-20 | another architecture port | — |
 | `esp32-p4` | in progress | not this board's | 2026-11-20 | another board | — |

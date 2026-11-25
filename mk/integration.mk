@@ -1,21 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Tier 2: the REAL firmware image on an emulated ATmega328P.
-#
-# The unit tests run the logic on x86 against a mock HAL and prove the logic is
-# right. These run the .elf that gets flashed -- real register writes, real
-# interrupt vectors, real timing -- and prove the thing that ships works. They
-# catch what a host build cannot: a wrong baud divisor, an ISR that never fires,
-# a peripheral configured in the wrong order.
+# Tier 2: the real firmware image on an emulated ATmega328P.
 
-# The harness compiles the board profile in, so another board's harness is
-# another program (#161): the board names a directory of its own, beside
-# mk/boot.mk's boot_harness, except the default board's, which keeps its path.
+# The harness compiles the board profile in, so another board's harness is another program: the board names a directory of its own, beside mk/boot.mk's boot_harness, except the default board's, which keeps its path.
 INT_DIR := $(BUILD_DIR)/integration$(if $(filter-out $(BOARD_DEFAULT),$(BOARD)),/$(BOARD))
 
 ## integration-test-simavr: run the firmware image under simavr
-# One part of the `integration-test` stage (mk/stages.mk).
 integration-test-simavr: $(INT_DIR)/harness $(TARGET).elf
 	@./$(INT_DIR)/harness $(TARGET).elf
 

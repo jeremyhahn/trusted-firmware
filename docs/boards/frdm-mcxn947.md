@@ -267,7 +267,7 @@ board.
 ## Not confirmed
 
 The SDK, pinned in [`../reference/README.md`](../reference/README.md), stands
-in for the manuals (ruling 109). What it settles is cited; what it cannot is
+in for the manuals. What it settles is cited; what it cannot is
 still to be read in the *MCXNx4x Reference Manual* or UM12018 before a board
 runs an image:
 

@@ -2,10 +2,10 @@
 
 The factory record for the ESP32-P4 board (`boards/esp32p4-poe`), written
 before the project's first write to it under the owner's ruling of 2026-10-16
-(CA m346) and the record-only order of 2026-10-17 (CA m522): every bench board
+ and the record-only order of 2026-10-17: every bench board
 is the project's to flash, provision and reconfigure once its factory state is
 on its page. Nothing was written to the board for this record. The gate is
-lifted in full (owner ruling 2026-10-18, CA m623). Before any write, a lane
+lifted in full. Before any write, a lane
 reads the board again and compares it with this page; the steps that burn an
 eFuse or enable secure boot or flash encryption are owner decisions
 ([`../../multi-arch/esp32-p4-design.md`](../../multi-arch/esp32-p4-design.md) §4).
@@ -160,7 +160,7 @@ one, layer 0 burns none (with no `HMAC_UP` key it hands off tier `none`),
 
 **Gate.** Design slice 2 (trailer v1, layer 0's ES256 check and the key pin
 baked into `tfw_plat`) is on this branch, so the image step 3 writes has its
-signature checked at every boot, as every tfw-boot row must (CA m453). Step 3
+signature checked at every boot, as every tfw-boot row must. Step 3
 now waits for two things only: the coordinator's board time, and the network.
 The network half is met once the bench host reaches the board's network
 directly, which is where step 2's static address puts the board (step 4).

@@ -156,7 +156,7 @@ designed here.
 
 ## 7. Slices
 
-One PR each (m751). Each adds its host tests to `make ci`, with no skip guard;
+One PR each. Each adds its host tests to `make ci`, with no skip guard;
 "host" means the unit build under the mock HAL and the register model
 `test/model/imx95_model.c`. Slices 1 to 4, 6, 7, 11a, 11b-1 and 11b-2 are
 done, and the code and tests of slices 5, 9 and 10 (engineering.md), and
@@ -244,8 +244,7 @@ PROPOSED on `main`.
 8. **O8. Gate #7.** engineering.md gates every slice on the AVR end-to-end gate
    unless lifted for this row; is it lifted for slices 3 to 11?
 9. **O9. The record's reader.** Does go-trusted-platform read A6 over the
-   channel, or does it reach the verifier only as go-xkms's evidence? Answered
-   (CA m1656, ruling 251 item 4): "173 trusted-firmware #50 O9, option (b) xkms
+   channel, or does it reach the verifier only as go-xkms's evidence? Answered: "173 trusted-firmware #50 O9, option (b) xkms
    evidence through the tf xkms adapter, the new command id is allowed". The
    command id is `HSM_RECORD_READ` (`0x7C`), slice 11b-1; the evidence through
    the adapter is not in this slice.

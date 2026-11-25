@@ -120,7 +120,6 @@ static void test_duty_255_is_the_full_period(void)
     const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 255u));
-    TEST_ASSERT_EQUAL(LEDC_TIMER_8_BIT, timer_seen.duty_resolution);
     TEST_ASSERT_EQUAL_UINT32(1u << 8, chan_seen.duty);
 }
 

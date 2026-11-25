@@ -19,6 +19,7 @@
 #define TONE_MODE    LEDC_LOW_SPEED_MODE
 
 static uint8_t running;
+static uint16_t tone_hz;           /* the frequency the running tone was started at */
 static int     tone_gpio = -1;    /* the pin the LEDC channel drives */
 /* The pin whose pad output the LEDC channel holds through the GPIO matrix.
  * A stop leaves it there, driving the idle level, so it outlives `running`:
@@ -52,6 +53,13 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
             return TFW_ERR_RANGE;       /* a frequency the timer cannot divide to */
         }
         if (ledc_channel_config(&chan) != ESP_OK) {
+            if (running != 0u) {
+                /* the timer is shared, so a refused channel puts the running tone's frequency back */
+                ledc_timer_config_t back = timer;
+
+                back.freq_hz = tone_hz;
+                (void)ledc_timer_config(&back);
+            }
             return TFW_ERR_INTERNAL;
         }
     }
@@ -61,6 +69,7 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         (void)gpio_reset_pin((gpio_num_t)owned_gpio);
     }
     running    = 1u;
+    tone_hz    = hz;
     tone_gpio  = p->gpio;
     owned_gpio = p->gpio;
     return TFW_OK;

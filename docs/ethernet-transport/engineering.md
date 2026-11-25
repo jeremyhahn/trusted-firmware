@@ -165,7 +165,7 @@ default, so its serial-only rows pass `ETH=0`; `auto` is the default crypto.
 | ATmega2560, `ETH=1` (W5100) | 37 292 / 65 536 | 1 476 / 2 048 | passes |
 | ATmega2560, `ETH=1 DHCP=1` | 41 322 / 65 536 | 1 520 / 2 048 | passes |
 
-Owner ruling 2026-10-17 (m522) made the 328P element-only and refuses
+Owner ruling 2026-10-17 made the 328P element-only and refuses
 `CRYPTO=soft` on it at build time. No 328P row builds Ethernet: its one tier,
 the element, is over both its flash and its RAM budget with `ETH=1`.
 

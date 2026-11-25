@@ -53,7 +53,7 @@ how is it brought onto the bench without changing it?
   go-xkms sees only evidence and the NXP-issued device certificate. This ADR
   designs nothing on the host side and imports nothing from go-enclave.
 - **No element becomes mandatory.** CA m435: no element is required, and the
-  software DICE root stays the default (owner ruling, 2026-10-17 05:51Z).
+  software DICE root stays the default.
 - **Which boards, as the row states:** the ATmega2560, the ATmega32U4 and the
   Cortex-M targets, not the ATmega328P (§3, the fit estimate).
 
@@ -183,7 +183,7 @@ does, as it measured the OPTIGA's.
 
 ## 5. Onboarding on the bench host
 
-The board goes onto the bench under the existing bench rulings (m346/m347):
+The board goes onto the bench under the existing bench rulings:
 one device per lane, the factory record and restore the one condition. For an
 element that is "write nothing":
 

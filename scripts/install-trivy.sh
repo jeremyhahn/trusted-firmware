@@ -1,41 +1,5 @@
 #!/bin/sh
-# Install a PINNED, checksum-verified trivy.
-#
-#   usage: scripts/install-trivy.sh <install-dir> [version]
-#
-# The ONE installer for trivy in this repo. Both `make install-tools` and the
-# Gitea path of .github/workflows/nightly.yml call it, so the scanner on a
-# developer's machine and the scanner in CI are the same binary — and neither
-# can drift from the other by editing one of them.
-#
-# WHY NOT `curl .../install.sh | sh`
-# ---------------------------------
-# That is what this replaces, in both call sites. It fetched a script from a
-# MUTABLE ref (contrib/install.sh on `main`) and executed it, unread and
-# unverified, as the build user. Anyone who could change that file — upstream
-# compromise, account takeover, a MITM on the fetch — would get arbitrary code
-# execution on the runner, and in nightly.yml that runner holds a token with
-# security-events: write. Pulling the security scanner itself through an
-# unverified channel inverts the point of running it.
-#
-# WHAT THIS GUARANTEES, AND WHAT IT DOES NOT
-# ------------------------------------------
-# Guarantees: the version is fixed (no silent upgrade to whatever shipped
-# today), the bytes are checked against the release's published SHA-256 before
-# anything is executed, and nothing from the download is ever run as a script.
-# A corrupted or tampered-in-transit tarball is refused.
-#
-# Does NOT guarantee: the checksums file is fetched from the same origin as the
-# tarball, so this is not a signature check and does not defend against a
-# compromised release where an attacker rewrites both. Upstream publishes a
-# sigstore bundle next to each artifact (trivy_<ver>_checksums.txt.sigstore.json);
-# verifying that with cosign is the next hardening step and needs cosign on the
-# runners first. Stated here rather than implied, so nobody reads "verified" as
-# more than it is.
-#
-# To bump trivy: edit .trivy-version, run this, and re-run `make security`. The
-# same file feeds the trivy-action `version:` input in nightly.yml, so the
-# GitHub and Gitea paths move together.
+# Install a pinned, checksum-verified trivy.
 
 set -eu
 

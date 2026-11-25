@@ -135,8 +135,7 @@ application against the mock HAL. It speaks the wire protocol on stdin and
 stdout, so the Go SDK and its tests talk to it as to a device. The second
 builds the Mega's image under `build/atmega2560/`, in a directory named for its
 tier and options and ending `-app-heartbeat`, and fails if the image is over the
-board's budget. The ATmega328P has no soft tier since owner ruling 2026-10-17
-(m522), and its element image has no room for an application
+board's budget. The ATmega328P has no soft tier since owner ruling 2026-10-17, and its element image has no room for an application
 ([engineering](engineering.md)).
 
 Include only `tfw/*.h`. The build gives your files no path into the

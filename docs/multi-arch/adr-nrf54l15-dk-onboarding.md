@@ -76,7 +76,7 @@ From [PS], by section title; register detail and section numbers **to confirm**.
 | KMU | key management unit: keys in a dedicated RRAM region; the KMU and its slots in SICR are accessible from secure mode only | "KMU — Key management unit" |
 | RRAM protection | access protection of RRAM regions, and APPROTECT/SECUREAPPROTECT for the debug port. Region granularity and lock semantics **to confirm** | "NVM — Non-volatile memory"; the access port protection section, title **to confirm** |
 | TrustZone-M | Armv8-M Security Extension on the Cortex-M33; peripherals assignable to either world | "TrustZone security"; "Peripherals with split security access" |
-| CRACEN | crypto accelerator; a KMU key can be pushed to CRACEN so that secure-world code never sees it; DPA countermeasures. Whether it does ECDSA P-256 (needed: owner m522, P-256 on every row) is **to confirm** | "CRACEN — Cryptographic accelerator engine" |
+| CRACEN | crypto accelerator; a KMU key can be pushed to CRACEN so that secure-world code never sees it; DPA countermeasures. Whether it does ECDSA P-256 is **to confirm** | "CRACEN — Cryptographic accelerator engine" |
 | Tamper | TAMPC and voltage glitch detectors | "TAMPC — Tamper controller"; "GLITCHDET — Voltage glitch detectors" |
 
 ### The map onto [DICE-HW] and [DICE-AA]

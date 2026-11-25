@@ -34,13 +34,13 @@ none.
 | `--verify` | `false` | read the part back and compare against the template; writes nothing |
 | `--commit` | `false` | write the template. **Irreversible.** Requires `--yes-i-mean-it` |
 | `--bake-eeprom` | `false` | write a platform-block `.eep` image. Opens no port, touches no element; its own mode, not combinable with the three above |
-| `--yes-i-mean-it` | `false` | required by `--commit`; the flag that cannot be typed by accident |
-| `--config` | `""` | path to the provisioning template (required for `--dry-run`/`--verify`/`--commit`) |
-| `--baud` | `115200` | serial baud rate (`serialport.DefaultBaud`) |
-| `--timeout` | `30s` | how long to wait for a reply |
+| `--yes-i-mean-it` | `false` | required by `--commit`; the flag that cannot be typed by accident. Refused with `--bake-eeprom`/`--bake-netblock` |
+| `--config` | `""` | path to the provisioning template (required for `--dry-run`/`--verify`/`--commit`). Refused with `--bake-eeprom`/`--bake-netblock` |
+| `--baud` | `115200` | serial baud rate (`serialport.DefaultBaud`). Refused with `--bake-eeprom`/`--bake-netblock` |
+| `--timeout` | `30s` | how long to wait for a reply. Refused with `--bake-eeprom`/`--bake-netblock` |
 | `--force` | `false` | **refused**, not an alias. `tfwprov` exits with an error naming `--yes-i-mean-it` instead of accepting it |
 | `--serial` | `""` | `--bake-eeprom`: the 16-byte device serial, hex |
-| `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna`, which item 79 (owner ruling 2026-10-17) takes off every row: the verifier is P-256 on every row — omitting it there bakes an all-zero hash and prints a warning, and `tfw-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |
+| `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna`, which item 79 takes off every row: the verifier is P-256 on every row — omitting it there bakes an all-zero hash and prints a warning, and `tfw-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |
 | `--operator-pubkey` | `""` | `--bake-eeprom`: 64-byte P-256 operator public key (X‖Y), hex — the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), element tier only. Omitting it bakes an all-zero key and prints a warning: `AUTH_RESPONSE` will refuse every attempt until the real key is set |
 | `--out` | `""` | `--bake-eeprom`/`--bake-netblock`: the `.eep` file to write |
 | `--record` | `""` | the [provisioning record](#the-provisioning-record), a JSON file. `--bake-eeprom` starts it with the serial; `--commit` and `--verify` join the DeviceID point to it. Refused with `--dry-run`, and with `--bake-netblock` alone (the network block is not part of the record) |
@@ -56,6 +56,10 @@ none.
 
 A flag of one bake mode given without that mode is refused, never ignored:
 `--serial` without `--bake-eeprom`, or `--mac` or `--dhcp` without `--bake-netblock`.
+A wire flag beside a bake mode is refused the same way: `--config`, `--yes-i-mean-it`,
+`--baud` or `--timeout` with `--bake-eeprom` or `--bake-netblock`
+(`--config does not combine with --bake-eeprom, which opens no port and reads no template`).
+A bake opens no port and reads no template, so a record it starts never looks template-checked.
 `--slot` without `--write-pubkey` is refused the same way.
 
 `--write-pubkey` needs a part whose config zone is locked: the element takes no

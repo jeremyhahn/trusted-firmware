@@ -23,7 +23,7 @@
 
 ## The question
 
-The OPTIGA Trust M V3 shield has arrived (CA m311). It is a secure element, not
+The OPTIGA Trust M V3 shield has arrived. It is a secure element, not
 a host MCU: it adds an element tier beside the ATECC608C (MIKROE-6774) and the
 SE052F (`secure-element-se05x`), on a host that already runs the firmware core.
 What is it for, what is its root of trust, how does that map onto TCG DICE,
@@ -44,7 +44,7 @@ without changing it?
   only evidence and the Infineon-issued device certificate. This ADR designs
   nothing on the host side.
 - **No element becomes mandatory.** CA m435: the ATECC608C is never required,
-  and the software DICE root stays the default (owner ruling, 2026-10-17 05:51Z). This ADR
+  and the software DICE root stays the default. This ADR
   adds an element; it requires none.
 - **Order of work.** SPEC Rules: the OPTIGA Trust M comes after the SE052F and
   the STM32H5, once AVR is proven on the Nano and the Mega (#7).
@@ -130,7 +130,7 @@ licence forbids a copy); see open question 7.
 
 ## 4. Onboarding on the bench host
 
-The board goes onto the bench under the existing bench rulings (m346/m347): full
+The board goes onto the bench under the existing bench rulings: full
 read and write on every dev board on the bench host, one device per lane, the factory
 record and restore the one condition. For an element that is "write nothing":
 
@@ -176,7 +176,7 @@ test has none on main.
 | R7 | OpenApplication, CloseApplication, GetDataObject, GetRandom (Rev 3.70 §4.4.1) | done | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_open_application_sends_table_40_with_the_table_78_identifier`, `test_close_application_sends_table_41_without_saving`, `test_get_data_sends_table_42_with_offset_and_length`, `test_get_random_sends_table_45_from_the_trng`; `test/unit/test_optiga_cmd_i2c.c`: `test_the_device_certificate_is_read_across_frames` |
 | R8 | CalcSign with the factory key `0xE0F0` | done; the key's curve to confirm from its metadata on the bench | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_calc_sign_sends_table_51_with_the_device_key`, `test_der_signature_that_is_not_two_p256_integers_is_framing` |
 | R9 | VerifySign with a P-256 key sent in the command | done | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_verify_sign_sends_table_52_with_the_key_in_the_command`, `test_verify_sign_encodes_short_r_and_s_minimally` |
-| R10 | Written to the Solution Reference Manual, pinned at Revision 3.70 | done (question 9, ruling 109) | `docs/reference/README.md` | none (documentation) |
+| R10 | Written to the Solution Reference Manual, pinned at Revision 3.70 | done | `docs/reference/README.md` | none (documentation) |
 | R11 | No write command is reachable | done, in the command layer and through the bus capability | `src/crypto/optiga/optiga_cmd.c`, `src/caps/bus.c` | `test/unit/test_optiga_cmd.c`: `test_only_the_read_only_commands_were_ever_sent`; `test/unit/test_bus_optiga.c`: `test_the_optiga_address_is_refused_and_never_reaches_the_bus` |
 | R12 | The provider maps random, sign, counter and verify_operator onto those commands | done; the counter's byte order to confirm on the bench | `src/crypto/optiga/optiga_crypto.c` | `test/unit/test_optiga_crypto.c`: `test_random_is_get_random`, `test_sign_is_calc_sign_with_the_factory_key`, `test_counter_reads_the_value_of_each_of_the_four`, `test_verify_operator_is_verify_sign_with_the_key_sent`, `test_verify_operator_wrong_key_is_crypto` |
 | R13 | SHA-256 stays in software | done | `src/crypto/sha256.c`, linked by `mk/firmware.mk` (`CRYPTO=optiga`) | `test/unit/test_sha256.c` (the shared SHA-256; none specific to the tier) |
@@ -280,7 +280,7 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
 8. **The Infineon host library.** The SPEC row makes the on-device driver ours.
    Does "ours" mean written here, or composed from Infineon's own host library
    (L2), subject to its licence?
-9. **The vendor documents. Decided (ruling 109, 2026-10-21):** the governing
+9. **The vendor documents. Decided:** the governing
    revision of each is the newest Infineon publishes for the part. For the
    solution reference manual that is Revision 3.70 (2024-10-09), from
    Infineon's `optiga-trust-m-overview` repository, now pinned in place of

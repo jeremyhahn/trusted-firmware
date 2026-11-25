@@ -75,7 +75,7 @@ Measured with avr-gcc 14.2.0 (Debian 13, binutils-avr 2.43.50, avr-libc 2.2.1),
 | atmega2560 | soft | 13290 flash / 765 RAM | 13290 flash / 765 RAM | 14016 flash / 776 RAM |
 | atmega2560 | atecc608a | 18366 flash / 989 RAM | 18366 flash / 989 RAM | 19088 flash / 1000 RAM |
 
-The `atmega328p` `soft` row was measured before owner ruling 2026-10-17 (m522),
+The `atmega328p` `soft` row was measured before owner ruling 2026-10-17,
 which made the 328P element-only; `CRYPTO=soft` is refused on it now, and the
 row stays as a dated record.
 On the 328P's element-tier default the example application measures 16872 flash
@@ -446,7 +446,7 @@ decided.
 
 ### 1. Does a failed `init` in `TRIAL` end the trial at once?
 
-**Decided A** (ruling 109, by the conventions, reported to Software): it is
+**Decided A**: it is
 the reading of decision 9's "if both return `TFW_OK`", on the one reset path
 the trial already has. `tfw_ota_trial_after_init()` resets when `armed` and
 the application is FAILED or UNSUPPORTED (`src/core/ota_trial.c:39`), pinned

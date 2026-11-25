@@ -1,6 +1,6 @@
 # ADR: the Cortex-M trust model, and its relation to TF-M
 
-> **Status: ACCEPTED (owner ruling 632 item 208 a, 2026-11-14)** · Issue: #15 · Scope: trusted-firmware (the
+> **Status: ACCEPTED** · Issue: #15 · Scope: trusted-firmware (the
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md);
@@ -15,7 +15,7 @@
 
 ## Amended by ruling 1024 (owner, 2026-11-20)
 
-The owner decided on 2026-11-20 (Tenant Agent ruling 1024 (a), row #608),
+The owner decided on 2026-11-20,
 verbatim:
 
 > "the TrustZone-M secure world is built on Trusted Firmware-M with our DICE
@@ -57,9 +57,9 @@ For this ADR it means:
 The passages below that offer the Secure Manager or a PSA token are kept as
 the analysis first recorded and are marked **not taken**.
 
-## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
+## Accepted on 2026-11-14
 
-The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
+The owner ruled on 2026-11-14, verbatim:
 
 > "ADRs #14 and #15 adopt the i.MX 95 M7 reference part, QEMU mps2-an505
 > emulation, TF-M Profile Medium plus our DICE attestation partition on the M33
@@ -142,9 +142,9 @@ unchanged.
 | Where the DICE root lives, per part | new: the UDS, the layer-0 engine, the lock before hand-off and the DeviceID key on each part, cited to the vendor document and section that was read, with what is still open |
 | Open questions | new: 13, the DICE root on the two M33 bench boards |
 
-## Changes on 2026-10-18 (owner, CA m623)
+## Changes on 2026-10-18
 
-The owner ruled on 2026-10-18 (CA m623, 12:35Z) that #14 and this ADR are no
+The owner ruled on 2026-10-18 that #14 and this ADR are no
 longer gated, and that both are decided against the Cortex-M parts on the bench
 host: the STM32H573I-DK and the nRF54L15-DK, both Cortex-M33 with TrustZone-M.
 The CI target is QEMU `mps2-an505`. #14 carries the same ruling. This revision
@@ -550,7 +550,7 @@ There are two shapes, and only one of them keeps the signing rule.
   go-quicbaas's Verifier would need IAK endorsements and PSA reference values
   (implementation ID, software component measurements and signer IDs) in its
   store. The SPEC row `stm32h5` assumed go-xkms's EAT path verifies a
-  PSA token, from ST's Secure Manager. **Not taken** (ruling 935): no PSA
+  PSA token, from ST's Secure Manager. **Not taken**: no PSA
   token or EAT verifier is added
   ([`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md)).
 - **Licence.** Every component is permissive, so all of them are compatible
@@ -671,7 +671,7 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 | | (a) own secure world | (b1) TF-M partition | (c) MPU-only |
 |---|---|---|---|
 | Cores | M33 | M33 | M7 (and any M33 fallback) |
-| Boards (CA m623) | a fallback only | STM32H573I-DK, nRF54L15-DK | i.MX 95 M7 |
+| Boards | a fallback only | STM32H573I-DK, nRF54L15-DK | i.MX 95 M7 |
 | Secure image, flash | 16–24 KB (estimate) | 135.0 KiB with BL2 and a stub partition (measured, #483), plus about 4–6 KB ours (estimate) | 6–12 KB (estimate) |
 | TCB we write | all of it | the partition | privileged layer and SVC gate |
 | Our three structures | unchanged | unchanged | unchanged |
@@ -684,7 +684,7 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 
 ## Recommendation
 
-**Decided 2026-11-14 (owner ruling 632 item 208 a): (b1) on the Cortex-M33 and
+**Decided 2026-11-14: (b1) on the Cortex-M33 and
 (c) on the Cortex-M7, as recommended below.** The i.MX 95 M7 is the reference
 part (#14 question 1 (a)).
 
@@ -798,7 +798,7 @@ questions 2 to 13, which stay open:
   or the MPU's timing listed there.
 - 13, the DICE root on the M33 parts: open.
 
-1. **Closed 2026-11-14: yes, (b1) on the M33 (ruling 632 item 208 a).** The
+1. **Closed 2026-11-14: yes, (b1) on the M33.** The
    SPEC row `stm32h5` still reads "our own TrustZone secure world"; aligning
    it is a SPEC change, not this ADR's.
    **M33 trust model.** Accept (b1), TF-M with our partition, on the

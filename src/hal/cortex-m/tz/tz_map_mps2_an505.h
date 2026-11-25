@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The TZ=1 secure/non-secure split of mps2-an505 as QEMU models it (#590,
- * docs/plans/590.md). The SSE-200's IDAU makes address bit 28 the alias bit:
+ * The TZ=1 secure/non-secure split of mps2-an505 as QEMU models it (#590).
+ * The SSE-200's IDAU makes address bit 28 the alias bit:
  * 0x1xxxxxxx and 0x3xxxxxxx are Secure, 0x0xxxxxxx and 0x2xxxxxxx their
  * Non-secure aliases of the same RAM. The SAU narrows that to the regions
  * below. Plain integer macros only: tz_s.ld and tz_ns.ld are run through the

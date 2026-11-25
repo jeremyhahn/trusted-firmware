@@ -171,6 +171,48 @@ static void test_mode_on_another_pin_after_notone_keeps_the_pin(void)
     capture_loop_back(1u);
 }
 
+/* #48: MODE's tone release past the plain running-tone case. The release
+ * after NOTONE is test_mode_input_after_notone_takes_the_pin_back (it kills
+ * `if (running && owned_gpio == gpio)`; an inner `if (1)` is equivalent, as
+ * tfw_hal_tone_stop checks `running` itself). The two below:
+ * - a tone moved to another pin is released only on the pin it now owns:
+ *   kills a release that drops the `owned_gpio == gpio` compare (MODE on the
+ *   old pin would stop the tone) or keys it on the first pin the tone took;
+ * - MODE over a stop the driver refuses still takes the pin back, and the
+ *   channel stays running so NOTONE retries the stop: kills a release that
+ *   keeps owned_gpio on a failed stop (the loop back on an input pin, #561)
+ *   and a NOTONE that marks the channel stopped when ledc_stop failed. */
+static void test_a_tone_moved_to_another_pin_is_released_only_there(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 1000u));
+    TEST_ASSERT_EQUAL_INT(22, tfw_esp_tone_gpio());
+    capture_loop_back(0u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_INT(22, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL_UINT(0u, stops);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&other, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL_UINT(1u, stops);
+}
+
+static void test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
+    stop_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_UINT(1u, stops);
+    TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
+    capture_loop_back(0u);
+
+    stop_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL_UINT(2u, stops);
+    TEST_ASSERT_EQUAL_UINT(0u, toggling);
+}
+
 /* The edges a capture after NOTONE reads on the pin: the LEDC waveform when
  * the channel still toggles and the capture kept the pad's output
  * (io_loop_back); none otherwise, since an input-only RMT pad disables the
@@ -228,5 +270,7 @@ int main(void)
     RUN_TEST(test_a_refused_mode_keeps_the_tone);
     RUN_TEST(test_mode_input_after_notone_takes_the_pin_back);
     RUN_TEST(test_mode_on_another_pin_after_notone_keeps_the_pin);
+    RUN_TEST(test_a_tone_moved_to_another_pin_is_released_only_there);
+    RUN_TEST(test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone);
     return UNITY_END();
 }

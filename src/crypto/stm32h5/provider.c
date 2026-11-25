@@ -12,7 +12,7 @@
  *   tfw_crypto_verify_operator  the PKA's ECDSA verification
  *
  * Each falls back to software when its peripheral did not start, timed out
- * or flagged an error (docs/plans/544.md: a register fact not yet confirmed
+ * or flagged an error (#544: a register fact not yet confirmed
  * on the board must not cost an answer). Signing on the PKA waits for a
  * nonce source, which is not this slice's.
  */
@@ -87,7 +87,7 @@ tfw_status_t tfw_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[32
         }
         /* A HASH that timed out once costs the status-poll timeout on every
          * later digest: software answers for the rest of the boot
-         * (docs/plans/544.md, #599). */
+         * (#544, #599). */
         hash_up = 0;
     }
     tfw_sha256(data, len, out);
@@ -124,7 +124,7 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32], const uint8_t 
         }
         /* A run that timed out may still be going, and its late PROCENDF would
          * answer the next request with this one's result: the PKA is left
-         * alone for the rest of the boot (docs/plans/544.md). */
+         * alone for the rest of the boot (#544). */
         pka_up = 0;
     }
     return tfw_crypto_soft_verify_p256(digest, sig, pubkey);

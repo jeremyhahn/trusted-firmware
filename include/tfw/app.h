@@ -25,6 +25,8 @@
 #include "tfw/config.h"
 #include "tfw/progmem.h"
 #include "tfw/boot.h"
+#include "tfw/reader.h"
+#include "tfw/writer.h"
 
 /* "TFWA" in memory order, so the descriptor can be found in an image by eye. */
 #define TFW_APP_MAGIC        0x41574654uL
@@ -116,6 +118,17 @@ tfw_status_t tfw_app_after_update(void);
 #define TFW_APP_EVIDENCE_LEN 32u
 tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
 
+/* APP_CMD (0x07): the application's own wire commands. Defined only by an
+ * application whose app.mk sets APP_COMMANDS := yes. op is the request's
+ * app_op byte; r holds its arguments (at most TFW_APP_CMD_MAX_ARGS bytes) and
+ * w takes the reply. Called only in TFW_APP_STATE_RUNNING and timed against
+ * TFW_APP_RUN_BUDGET_MS, as tfw_app_run is. A sub-op with fixed arguments
+ * checks tfw_reader_remaining(r) == 0 once it has read them and answers
+ * TFW_ERR_BAD_ARGC otherwise; an unknown op answers TFW_ERR_UNSUPPORTED. A
+ * sub-op that needs a session asks tfw_app_session_ok() and answers
+ * TFW_ERR_AUTH_REQUIRED without one. */
+tfw_status_t tfw_app_command(uint8_t op, tfw_reader_t *r, tfw_writer_t *w);
+
 /* ----------------------------------------------------- defined by the firmware */
 
 /* The application's EEPROM region, [0, config_len). TFW_ERR_RANGE outside it,
@@ -123,6 +136,12 @@ tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
  * write, so a write of more than a byte belongs in init, not in run. */
 tfw_status_t tfw_app_config_read(uint16_t off, uint8_t *buf, uint8_t len);
 tfw_status_t tfw_app_config_write(uint16_t off, const uint8_t *buf, uint8_t len);
+
+/* Read-only: 1 when tfw_auth_gate() would admit a gated command now, else 0.
+ * Off the element tier the gate is permissive, so this answers 1 there (the
+ * session table of docs/application-sdk/adr-application-wire-commands.md).
+ * For tfw_app_command, to refuse a sub-op that needs a session. */
+uint8_t tfw_app_session_ok(void);
 
 /* At file scope in the application: a compile error, rather than a device that
  * boots firmware-only, when this image lacks a capability the application needs

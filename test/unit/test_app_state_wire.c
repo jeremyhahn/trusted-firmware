@@ -115,6 +115,18 @@ static void test_a_config_read_the_eeprom_refuses_returns_the_eeprom_status(void
     TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
 }
 
+static void test_a_config_write_the_eeprom_refuses_returns_the_eeprom_status(void)
+{
+    uint8_t  b = 0x11u;
+    uint16_t lo;
+    uint16_t hi;
+
+    tfw_mock_eeprom_write_fails(TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_app_config_write(0u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_eeprom_written(&lo, &hi));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[TFW_APP_CONFIG_BASE]);
+}
+
 static void test_a_config_write_past_the_declared_length_writes_no_byte(void)
 {
     uint8_t  b = 0x11u;
@@ -178,6 +190,7 @@ int main(void)
     RUN_TEST(test_a_config_read_past_the_eeprom_is_refused_and_the_buffer_stays);
     RUN_TEST(test_a_config_read_the_eeprom_refuses_returns_the_eeprom_status);
     RUN_TEST(test_a_config_write_past_the_declared_length_writes_no_byte);
+    RUN_TEST(test_a_config_write_the_eeprom_refuses_returns_the_eeprom_status);
     RUN_TEST(test_an_empty_config_write_past_the_end_is_refused);
     RUN_TEST(test_a_config_write_past_the_eeprom_writes_no_byte);
     RUN_TEST(test_a_config_offset_at_the_top_does_not_wrap_into_the_region);

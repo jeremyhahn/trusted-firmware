@@ -100,6 +100,29 @@ static void test_a_stopped_application_leaves_the_firmware_hash(void)
     TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
 }
 
+static void test_an_application_stopped_for_an_update_leaves_the_firmware_hash(void)
+{
+    /* The OTA_ACTIVATE and RESET(1) stop: before_update runs, and after it
+     * the application is not asked for its bytes. */
+    tfw_app_runner_start();
+    tfw_app_runner_stop(1u);
+    assert_measurement_is(FW);
+    TEST_ASSERT_EQUAL_STRING("ibs", tfw_mock_app_log());
+}
+
+static void test_the_measurement_is_asked_on_every_call(void)
+{
+    uint8_t ev2[TFW_SHA256_LEN];
+
+    memcpy(ev2, EV, sizeof ev2);
+    ev2[0] ^= 0xFFu;
+    tfw_app_runner_start();
+    assert_measurement_is(EV);
+    tfw_mock_app_set_evidence(TFW_OK, ev2);
+    assert_measurement_is(ev2);
+    TEST_ASSERT_EQUAL_STRING("iee", tfw_mock_app_log());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -112,5 +135,7 @@ int main(void)
     RUN_TEST(test_a_failed_application_leaves_the_firmware_hash);
     RUN_TEST(test_a_refused_application_leaves_the_firmware_hash);
     RUN_TEST(test_a_stopped_application_leaves_the_firmware_hash);
+    RUN_TEST(test_an_application_stopped_for_an_update_leaves_the_firmware_hash);
+    RUN_TEST(test_the_measurement_is_asked_on_every_call);
     return UNITY_END();
 }

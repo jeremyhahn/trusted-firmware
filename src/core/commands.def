@@ -32,6 +32,7 @@ TFW_CMD_ENTRY(TFW_CMD_SYS_INFO, SYS_INFO, tfw_sys_cmd_sys_info, 0u, 0u)
  * config.h. */
 #if TFW_FEATURE_APP
 TFW_CMD_ENTRY(TFW_CMD_APP_INFO, APP_INFO, tfw_app_cmd_info, 0u, 0u)
+TFW_CMD_ENTRY(TFW_CMD_APP_CMD,  APP_CMD,  tfw_app_cmd_command, 1u, 1u + TFW_APP_CMD_MAX_ARGS)
 #endif
 
 /* ---- gpio ---- */

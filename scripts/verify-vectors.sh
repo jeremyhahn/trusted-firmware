@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: commercial
 #
 # The C and Go mirrors of the wire vectors must carry identical values.
-#
-# They are two files on purpose -- neither language can include the other's --
-# and two files that must agree will eventually not. This is the check that
-# makes the disagreement a build failure instead of a field incident.
 set -euo pipefail
 
 C=testdata/vectors.h
@@ -105,6 +101,26 @@ elif [ "$c_app" != "$g_app" ]; then
   echo "  $G:"; echo "$g_app" | sed 's/^/    /'; fail=1
 else
   echo "APP_INFO reply vectors agree: $(echo "$c_app" | wc -l) values, both languages"
+fi
+
+# APP_CMD vectors, #635 -- requests, replies and statuses, compared by NAME and
+# VALUE together as APP_INFO is: TFWV_APPCMD_<NAME>_<KIND> against
+# AppCmd<Name><Kind>, a status's C `u` suffix dropped. A trailing-byte request
+# must not be able to swap places with the blink count and still agree.
+c_cmd=$(sed -n -e 's/^#define TFWV_APPCMD_\([A-Z0-9]*\)_\([A-Z]*\) *"\(.*\)"$/\1\2 \3/p' \
+               -e 's/^#define TFWV_APPCMD_\([A-Z0-9]*\)_STATUS *\([0-9]*\)u$/\1status \2/p' "$C" |
+        tr 'A-Z' 'a-z' | sort)
+g_cmd=$(sed -n -e 's/^\tAppCmd\([A-Za-z0-9]*\) *= *"\(.*\)"$/\1 \2/p' \
+               -e 's/^\tAppCmd\([A-Za-z0-9]*Status\) *= *\([0-9]*\)$/\1 \2/p' "$G" |
+        tr 'A-Z' 'a-z' | sort)
+
+if [ -z "$c_cmd" ]; then
+  echo "no APP_CMD vectors found in $C"; fail=1
+elif [ "$c_cmd" != "$g_cmd" ]; then
+  echo "APP_CMD vectors differ:"; echo "  $C:"; echo "$c_cmd" | sed 's/^/    /'
+  echo "  $G:"; echo "$g_cmd" | sed 's/^/    /'; fail=1
+else
+  echo "APP_CMD vectors agree: $(echo "$c_cmd" | wc -l) values, both languages"
 fi
 
 # Application evidence, #51 -- the claims set with the application's 32 bytes

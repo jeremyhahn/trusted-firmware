@@ -7,8 +7,7 @@ i.MX 95 M7 and ESP32-P4 ports are in progress (§7). Everything else here is pla
 and marked with its issue.
 Order of work: [ROADMAP.md](../../ROADMAP.md). The AVR gate ([#7](../../../../issues/7):
 every primitive and a proven end-to-end example) is lifted for `esp32-p4` (#48), and the
-Cortex-M ADRs (#14, #15) and the generic port on QEMU `mps2-an505` (#161) are ungated
-(CA m623); it is not lifted for `optiga-trust-m` or `rp2350` ([SPEC](../SPEC.md)).
+Cortex-M ADRs (#14, #15) and the generic port on QEMU `mps2-an505` (#161) are ungated; it is not lifted for `optiga-trust-m` or `rp2350` ([SPEC](../SPEC.md)).
 
 ## 1. Goal
 
@@ -87,7 +86,7 @@ Each choice is an ADR before any code.
   the nRF54L15-DK. The ruling answers the ADR's question 1: the M7 stays the
   reference part. CI emulates the generic port on QEMU
   `mps2-an505`. The hardware order is the SE052F, then the i.MX 95 M7, then the
-  STM32H5 (ruling 269), whose port waits for [#79](../../../../issues/79).
+  STM32H5, whose port waits for [#79](../../../../issues/79).
   The SE052F's element tier is proposed in
   [`adr-se052f-onboarding.md`](adr-se052f-onboarding.md).
   On the i.MX 95 the key tier is the EdgeLock secure enclave and AHAB secure
@@ -105,12 +104,12 @@ Each choice is an ADR before any code.
 
 | Architecture | Board | Crypto tier | Status |
 |---|---|---|---|
-| AVR | ATmega328P | ATECC608A only: `CRYPTO=soft` is refused (owner ruling 2026-10-17 (m522); `boards/atmega328p/profile.mk`) | supported |
+| AVR | ATmega328P | ATECC608A only: `CRYPTO=soft` is refused | supported |
 | AVR | ATmega2560 | none, soft, ATECC608A | supported |
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
 | Cortex-M33 | Arm AN505 on QEMU `mps2-an505` (`boards/mps2-an505`, id `0x40`) | soft | in progress ([#161](../../../../issues/161)): tfw-boot verifies a P-256 signature in software and boots the firmware; CI runs `make integration-test-cortex-m` |
 | Cortex-M7 | NXP i.MX 95 M7 on the FRDM-IMX95-PRO (`boards/frdm-imx95-m7`, provisional id `0x41`) | soft root; the EdgeLock enclave tier is not started | in progress ([#49](../../../../issues/49)): built in CI, not run; [`imx95-design.md`](imx95-design.md) (Row status) |
 | Cortex-M33 | STM32H573I-DK; nRF54L15-DK | ADR [#14](../../../../issues/14), accepted | in progress ([#22](../../../../issues/22); onboarding ADRs [#126](../../../../issues/126), [#129](../../../../issues/129)): `boards/stm32h573i-dk/profile.mk`, `boards/nrf54l15-dk/profile.mk`, `boot/hal/cortex-m/stm32h5/boot_flash.c`, `boot/hal/cortex-m/nrf54l/boot_rram.c`, `src/crypto/stm32h5/` |
-| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:16`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
+| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:9`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
 | Other | | | planned ([#17](../../../../issues/17)) |

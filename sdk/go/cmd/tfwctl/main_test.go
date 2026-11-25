@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -256,6 +257,8 @@ func verbCases(key string) []verbCase {
 		{[]string{"caps"}, nil, []tfw.Cmd{tfw.CmdCaps}},
 		{[]string{"sys"}, nil, []tfw.Cmd{tfw.CmdSysInfo}},
 		{[]string{"app"}, nil, []tfw.Cmd{tfw.CmdAppInfo}},
+		{[]string{"app-cmd", "0"}, []argKind{kU8}, []tfw.Cmd{tfw.CmdAppCmd}},
+		{[]string{"app-cmd", "0x00", "0a0b"}, []argKind{kU8, kHex}, []tfw.Cmd{tfw.CmdAppCmd}},
 	}
 }
 
@@ -302,8 +305,8 @@ func TestEveryVerbArgumentMutatedIsRefusedBeforeTheWire(t *testing.T) {
 		}
 		// Every required argument dropped from the end.
 		for n := 1; n < len(vc.args); n++ {
-			if vc.args[0] == "timer-cancel" || vc.args[0] == "attest-csr" && n == 2 {
-				continue // the optional apply; --nonce's value is checked as kNonce32
+			if vc.args[0] == "timer-cancel" || (vc.args[0] == "attest-csr" || vc.args[0] == "app-cmd") && n == 2 {
+				continue // the optional apply; --nonce's value is checked as kNonce32; app-cmd's optional args
 			}
 			if len(vc.kinds) == 0 {
 				break
@@ -362,6 +365,11 @@ func TestFlagVerbsRefuseMutatedFlags(t *testing.T) {
 		{"ota-stage", "--activate=later", "image.bin"},
 		{"ota-stage"},
 		{"ota-status", "extra"},
+		{"app", "extra"},
+		{"reset", "bot"},
+		{"reset", "BOOT"},
+		{"reset", "soft", "boot"},
+		{"reset", "boot", "extra"},
 		{"ota-info"},
 		{"ota-info", "1", "2"},
 		{"no-such-verb"},
@@ -372,6 +380,111 @@ func TestFlagVerbsRefuseMutatedFlags(t *testing.T) {
 		{"auth", nonce16, "/nonexistent/key.pem"},
 	} {
 		expectRefused(t, args)
+	}
+}
+
+// TestResetSendsTheModeItNames pins the RESET payload byte each reset form
+// sends: no word and soft ask for a soft reset, boot for the bootloader.
+func TestResetSendsTheModeItNames(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want tfw.ResetMode
+	}{
+		{[]string{"reset"}, tfw.ResetSoft},
+		{[]string{"reset", "soft"}, tfw.ResetSoft},
+		{[]string{"reset", "boot"}, tfw.ResetBootloader},
+	} {
+		var mu sync.Mutex
+		var payloads [][]byte
+		c := &countingDevice{reply: func(f tfw.Frame, st tfw.Status, p []byte) (tfw.Status, []byte) {
+			if f.Cmd() == tfw.CmdReset {
+				mu.Lock()
+				payloads = append(payloads, append([]byte{}, f.Payload...))
+				mu.Unlock()
+				return tfw.StatusOK, nil
+			}
+			return st, p
+		}}
+		if _, err := runCounted(t, c, false, tc.args...); err != nil {
+			t.Fatalf("%q: %v", tc.args, err)
+		}
+		mu.Lock()
+		got := payloads
+		mu.Unlock()
+		if len(got) != 1 {
+			t.Fatalf("%q: sent %d RESET frames, want 1", tc.args, len(got))
+		}
+		if !bytes.Equal(got[0], []byte{byte(tc.want)}) {
+			t.Errorf("%q: RESET payload %x, want %x", tc.args, got[0], []byte{byte(tc.want)})
+		}
+	}
+}
+
+// TestAppCmdSendsTheFrameItNames checks the APP_CMD payload, [op][args], and
+// that the reply is printed as lowercase hex, or as {"reply": hex} with -json.
+func TestAppCmdSendsTheFrameItNames(t *testing.T) {
+	for _, tc := range []struct {
+		args   []string
+		asJSON bool
+		want   []byte
+		out    string
+	}{
+		{[]string{"app-cmd", "0"}, false, []byte{0x00}, "beef\n"},
+		{[]string{"app-cmd", "0x01", "0a0b"}, false, []byte{0x01, 0x0a, 0x0b}, "beef\n"},
+		{[]string{"app-cmd", "255", "0A0B"}, false, []byte{0xff, 0x0a, 0x0b}, "beef\n"},
+		{[]string{"app-cmd", "0x7f", strings.Repeat("ab", 63)}, false, append([]byte{0x7f}, bytes.Repeat([]byte{0xab}, 63)...), "beef\n"},
+		{[]string{"app-cmd", "2"}, true, []byte{0x02}, "{\n  \"reply\": \"beef\"\n}\n"},
+	} {
+		var mu sync.Mutex
+		var payloads [][]byte
+		c := &countingDevice{reply: func(f tfw.Frame, st tfw.Status, p []byte) (tfw.Status, []byte) {
+			if f.Cmd() == tfw.CmdAppCmd {
+				mu.Lock()
+				payloads = append(payloads, append([]byte{}, f.Payload...))
+				mu.Unlock()
+				return tfw.StatusOK, []byte{0xbe, 0xef}
+			}
+			return st, p
+		}}
+		out, err := runCounted(t, c, tc.asJSON, tc.args...)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.args, err)
+		}
+		mu.Lock()
+		got := payloads
+		mu.Unlock()
+		if len(got) != 1 || !bytes.Equal(got[0], tc.want) {
+			t.Errorf("%q: APP_CMD payloads %x, want one of %x", tc.args, got, tc.want)
+		}
+		if out != tc.out {
+			t.Errorf("%q: printed %q, want %q", tc.args, out, tc.out)
+		}
+	}
+}
+
+// TestAppCmdRefusesBeforeTheWire: every malformed app-cmd is a usage error
+// with nothing sent, and an op the application lacks is the device's answer.
+func TestAppCmdRefusesBeforeTheWire(t *testing.T) {
+	for _, args := range [][]string{
+		{"app-cmd"},
+		{"app-cmd", "256"},
+		{"app-cmd", "0x100"},
+		{"app-cmd", "x"},
+		{"app-cmd", "-1"},
+		{"app-cmd", "010"},
+		{"app-cmd", "0b1"},
+		{"app-cmd", "1", "abc"},
+		{"app-cmd", "1", "zz"},
+		{"app-cmd", "1", ""},
+		{"app-cmd", "1", strings.Repeat("ab", 64)},
+		{"app-cmd", "1", "0a", "0b"},
+	} {
+		expectRefused(t, args)
+	}
+
+	_, err := runCounted(t, &countingDevice{}, false, "app-cmd", "1")
+	if !errors.Is(err, tfw.StatusErrUnsupported) {
+		t.Fatalf("app-cmd 1 on the bench device: err = %v, want %v", err, tfw.StatusErrUnsupported)
 	}
 }
 
@@ -435,6 +548,10 @@ func truncationIsLegal(cmd tfw.Cmd, n int) bool {
 		// so attest answered with 3-61 byte pages prints 164 bytes of
 		// evidence assembled from the wrong offsets.
 		return n > 2
+	case tfw.CmdAppCmd:
+		// The reply is the application's, returned undecoded: every length,
+		// none included, is a reply.
+		return true
 	}
 	return false
 }

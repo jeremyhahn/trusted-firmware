@@ -11,8 +11,7 @@
 > is [`adding-a-board.md`](adding-a-board.md).
 
 **Sources.** ST's user manual for the board, UM3115, and ST's CMSIS header
-for the part, `stm32h563xx.h`, were not held when this page was written
-(ruling 109). Every value below that only they state is **TO CONFIRM**, in
+for the part, `stm32h563xx.h`, were not held when this page was written. Every value below that only they state is **TO CONFIRM**, in
 this table and in the code comments that carry it.
 
 ## The board

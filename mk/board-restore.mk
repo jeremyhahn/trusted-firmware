@@ -1,26 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Putting a bench board back as it left the factory (owner, CA m346): run when
-# the board is finished with. The factory state is the board's own record --
-# the board's page under docs/development/bench/ (mega2560.md for atmega2560,
-# esp32-p4.md for esp32p4-poe) -- and its profile.mk carries the values:
-#
-#   FACTORY_LFUSE, FACTORY_HFUSE,      the fuse and lock bytes read before the
-#   FACTORY_EFUSE, FACTORY_LOCK        project's first write to the board
-#   FACTORY_BOOT_HEX_SHA256            the stock bootloader .hex, as published
-#
-# The hex itself is not in this tree: the stock bootloaders are GPL, which this
-# project's commercial licence cannot carry. BOARD_RESTORE_HEX names the file,
-# fetched from the source the board's page gives, and the recipe refuses one
-# whose SHA-256 is not the profile's. See ARCH_BOARD_RESTORE in mk/arch/$(ARCH).mk.
+# Putting a bench board back as it left the factory: run when the board is finished with.
 
 ## board-restore: put the board's factory state back (AVR: ISP; ESP32: the flash image; Cortex-M: a board-record record through the debug probe)
 BOARD_RESTORE_HEX ?=
-# An ESP32 board is restored from the whole-flash image read before the first
-# write: FACTORY_FLASH_BYTES and FACTORY_FLASH_SHA256 in its profile.mk, the
-# image named by BOARD_RESTORE_IMAGE, the port by ESP_PORT. eFuses are never
-# written. See ARCH_BOARD_RESTORE in mk/arch/esp32.mk.
+# An ESP32 board is restored from the whole-flash image read before the first write: FACTORY_FLASH_BYTES and FACTORY_FLASH_SHA256 in its profile.mk, the image named by BOARD_RESTORE_IMAGE, the port by ESP_PORT.
 BOARD_RESTORE_IMAGE ?=
 
 ifneq ($(filter board-restore,$(MAKECMDGOALS)),)
@@ -53,16 +38,12 @@ endif
 endif
 endif
 
-# What the EESAVE refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1
-# added.
+# What the EESAVE refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1 added.
 board-restore: ISP_RERUN = BOARD_RESTORE_HEX=$(BOARD_RESTORE_HEX)
 board-restore: $(BOARD_RESTORE_HEX) $(BOARD_RESTORE_IMAGE)
 	@$(ARCH_BOARD_RESTORE)
 
 ## board-record: read the board's factory state to a timestamped record before its first write (Cortex-M: the debug probe)
-# AVR and ESP32 boards are recorded by hand, on their pages under
-# docs/development/bench/; an architecture with a recipe names it in
-# ARCH_BOARD_RECORD (mk/arch/cortex-m.mk).
 board-record:
 	@$(if $(ARCH_BOARD_RECORD),$(ARCH_BOARD_RECORD),echo "$@: $(ARCH) has no board-record recipe: record $(BOARD) by hand, see docs/development/bench/" >&2; exit 1)
 

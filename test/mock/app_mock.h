@@ -6,6 +6,7 @@
  * a log, so a test asserts the order the runner called them in as one string:
  *
  *   i init   r run   s shutdown   b before_update   a after_update   e evidence
+ *   c command
  */
 #ifndef TFW_APP_MOCK_H
 #define TFW_APP_MOCK_H
@@ -31,5 +32,18 @@ tfw_ms_t    tfw_mock_app_last_now(void);
 /* What tfw_app_evidence answers and writes; reset makes it TFW_ERR_UNSUPPORTED
  * over zeros, an application that supplies none. */
 void        tfw_mock_app_set_evidence(tfw_status_t st, const uint8_t ev[TFW_APP_EVIDENCE_LEN]);
+
+/* tfw_app_command (log letter c): what it answers and the reply it writes,
+ * whatever it answers; reset makes it TFW_OK with an empty reply. */
+void        tfw_mock_app_set_command(tfw_status_t st, const uint8_t *reply, uint8_t len);
+/* The hook reads n bytes of arguments, past the end when n exceeds them; reset
+ * reads all that remain. */
+void        tfw_mock_app_set_command_reads(uint8_t n);
+/* Each command call advances the mock clock by ms, as set_run_ms does for run. */
+void        tfw_mock_app_set_command_ms(tfw_ms_t ms);
+/* The last call's op and the argument bytes it read. */
+uint8_t        tfw_mock_app_command_op(void);
+uint8_t        tfw_mock_app_command_args_len(void);
+const uint8_t *tfw_mock_app_command_args(void);
 
 #endif /* TFW_APP_MOCK_H */

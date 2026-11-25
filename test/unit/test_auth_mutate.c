@@ -36,6 +36,7 @@
 #include "platform_id.h"
 #include "handoff.h"
 #include "sha256.h"
+#include "tfw/eth.h"
 
 #define PAYLOAD_LIMIT    (TFW_MAX_PAYLOAD + 1u)
 #define RESPONSE_MUTANTS 300u   /* bit-flip mutants of a genuine response */
@@ -563,6 +564,40 @@ static void test_authentication_still_opens_the_gate_after_the_run(void)
     TEST_ASSERT_EQUAL(TFW_OK, feed(K_READ, read0, 3u));
 }
 
+/* A write that touches the network block waits for the session (#233):
+ * without one it is refused AUTH_REQUIRED and the block keeps its bytes;
+ * with one the same write lands. */
+static tfw_status_t netcfg_write(const uint8_t data[8])
+{
+    uint8_t      in[2u + 8u];
+    uint8_t      out[1];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    in[0] = (uint8_t)(TFW_NETCFG_ADDR & 0xFFu);
+    in[1] = (uint8_t)((TFW_NETCFG_ADDR >> 8) & 0xFFu);
+    memcpy(&in[2], data, 8u);
+    tfw_reader_init(&r, in, (uint8_t)sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    return tfw_storage_cmd_write(&r, &w);
+}
+
+static void test_a_network_block_write_waits_for_the_session(void)
+{
+    static const uint8_t data[8] = { 0xA5u, 0xA5u, 0xA5u, 0xA5u,
+                                     0xA5u, 0xA5u, 0xA5u, 0xA5u };
+    uint8_t              sig[TFW_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, netcfg_write(data));
+    TEST_ASSERT_EQUAL_MEMORY(&pristine[TFW_NETCFG_ADDR], &test_eeprom[TFW_NETCFG_ADDR], 8u);
+
+    challenge();
+    sign(operator_priv, nonce, sig);
+    TEST_ASSERT_EQUAL(TFW_OK, feed(K_RESPONSE, sig, TFW_AUTH_SIG_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, netcfg_write(data));
+    TEST_ASSERT_EQUAL_MEMORY(data, &test_eeprom[TFW_NETCFG_ADDR], 8u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -570,5 +605,6 @@ int main(void)
     RUN_TEST(test_gated_requests_are_refused_without_a_session);
     RUN_TEST(test_auth_in_any_order_keeps_the_gate);
     RUN_TEST(test_authentication_still_opens_the_gate_after_the_run);
+    RUN_TEST(test_a_network_block_write_waits_for_the_session);
     return UNITY_END();
 }

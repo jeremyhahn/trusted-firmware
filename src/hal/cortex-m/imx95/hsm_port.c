@@ -34,6 +34,7 @@
  * (m7-design.md question O2).
  */
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "core/hsm.h"
@@ -56,6 +57,40 @@ static tfw_status_t power_off(struct tfw_scmi_chan *c, uint32_t domain)
 
     tfw_scmi_power_state_set(&cmd, tfw_scmi_token(c), domain, TFW_SCMI_POWER_OFF);
     return send(c, &cmd);
+}
+
+/* A2's logical-machine stop: forceful, for the reason A5 is (shutdown):
+ * graceful waits on the A55's software, which A2 runs because it is not
+ * trusted. Its result is mapped by LMM_SHUTDOWN's own table, not send()'s. */
+static tfw_status_t lm_stop(struct tfw_scmi_chan *c, uint32_t lm_id)
+{
+    struct tfw_scmi_msg cmd;
+    struct tfw_scmi_msg rsp;
+    tfw_status_t        st;
+
+    st = tfw_scmi_lmm_shutdown(&cmd, tfw_scmi_token(c), lm_id, TFW_SCMI_LMM_FORCEFUL);
+    if (st != TFW_OK) {
+        return st;
+    }
+    return tfw_scmi_lmm_status(tfw_scmi_xfer(c, &cmd, &rsp));
+}
+
+/* A2: the LM stop where its id is set; the power domain off where its id is
+ * set and the stop was not sent or not acknowledged. */
+static tfw_status_t a55_off(struct tfw_scmi_chan *c, const struct tfw_imx95_hsm_ids *ids)
+{
+    tfw_status_t st = TFW_ERR_UNSUPPORTED;
+
+    if (ids->a55_lm != 0u) {
+        st = lm_stop(c, ids->a55_lm);
+        if (st == TFW_OK) {
+            return st;
+        }
+    }
+    if (ids->a55_power != 0u) {
+        return power_off(c, ids->a55_power);
+    }
+    return st;
 }
 
 static tfw_status_t reset_hold(struct tfw_scmi_chan *c, uint32_t domain)
@@ -108,10 +143,10 @@ tfw_status_t tfw_imx95_hsm_act(struct tfw_scmi_chan *c, const struct tfw_imx95_h
         }
         return phys_off(c, ids);
     case TFW_HSM_ACT_POWER_OFF:
-        if (ids->a55_power == 0u) {
+        if (ids->a55_lm == 0u && ids->a55_power == 0u) {
             return TFW_ERR_UNSUPPORTED;
         }
-        return power_off(c, ids->a55_power);
+        return a55_off(c, ids);
     case TFW_HSM_ACT_SHUTDOWN:
         if (ids->shutdown == 0u) {
             return TFW_ERR_UNSUPPORTED;
@@ -137,15 +172,21 @@ static tfw_status_t ele_status(int32_t rc)
     return TFW_ERR_CRYPTO;
 }
 
-/* Delete each key on the open service `mgmt`; the first failure, or 0. */
+/* Delete each key on the open service `mgmt`, skipping unused (zero) slots;
+ * the first failure, or 0. */
 static int32_t delete_keys(const struct tfw_ele_chan *c, const struct tfw_imx95_wipe *w,
                            uint32_t mgmt)
 {
     int32_t first = 0;
     uint32_t i;
 
-    for (i = 0u; i < TFW_IMX95_WIPE_KEYS && w->keys[i] != 0u; i++) {
-        int32_t rc = tfw_ele_key_delete(c, &w->del, mgmt, w->keys[i], NULL);
+    for (i = 0u; i < TFW_IMX95_WIPE_KEYS; i++) {
+        int32_t rc;
+
+        if (w->keys[i] == 0u) {
+            continue;
+        }
+        rc = tfw_ele_key_delete(c, &w->del, mgmt, w->keys[i], NULL);
         if (first == 0) {
             first = rc;
         }
@@ -153,12 +194,25 @@ static int32_t delete_keys(const struct tfw_ele_chan *c, const struct tfw_imx95_
     return first;
 }
 
+/* True while any slot of `w` names a key: a zero slot is unused, not the end. */
+static bool names_a_key(const struct tfw_imx95_wipe *w)
+{
+    uint32_t i;
+
+    for (i = 0u; i < TFW_IMX95_WIPE_KEYS; i++) {
+        if (w->keys[i] != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 tfw_status_t tfw_imx95_hsm_wipe(const struct tfw_ele_chan *c, const struct tfw_imx95_wipe *w)
 {
     uint32_t session = 0u, store = 0u, mgmt = 0u;
     int32_t  rc;
 
-    if (c->mu == 0u || w->del.command == 0u || w->keys[0] == 0u) {
+    if (c->mu == 0u || w->del.command == 0u || !names_a_key(w)) {
         return TFW_ERR_UNSUPPORTED;
     }
     rc = tfw_ele_session_open(c, w->mu_irq, &session, NULL);
@@ -258,7 +312,7 @@ static struct tfw_scmi_chan g_chan = {
 
 static const struct tfw_imx95_hsm_ids g_ids = {
     TFW_IMX95_HSM_PHY_RESET, TFW_IMX95_HSM_PHY_POWER, TFW_IMX95_HSM_A55_POWER,
-    TFW_IMX95_HSM_SHUTDOWN
+    TFW_IMX95_HSM_SHUTDOWN, TFW_IMX95_HSM_A55_LM
 };
 
 static const struct tfw_ele_chan g_ele = { TFW_IMX95_ELE_MU_BASE };

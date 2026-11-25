@@ -7,7 +7,8 @@ module's code -- a finding whose trace names a function -- and
 scripts/govulncheck-allow.txt has no entry for it under the module named by
 the first argument. An entry is `<module dir> <OSV id> <reason>`, one a line,
 and the reason is required: what the vulnerability is, why it stays, the path
-govulncheck reports and what removes the entry. An entry with no reachable
+govulncheck reports and what removes the entry; an id appears once for a
+module, so no reviewed reason is replaced by a later line. An entry with no reachable
 finding behind it is reported, so a stale one is seen and deleted. A finding
 in a module or package the code imports but never calls is printed and does
 not fail, as in govulncheck's text mode. mk/stages.mk pipes xkms-vuln into
@@ -24,7 +25,7 @@ ALLOW = os.path.join(HERE, "govulncheck-allow.txt")
 
 def read_allow(path, module):
     """The {OSV id: reason} entries of `path` for `module`."""
-    allow = {}
+    allow, first = {}, {}
     with open(path, encoding="utf-8") as f:
         for n, line in enumerate(f, 1):
             line = line.strip()
@@ -34,6 +35,10 @@ def read_allow(path, module):
             if len(parts) < 3:
                 raise ValueError(f"{path}:{n}: an entry is <module dir> <OSV id> <reason>")
             if parts[0] == module:
+                if parts[1] in first:
+                    raise ValueError(f"{path}:{n}: {parts[1]} is listed again for {module} "
+                                     f"(first at line {first[parts[1]]}); keep one entry")
+                first[parts[1]] = n
                 allow[parts[1]] = parts[2]
     return allow
 

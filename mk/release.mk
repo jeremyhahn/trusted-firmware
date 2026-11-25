@@ -2,34 +2,10 @@
 # SPDX-License-Identifier: commercial
 #
 # Release artifacts, and the one that matters is the provenance manifest.
-#
-# FWHash is SIGNED EVIDENCE. A device attests to a SHA-256 of its own
-# application flash, and a verifier decides whether to trust it partly on
-# whether that hash matches a known-good image. For that to mean anything the
-# verifier must be able to obtain the expected value -- and better, recompute it
-# from source, which is what `make reproducible-check` exists to make possible.
-#
-# So this target does not package a build. It records what the build IS, in a
-# form a verifier can act on without having the build machine.
 
 REL_DIR := $(BUILD_DIR)/release
 
 ## provenance: record what each image is, so a verifier has a golden measurement
-#
-# One manifest per board and crypto tier, because those are different firmware
-# with different measurements -- the same reason the tier is part of the build
-# path. Emitted as JSON because the consumer is go-trusted-platform, not a
-# person.
-# Tiers are asked for PER BOARD, not taken from a global list.
-#
-# This used to expand $(FIRMWARE_TIERS), which stopped existing when tiers
-# became per-board -- the ATtiny85 has no I2C, so it cannot build the element
-# tier at all. `for t in ; do` is a legal empty loop, so `make provenance`
-# printed its success line, wrote ZERO manifests and exited 0: a target whose
-# entire purpose is to stop a record being vacuous, being vacuous.
-#
-# It also could not be caught by `make ci`, because provenance is not in it.
-# It is now, with a count check, so an empty run fails.
 provenance:
 	@mkdir -p $(REL_DIR)
 	@n=0; \
@@ -47,33 +23,13 @@ provenance:
 	fi; \
 	echo "provenance: $$n manifest(s) in $(REL_DIR)"
 
-# SOURCE_COMMIT is REQUIRED and is not allowed to default to "unknown".
-#
-# The whole point of this manifest is that a verifier can rebuild the image and
-# get the same bytes. A manifest that does not say which source produced it
-# cannot be used for that, and one that says "unknown" looks like a record while
-# being useless -- the same failure as a gate that passes vacuously. Inside the
-# CI container there is no .git, so the value is passed in.
-# Resolved from the checkout, or read from /etc/ci-source-commit where an image
-# provides one; no image built from this tree writes it
-# (build/docker/devcontainer/Dockerfile records only /etc/ci-toolchain.txt), so
-# inside the container pass SOURCE_COMMIT.
-#
-# The image has no .git -- the source is COPYed in, not cloned -- so a build
-# inside it cannot ask git: a container that cannot say what it is built from
-# cannot produce provenance, and provenance is the one thing this target exists
-# for. Still refuses rather than defaulting if neither is there.
+# SOURCE_COMMIT is required and is not allowed to default to "unknown".
 SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || cat /etc/ci-source-commit 2>/dev/null)
 
-# The measurement tool: the one scripts/test_fwhash.py and test_boot_measure.c
-# pin to the same literal, so the manifest and tfw-boot cannot drift apart.
+# The measurement tool: the one scripts/test_fwhash.py and test_boot_measure.c pin to the same literal, so the manifest and tfw-boot cannot drift apart.
 FWHASH ?= python3 -B scripts/fwhash.py
 
-# The region tfw-boot measures, the board's TFW_APP_REGION_BASE and its length:
-# the application starts at flash 0 on AVR, so that is the default, bounded by
-# the part's flash. A board whose application slot sits elsewhere (mps2-an505)
-# sets both in its profile.mk, so fwhash.py measures from the slot's base and
-# refuses a record outside it, with no board named here or in the script.
+# The region tfw-boot measures, the board's TFW_APP_REGION_BASE and its length: the application starts at flash 0 on AVR, so that is the default, bounded by the part's flash.
 FWHASH_BASE ?= 0
 FWHASH_SIZE ?= $(FLASH_TOTAL)
 
@@ -132,11 +88,6 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	@echo "  $(REL_DIR)/$(BOARD)-$(CRYPTO).json"
 
 ## sbom: what this image is built from, by content hash
-#
-# A C project has no package manager, so an SBOM here is the vendored manifest
-# plus the toolchain -- which is exactly what `make verify-vendor` already
-# checks. The toolchain is the board's architecture's, named by mk/arch/. Emitting it separately means a consumer does not have to parse a
-# Markdown table to learn what is inside an image.
 sbom:
 	@mkdir -p $(REL_DIR)
 	@printf '{\n  "format": "trusted-firmware/sbom/v1",\n' > $(REL_DIR)/sbom.json

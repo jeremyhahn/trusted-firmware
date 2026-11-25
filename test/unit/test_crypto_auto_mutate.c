@@ -94,6 +94,17 @@ void test_a_failed_probe_sleeps_the_part(void)
     TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
 }
 
+/* A probe that answers puts the part back to sleep before the element's own init, so an init that cannot wake it finds it asleep. */
+void test_a_probe_that_answers_sleeps_the_part_before_the_element_init(void)
+{
+    tfw_model_provision();
+    tfw_model_fail_wakes_after(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_model_log_count());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
+}
+
 /* A probe that answers and an element init that then fails: the part is
  * asleep and the soft root runs, because the element's own tier says so. */
 void test_an_element_whose_init_fails_runs_the_soft_root(void)
@@ -198,6 +209,7 @@ int main(void)
     RUN_TEST(test_a_part_that_will_not_wake_gets_no_command);
     RUN_TEST(test_the_probe_is_one_info_revision);
     RUN_TEST(test_a_failed_probe_sleeps_the_part);
+    RUN_TEST(test_a_probe_that_answers_sleeps_the_part_before_the_element_init);
     RUN_TEST(test_an_element_whose_init_fails_runs_the_soft_root);
     RUN_TEST(test_an_element_boot_leaves_the_soft_root_alone);
     RUN_TEST(test_an_element_boot_answers_algorithms_pubkey_and_sha);

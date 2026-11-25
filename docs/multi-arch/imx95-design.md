@@ -5,7 +5,7 @@
 >
 > #49's first deliverable was the row's design, sections 1 to 8. Section 9 is
 > the board as built, and section 10 the row's requirements one by one. SPEC
-> rows change at merge (CA m623).
+> rows change at merge.
 
 ## Sources and how they are cited
 
@@ -75,7 +75,7 @@ device for any custom trusted application. The M33's System Manager stays NXP
 firmware, and the EdgeLock Enclave is the hardware root. trusted-firmware
 stays the Cortex-M product, and on the i.MX 95 that is the M7. The board page
 is [`../boards/frdm-imx95-m7.md`](../boards/frdm-imx95-m7.md); hardware work on
-the board is queued after #535 and #536 (ruling 768).
+the board is queued after #535 and #536.
 
 **Non-goals.** No tfw-boot: L0 is NXP's ROM, ELE and System Manager (ref ADR
 decisions 1 and 8). No code on the M33, which runs the System Manager (IMX95CEC
@@ -183,7 +183,7 @@ row below waits on it.
 |---|---|---|
 | `tfw_crypto_init` | `hsm_open_session` (§3.1), then the key store service (§2.3, §3.22) | at most 8 sessions and 32 services (§3.1) |
 | `tfw_crypto_tier` | — | 5 |
-| `tfw_crypto_algorithms` | — | ES256 only (m522) |
+| `tfw_crypto_algorithms` | — | ES256 only |
 | `tfw_crypto_random` | `hsm_get_random` / `hsm_do_rng` (§3.6) | the enclave's TRNG |
 | `tfw_crypto_sha256` | — | `src/crypto/sha256.c`: the input is public, so no round trip to the enclave |
 | `tfw_crypto_hmac` | `hsm_mac_one_go` (§3.10) under an `HSM_KEY_TYPE_HMAC` key permitted `HMAC_SHA256` (§3.2) | the DICE one-way function with the UDS as a key generated in the enclave; which measurement it takes is question 5 |
@@ -282,8 +282,8 @@ the fallback, and who stages, are questions 10 and 11.
 Each is one PR. **Gates:** every slice waits on #7, the AVR end-to-end gate, as
 the #50 design's slices do, unless the owner lifts it for this row as it was
 lifted for `esp32-p4` (`adr-esp-idf-integration.md`, header) and the Cortex-M
-ADRs (CA m623); the hardware order is SE052F, then the
-i.MX 95 M7, then the STM32H5 (`cortex-m` row, ruling 269).
+ADRs; the hardware order is SE052F, then the
+i.MX 95 M7, then the STM32H5.
 
 | # | Slice | Files | Test | Gate |
 |---|---|---|---|---|
@@ -294,7 +294,7 @@ i.MX 95 M7, then the STM32H5 (`cortex-m` row, ruling 269).
 | 5 | **The enclave provider.** | `src/crypto/ele/`; its messaging-unit transport | Host unit against a model of the messaging unit; the board with throwaway keys only | slices 3, 4; questions 3, 4, 6, 16 |
 | 6 | **Our OTA gate on the M7.** | the receive path calling `boot/boot_image.c` and `src/core/suit.c` | Host unit: a good image passes; another board's, a lower version, a bad SUIT and a bad authorization are refused | slice 5; questions 8–12 |
 | 7 | **Ethernet.** | the M7's controller behind `include/tfw/eth.h` | Host unit; then the CLI end to end over TCP on the bench host | slice 3; question 14 |
-| 8 | **Bench.** | the board page | End to end on the bench host's FRDM-IMX95-PRO; factory state recorded first (m346); any fuse write an owner decision | slices 3–6; trusted-imx95's container |
+| 8 | **Bench.** | the board page | End to end on the bench host's FRDM-IMX95-PRO; factory state recorded first; any fuse write an owner decision | slices 3–6; trusted-imx95's container |
 
 Slices 1, 2 and 4 need no board.
 
@@ -338,6 +338,9 @@ Each names the document that answers it; none is guessed here.
     check of section 5 the signature verify m453 requires? The owner.
 13. **The console.** Which LPUART and pins the System Manager gives the M7, and
     which J22 channel that is (UM12527 §2.19: not fixed). trusted-imx95.
+    Answered: LPUART7, GPIO_IO36/37 at ALT2, J22 port 2 (PR #449 bench
+    record; owner ruling 1243, #474, option (a): "LPUART7 for the imx95 M7
+    console.").
 14. **Ethernet.** Which controller and port the M7 may own, given the shared
     ENET2 MDIO (UM12527 §2.18), and may we compose NXP's driver for it?
     IMX95RM (NETC chapter), the System Manager interface document; the owner
@@ -1121,7 +1124,7 @@ on the M7, because QEMU has no i.MX 95 and no slice has reached the bench.
 | R1 | A board of the `cortex-m` port, our firmware core on the M7 | done (built, not run) | `boards/frdm-imx95-m7/profile.mk` (`ARCH := cortex-m`, `CPU := cortex-m7`), `mk/arch/cortex-m.mk` | `make build`'s `firmware-matrix` (`mk/stages.mk`, `mk/firmware.mk`), every `BOARD_TIERS` and `BOARD_ROWS` row of the board |
 | R2 | The board as data, `boards/frdm-imx95-m7`, id `0x41` in the Cortex-M range `0x40`–`0x7F`, provisional | done; the id stays provisional until the owner allocates it (question 20) | `boards/frdm-imx95-m7/board_profile.h` (`TFW_BOARD_ID`), `board.c`, `sdk/go/boardid.go` (`BoardFRDMIMX95M7`), `docs/boards/board-id-registry.md` | `test/unit/test_board_frdm-imx95-m7.c`: `test_the_board_is_the_next_provisional_cortex_m_id`; `sdk/go/boardid_test.go`: `TestBoardIDsAreThePublishedValues`, `TestBoardIDEveryValue`; `scripts/test_board_check.py`: `test_id_outside_its_family_range_fails` |
 | R3 | The M7's TCM map and the addresses the A55 loads it at | partial: linked and asserted at the M7's addresses; the A55's aliases are a comment in `profile.mk`, and both are TO CONFIRM (question 1, section 9.4) | `boards/frdm-imx95-m7/profile.mk`, `mk/arch/cortex-m/imx95.ld`, `src/hal/cortex-m/imx95/rsc_table.c` | `imx95.ld`'s `ASSERT`s (512-byte vector alignment, the resource table's size and alignment) under `firmware-matrix`; `test/unit/test_imx95_rsc_table.c`: `test_linux_takes_the_images_table` |
-| R4 | LPUART3, RGPIO and WDOG5 under `src/hal/cortex-m/imx95/` | done on the host against the register model; not run | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`, `soc_calc.c`, `soc_regs.h`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_programs_the_divisor_and_enables`, `test_gpio_output_drives_psor_and_pcor`, `test_arm_marks_and_sets_eight_seconds`; `test/unit/test_imx95_soc_calc.c`: `test_9600_is_exact`, `test_the_gpio_banks` |
+| R4 | The M7 console on LPUART7, RGPIO and WDOG5 under `src/hal/cortex-m/imx95/` (owner ruling 1243) | partial: RGPIO and WDOG5 done on the host; the console is LPUART3 in the code until #474 | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`, `soc_calc.c`, `soc_regs.h`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_programs_the_divisor_and_enables`, `test_gpio_output_drives_psor_and_pcor`, `test_arm_marks_and_sets_eight_seconds`; `test/unit/test_imx95_soc_calc.c`: `test_9600_is_exact`, `test_the_gpio_banks` |
 | R5 | The soft root, until the enclave tier | partial: the board builds at `soft` with `TFW_FEATURE_ATTEST`, but its UDS sits in tfw-boot's region and its CDI is handed over by tfw-boot, which this board does not build (question 19), so nothing derives it on the M7 | `boards/frdm-imx95-m7/profile.mk` (`BOARD_TIERS := soft`), `board_profile.h` (`TFW_FEATURE_ATTEST`, `TFW_BOOT_REGION_*`) | `firmware-matrix`'s `frdm-imx95-m7 soft` row; the soft path itself runs only on `mps2-an505`, under `make integration-test-cortex-m` (`mk/arch/cortex-m-targets.mk`) |
 | R6 | Built in CI but not run | done | `mk/stages.mk` (`build: ... firmware-matrix`), `mk/firmware.mk` (`firmware-matrix`, `firmware-matrix-list`) | `make build` in CI; the host tests under `make host-test` (`mk/host.mk`'s `test_imx95_*` and `test_board_frdm-imx95-m7` binaries) |
 | R7 | Every SoC fact confirmed against NXP IMX95RM | partial: IMX95RM is not held. The board read (section 9.4.1) confirms the LPUART3, GPIO1–GPIO5 and TPM bases; WDOG5's base, the M7's interrupt lines, the clocks, the ITCM alias and the pads stay TO CONFIRM | the "TO CONFIRM" marks in `boards/frdm-imx95-m7/` and `src/hal/cortex-m/imx95/soc_regs.h` | none: a document check, sections 9.4 and 9.4.1; the register model pins the layouts as stated, not as the silicon has them |

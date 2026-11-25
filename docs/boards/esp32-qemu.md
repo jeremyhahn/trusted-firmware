@@ -19,23 +19,23 @@ is [`../multi-arch/adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integr
 One board id for both of the emulated machines — ids are wire values, and the
 fewest are taken — because CAPS already tells a host the one fact that differs
 between them, the crypto tier (`board_profile.h:9`–`11`).
-The machine is chosen by `ESP_TARGET` (`profile.mk:22`); the comment
-naming the two machines and their tiers is `profile.mk:6`–`14`. The image's
-`ARCH` is `esp32` (`profile.mk:19`), so the toolchain is ESP-IDF's, pinned to
-`v5.5.5` (`mk/arch/esp32.mk:20`).
+The machine is chosen by `ESP_TARGET` (`profile.mk:8`); the comment
+naming the two machines and their tiers is `profile.mk:11`. The image's
+`ARCH` is `esp32` (`profile.mk:5`), so the toolchain is ESP-IDF's, pinned to
+`v5.5.5` (`mk/arch/esp32.mk:7`).
 
 | | Value | Source |
 |---|---|---|
-| Machines | `esp32c3` (RISC-V, like the P4; emulates the HMAC peripheral; tier `hmac-p256`, the default) and `esp32` (the original Xtensa ESP32; no HMAC; tier `none`, no identity) | `profile.mk:8`–`10`, `:11`–`13`, `:28`–`29` |
+| Machines | `esp32c3` (RISC-V, like the P4; emulates the HMAC peripheral; tier `hmac-p256`, the default) and `esp32` (the original Xtensa ESP32; no HMAC; tier `none`, no identity) | `profile.mk:7`–`9`, `:11`–`13` |
 | Ethernet | the OpenCores MAC QEMU emulates, `CONFIG_ETH_USE_OPENETH=y` | `sdkconfig.defaults:4`, `:9` |
 | Flash | 4 MB, the flash the emulator is given | `partitions.csv:4`; `sdkconfig.defaults:4`–`5`, `:11` |
 | Flash geometry | `TFW_FLASH_TOTAL` 16 MiB, the trailer parser's bound, past any slot | `board_profile.h:61`–`69`, `:70` |
 | EEPROM | 4 096 bytes, the `tfw_eeprom` partition | `board_profile.h:41`; `partitions.csv:10` |
 | OTA slots | 2, ESP-IDF's `ota_0` and `ota_1`; an A/B application passes its static check here | `board_profile.h:80`–`83`; `partitions.csv:13`–`14` |
-| Anti-rollback | on the C3 machine only, where the test's eFuse is a file QEMU writes: OTA_CONFIRM raises its secure-version floor; the P4 board never sets it | `profile.mk:35`–`40` |
+| Anti-rollback | on the C3 machine only, where the test's eFuse is a file QEMU writes: OTA_CONFIRM raises its secure-version floor; the P4 board never sets it | `profile.mk:18`–`19` |
 
 Layer 0 verifies the ES256 trailer with the AVR rows' p256-soft over ESP-IDF's
-micro-ecc; neither machine's ROM has ECDSA (`profile.mk:31`–`33`). Flash
+micro-ecc; neither machine's ROM has ECDSA (`profile.mk:15`–`16`). Flash
 encryption stays off: the subject of the test is secure boot and the identity,
 not the encryption ESP-IDF performs, which the P4 board turns on
 (`sdkconfig.defaults:5`–`7`; see [`esp32p4-poe.md`](esp32p4-poe.md)). The original ESP32's build pins chip revision 3,
@@ -79,20 +79,20 @@ honest, not to drive loads (`board_profile.h:14`–`15`).
 ## What is tested, and how
 
 Not a `make firmware` image, and never in `make ci`, whose image has no
-ESP-IDF (`profile.mk:16`–`18`). The build is
+ESP-IDF (`profile.mk:5`–`6`). The build is
 `make esp32-build BOARD=esp32-qemu [ESP_TARGET=esp32]`
-(`mk/arch/esp32-targets.mk:62`–`135`), and the test is
-`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:137`–`162`), which needs the
-pinned QEMU, `esp_develop_9.2.2_20260417` (`mk/arch/esp32.mk:21`). It builds
+(`mk/arch/esp32-targets.mk:35`–`108`), and the test is
+`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:110`–`125`), which needs the
+pinned QEMU, `esp_develop_9.2.2_20260417` (`mk/arch/esp32.mk:8`). It builds
 the C3 row, a `PROVISION=1` C3 row and the original-ESP32 row
-(`mk/arch/esp32-targets.mk:149`–`151`), then runs the two machines side by side
+(`mk/arch/esp32-targets.mk:114`–`116`), then runs the two machines side by side
 in QEMU. The C3 run carries the identity — the CDI and the P-256 DeviceID
 checked against the literal point of a fixed UDS, its ATTEST verified as ES256
 — and the esp32 run, with no HMAC peripheral, checks secure boot, layer 0's
 ES256 gate, the wire over Ethernet, and the ATTEST refusal. Both check layer 0's
 gate and refuse tampered and mis-sealed images and manifests; the C3 run also
 boots the `PROVISION=1` image on a part with no UDS
-(`mk/arch/esp32-targets.mk:137`–`145`). `ATTEST` signs with the P-256 DeviceID
+(`mk/arch/esp32-targets.mk:110`). `ATTEST` signs with the P-256 DeviceID
 the `hmac-p256` tier derives from the eFuse UDS; a tier with no UDS answers it
 NOT_PROVISIONED or UNSUPPORTED, as an AVR board without an element does
 (`board_profile.h:43`–`47`).

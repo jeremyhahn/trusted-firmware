@@ -192,6 +192,104 @@ static void test_a2_switches_the_a55_domain_off(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
 }
 
+/* LMM_SHUTDOWN (scmi.h: protocol 0x80, message 0x6): lm_id, then flags, 0
+ * forceful. */
+static void assert_lm_stop(uint32_t i, uint32_t token, uint32_t lm)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[i][0]);                  /* flags: polled */
+    TEST_ASSERT_EQUAL_HEX32(0x0000000Cu, seen[i][1]);                  /* header + 8 */
+    TEST_ASSERT_EQUAL_HEX32(0x00020006u | (token << 18), seen[i][2]);  /* lmm 0x80, 0x6 */
+    TEST_ASSERT_EQUAL_HEX32(lm, seen[i][3]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[i][4]);                  /* forceful */
+}
+
+static void test_a2_stops_the_a55_logical_machine_forcefully(void)
+{
+    ids.a55_lm = 2u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a2_acknowledged_lm_stop_sends_no_power_off(void)
+{
+    ids.a55_lm    = 2u;
+    ids.a55_power = 9u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+}
+
+static void test_a2_a_refused_lm_stop_falls_back_to_the_power_domain(void)
+{
+    ids.a55_lm     = 2u;
+    ids.a55_power  = 9u;
+    reply_words[0] = 0xFFFFFFFDu;   /* DENIED */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(2u, n_seen);
+    assert_lm_stop(0u, 0u, 2u);
+    assert_power_off(1u, 1u, 9u);
+}
+
+static void test_a2_a_refused_lm_stop_and_power_off_is_the_domains_failure(void)
+{
+    ids.a55_lm     = 2u;
+    ids.a55_power  = 9u;
+    reply_words[0] = 0xFFFFFFFCu;   /* NOT_FOUND: TFW_ERR_UNSUPPORTED from the LM */
+    reply_words[1] = 0xFFFFFFFDu;   /* DENIED */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(2u, n_seen);
+}
+
+static void test_a2_a_refused_lm_stop_with_no_domain_is_its_mapped_status(void)
+{
+    static const struct {
+        uint32_t     status;
+        tfw_status_t want;
+    } cases[] = {
+        { 0x00000000u, TFW_OK },                     /* SUCCESS */
+        { 0xFFFFFFFCu, TFW_ERR_UNSUPPORTED },        /* NOT_FOUND */
+        { 0xFFFFFFFEu, TFW_ERR_RANGE },              /* INVALID_PARAMETERS */
+        { 0xFFFFFFFDu, TFW_ERR_PROTECTED_REGION },   /* DENIED */
+        { 0xFFFFFFF4u, TFW_ERR_INTERNAL },           /* not listed */
+    };
+    uint32_t k;
+
+    for (k = 0u; k < sizeof cases / sizeof cases[0]; k++) {
+        setUp();
+        ids.a55_lm     = 2u;
+        reply_words[0] = cases[k].status;
+        TEST_ASSERT_EQUAL_INT(cases[k].want, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+        TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+        assert_lm_stop(0u, 0u, 2u);
+    }
+}
+
+static void test_a2_an_lm_stop_never_answered_is_a_timeout(void)
+{
+    ids.a55_lm   = 2u;
+    reply_status = 0x0u;   /* never freed */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(1u, n_seen);
+}
+
+static void test_a2_with_neither_id_is_unsupported_and_sends_nothing(void)
+{
+    ids.phy_reset = 3u;
+    ids.phy_power = 5u;
+    ids.shutdown  = 1u;
+    TEST_ASSERT_EQUAL_UINT32(0u, ids.a55_lm);
+    TEST_ASSERT_EQUAL_UINT32(0u, ids.a55_power);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
+                          tfw_imx95_hsm_act(&chan, &ids, TFW_HSM_ACT_POWER_OFF));
+    TEST_ASSERT_EQUAL_UINT32(0u, n_seen);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
+}
+
 static void test_a1_holds_the_phys_reset(void)
 {
     ids.phy_reset = 3u;
@@ -464,6 +562,98 @@ static void test_a4_acknowledged_deletes_every_key_strictly_and_closes(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
 }
 
+static void assert_wipe_closes(uint32_t i)
+{
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_KEY_MGMT_CLOSE, ele_cmd[i]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_KEY_STORE_CLOSE, ele_cmd[i + 1u]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[i + 2u]);
+}
+
+static void test_a4_all_four_key_slots_are_deleted_and_none_past_them(void)
+{
+    wipe.keys[2] = 0x53u;
+    wipe.keys[3] = 0x54u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(10u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 3);
+    assert_strict_delete(3u, 0x51u);
+    assert_strict_delete(4u, 0x52u);
+    assert_strict_delete(5u, 0x53u);
+    assert_strict_delete(6u, 0x54u);
+    assert_wipe_closes(7u);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a4_a_zero_slot_between_keys_is_skipped_not_the_end(void)
+{
+    wipe.keys[1] = 0u;
+    wipe.keys[2] = 0x53u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 3);
+    assert_strict_delete(3u, 0x51u);
+    assert_strict_delete(4u, 0x53u);
+    assert_wipe_closes(5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a4_a_zero_first_slot_still_deletes_the_named_keys(void)
+{
+    wipe.keys[0] = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(7u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 3);
+    assert_strict_delete(3u, 0x52u);
+    assert_wipe_closes(4u);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+/* A wipe whose one key sits in the last of the TFW_IMX95_WIPE_KEYS slots
+ * is still a wipe: names_a_key() scans every slot, so this key is deleted
+ * (request 4) and the three closes follow. A scan that stopped one slot
+ * early would refuse it with TFW_ERR_UNSUPPORTED and send nothing. */
+static void test_a4_a_key_in_the_last_slot_alone_is_a_wipe(void)
+{
+    memset(wipe.keys, 0, sizeof wipe.keys);
+    wipe.keys[3] = 0x54u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(7u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 3);
+    assert_strict_delete(3u, 0x54u);
+    assert_wipe_closes(4u);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+/* A delete refused or left unanswered after a skipped zero slot is still
+ * the wipe's answer: keys {0x51, 0, 0x53} delete 0x51 (request 4), skip the
+ * zero slot, and request 5 deletes 0x53. Refused, the wipe answers
+ * TFW_ERR_CRYPTO; unanswered, TFW_ERR_TIMEOUT; and both send every close. */
+static void test_a4_a_refused_delete_after_a_zero_slot_is_the_answer(void)
+{
+    wipe.keys[1] = 0u;
+    wipe.keys[2] = 0x53u;
+    ele_fail_at = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    assert_strict_delete(3u, 0x51u);
+    assert_strict_delete(4u, 0x53u);
+    assert_wipe_closes(5u);
+
+    setUp();
+    wipe.keys[1] = 0u;
+    wipe.keys[2] = 0x53u;
+    ele_silent_at = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    assert_strict_delete(3u, 0x51u);
+    assert_strict_delete(4u, 0x53u);
+    assert_wipe_closes(5u);
+}
+
 static void test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried(void)
 {
     uint32_t at;
@@ -477,17 +667,43 @@ static void test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried(void)
     }
 }
 
+/* What an A4 wipe sends when its session (1), key store (2) or key
+ * management (3) open is refused or unanswered: that open, then a close for
+ * each handle that did open, innermost first, and no delete. */
+static const uint32_t open_fail_n[3] = { 1u, 3u, 5u };
+static const uint32_t open_fail_seq[3][5] = {
+    { TFW_ELE_SESSION_OPEN },
+    { TFW_ELE_SESSION_OPEN, TFW_ELE_KEY_STORE_OPEN, TFW_ELE_SESSION_CLOSE },
+    { TFW_ELE_SESSION_OPEN, TFW_ELE_KEY_STORE_OPEN, TFW_ELE_KEY_MGMT_OPEN,
+      TFW_ELE_KEY_STORE_CLOSE, TFW_ELE_SESSION_CLOSE },
+};
+
 static void test_a4_a_refused_open_deletes_nothing_and_closes_what_opened(void)
 {
-    static const uint32_t sent[3] = { 1u, 3u, 5u };
     uint32_t at;
 
     for (at = 1u; at <= 3u; at++) {
         setUp();
         ele_fail_at = at;
         TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
-        TEST_ASSERT_EQUAL_UINT32(sent[at - 1u], ele_n);
-        TEST_ASSERT_NOT_EQUAL(0x99u, ele_cmd[3]);
+        TEST_ASSERT_EQUAL_UINT32(open_fail_n[at - 1u], ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(open_fail_seq[at - 1u], ele_cmd, ele_n);
+    }
+}
+
+static void test_a4_an_unanswered_open_is_a_timeout_and_closes_what_opened(void)
+{
+    uint32_t at, i;
+
+    for (at = 1u; at <= 3u; at++) {
+        setUp();
+        ele_silent_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(open_fail_n[at - 1u], ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(open_fail_seq[at - 1u], ele_cmd, ele_n);
+        for (i = 0u; i < ele_n; i++) {
+            TEST_ASSERT_NOT_EQUAL(0x99u, ele_cmd[i]);
+        }
     }
 }
 
@@ -495,6 +711,66 @@ static void test_a4_no_answer_to_a_delete_is_a_timeout_not_done(void)
 {
     ele_silent_at = 4u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+}
+
+/* Two deletes failing differently: the wipe answers the first failure, either
+ * way round, and still tries every key and closes. */
+static void test_a4_two_failed_deletes_answer_the_first_failure(void)
+{
+    ele_silent_at = 4u;
+    ele_fail_at   = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+
+    setUp();
+    ele_fail_at   = 4u;
+    ele_silent_at = 5u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+}
+
+/* A close the enclave refuses or leaves unanswered (the key management,
+ * key store and session closes, sixth to eighth in wipe_seq) does not
+ * undo an acknowledged delete: the wipe is still done, and every close
+ * after it is still sent. */
+static void test_a4_a_refused_or_silent_close_keeps_an_acknowledged_wipe_done(void)
+{
+    uint32_t at;
+
+    for (at = 6u; at <= 8u; at++) {
+        setUp();
+        ele_fail_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+    }
+    for (at = 6u; at <= 8u; at++) {
+        setUp();
+        ele_silent_at = at;
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_wipe(&ele, &wipe));
+        TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+    }
+}
+
+/* A refused or unanswered close never masks a failed delete: the wipe
+ * answers the delete's failure. */
+static void test_a4_a_refused_close_does_not_mask_a_failed_delete(void)
+{
+    ele_silent_at = 4u;
+    ele_fail_at   = 6u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_wipe(&ele, &wipe));
+    TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
+
+    setUp();
+    ele_fail_at   = 4u;
+    ele_silent_at = 7u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_imx95_hsm_wipe(&ele, &wipe));
     TEST_ASSERT_EQUAL_UINT32(8u, ele_n);
     TEST_ASSERT_EQUAL_HEX32_ARRAY(wipe_seq, ele_cmd, 8);
 }
@@ -513,7 +789,7 @@ static void test_a4_no_mu_command_or_key_is_unsupported_and_sends_nothing(void)
     wipe.del.command = 0u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_imx95_hsm_wipe(&ele, &wipe));
     wipe.del.command = 0x99u;
-    wipe.keys[0] = 0u;
+    memset(wipe.keys, 0, sizeof wipe.keys);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_imx95_hsm_wipe(&ele, &wipe));
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
@@ -621,6 +897,46 @@ static void test_s3_a_field_with_no_place_is_range(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &bad));
 }
 
+/* Length 0 is a field the port cannot read (hsm_act.h): an expected value of
+ * length 0, which the set reader admits, still does not match it. */
+static void test_s3_an_empty_expected_value_does_not_match_an_unreadable_field(void)
+{
+    struct tfw_imx95_s3 bad = s3;
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, info_image, 0u);
+    bad.f[4].len = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &bad));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+}
+
+/* "In length" too: a value one byte longer or shorter than its field is not a
+ * match even when every byte the field holds agrees. */
+static void test_s3_a_value_one_byte_off_its_fields_length_is_range(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, &info_image[160], 5u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+    set.expected[0].n = 3u;   /* value[3] still holds the field's fourth byte */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare(info_image, &set, &s3));
+    set.expected[0].n = 4u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_compare(info_image, &set, &s3));
+}
+
+/* A field ending on the buffer's last byte is read; one byte short of it is not. */
+static void test_s3_a_field_ending_at_the_buffers_end_is_read_and_one_short_is_range(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, &info_image[160], 4u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_compare_buf(info_image, 164u, &set, &s3));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_imx95_hsm_compare_buf(info_image, 163u, &set, &s3));
+}
+
 static void test_s3_measure_asks_get_info_and_compares(void)
 {
     tfw_hsm_set_t set;
@@ -647,6 +963,35 @@ static void test_s3_a_refused_or_silent_get_info_is_not_a_match(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, info, TFW_ELE_GET_INFO_LEN);   /* nothing stale */
     m->ele.enclave = NULL;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_measure(&ele, info, 0x2000u, &set, &s3));
+}
+
+static void test_s3_measure_asks_get_info_at_the_buffers_full_address(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 3u, &info_image[TFW_ELE_INFO_SHA_FW_OFF], TFW_ELE_INFO_SHA_FW_LEN);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_imx95_hsm_measure(&ele, info, 0x0000000120002000ull, &set, &s3));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, ele_req[0][1]);   /* address high word */
+    TEST_ASSERT_EQUAL_HEX32(0x20002000u, ele_req[0][2]);   /* address low word */
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO_LEN, ele_req[0][3]);
+}
+
+static void test_s3_an_unanswered_get_info_is_a_timeout_and_sends_nothing_more(void)
+{
+    static const uint8_t zero[TFW_ELE_GET_INFO_LEN];
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 3u, &info_image[TFW_ELE_INFO_SHA_FW_OFF], TFW_ELE_INFO_SHA_FW_LEN);
+    memset(info, 0xA5, TFW_ELE_GET_INFO_LEN);
+    ele_silent_at = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_imx95_hsm_measure(&ele, info, 0x2000u, &set, &s3));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_GET_INFO, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, info, TFW_ELE_GET_INFO_LEN);   /* nothing stale */
 }
 
 static void test_s3_no_mu_is_unsupported_and_sends_nothing(void)
@@ -727,9 +1072,70 @@ static void test_s3_a_refused_or_silent_enclave_is_not_a_match(void)
     ele_fail_at = 0u;
     ele_silent_at = 2u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);   /* an unanswered attestation still closes */
+    TEST_ASSERT_EQUAL_HEX32(ATT_ID, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[2][1]);   /* the session that opened */
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);
     m->ele.enclave = NULL;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+}
+
+static void test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_more(void)
+{
+    static const uint8_t zero[ATT_LEN];
+    tfw_hsm_set_t set;
+    uint32_t i;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 1u, report_image, 32u);
+    memset(report, 0xA5, sizeof report);   /* a stale report from before */
+    ele_silent_at = 1u;                    /* the session open goes unanswered */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    for (i = 0u; i < ele_n; i++) {
+        TEST_ASSERT_NOT_EQUAL(ATT_ID, ele_cmd[i]);
+        TEST_ASSERT_NOT_EQUAL(TFW_ELE_SESSION_CLOSE, ele_cmd[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);   /* nothing stale */
+}
+
+static void test_s3_a_refused_or_silent_close_keeps_an_acknowledged_attestation(void)
+{
+    tfw_hsm_set_t set;
+    uint32_t k;
+    uint32_t pass;
+
+    memset(&set, 0, sizeof set);
+    for (k = 0u; k < TFW_IMX95_S3_FIELDS; k++) {
+        expect(&set, att.s3.f[k].key, &report_image[att.s3.f[k].off], att.s3.f[k].len);
+    }
+    for (pass = 0u; pass < 2u; pass++) {
+        setUp();
+        if (pass == 0u) {
+            ele_fail_at = 3u;      /* the close is refused */
+        } else {
+            ele_silent_at = 3u;    /* the close goes unanswered */
+        }
+        TEST_ASSERT_EQUAL_INT(TFW_OK, attest(&att, ATT_LEN, &set));
+        TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+        TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+        TEST_ASSERT_EQUAL_HEX32(ATT_ID, ele_cmd[1]);
+        TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+        TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[2][1]);   /* the session opened is closed */
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(report_image, report, ATT_LEN);
+
+        set.expected[2].value[7] ^= 0x01u;                /* a mismatch stays a mismatch */
+        setUp();
+        if (pass == 0u) {
+            ele_fail_at = 3u;
+        } else {
+            ele_silent_at = 3u;
+        }
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, attest(&att, ATT_LEN, &set));
+        set.expected[2].value[7] ^= 0x01u;
+    }
 }
 
 static void test_s3_a_report_too_short_for_a_field_is_range(void)
@@ -768,10 +1174,31 @@ static void test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing(voi
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
 
+static void test_s3_attest_with_a_bad_layout_is_unsupported_and_closes_its_session(void)
+{
+    struct tfw_imx95_attest bad = att;
+    tfw_hsm_set_t set;
+
+    bad.l.cmd_words = 1u;
+    memset(&set, 0, sizeof set);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, attest(&bad, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(2u, ele_n);   /* opened and closed, no attestation */
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.out_of_turn);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a2_switches_the_a55_domain_off);
+    RUN_TEST(test_a2_stops_the_a55_logical_machine_forcefully);
+    RUN_TEST(test_a2_acknowledged_lm_stop_sends_no_power_off);
+    RUN_TEST(test_a2_a_refused_lm_stop_falls_back_to_the_power_domain);
+    RUN_TEST(test_a2_a_refused_lm_stop_and_power_off_is_the_domains_failure);
+    RUN_TEST(test_a2_a_refused_lm_stop_with_no_domain_is_its_mapped_status);
+    RUN_TEST(test_a2_an_lm_stop_never_answered_is_a_timeout);
+    RUN_TEST(test_a2_with_neither_id_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a1_holds_the_phys_reset);
     RUN_TEST(test_a1_switches_the_phys_domain_off);
     RUN_TEST(test_a1_resets_then_powers_off_on_the_next_token);
@@ -791,9 +1218,18 @@ int main(void)
     RUN_TEST(test_the_boards_port_is_unsupported_and_sends_nothing);
     RUN_TEST(test_the_boards_measure_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a4_acknowledged_deletes_every_key_strictly_and_closes);
+    RUN_TEST(test_a4_all_four_key_slots_are_deleted_and_none_past_them);
+    RUN_TEST(test_a4_a_zero_slot_between_keys_is_skipped_not_the_end);
+    RUN_TEST(test_a4_a_zero_first_slot_still_deletes_the_named_keys);
+    RUN_TEST(test_a4_a_key_in_the_last_slot_alone_is_a_wipe);
+    RUN_TEST(test_a4_a_refused_delete_after_a_zero_slot_is_the_answer);
     RUN_TEST(test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried);
     RUN_TEST(test_a4_a_refused_open_deletes_nothing_and_closes_what_opened);
+    RUN_TEST(test_a4_an_unanswered_open_is_a_timeout_and_closes_what_opened);
     RUN_TEST(test_a4_no_answer_to_a_delete_is_a_timeout_not_done);
+    RUN_TEST(test_a4_two_failed_deletes_answer_the_first_failure);
+    RUN_TEST(test_a4_a_refused_or_silent_close_keeps_an_acknowledged_wipe_done);
+    RUN_TEST(test_a4_a_refused_close_does_not_mask_a_failed_delete);
     RUN_TEST(test_a4_no_enclave_at_all_is_a_timeout);
     RUN_TEST(test_a4_no_mu_command_or_key_is_unsupported_and_sends_nothing);
     RUN_TEST(test_a4_a_bad_layout_is_unsupported_and_deletes_nothing);
@@ -802,14 +1238,22 @@ int main(void)
     RUN_TEST(test_s3_no_expected_values_match);
     RUN_TEST(test_s3_a_wrong_length_or_unknown_key_is_range);
     RUN_TEST(test_s3_a_field_with_no_place_is_range);
+    RUN_TEST(test_s3_an_empty_expected_value_does_not_match_an_unreadable_field);
+    RUN_TEST(test_s3_a_value_one_byte_off_its_fields_length_is_range);
+    RUN_TEST(test_s3_a_field_ending_at_the_buffers_end_is_read_and_one_short_is_range);
     RUN_TEST(test_s3_measure_asks_get_info_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_get_info_is_not_a_match);
+    RUN_TEST(test_s3_measure_asks_get_info_at_the_buffers_full_address);
+    RUN_TEST(test_s3_an_unanswered_get_info_is_a_timeout_and_sends_nothing_more);
     RUN_TEST(test_s3_no_mu_is_unsupported_and_sends_nothing);
     RUN_TEST(test_the_boards_sense_takes_only_the_pin_and_sends_nothing);
     RUN_TEST(test_s3_attest_opens_attests_closes_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_enclave_is_not_a_match);
+    RUN_TEST(test_s3_an_unanswered_attest_open_is_a_timeout_and_sends_nothing_more);
+    RUN_TEST(test_s3_a_refused_or_silent_close_keeps_an_acknowledged_attestation);
     RUN_TEST(test_s3_a_report_too_short_for_a_field_is_range);
     RUN_TEST(test_s3_a_buffer_too_small_sends_no_attestation);
     RUN_TEST(test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing);
+    RUN_TEST(test_s3_attest_with_a_bad_layout_is_unsupported_and_closes_its_session);
     return UNITY_END();
 }

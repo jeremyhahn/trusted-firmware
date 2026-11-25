@@ -52,8 +52,8 @@ vtable, and preprocessor conditionals stay in the four places.
   (`src/caps/tone.c:33`), `SPI_XFER`'s chip select (`src/caps/bus.c:145`) and
   the three 1-Wire commands (`src/caps/bus.c:192`, `:219`, `:244`). The status
   is documented as "pin is `/RESET`, or claimed by the soft UART"
-  (`include/tfw/status.h:44`, `docs/wire-protocol/api.md:294`), and the Go SDK
-  decodes it as `StatusErrReservedPin` (`sdk/go/status.go:30`).
+  (`include/tfw/status.h:44`, `docs/wire-protocol/api.md:297`), and the Go SDK
+  decodes it as `StatusErrReservedPin` (`sdk/go/status.go:32`).
 - **Reads are not refused.** `DIGITAL_READ` (`src/caps/gpio.c:51-68`) and
   `PULSE_IN` (`src/caps/pulse.c:14-39`) resolve the pin without its flags.
   `PULSE_CAPTURE` does not check them either. On AVR both only sample the pin
@@ -67,7 +67,7 @@ vtable, and preprocessor conditionals stay in the four places.
   0x10 are unassigned.
 - **`tfw_board_pin_flags()` links where no application can.**
   `src/core/board_lookup.c` is linked into the bootloader (`mk/boot.mk:55`),
-  into `test_pin_coord` with no runner (`mk/host.mk:601`) and into the WIZnet
+  into `test_pin_coord` with no runner (`mk/host.mk:749`) and into the WIZnet
   probe (`mk/wiznet-probe.mk:26`). A call from it into the application runner
   would make each of those link a runner.
 - **The example application already conflicts.** It drives pin 13, the LED
@@ -85,7 +85,7 @@ vtable, and preprocessor conditionals stay in the four places.
   refuses bad configuration is therefore a state a host can cause.
 - **APP_INFO has one byte to spare.** Its reply is 63 bytes
   ([api.md](api.md#app_info)) against `TFW_MAX_PAYLOAD` 64
-  (`include/tfw/config.h:409`).
+  (`include/tfw/config.h:429`).
 
 So an application's claim can reuse the refusal and the report as they stand:
 the status, the flag and the pin page all exist. It cannot reuse the claim
@@ -155,7 +155,7 @@ changes only what a host is told (open question 2).
 A host command that would drive or reconfigure an application's pin answers
 `TFW_ERR_RESERVED_PIN`, from the check that already answers it for the UART
 pins. No status code is added and none is renumbered. The status's comment
-in `include/tfw/status.h:44` and its row in `docs/wire-protocol/api.md:294`
+in `include/tfw/status.h:44` and its row in `docs/wire-protocol/api.md:297`
 widen from "claimed by the soft UART" to "claimed by this build or its
 application". Its number and its existing meaning stay.
 
@@ -223,7 +223,7 @@ The tiers the row covers do not change this:
   refuses a claimed pin to every host, authenticated or not.
 - **Link.** The checks sit in the command handlers, after the link, so a
   claimed pin is refused alike over serial and Ethernet. Ethernet's
-  allow-list (`src/proto/link_eth.c:148-150`) is unchanged.
+  allow-list (`src/proto/link_eth.h:15-31`) is unchanged.
 - **Board.** Every board's pin table sits behind `src/core/board_lookup.c`,
   including the ESP32-P4, i.MX 95 and Arm boards, so the claim is
   architecture-neutral. The ATmega328P and ATmega32U4 get it as every board
@@ -284,7 +284,7 @@ Ethernet image's pin pages already differ from a serial image's the same way
 (`include/tfw/board.h:41-46`).
 
 **No existing vector changes.** `TFWV_CAPS_PIN13_REPLY` is checked in the unit
-link (`test/unit/test_dispatch.c:158`), whose mock application,
+link (`test/unit/test_dispatch.c:204`), whose mock application,
 `test/mock/app_mock.c`, claims nothing. A code lane adds literal vectors for
 the claimed case (below).
 

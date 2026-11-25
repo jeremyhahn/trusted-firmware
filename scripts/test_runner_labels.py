@@ -12,8 +12,10 @@ or flow value on the line after an empty `runs-on:` or `labels:` key; a flow `la
 next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a
 value's anchor `&r` or tag `!!str` is dropped and an alias `*r` is read at its anchor, anywhere
 earlier in the file, or fails the test as `<unresolved alias *r>`, while a quoted label is read
-as written, so `"*r"`, `"&a b"` and `"a # b"` are labels; the content of a `|` or `>` block
-scalar, such as a `run: |` script, is not read) of
+as written, so `"*r"`, `"&a b"` and `"a # b"` are labels; a value of `runs-on:`, `labels:` or a
+list item that spans lines, a `>-` or `|` block scalar or a plain or quoted scalar such as
+`${{ matrix.os` then `}}`, is read whole and its label reported at the line of its key; the
+content of a `|` or `>` block scalar, such as a `run: |` script, is not read as keys) of
 .github/workflows/*.yml and *.yaml, and fail naming file:line and label for any plain-text label
 the allowlist and actionlint's built-in labels do not accept. The built-in labels, the self-hosted
 ones (`linux`, `x64`) and the GitHub-hosted ones (`ubuntu-24.04`, `macos-14`), match in any case
@@ -381,6 +383,76 @@ def _block_scalars(lines):
     return skip
 
 
+def _block_text(header, content):
+    """Return the text of a block scalar: its content lines, stripped, joined
+    with a blank (`>` folds) or a line break (`|` keeps them), ending in a
+    line break unless the header's chomping indicator is `-` (strip)."""
+    body = [line.strip() for line in content]
+    while body and not body[-1]:
+        body.pop()
+    text = (" " if header[0] == ">" else "\n").join(body)
+    if body and "-" not in header:
+        text += "\n"
+    return text
+
+
+def _read_value(lines, i, col, value, skip):
+    """Return (value, last): the raw value of a key or `-` at column col on
+    line i, read to `last`, the last line it takes; (None, len(lines)) for a
+    flow that never closes. The value is decoded before any label is read
+    from it, and a label it holds is reported at line i, its key's line:
+    - a block scalar header (`>-`, `|`, anchored, tagged or with a
+      ` # comment`) is the text of its content lines, every blank line or
+      line deeper than col after it (see _block_scalars and _block_text),
+      quoted so it stays one scalar;
+    - a flow list or mapping is read to the line where it closes (_flow);
+    - a plain or quoted scalar takes the following lines deeper than col
+      that are not a key, an item, a comment or block scalar content
+      (skip), joined with a blank as YAML folds them, so `${{ matrix.os`
+      then `}}` is one expression; a quoted scalar takes them only while
+      its quote is open, up to the line that closes it."""
+    node = _node(value)
+    if BLOCK_SCALAR.fullmatch(node):
+        j = i + 1
+        while j < len(lines) and (not lines[j].strip() or _indent(lines[j]) > col):
+            j += 1
+        text = _block_text(node, lines[i + 1 : j]).strip()
+        return '"' + text + '"', j - 1
+    if node.startswith(("[", "{")):
+        return _flow(lines, i, node)
+    if not node or node.startswith("*"):
+        return node, i
+    if value[len(_strip_comment(value)) :]:
+        # A ` # comment` ends a plain scalar (an open quote has none).
+        return node, i
+    scanner = _Scanner()
+    quoted = node[0] in "'\""
+    parts, last = [node], i
+    for _ in scanner.feed(node):
+        pass
+    for j in range(i + 1, len(lines)):
+        if quoted and scanner.quote is None:
+            break
+        line = lines[j]
+        if not line.strip():
+            continue
+        if j in skip or _indent(line) <= col:
+            break
+        if not quoted and (
+            ENTRY.match(line) or ITEM.match(line) or line.lstrip().startswith("#")
+        ):
+            break
+        text = line.strip() if quoted else _strip_comment(line).strip()
+        scanner.prev = " "
+        for _ in scanner.feed(text):
+            pass
+        parts.append(text)
+        last = j
+        if not quoted and text != line.strip():
+            break
+    return " ".join(parts), last
+
+
 def plain_labels(text):
     """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
 
@@ -389,8 +461,13 @@ def plain_labels(text):
     `labels:` entry is one of those (`{group: g, labels: codex}` or `group:` and
     `labels:` keys on the lines after `runs-on:`); `group:` is not a label. A
     scalar or flow value of an empty `runs-on:` or `labels:` key may sit on
-    the next, deeper-indented line (`runs-on:` then `  codex`); a plain scalar
-    folded over several lines is not read. The
+    the next, deeper-indented line (`runs-on:` then `  codex`). A scalar value
+    of `runs-on:`, `labels:`, an empty key's next line or a list item that
+    spans lines is read whole before its labels are (see _read_value): a
+    block scalar (`runs-on: >-` then `  codex`) is its decoded content, and
+    a plain or quoted scalar takes its deeper continuation lines
+    (`runs-on: ${{ matrix.os` then `  }}` is one skipped expression); its
+    label is reported at the line of its key or `-`. The
     key may be quoted (`'runs-on':` or `"runs-on":`), as may the `group:` and
     `labels:` keys of its mapping (`'labels':`, `"group":`); each of these
     keys may have spaces before its colon (`runs-on : codex`). A flow list or
@@ -419,21 +496,28 @@ def plain_labels(text):
 
     The content lines of a block scalar (`run: |`, `>-`, `|2`, anchored or
     tagged), every blank line or line deeper than its key or `-` after the
-    header, are not read, so a `runs-on:` in a script is not a key.
+    header, are not read as keys, so a `runs-on:` in a script is not a key.
     """
     lines = text.splitlines()
     skip = _block_scalars(lines)
     anchors = _anchors(lines, skip)
+    # The last line of a multi-line runs-on value already read.
+    done = -1
     for i, line in enumerate(lines):
-        if i in skip:
+        if i in skip or i <= done:
             continue
         key = RUNS_ON.match(line)
         if not key:
             if _flow_runs_on(line):
                 yield i + 1, FLOW_RUNS_ON
             continue
-        value, _ = _flow(lines, i, _node(key.group(2)))
+        col = _line_node(line)[0]
+        if col is None:
+            col = len(key.group(1))
+        value, done = _read_value(lines, i, col, key.group(2), skip)
         if value is None:
+            # A flow that never closes yields nothing; read on from line i.
+            done = i
             continue
         if value:
             for label in _value_labels(value, anchors, i):
@@ -453,14 +537,16 @@ def plain_labels(text):
                 item = ITEM.match(lines[j])
                 listed = list_indent is not None
                 if item and listed and len(item.group(1)) >= list_indent:
-                    for label in _labels(item.group(2), anchors, j):
+                    dash = len(item.group(1))
+                    value, last = _read_value(lines, j, dash, item.group(2), skip)
+                    for label in _labels(value or "", anchors, j):
                         yield j + 1, label
                     continue
                 entry = ENTRY.match(lines[j])
                 depth = len(lines[j]) - len(lines[j].lstrip())
                 if listed and not item and not entry and depth > list_indent:
                     # The value of the empty key, on the next line.
-                    value, last = _flow(lines, j, _node(lines[j]))
+                    value, last = _read_value(lines, j, col, lines[j], skip)
                     for label in _value_labels(value or "", anchors, j):
                         yield j + 1, label
                     list_indent = None
@@ -469,7 +555,9 @@ def plain_labels(text):
                     break
                 list_indent = None
                 if entry.group(2) == "labels":
-                    value, last = _flow(lines, j, _node(entry.group(3) or ""))
+                    value, last = _read_value(
+                        lines, j, len(entry.group(1)), entry.group(3) or "", skip
+                    )
                     if value is None:
                         break
                     if value:
@@ -828,6 +916,71 @@ class RunnerLabelsTest(unittest.TestCase):
             '      matrix.os[0]\n      }}", qwne]\n'
         )
         self.assertEqual(found, ["w.yml:3: qwne"])
+
+    def check_multi_line(self, cases, head="    runs-on: "):
+        """Check each (value, labels) case as the value after head in a
+        job, followed by a job whose `runs-on: qwne` must still be read:
+        the multi-line value did not swallow it. Each label is `line: label`,
+        the line of the key (or `-`) whose value holds it."""
+        allowed = allowlist(ACTIONLINT) + ["codex"]
+        for value, labels in cases:
+            with self.subTest(value=value):
+                workflow = f"jobs:\n  build:\n{head}{value}\n"
+                after = workflow.count("\n") + 2
+                workflow += "  next:\n    runs-on: qwne\n"
+                found = self.check(workflow, allowed)
+                expected = [f"w.yml:{label}" for label in labels]
+                self.assertEqual(found, expected + [f"w.yml:{after}: qwne"])
+
+    def test_a_block_scalar_runs_on_value_is_read(self):
+        self.check_multi_line(
+            (
+                (">-\n      codex", []),
+                (">-\n      qwne", ["3: qwne"]),
+                ("|-\n      qwne", ["3: qwne"]),
+                (">\n      qwne", ["3: qwne"]),
+                ("|+\n      qwne\n", ["3: qwne"]),
+                (">- # note\n      qwne", ["3: qwne"]),
+                ("&r >-\n      qwne", ["3: qwne"]),
+                ("!!str >-\n      qwne", ["3: qwne"]),
+                (">-\n      ${{ matrix.runner }}", []),
+                (">\n      ${{\n      matrix.runner }}", []),
+            )
+        )
+
+    def test_a_plain_or_quoted_runs_on_value_spans_lines(self):
+        self.check_multi_line(
+            (
+                ("${{ matrix.os\n      }}", []),
+                ('"${{ matrix.os\n      }}"', []),
+                ("'${{ matrix.os\n      }}'", []),
+                ("runner-${{\n      matrix.n }}", []),
+            )
+        )
+
+    def test_a_multi_line_next_line_or_labels_value_is_read(self):
+        self.check_multi_line(
+            (
+                ("\n      >-\n        qwne", ["4: qwne"]),
+                ("\n      ${{ matrix.os\n        }}", []),
+                ("\n      labels: >-\n        qwne", ["4: qwne"]),
+                ("\n      group: g\n      labels: |-\n        qwne", ["5: qwne"]),
+                ("\n      labels: ${{ matrix.os\n        }}", []),
+            ),
+            head="    runs-on:",
+        )
+
+    def test_a_multi_line_list_item_is_read(self):
+        self.check_multi_line(
+            (
+                ("\n      - >-\n        qwne", ["4: qwne"]),
+                ("\n      - &r !!str >-\n        qwne", ["4: qwne"]),
+                ("\n      - ${{ matrix.os\n        }}", []),
+                ('\n      - "${{ matrix.os\n        }}"', []),
+                ("\n      labels:\n        - >-\n          qwne", ["5: qwne"]),
+            ),
+            head="    runs-on:",
+        )
 
     def test_a_hash_in_an_expression_on_a_continuation_line_is_kept(self):
         for value in (

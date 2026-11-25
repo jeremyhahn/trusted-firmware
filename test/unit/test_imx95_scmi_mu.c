@@ -213,6 +213,77 @@ static void test_a_command_longer_than_the_channel_is_not_sent(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
 }
 
+static void test_a_command_longer_than_the_buffer_is_not_sent(void)
+{
+    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
+    cmd.len = 36u;                   /* fits the 128-byte area, not 32 bytes */
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_TOO_LONG, tfw_scmi_xfer(&chan, &cmd, &rsp));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a_command_of_part_words_is_not_sent(void)
+{
+    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
+    cmd.len = 6u;                    /* one word and a half */
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_TOO_LONG, tfw_scmi_xfer(&chan, &cmd, &rsp));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a_command_that_exactly_fits_is_sent(void)
+{
+    chan.shm_len = 0x1Cu + 12u;      /* room for the 12-byte payload, no more */
+    tfw_scmi_clock_config_set(&cmd, 5u, 0x00030000u, 42u, 1u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_scmi_xfer(&chan, &cmd, &rsp));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a_reply_that_exactly_fits_is_taken(void)
+{
+    chan.shm_len = 0x1Cu + 8u;       /* room for the 8-byte reply, no more */
+    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
+    reply_n        = 2u;
+    reply_words[1] = 0x00020000u;    /* version 2.0 */
+    TEST_ASSERT_EQUAL_INT32(0, tfw_scmi_xfer(&chan, &cmd, &rsp));
+    TEST_ASSERT_EQUAL_UINT32(8u, rsp.len);
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+static void test_a_channel_shorter_than_its_header_is_not_used(void)
+{
+    int32_t rc;
+
+    m->scmi.shm_words = 4u;          /* 16 bytes: status, not flags or header */
+    chan.shm_len      = 0x10u;
+    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
+    rc = tfw_scmi_xfer(&chan, &cmd, &rsp);
+    m  = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);   /* nothing past 0x10 */
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_TOO_LONG, rc);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->scmi.rings);
+}
+
+static void test_a_reply_into_a_part_word_of_room_is_refused(void)
+{
+    int32_t rc;
+
+    m->scmi.shm_words = 8u;          /* 32 bytes: the payload's first word */
+    chan.shm_len      = 0x21u;       /* 5 bytes of room, one of a second word */
+    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
+    reply_length = 4u + 5u;
+    rc = tfw_scmi_xfer(&chan, &cmd, &rsp);
+    m  = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);   /* nothing past 0x21 */
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_TOO_LONG, rc);
+}
+
 static void test_a_reply_without_a_header_is_short(void)
 {
     tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 0u);
@@ -251,6 +322,12 @@ int main(void)
     RUN_TEST(test_a_reply_longer_than_the_channel_is_refused);
     RUN_TEST(test_a_reply_longer_than_the_buffer_is_refused);
     RUN_TEST(test_a_command_longer_than_the_channel_is_not_sent);
+    RUN_TEST(test_a_command_longer_than_the_buffer_is_not_sent);
+    RUN_TEST(test_a_command_of_part_words_is_not_sent);
+    RUN_TEST(test_a_command_that_exactly_fits_is_sent);
+    RUN_TEST(test_a_reply_that_exactly_fits_is_taken);
+    RUN_TEST(test_a_channel_shorter_than_its_header_is_not_used);
+    RUN_TEST(test_a_reply_into_a_part_word_of_room_is_refused);
     RUN_TEST(test_a_reply_without_a_header_is_short);
     RUN_TEST(test_a_channel_error_is_reported);
     RUN_TEST(test_the_token_counts_and_wraps_at_ten_bits);

@@ -377,7 +377,7 @@ Filing that row is go-trusted-platform's work; this ADR only reports it.
 
 ### 7. Transport per image
 
-The owner ruled on 2026-10-15 at 16:15Z (DS-1904, issue #55), verbatim:
+The owner ruled on 2026-10-15 at 16:15Z, verbatim:
 
 > "a constrained board's image selects serial or network at build time where
 > both do not fit (object list, never #if in logic); both where they fit. The
@@ -434,7 +434,7 @@ its RAM budget, and does not build.** The options for the owner are:
   at 14 850 bytes and fits. Cost: no element, so no `ATTEST_CERT` or `ATTEST_CSR`;
   its `ATTEST` evidence is an HMAC under a shared secret, which a verifier can
   only check by holding that secret. It cannot enrol through device-attest-01.
-  **Withdrawn** by owner ruling 2026-10-17 (m522): the 328P is supported only
+  **Withdrawn** by owner ruling 2026-10-17: the 328P is supported only
   with a secure element and `CRYPTO=soft` is refused on it at build time, so
   this image no longer builds.
 
@@ -444,7 +444,7 @@ is the only one that also fits that.
 
 No option is applied. Nothing is dropped: the 328P's profile names its controller
 so the image can be measured, and its default image is unchanged. Since owner
-ruling 2026-10-17 (m522) no 328P row builds Ethernet: the element tier is the
+ruling 2026-10-17 no 328P row builds Ethernet: the element tier is the
 328P's only tier, and with `ETH=1` it is 1 652 bytes over the flash budget
 (table above).
 

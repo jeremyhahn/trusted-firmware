@@ -1,34 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The five CI stages (handbook ci-standard.md §1). Each is a target, each runs
-# in the devcontainer (build/docker/devcontainer/Dockerfile) and `ci` is all
-# five, in order. Every gate `make ci` ran before the stages existed is in
-# exactly one of them; a new gate goes into one, never beside them.
-#
-#   build             everything compiles, within its flash budget, reproducibly
-#   test              the unit suites, the board sweep, coverage, the sanitizers
-#   integration-test  the real images under simavr, tfwsim against the Go SDK
-#   security          static analysis, the Go scanners, the secrets scan, the
-#                     supply-chain and releasability gates
-#   deps-check        no pin behind its latest release without a written reason
-#
-# Each stage starts by checking for its tools and fails closed when one is
-# missing (devcontainer.md §7): a gate that cannot run is a failure, not a pass.
-#
-# The contracts are the fleet template's (ci-template v1.18, go-quicraft
-# 0cf97cd). build, test, security and deps-check run in place, in the toolchain
-# image in CI. integration-test builds the integration image and runs
-# integration-test-host in it under the hardened compose service; run
-# integration-test-host itself where the toolchains are installed.
-#
-# xkms/ is in four of the five through its own targets (xkms-coverage in test,
-# xkms-test in integration-test-host, xkms-security, xkms-deps-check): it needs
-# the private go-xkms, which the image's module cache carries, fetched with the
-# forge credentials at build time (the gomodauth secret, mk/docker.mk).
+# The five CI stages.
 
-# The Go modules every module loop below walks. xkms/ has its own targets: it
-# builds only with XKMS_TAGS.
+# The Go modules every module loop below walks. xkms/has its own targets: it builds only with XKMS_TAGS.
 GO_MODULES := $(SDK_DIR) test/integration/esp32
 
 # require-tools: fail the calling target when any named tool is not on PATH.
@@ -86,19 +61,6 @@ test: test-tools
 	@echo "stage test: green"
 
 ## test-shard-N: one CI Unit shard of TEST_GATES, every gate run, PASS/FAIL each
-# CI runs the test stage as one Unit job per shard (ci.yml, the unit job's
-# matrix lists TEST_SHARDS), balanced by the gates' durations in CI (ruling
-# 218(9)): test-asan, the long pole at 30.5 min green alone in shard 3, is split
-# by suite, its host half (242 of its 338 binaries) alone in shard 3 and its
-# boot half (96) in shard 1, and boot-test moves to shard 2 to make room. Each
-# gate is in exactly one shard, so the shards are `make test`;
-# scripts/test_unit_shards.py holds the lists to TEST_GATES and to the matrix.
-# A shard runs every gate even after one fails (make -k), prints one PASS or
-# FAIL line per gate with its seconds, and fails if any gate did. Each job has
-# its own workspace, so a clean-host deletes nothing another shard is
-# building; within a shard a gate that starts with clean-host (coverage,
-# test-asan-*) comes after the plain builds, which would otherwise run its
-# instrumented binaries as up to date.
 TEST_SHARD_1 := host-test board-sweep test-asan-boot
 TEST_SHARD_2 := boot-test coverage verify-vectors xkms-coverage sdk-coverage scripts-test
 TEST_SHARD_3 := test-asan-host
@@ -143,13 +105,6 @@ integration-test: docker-build-it
 	exit $$status
 
 ## integration-test-host: the real images under simavr, and tfwsim against the Go SDK and xkms
-# What stage 3 runs inside the integration image, and what a developer runs in
-# place. sdk-test is the Go unit tests and the cross-implementation suite
-# together, the suite compiled in by the tfwsim build tag rather than picked
-# by test name, which would be a list that drifts. app-sdk-check runs the out-of-tree example application on
-# tfwsim; xkms-test runs the xkms adapter suites, the board enrollment harness
-# (TestHardwareEnrollment, hw-enroll's) deselected; xkms-e2e-soft runs the one
-# xkms/e2e test that needs no board, the soft root's enrolment (#130).
 integration-test-host: integration-test-tools integration-test-simavr integration-test-boot sdk-test app-sdk-check xkms-test xkms-e2e-soft
 	@echo "stage integration-test: green"
 
@@ -220,8 +175,7 @@ go-govulncheck:
 	@fail=0; for d in $(GO_MODULES); do echo "--- govulncheck $$d"; \
 	  (cd $$d && govulncheck$(call go-tags,-tags) ./...) || fail=1; done; exit $$fail
 
-# sdk/go's simulator-driven tests carry the tfwsim tag (#163), so its second
-# pass lints them too.
+# sdk/go's simulator-driven tests carry the tfwsim tag, so its second pass lints them too.
 go-golangci:
 	@fail=0; for d in $(GO_MODULES); do echo "--- golangci-lint $$d"; \
 	  (cd $$d && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags) ./...) || fail=1; done; \
@@ -235,26 +189,13 @@ secrets-scan:
 	   --skip-dirs $(BUILD_DIR) --skip-dirs coverage .
 	@echo "secrets-scan: no secret in the tree"
 
-## trivy-image: build and scan the integration image (needs docker; devops.md §8)
-# scans.yml's Scheduled scans job runs the same scan on the image it builds on
-# main. TRIVY_IMAGE_FLAGS are that step's flags, word for word (its "Scans"
-# step in .github/workflows/scans.yml): exclusions live there, in the template
-# form, never in a .trivyignore (CA m269). Change both together.
+## trivy-image: build and scan the integration image (needs docker)
 TRIVY_IMAGE_FLAGS := --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICAL,HIGH --exit-code 1
 
 trivy-image: docker-build-it
 	@trivy image $(TRIVY_IMAGE_FLAGS) $(IT_IMAGE)
 
 ## xkms-security: the tree-only security gates for xkms/ (needs go-xkms)
-# go mod verify, then the module consistency check that keeps a change to
-# xkms/go.mod or xkms/go.sum honest on the PR gate (dept-software #981, kept
-# hermetic by ruling 742 (1)): every package xkms/ and its tests import
-# resolves from go.mod and go.sum alone, read-only, with no module proxy
-# (GOPROXY=off), so a missing requirement or go.sum entry fails here. It reads
-# the module cache the image baked (DEPS_SEED_GOMODCACHE: /opt/go/mod in the
-# toolchain image, else the host's GOMODCACHE), not the writable cache volume
-# a bridge stage mounts, which a cold runner starts empty. Then gosec and
-# golangci-lint.
 xkms-security:
 	$(call require-tools,$(GO) gosec golangci-lint)
 	@cd $(XKMS_DIR) && $(GO) mod verify
@@ -279,10 +220,7 @@ xkms-vuln:
 # it needs the network; the module cache it fills is its own, under build/.
 DEPS_GOPROXY ?= https://proxy.golang.org
 DEPS_GOMODCACHE ?= $(abspath $(BUILD_DIR))/deps-check/gomod
-# The module graph's go.mod files come from the cache the image pre-fetched (the
-# Dockerfile's modules stage), so a cold DEPS_GOMODCACHE does not git-fetch a
-# whole tree per private version and outlast deps-check.py's 600 s bound, which
-# stays: a real hang still fails. Latest versions are still asked of upstream.
+# The module graph's go.mod files come from the cache the image pre-fetched (the Dockerfile's modules stage), so a cold DEPS_GOMODCACHE does not git-fetch a whole tree per private version and outlast deps-check.py's 600 s bound, which stays: a real hang still fails.
 DEPS_SEED_GOMODCACHE ?= $(or $(wildcard /opt/go/mod),$(shell go env GOMODCACHE 2>/dev/null))
 DEPS_ENV = GOPROXY=$(DEPS_GOPROXY) GOFLAGS=-modcacherw GOMODCACHE=$(DEPS_GOMODCACHE) \
 	   DEPS_SEED_GOMODCACHE=$(DEPS_SEED_GOMODCACHE)

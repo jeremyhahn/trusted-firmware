@@ -153,7 +153,7 @@ The device verifies a signed compact manifest
 beside the image, in the SUIT family, on every board with room; the 328P
 verifies at least the signed trailer.
 
-**Carriage (owner ruling 2026-10-17, CA m499, #78).** The SUIT-subset manifest
+**Carriage.** The SUIT-subset manifest
 travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
 `tfw-boot` verifies it before activation on every board. The 4 KB parts
 (ATmega328P and ATmega32U4) do trailer-only verification.
@@ -166,7 +166,7 @@ and the soft tier keeps the full trailer gate in `tfw-boot`. On AVR the
 ATmega2560's element-tier application checks it (`src/core/ota_manifest.c`),
 before it writes the authorization or the `MARK`.
 
-**Layout in the stream (ruling 109, decided 2026-10-22).** The envelope
+**Layout in the stream.** The envelope
 travels in the same `OTA_DATA` stream, after the image and in the padding
 before the trailer: a little-endian u16 length, then the envelope. `OTA_BEGIN`'s
 total counts it; there is no new command id. It is the layout the ESP32's layer
@@ -210,19 +210,19 @@ version, and it is the open question 5 proposal below, now settled.
 
 | Board | Manifest | Trailer | Where |
 |---|---|---|---|
-| ATmega2560, element tier | yes | yes | the manifest in the application at `OTA_ACTIVATE` (ruling 121), the trailer in `tfw-boot` every boot |
-| ATmega2560, soft tier | no: no stored key verifies its ES256 (ruling 121) | yes | the full trailer gate in `tfw-boot`, every boot |
-| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499); the reader and check, 3 772 B as measured on the ATmega2560 ([README.md](README.md), "Measurements"; estimated here at 3 086 B), do not fit the application | yes | trailer in `tfw-boot`, every boot |
+| ATmega2560, element tier | yes | yes | the manifest in the application at `OTA_ACTIVATE`, the trailer in `tfw-boot` every boot |
+| ATmega2560, soft tier | no: no stored key verifies its ES256 | yes | the full trailer gate in `tfw-boot`, every boot |
+| ATmega328P, ATmega32U4 | no: trailer-only; the reader and check, 3 772 B as measured on the ATmega2560 ([README.md](README.md), "Measurements"; estimated here at 3 086 B), do not fit the application | yes | trailer in `tfw-boot`, every boot |
 | ATtiny85 | no | no | no secure boot (decision 6) |
 | ESP32-P4 | yes | yes, beside the vendor's signature | decision 11 |
 | Cortex-M33 under TF-M | proposed: in the non-secure application before PSA FWU install | MCUboot's TLVs | open question 9 |
 | i.MX 95 M7 | none until #15 | AHAB | decision 12 |
 
 - **The bootloader is the authority, and it verifies the manifest before
-  activation** (ruling 3: owner ruling 2026-10-17, CA m499, #78). `tfw-boot`
+  activation**. `tfw-boot`
   verifies the manifest, carried in the trailer, before activation on every
   board, and the trailer on every boot. The 4 KB parts (ATmega328P and
-  ATmega32U4) do trailer-only verification. Ruling 121 (CA m957, 2026-10-21)
+  ATmega32U4) do trailer-only verification. Ruling 121
   moves the manifest check to the application at `OTA_ACTIVATE` where
   `tfw-boot` cannot fit it (Where it is checked, above). On AVR the manifest
   reader measured about 2 900 bytes (decision 6). The manifest adds the
@@ -573,7 +573,7 @@ where only one fits, its image links one link file, chosen by its profile, as
   add `0x68`–`0x6B` and no more: the owner's ruling on issue #55 (item 48,
   2026-10-17) narrowed the proposed `0x61`, `0x62` and `0x68`–`0x6E` to the four
   staging commands, so the session, `OTA_INFO`, `OTA_ACTIVATE` and
-  `OTA_CONFIRM` stay on serial. **Settled** (ruling 109, 2026-10-26, #257): a
+  `OTA_CONFIRM` stay on serial. **Settled**: a
   session opened on a connection ends when that connection closes, as well as
   at reset, so a reconnecting peer starts unauthenticated (open question 8).
 - **`OTA_END`, then `OTA_ACTIVATE`.** `OTA_END` verifies the stream and leaves
@@ -1018,14 +1018,14 @@ reference value. A gap there is filed against go-xkms.
    verified update, so it is the one board without OTA.
 4. **One key per board id for both the trailer and the manifest, or two?** One
    is proposed (decision 3).
-5. **Manifest carriage.** Settled (ruling 109, 2026-10-22): the signed
+5. **Manifest carriage.** Settled: the signed
    envelope rides in the `OTA_DATA` stream after the image, in the padding
    before the trailer, a little-endian u16 length then the envelope, counted in
    `OTA_BEGIN`'s total, with no new command (decision 3, "Layout in the
    stream").
 6. **The trial timeout.** Settled: `TFW_OTA_TRIAL_TIMEOUT_S`, 60 s on each
    AVR board with a boot section (decision 9, "Where the timeout is configured").
-7. **The 2560's slot size.** Settled (ruling 109, Software 2026-10-26, #257):
+7. **The 2560's slot size.** Settled:
    64 KB slots matching the image budget, as proposed (the shortest swap, and
    the running image under the 64 KB near-read boundary), not the largest pair
    the region holds (495 and 496 pages).
@@ -1065,7 +1065,7 @@ reference value. A gap there is filed against go-xkms.
   build's manifest emitter. Done in #78 for the 2560 on the element tier
   (`src/core/suit.c`, `tools/suit-emit/`, [architecture.md](architecture.md)).
   The envelope after the image in the stream (open question 5, settled by
-  ruling 109) and the check at `OTA_ACTIVATE` (ruling 121) are done for the 2560
+  ruling 109) and the check at `OTA_ACTIVATE` are done for the 2560
   on the element tier (`tools/image-seal/`, `src/core/ota_manifest.c`).
   The 2560 application's size with the check is measured: 28 802 B, 3 772 B
   more than without it ([README.md](README.md), "Measurements").

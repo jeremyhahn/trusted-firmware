@@ -2,16 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# Tests of the public-releasability gate (scripts/releasability.sh) and of the
-# export-ignore list in .gitattributes. Run by `make releasability-test`, which
-# `make ci` includes. There is no skip guard: a test that cannot run fails.
-#
-# Only generic shapes are planted here: private-network DNS names, home
-# directories and the agent identity directory, each with a reference name
-# (RFC 2606, RFC 8375). No internal host, device, address or account is named,
-# not even as a value to refuse: those are checked in CI from the
-# RELEASABILITY_PATTERNS secret (docs/development/releasability.md). A plant
-# carries an inline waiver, so the gate passes over this file.
+# Tests of the public-releasability gate (scripts/releasability.sh) and of the export-ignore list in .gitattributes.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

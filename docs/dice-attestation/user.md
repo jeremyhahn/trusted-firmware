@@ -26,7 +26,7 @@ not in an element. A
 verifier holds that key — it proves identity to a gateway it already trusts,
 never to a stranger, and produces no certificate. The ATmega328P has no
 `SOFTWARE` tier: it is supported only with a secure element (owner ruling
-2026-10-17 (m522)), and with none answering its `root of trust` reads
+2026-10-17), and with none answering its `root of trust` reads
 `TFW_CRYPTO_NONE` and `ATTEST` answers "not provisioned".
 
 ## Build a firmware image with attestation enabled

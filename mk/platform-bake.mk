@@ -1,47 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The bench bake image (#7): writes one platform identity block into
-# [TFW_BOOT_EE_BASE, TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN) on a part that still
-# runs a stock serial bootloader, prints one line, halts. See
-# docs/device-provisioning/engineering.md.
-#
-#   make platform-bake BOARD=atmega2560 SERIAL=<32 hex digits>
-#   make platform-bake-flash BOARD=atmega2560 SERIAL=<32 hex digits> [AVRDUDE_PORT=<dev>]
-#
-# PUBKEY_HASH= and OPERATOR_PUBKEY= pass through to tfwprov unchanged.
-#
-# A BENCH PATH, NOT A PRODUCTION ONE. It needs the ability to flash arbitrary
-# code to the part, which already owns it; a part running tfw-boot takes signed
-# images only, and this image is never signed with a vendor key. ISP stays the
-# path for fuses and lock bits.
-#
-# ONE ENCODER. The block is what `tfwprov --bake-eeprom` writes, converted to a
-# C array byte for byte. Nothing here or in tools/platform-bake/ lays the block
-# out a second time, so the image cannot carry a block tfwprov would not have
-# produced.
-#
-# ITS OWN OBJECT LIST, from its own .c files, with the firmware's flags by
-# reference. Nothing of it reaches an application image, and
-# platform-bake-no-link-check -- in `make ci` -- is the gate that says so.
+# The bench bake image: writes one platform identity block into [TFW_BOOT_EE_BASE, TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN) on a part that still runs a stock serial bootloader, prints one line, halts.
 
 PLATBAKE_SRC_DIR := tools/platform-bake
-# The row is in the path where a row flag is given (FW_ROW_SUFFIX, #161): the
-# objects take FW_CFLAGS, which carries every row flag's defines.
+# The row is in the path where a row flag is given: the objects take FW_CFLAGS, which carries every row flag's defines.
 PLATBAKE_DIR     := $(BUILD_DIR)/platform-bake/$(BOARD)$(FW_ROW_SUFFIX)
 PLATBAKE_TARGET  := $(PLATBAKE_DIR)/platform-bake
 PLATBAKE_GEN     := $(PLATBAKE_DIR)/gen
 TFWPROV_BIN      := $(BUILD_DIR)/tools/tfwprov
-# The host's GNU objcopy, not $(ARCH_OBJCOPY), turns tfwprov's Intel HEX into
-# bytes: Debian 13's binutils-avr (2.43.50.20250108-1) cannot read Intel HEX at
-# all -- `avr-objcopy -I ihex` fails "invalid operation", even on a file it
-# wrote itself. HEX to binary has nothing AVR in it, and the host build already
-# needs binutils.
+# The host's GNU objcopy, not $(ARCH_OBJCOPY), turns tfwprov's Intel HEX into bytes: Debian 13's binutils-avr (2.43.50.20250108-1) cannot read Intel HEX at all, `avr-objcopy -I ihex` fails "invalid operation", even on a file it wrote itself.
 PLATBAKE_HEX2BIN ?= objcopy
 
-# The parse is the firmware's own -- boot_platform.c with the firmware's CRC
-# pairing -- so "baked" means the block the firmware will read, not one a copy
-# of the parser agreed with.
+# The parse is the firmware's own, boot_platform.c with the firmware's CRC pairing, so "baked" means the block the firmware will read, not one a copy of the parser agreed with.
 PLATBAKE_SRCS := $(PLATBAKE_SRC_DIR)/main.c $(PLATBAKE_SRC_DIR)/bake.c \
                  boot/boot_platform.c src/proto/crc16.c $(HAL_DIR)/hal_crc16.c \
                  $(HAL_DIR)/hal_sys.c $(HAL_DIR)/hal_early.c $(HAL_DIR)/hal_eeprom.c \
@@ -58,9 +29,7 @@ $(TFWPROV_BIN): FORCE
 	@mkdir -p $(dir $@)
 	@cd $(SDK_DIR) && $(GO) build$(call go-tags,-tags) -o $(CURDIR)/$@ ./cmd/tfwprov
 
-# Regenerated on every invocation, because SERIAL and the keys are not in the
-# path, and replaced only when tfwprov's bytes differ -- so the same arguments
-# relink nothing, and different ones can never reuse a stale block.
+# Regenerated on every invocation, because SERIAL and the keys are not in the path, and replaced only when tfwprov's bytes differ, so the same arguments relink nothing, and different ones can never reuse a stale block.
 $(PLATBAKE_GEN)/block.c: $(TFWPROV_BIN) FORCE
 	@if [ -z "$(SERIAL)" ]; then \
 	   echo "platform-bake: name the serial: make platform-bake BOARD=<board> SERIAL=<32 hex digits>"; exit 1; fi
@@ -108,18 +77,6 @@ platform-bake-srcs:
 	@echo $(PLATBAKE_SRCS) $(PLATBAKE_GEN)/block.c
 
 ## platform-bake-no-link-check: fail if any bake object is in any application image's object list
-# Every board, every tier it builds, with and without PROVISION=1, and with
-# ETH=1 where the board names a controller: the object lists `firmware` links,
-# asked of mk/firmware.mk itself through firmware-srcs. Before any of that, the
-# bake image's own list must hold what the check looks for -- a pattern that
-# matched nothing anywhere would pass and have checked nothing. And no source an
-# application compiles may name the bake image's symbols. A board's extra rows
-# (BOARD_ROWS) are checked as they are built, with their own settings: the
-# 2560's vary ETH, which this sweep covers on every tier already; the Cortex-M
-# boards' turn a peripheral driver on or off (I2C, SPI, PWM, TONE, PULSE,
-# ONEWIRE, ADC, ETH_MAC), which links no bake object; but the optiga rows (the
-# 2560's two, mps2-an505's one) are a tier no board names, and that tier has no
-# PROVISION=1 image to check.
 platform-bake-no-link-check:
 	@own=$$($(MAKE) -s --no-print-directory platform-bake-srcs BOARD=atmega328p); \
 	 for p in $(PLATBAKE_SRC_DIR)/main.c $(PLATBAKE_SRC_DIR)/bake.c gen/block.c; do \
@@ -149,12 +106,6 @@ platform-bake-no-link-check:
 	 exit $$fail
 
 ## platform-bake-build-check: build the bake image for each bench board and hold it to its flash ceiling
-# The ceilings are the one place the image's size is written down: the size
-# measured when the check was added (text+data, as `avr-size` reports it) plus
-# 64 bytes, about 4%, room for a toolchain's drift but not for a feature. A
-# ceiling moves only with a commit that says why. SERIAL is a fixed, neutral
-# test value (0x00..0x0f), no device's. A missing toolchain fails the build, as
-# for the other firmware builds; nothing here skips.
 PLATBAKE_CHECK_SERIAL := 000102030405060708090a0b0c0d0e0f
 PLATBAKE_CEILING_atmega2560 := 1620
 PLATBAKE_CEILING_atmega328p := 1470

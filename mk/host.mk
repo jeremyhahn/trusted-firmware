@@ -2741,7 +2741,7 @@ $(HOST_DIR)/test_tier_soft_mutate: test/unit/test_tier_soft_mutate.c tools/tfwsi
 # peer the test opens on a port the kernel picks, killing its mutants (#163).
 $(HOST_DIR)/test_eth_socket_mutate: test/unit/test_eth_socket_mutate.c tools/tfwsim/eth_socket.c \
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ -Wl,--wrap=poll $(EXTRA_LDFLAGS)
 
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(and $(filter command line,$(origin CRYPTO)),$(filter atecc608a,$(CRYPTO))),-atecc608a)$(APP_SUFFIX)

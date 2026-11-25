@@ -7,5 +7,6 @@
   over MU5, and the shared memory carries the CRC-32 that imx-sm checks. Host
   tests pin the base, the interrupt, the pads and the mux. When the System
   Manager refuses either pad or the exchange fails, `tfw_hal_uart_init`
-  returns the routing failure and leaves the LPUART off, and the CRC-32 is
+  returns the routing failure and turns the LPUART's transmitter, receiver
+  and interrupt off (whatever a previous image left on), and the CRC-32 is
   pinned against imx-sm's `CRC_Crc32` known-answer vectors.

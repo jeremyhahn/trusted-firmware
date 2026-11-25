@@ -73,10 +73,15 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     }
     /* The pads first: the SM owns the IOMUX and routes LPUART7 to them only
      * when asked. The console starts only when both pads were granted; a
-     * refusal or a failed exchange comes back and the LPUART is left off, so
-     * a refused RX never leaves a TX-only console (console_pins.h). */
+     * refusal or a failed exchange turns the LPUART's transmitter, receiver
+     * and interrupt off (whatever a previous image left on) and the status
+     * comes back, so a refused RX never leaves a TX-only console
+     * (console_pins.h). */
     st = route_status(tfw_imx95_console_route());
     if (st != TFW_OK) {
+        tfw_cm_nvic_disable(TFW_IMX95_LPUART7_IRQ);
+        TFW_IMX95_LPUART_CTRL &= ~(TFW_IMX95_LPUART_CTRL_TE | TFW_IMX95_LPUART_CTRL_RE |
+                                   TFW_IMX95_LPUART_CTRL_RIE | TFW_IMX95_LPUART_CTRL_TIE);
         return st;
     }
     /* A reset first: BAUD is written only with the transmitter and receiver

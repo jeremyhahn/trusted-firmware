@@ -165,6 +165,7 @@ static void test_a_failed_pad_request_leaves_the_console_off(void)
         m->lpuart.ctrl   = 0x00AC0000u;
         m->nvic.iser[2] = 0x00000010u;
         TEST_ASSERT_EQUAL_MESSAGE(cases[i].want, tfw_hal_uart_init(115200u), "mapped status");
+        m = tfw_imx95_model_get();
         TEST_ASSERT_EQUAL_UINT32(1u, routes);
         TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.resets, "no LPUART reset");
         TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x00AC0000u,

@@ -80,6 +80,8 @@ static struct {
     uint8_t   stop_hangs;          /* STOP never completes */
     uint8_t   arlo;                /* arbitration lost at the first byte */
     uint8_t   berr;                /* bus error once the first read byte is in RXDR */
+    uint8_t   rxne_stuck;          /* RXNE never clears: a stuck flag */
+    unsigned  rxdr_reads;          /* every read of RXDR */
     char      log[256];
     unsigned  stray;
     unsigned  delays;
@@ -223,7 +225,11 @@ static void commit(void)
     switch (a) {
     case CR1:     on_cr1(v); break;
     case CR2:     on_cr2(v); break;
-    case TIMINGR: m.timingr = v; break;
+    case TIMINGR:
+        if ((m.cr1 & CR1_PE) == 0u) {   /* RM0481: TIMINGR is written with PE=0 */
+            m.timingr = v;
+        }
+        break;
     case ICR:     m.flags &= ~(v & 0x3F38u); break;
     case TXDR:    on_txdr((uint8_t)v); break;
     case ISR:
@@ -263,6 +269,11 @@ volatile uint32_t *tfw_h5_i2c_model_reg(uintptr_t a)
                  ((m.on_bus || m.held_busy) ? F_BUSY : 0u);
         break;
     case RXDR:
+        m.rxdr_reads++;
+        if (m.rxne_stuck) {
+            m.cell = 0xEEu;             /* RXNE stays set: nothing indexes rx */
+            break;
+        }
         /* A read: the byte, and the device sends the next one. */
         m.cell = m.rx[m.rx_at];
         say("R", 1, m.rx[m.rx_at]);
@@ -329,8 +340,37 @@ static void test_init_rates(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(399999uL));          /* never faster than asked */
     done();
     TEST_ASSERT_EQUAL_HEX32(0x60702729u, m.timingr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(1000000uL));         /* Fm+ ask: runs at 400K */
+    done();
+    TEST_ASSERT_EQUAL_HEX32(0x10A11626u, m.timingr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(UINT32_MAX));
+    done();
+    TEST_ASSERT_EQUAL_HEX32(0x10A11626u, m.timingr);
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(99999uL));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(0uL));
+}
+
+static void test_a_refused_rate_leaves_a_running_block_as_it_was(void)
+{
+    const uint8_t wr[] = { 0x01u };
+    uint32_t      gpio[10];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
+    done();
+    memcpy(gpio, m.gpio, sizeof gpio);
+    m.log[0] = '\0';
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_i2c_init(99999uL));
+    TEST_ASSERT_EQUAL_UINT(0u, m.pending);                          /* no register handed out */
+    done();
+    TEST_ASSERT_EQUAL_STRING("", m.log);                            /* PE never cleared */
+    TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);
+    TEST_ASSERT_EQUAL_HEX32(0x10A11626u, m.timingr);
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(gpio, m.gpio, 10);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);                   /* the bus still works */
 }
 
 static void test_write(void)
@@ -482,6 +522,46 @@ static void test_bus_error_with_a_byte_received_does_not_leak_it(void)
     TEST_ASSERT_EQUAL_HEX32(0u, m.flags & (F_BERR | F_RXNE));
 }
 
+static void test_a_stuck_rxne_after_an_error_is_drained_a_bounded_number_of_times(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    m.arlo       = 1u;
+    m.rxne_stuck = 1u;
+    m.flags      = F_RXNE;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(H5_I2C_POLL_US, m.rxdr_reads);   /* the drain stops at its bound */
+    m.arlo       = 0u;
+    m.rxne_stuck = 0u;
+    m.flags      = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));  /* the block still works */
+    done();
+}
+
+/* Flags left by an earlier event are cleared before START; ARLO ends a wait at once; BUSY waits 25 ms, no more. */
+static void test_a_stale_flag_or_an_error_ends_the_wait_at_once(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    m.flags = F_NACKF | F_ARLO;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);
+
+    setUp();
+    m.arlo = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(0u, m.delays);
+
+    setUp();
+    m.held_busy = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(H5_I2C_POLL_US, m.delays);
+}
+
 static void test_spi_and_onewire_refuse(void)
 {
     uint8_t b = 0u;
@@ -500,6 +580,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_init_routes_i2c4_and_loads_the_timing);
     RUN_TEST(test_init_rates);
+    RUN_TEST(test_a_refused_rate_leaves_a_running_block_as_it_was);
     RUN_TEST(test_write);
     RUN_TEST(test_write_then_read_is_a_repeated_start);
     RUN_TEST(test_read_only);
@@ -513,6 +594,8 @@ int main(void)
     RUN_TEST(test_stop_that_never_completes_resets_the_block);
     RUN_TEST(test_lost_arbitration_times_out_and_stops);
     RUN_TEST(test_bus_error_with_a_byte_received_does_not_leak_it);
+    RUN_TEST(test_a_stuck_rxne_after_an_error_is_drained_a_bounded_number_of_times);
+    RUN_TEST(test_a_stale_flag_or_an_error_ends_the_wait_at_once);
     RUN_TEST(test_spi_and_onewire_refuse);
     return UNITY_END();
 }

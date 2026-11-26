@@ -431,6 +431,74 @@ static void test_a_frame_waits_for_a_queued_diagnostic(void)
     TEST_ASSERT_EQUAL_UINT(16, uart_out_len);
 }
 
+/*
+ * hal_eth_wire.c tfw_h5_wire_say keeps a line only when all of it fits in
+ * the room left behind the lines still queued: a line that would overflow
+ * say_buf is dropped whole, and a later line that fits is still queued.
+ */
+static void test_a_line_with_no_room_behind_a_queued_one_is_dropped_whole(void)
+{
+    char first[16];
+    char wide[61];
+    char last[21];
+
+    memset(first, 'a', sizeof first - 1u);
+    first[sizeof first - 1u] = '\0';
+    memset(wide, 'b', sizeof wide - 1u);
+    wide[sizeof wide - 1u] = '\0';
+    memset(last, 'c', sizeof last - 1u);
+    last[sizeof last - 1u] = '\0';
+    TEST_ASSERT_TRUE(15u + 60u > TFW_H5_WIRE_SAY_BUF);
+    TEST_ASSERT_TRUE(15u + 20u <= TFW_H5_WIRE_SAY_BUF);
+
+    uart_room = 0u;
+    tfw_h5_wire_say(first);
+    tfw_h5_wire_say(wide);
+    tfw_h5_wire_say(last);
+    TEST_ASSERT_EQUAL_UINT(0, uart_out_len);
+
+    uart_room = ~0u;
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(35, uart_out_len);
+    TEST_ASSERT_EQUAL_MEMORY(first, uart_out, 15);
+    TEST_ASSERT_EQUAL_MEMORY(last, uart_out + 15, 20);
+    for (uint32_t k = 0u; k < uart_out_len; k++) {
+        TEST_ASSERT_NOT_EQUAL('b', uart_out[k]);
+    }
+}
+
+/* A TCP connect or disconnect while the UART is the current wire leaves the
+ * transport's UART frame alone: no reset is raised (#599). */
+static void test_a_tcp_peer_change_while_the_uart_is_current_keeps_its_frame(void)
+{
+    uint8_t b;
+
+    (void)tfw_link_take_reset();        /* setUp's drop may have raised it */
+    uart_feed("u");
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('u', b);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+    tfw_h5_wire_drop();
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+}
+
+/* A TCP peer dropped while TCP is the current wire raises the reset, and the
+ * transport reads it once. */
+static void test_a_tcp_peer_change_while_tcp_is_current_is_reported_once(void)
+{
+    uint8_t b;
+
+    (void)tfw_link_take_reset();
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(1, tcp_feed("t"));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('t', b);
+    tfw_h5_wire_drop();
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_take_reset());
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -449,5 +517,8 @@ int main(void)
     RUN_TEST(test_a_half_closed_peer_is_answered_then_closed);
     RUN_TEST(test_a_diagnostic_waits_for_the_frame_in_flight);
     RUN_TEST(test_a_frame_waits_for_a_queued_diagnostic);
+    RUN_TEST(test_a_line_with_no_room_behind_a_queued_one_is_dropped_whole);
+    RUN_TEST(test_a_tcp_peer_change_while_the_uart_is_current_keeps_its_frame);
+    RUN_TEST(test_a_tcp_peer_change_while_tcp_is_current_is_reported_once);
     return UNITY_END();
 }

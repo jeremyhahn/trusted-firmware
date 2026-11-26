@@ -11,7 +11,8 @@
  *   test_esp_eth_mutate_p4  the part's EMAC over RMII and the IP101 PHY on
  *                           the pins the board names, a static address
  *
- * and holds, in each: every failing call ending the start with
+ * and holds, in each: every failing call (a glue ESP-IDF cannot make
+ * among them) ending the start with
  * TFW_ERR_INTERNAL before the next is made, the default loop another made
  * first not counting as one, the MAC, PHY and driver configured as the arm
  * says, the event registered before the link starts, one start and no
@@ -46,7 +47,7 @@ static int                  eth_obj, glue_obj;
 /* What each call is made to do. */
 static esp_err_t init_err, loop_err, dhcpc_err, set_ip_err, install_err;
 static esp_err_t attach_err, register_err, start_err, get_ip_err;
-static int       netif_null, mac_null, phy_null;
+static int       netif_null, mac_null, phy_null, glue_null;
 static unsigned  str_fail_at;   /* 1-based; 0 never */
 
 /* What each call was given, and when. */
@@ -174,7 +175,7 @@ esp_eth_netif_glue_handle_t esp_eth_new_netif_glue(esp_eth_handle_t hdl)
 {
     glue_at  = ++seq;
     glue_eth = hdl;
-    return &glue_obj;
+    return glue_null ? NULL : &glue_obj;
 }
 
 esp_err_t esp_netif_attach(esp_netif_t *netif, esp_netif_iodriver_handle driver)
@@ -227,7 +228,7 @@ void setUp(void)
 {
     init_err = loop_err = dhcpc_err = set_ip_err = install_err = ESP_OK;
     attach_err = register_err = start_err = get_ip_err = ESP_OK;
-    netif_null = mac_null = phy_null = 0;
+    netif_null = mac_null = phy_null = glue_null = 0;
     str_fail_at = 0u;
     seq = init_at = loop_at = new_at = mac_at = phy_at = str_n = 0u;
     memset(str_at, 0, sizeof str_at);
@@ -387,6 +388,18 @@ static void test_a_failed_attach_register_or_start_stops(void)
     start_err = ESP_FAIL;
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_esp_eth_start());
     TEST_ASSERT_EQUAL_UINT(seq, start_at);
+}
+
+static void test_a_glue_esp_idf_cannot_make_stops_before_the_attach(void)
+{
+    glue_null = 1;
+    /* So the unfixed start cannot latch and spoil the tests after it. */
+    start_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_esp_eth_start());
+    TEST_ASSERT_EQUAL_UINT(0u, attach_at);
+    TEST_ASSERT_EQUAL_UINT(0u, register_at);
+    TEST_ASSERT_EQUAL_UINT(0u, start_at);
+    TEST_ASSERT_EQUAL_UINT(seq, glue_at);
 }
 
 static void test_a_failed_start_says_so_once(void)
@@ -557,6 +570,7 @@ int main(void)
     RUN_TEST(test_an_address_not_taken_stops);
     RUN_TEST(test_a_failed_driver_install_stops);
     RUN_TEST(test_a_failed_attach_register_or_start_stops);
+    RUN_TEST(test_a_glue_esp_idf_cannot_make_stops_before_the_attach);
     RUN_TEST(test_a_failed_start_says_so_once);
     RUN_TEST(test_the_start_then_the_handler);
     RUN_TEST(test_a_second_start_does_nothing);

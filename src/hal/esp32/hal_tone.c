@@ -10,6 +10,7 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 
+#include "tfw/config.h"
 #include "tfw/hal.h"
 
 #include "hal_esp32.h"
@@ -64,8 +65,13 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         }
     }
     /* ledc_channel_config leaves the old pin routed to the channel too; it was
-     * a pin the channel accepted, so a valid GPIO and the reset cannot fail. */
+     * a pin the channel accepted, so a valid GPIO and the reset cannot fail.
+     * The reset takes the old pin off any LEDC PWM channel too, so it is no
+     * longer PWM-driven (#48). */
     if (owned_gpio >= 0 && owned_gpio != p->gpio) {
+#if TFW_FEATURE_PWM
+        tfw_esp_pwm_release(owned_gpio);
+#endif
         (void)gpio_reset_pin((gpio_num_t)owned_gpio);
     }
     running    = 1u;

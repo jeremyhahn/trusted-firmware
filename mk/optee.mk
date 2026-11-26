@@ -33,7 +33,17 @@ OPTEE_OVERLAY  = $(OPTEE_TFW)/overlay
 # Buildroot's staging tree: the guest's C library and the libteec it staged.
 OPTEE_STAGING  = $(OPTEE_ROOT)/out-br/staging
 
-OPTEE_JOBS ?= $(shell nproc 2>/dev/null || echo 1)
+# The job count follows memory as well as CPUs: a cold cache builds Buildroot and the kernel, and the compiler is killed at the memory limit.
+OPTEE_JOB_MEM_KIB ?= 2097152
+OPTEE_CGROUP_MEM  ?= /sys/fs/cgroup/memory.max
+OPTEE_MEMINFO     ?= /proc/meminfo
+OPTEE_JOBS ?= $(shell c=$$(nproc 2>/dev/null || echo 1); \
+                b=$$(cat '$(OPTEE_CGROUP_MEM)' 2>/dev/null); case "$$b" in (''|*[!0-9]*) b= ;; esac; \
+                a=$$(awk '$$1 == "MemAvailable:" { print $$2 }' '$(OPTEE_MEMINFO)' 2>/dev/null); \
+                awk -v c="$$c" -v b="$$b" -v a="$$a" -v per='$(OPTEE_JOB_MEM_KIB)' 'BEGIN { \
+                  j = c + 0; kib = (b != "") ? b / 1024 : a; \
+                  if (kib != "") { n = int(kib / per); if (n < j) j = n } \
+                  if (j < 1) j = 1; print j }')
 
 # The guest mounts OPTEE_SHARE (virtio-9p, tag host) at this path from its fstab, and OPTEE_GUEST_CMD runs there.
 OPTEE_SHARE     ?=

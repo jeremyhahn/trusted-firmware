@@ -11,6 +11,8 @@ unset.
     M1  a secret-named registry is masked, its host:port and host too
     M2  a required secret that is unset fails with an ::error naming it
     M3  ci.yml reads no vars.*_REGISTRY, and each mask step reads the secret
+    M4  a host name is matched case-insensitively with a terminal dot ignored;
+        the masks keep the entry's own spelling
 
     python3 scripts/test_ci_mask_lan.py
 """
@@ -56,6 +58,24 @@ class MaskLan(unittest.TestCase):
         r = mask(SECRETS_CI_IMAGE_REGISTRY="")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, "")
+
+    def test_m4_host_case_and_terminal_dot(self):
+        cases = (
+            ({"DEVCACHE_GO": "http://cache.INTERNAL:3000/go"},  # lab-string-ok: suffix-rule fixture
+             {"http://cache.INTERNAL:3000/go", "cache.INTERNAL:3000", "cache.INTERNAL"}),  # lab-string-ok: suffix-rule fixture
+            ({"CI_IMAGE_REGISTRY": "registry.lan.:5000"}, {"registry.lan.:5000", "registry.lan."}),  # lab-string-ok: suffix-rule fixture
+            ({"RELEASE_REGISTRY": "Pkgs.Home.Arpa."}, {"Pkgs.Home.Arpa."}),  # lab-string-ok: suffix-rule fixture
+            ({"GOPROXY": "http://buildcache.:3000"},
+             {"http://buildcache.:3000", "buildcache.:3000", "buildcache."}),
+            ({"GOPROXY": "https://Proxy.Golang.Org.,DIRECT"}, set()),
+            ({"GITHUB_SERVER_URL": "https://github.com"}, set()),
+        )
+        for env, want in cases:
+            with self.subTest(env=env):
+                r = mask(**env)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = {l[len("::add-mask::"):] for l in r.stdout.splitlines() if l.startswith("::add-mask::")}
+                self.assertEqual(got, want)
 
     def test_m3_ci_reads_registry_from_secrets_only(self):
         with open(CI, encoding="utf-8") as f:

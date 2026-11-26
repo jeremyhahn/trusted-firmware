@@ -69,6 +69,28 @@ static void test_the_console_is_usart3(void)
     TEST_ASSERT_EQUAL_UINT32(60u, TFW_H5_CON_IRQ);
 }
 
+static void test_a_baud_out_of_range_writes_no_usart3_register(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(64000000u));   /* divisor 1, under 16 */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(900u));        /* divisor 71111, over 0xFFFF */
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(USART3_CR1));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(USART3_BRR));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(USART3_ICR));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(RCC_APB1LENR) & USART3EN);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_MODER(GPIOD));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_AFRH(GPIOD));
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(NVIC_ISER1_ADDR));
+}
+
+static void test_a_refused_baud_then_115200_initialises(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(0u));
+    init_115200();
+    TEST_ASSERT_EQUAL_HEX32(BRR_115200_AT_64MHZ, peek(USART3_BRR));
+}
+
 static void test_init_clocks_usart3_on_apb1l(void)
 {
     init_115200();
@@ -178,6 +200,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_console_is_usart3);
+    RUN_TEST(test_a_baud_out_of_range_writes_no_usart3_register);
+    RUN_TEST(test_a_refused_baud_then_115200_initialises);
     RUN_TEST(test_init_clocks_usart3_on_apb1l);
     RUN_TEST(test_init_programs_usart3s_brr_and_cr1);
     RUN_TEST(test_init_touches_no_usart1_register);

@@ -8,8 +8,9 @@
  *
  *   - a frame is read whole from the wire it started on (hold), and its
  *     reply goes back on that wire; events always go on the UART;
- *   - every command is admitted on either wire: the TCP wire is the bench
- *     host's whole wire, as the ESP32 port's is;
+ *   - a TCP peer is admitted only the Ethernet allow-list (link_eth.h,
+ *     tfw_link_admits() below); the UART carries every command, so device
+ *     control and provisioning stay on serial;
  *   - received bytes wait in a ring and the receive window is reopened only
  *     as the transport reads them, so the ring never overflows;
  *   - reply bytes are batched and handed to TCP when the reply is complete
@@ -29,6 +30,9 @@
 enum { WIRE_SERIAL = 0u, WIRE_TCP = 1u };
 
 #define RX_MASK (TFW_H5_WIRE_RX_RING - 1u)
+_Static_assert(TFW_H5_WIRE_RX_RING != 0u &&
+               (TFW_H5_WIRE_RX_RING & (TFW_H5_WIRE_RX_RING - 1u)) == 0u,
+               "TFW_H5_WIRE_RX_RING must be a power of two: RX_MASK wraps the ring indexes");
 
 static uint8_t  rx_ring[TFW_H5_WIRE_RX_RING];
 static uint16_t rx_head;

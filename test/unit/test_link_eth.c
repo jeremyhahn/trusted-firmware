@@ -23,6 +23,7 @@
 #include "tfw/link.h"
 #include "tfw/hal.h"
 #include "tfw/protocol.h"
+#include "link_eth.h"
 
 /* --------------------------------------------------------------- the socket */
 
@@ -549,6 +550,61 @@ static void test_a_reply_to_a_dropped_connection_is_abandoned_and_serial_carries
     TEST_ASSERT_EQUAL_HEX8(0x62u, tfw_frame_seq(&rxf));
 }
 
+static void test_a_peer_that_reads_nothing_is_closed_after_the_stall_bound_and_serial_carries_on(void)
+{
+    uint8_t ew[TFW_MAX_FRAME];
+
+    connect_up();
+    eth.q_cap = 4u;                       /* connected, but it takes no more */
+    eth_feed(ew, request(ew, 0x61u, TFW_CMD_CAPS, 0, 0u));
+    poll_n(4u);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.sends);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.closes);
+
+    tfw_mock_advance(TFW_LINK_ETH_TX_STALL_MS - 1u);
+    poll_n(2u);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.closes);   /* still within the bound */
+
+    tfw_mock_advance(1u);
+    tfw_transport_poll(&t);
+    TEST_ASSERT_EQUAL_UINT(1u, eth.closes);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.sends);    /* no half reply on the wire */
+
+    TEST_ASSERT_TRUE(over_serial(0x62u, TFW_CMD_PING, 0, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x62u, tfw_frame_seq(&rxf));
+
+    /* Redialled after the 1 s backoff, as after any drop from UP. */
+    eth.starts = 0u;
+    tfw_mock_advance(999u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, eth.starts);
+    tfw_mock_advance(1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+}
+
+static void test_a_slow_peer_that_takes_a_byte_within_each_stall_bound_is_kept(void)
+{
+    uint8_t  ew[TFW_MAX_FRAME];
+    unsigned i;
+
+    connect_up();
+    eth.q_cap = 4u;
+    eth_feed(ew, request(ew, 0x63u, TFW_CMD_CAPS, 0, 0u));
+    poll_n(4u);
+    /* Room for a few more bytes just inside each bound: the clock restarts on
+     * every byte taken, so the total far past the bound never closes it. */
+    for (i = 0u; i < 64u && eth.sends == 0u; i++) {
+        tfw_mock_advance(TFW_LINK_ETH_TX_STALL_MS - 1u);
+        eth.q_cap = (uint16_t)(eth.q_cap + 4u);
+        tfw_transport_poll(&t);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, eth.closes);
+    TEST_ASSERT_EQUAL_UINT(1u, eth.sends);
+    TEST_ASSERT_TRUE(decode(eth.out, eth.out_len));
+    TEST_ASSERT_EQUAL_HEX8(0x63u, tfw_frame_seq(&rxf));
+}
+
 /* Events are for the bench host on serial, even when the last frame came in
  * over Ethernet. */
 static void test_events_go_to_serial_only(void)
@@ -689,6 +745,8 @@ int main(void)
     RUN_TEST(test_a_frame_in_progress_holds_its_wire_and_the_other_waits);
     RUN_TEST(test_frames_waiting_on_both_wires_are_both_answered);
     RUN_TEST(test_a_reply_to_a_dropped_connection_is_abandoned_and_serial_carries_on);
+    RUN_TEST(test_a_peer_that_reads_nothing_is_closed_after_the_stall_bound_and_serial_carries_on);
+    RUN_TEST(test_a_slow_peer_that_takes_a_byte_within_each_stall_bound_is_kept);
     RUN_TEST(test_events_go_to_serial_only);
     RUN_TEST(test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else);
     RUN_TEST(test_serial_admits_every_command);

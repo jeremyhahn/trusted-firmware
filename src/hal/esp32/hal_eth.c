@@ -121,6 +121,7 @@ static tfw_status_t bring_up(void)
     esp_netif_t            *netif;
     esp_eth_mac_t          *mac;
     esp_eth_phy_t          *phy;
+    esp_eth_netif_glue_handle_t glue;
 
     if (esp_netif_init() != ESP_OK) {
         return TFW_ERR_INTERNAL;
@@ -149,7 +150,11 @@ static tfw_status_t bring_up(void)
             return TFW_ERR_INTERNAL;
         }
     }
-    if (esp_netif_attach(netif, esp_eth_new_netif_glue(eth)) != ESP_OK ||
+    /* esp_eth_new_netif_glue returns NULL when it cannot allocate, and
+     * esp_netif_attach reads its driver through the handle unchecked. */
+    glue = esp_eth_new_netif_glue(eth);
+    if (glue == NULL ||
+        esp_netif_attach(netif, glue) != ESP_OK ||
         esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, on_got_ip, netif) != ESP_OK ||
         esp_eth_start(eth) != ESP_OK) {
         return TFW_ERR_INTERNAL;

@@ -44,7 +44,7 @@ HELD_ESP_IDF="6.x is a major-version port of the ESP32-P4 work (#48, the #16 ADR
 # (go-quicraft 0cf97cd): the tools are static (CGO_ENABLED=0) and copied into
 # the Debian toolchain stage. GO_VERSION above and this tag must name the same
 # Go. Pinned by index digest.
-GO_IMAGE=golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
+GO_IMAGE=golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
 # --- CI tools (devops.md §8) -------------------------------------------------
 # The fleet template's pins (ci-template v1.18, go-quicraft 0cf97cd), built
@@ -61,7 +61,7 @@ GOSEC_VERSION=v2.30.0
 # gosec is built against this x/tools: an x/tools older than v0.52.0 cannot read
 # the export data (version 5) Go 1.27 writes, so every import fails to type-check.
 # gosec v2.30.0's go.mod names v0.52.0 itself; the pin keeps the floor explicit.
-XTOOLS_VERSION=v0.52.0
+XTOOLS_VERSION=v0.53.0
 GOVULNCHECK_VERSION=v1.8.0
 HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one comes from the Company Agent's versions.conf (devops.md §9)"
 
@@ -73,6 +73,6 @@ TRIVY_SHA256_LINUX_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d5835
 
 # gh, the GitHub CLI: a release archive, checked against these digests
 # (upstream's gh_<version>_checksums.txt) before it is unpacked.
-GH_VERSION=v2.103.3
-GH_SHA256_LINUX_AMD64=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
-GH_SHA256_LINUX_ARM64=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63
+GH_VERSION=v2.105.0
+GH_SHA256_LINUX_AMD64=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
+GH_SHA256_LINUX_ARM64=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02

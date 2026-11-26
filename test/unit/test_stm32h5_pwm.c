@@ -274,6 +274,33 @@ void test_a_wire_write_of_duty_0_stops_a_running_channel(void)
     TEST_ASSERT_EQUAL_UINT32(60u, TFW_H5_TIM_CCR(2u));
 }
 
+/* A stop takes the channel's CCR preload (OC1PE) off, so the write that
+ * restarts it loads its duty at once instead of into the preload register
+ * while the pin runs at the duty from before the stop (RM0481). */
+void test_a_wire_restart_after_stop_loads_its_duty_at_once(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D6, 255u));
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D5, 80u));
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D6, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x00006860u, TFW_H5_TIM_CCMR1);
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D6, 10u));
+    TEST_ASSERT_EQUAL_UINT32(10u, TFW_H5_TIM_CCR(1u));
+    TEST_ASSERT_EQUAL_HEX32(0x00006868u, TFW_H5_TIM_CCMR1);
+    TEST_ASSERT_EQUAL_HEX32(0x0011u, TFW_H5_TIM_CCER);
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(10u));
+}
+
+void test_a_stop_takes_the_preload_off_in_ccmr2(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(3u, 255u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(4u, 40u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_stop(3u));
+    TEST_ASSERT_EQUAL_HEX32(0x00006860u, TFW_H5_TIM_CCMR2);
+    TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(TIM5_CCMR1_ADDR));
+    TEST_ASSERT_EQUAL_HEX32(0x1000u, TFW_H5_TIM_CCER);
+    TEST_ASSERT_EQUAL_UINT32(40u, TFW_H5_TIM_CCR(4u));
+}
+
 static const tfw_pwmref_t bad_refs[] = {
     { .unit = 4u, .channel = 1u, .port = 7u, .bit = 10u },
     { .unit = TFW_H5_PWM_UNIT, .channel = 0u, .port = 7u, .bit = 10u },
@@ -374,6 +401,8 @@ int main(void)
     RUN_TEST(test_stop_clears_only_its_channel);
     RUN_TEST(test_a_wire_write_of_duty_0_leaves_the_pin_low);
     RUN_TEST(test_a_wire_write_of_duty_0_stops_a_running_channel);
+    RUN_TEST(test_a_wire_restart_after_stop_loads_its_duty_at_once);
+    RUN_TEST(test_a_stop_takes_the_preload_off_in_ccmr2);
     RUN_TEST(test_a_ref_outside_tim5_and_the_banks_is_refused_untouched);
     RUN_TEST(test_each_wire_write_gives_the_pin_back_to_the_timer);
     RUN_TEST(test_a_bad_ref_is_refused_untouched);

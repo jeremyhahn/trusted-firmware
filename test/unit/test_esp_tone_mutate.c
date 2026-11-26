@@ -22,7 +22,8 @@
  *
  * It also holds that a tone started on another pin, running or stopped
  * before, resets the pin the channel drove, once, so one tone sounds on one
- * pin, and that a retune on the same pin resets nothing (#48).
+ * pin, and forgets that pin as PWM-driven first, and that a retune on the
+ * same pin resets nothing (#48).
  *
  * The unit's running flag is static, so the tests run in the order main()
  * lists and each leaves no tone running.
@@ -69,6 +70,17 @@ esp_err_t ledc_stop(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t idl
     return stop_err;
 }
 
+/* hal_pwm.c is not linked here: this stands in for its release, which the
+ * start calls before it resets the old pin, as MODE does (#48). */
+static unsigned n_release;
+static int      release_seen;
+
+void tfw_esp_pwm_release(int gpio)
+{
+    n_release++;
+    release_seen = gpio;
+}
+
 esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
 {
     n_reset++;
@@ -83,6 +95,8 @@ void setUp(void)
     n_timer = n_chan = n_stop = 0u;
     n_reset = 0u;
     reset_seen = -1;
+    n_release = 0u;
+    release_seen = -1;
     memset(&timer_seen, 0x5A, sizeof timer_seen);
     memset(&chan_seen, 0x5A, sizeof chan_seen);
     stop_mode = (ledc_mode_t)0x5A;
@@ -192,6 +206,7 @@ static void test_a_refused_channel_on_another_pin_keeps_the_running_tone(void)
     TEST_ASSERT_EQUAL_UINT32(440u, timer_seen.freq_hz);
     TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL_UINT(0u, n_reset);                /* the running pin is not taken back */
+    TEST_ASSERT_EQUAL_UINT(0u, n_release);
     chan_err = ESP_OK;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
     assert_stopped_once();
@@ -305,6 +320,20 @@ static void test_a_tone_after_notone_on_another_pin_takes_the_stopped_pin_back(v
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
 }
 
+/* The old pin's reset makes it a plain input, so it must not stay marked
+ * PWM-driven, or a capture on it would loop the output back (#48). */
+static void test_a_tone_on_another_pin_forgets_the_old_pin_as_pwm_driven(void)
+{
+    const tfw_pinref_t a = { 7u };
+    const tfw_pinref_t b = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&b, 880u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_release);
+    TEST_ASSERT_EQUAL_INT(7, release_seen);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+}
+
 static void test_a_retune_on_the_same_pin_resets_nothing(void)
 {
     const tfw_pinref_t a = { 7u };
@@ -312,6 +341,7 @@ static void test_a_retune_on_the_same_pin_resets_nothing(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 880u));
     TEST_ASSERT_EQUAL_UINT(0u, n_reset);
+    TEST_ASSERT_EQUAL_UINT(0u, n_release);
     TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
     assert_stopped_once();
@@ -333,6 +363,7 @@ int main(void)
     RUN_TEST(test_a_failed_driver_stop_is_reported);
     RUN_TEST(test_a_tone_on_another_pin_takes_the_old_pin_off_the_channel);
     RUN_TEST(test_a_tone_after_notone_on_another_pin_takes_the_stopped_pin_back);
+    RUN_TEST(test_a_tone_on_another_pin_forgets_the_old_pin_as_pwm_driven);
     RUN_TEST(test_a_retune_on_the_same_pin_resets_nothing);
     return UNITY_END();
 }

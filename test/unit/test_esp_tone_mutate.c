@@ -166,6 +166,37 @@ static void test_a_refused_start_keeps_the_running_tone_and_its_pin(void)
     assert_stopped_once();
 }
 
+static void test_a_refused_channel_keeps_the_running_tones_pitch(void)
+{
+    const tfw_pinref_t p4 = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p4, 440u));
+    chan_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_tone_start(&p4, 880u));
+    TEST_ASSERT_EQUAL_UINT32(440u, timer_seen.freq_hz); /* the shared timer is put back */
+    TEST_ASSERT_EQUAL_UINT(3u, n_timer);
+    TEST_ASSERT_EQUAL_INT(4, tfw_esp_tone_gpio());
+    chan_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    assert_stopped_once();
+}
+
+static void test_a_refused_channel_on_another_pin_keeps_the_running_tone(void)
+{
+    const tfw_pinref_t p7 = { 7u };
+    const tfw_pinref_t p4 = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p7, 440u));
+    chan_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_tone_start(&p4, 880u));
+    TEST_ASSERT_EQUAL_UINT32(440u, timer_seen.freq_hz);
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
+    TEST_ASSERT_EQUAL_UINT(0u, n_reset);                /* the running pin is not taken back */
+    chan_err = ESP_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    assert_stopped_once();
+}
+
 static void test_a_tone_is_the_last_timer_and_channel_at_half_duty(void)
 {
     const tfw_pinref_t p = { 38u };
@@ -294,6 +325,8 @@ int main(void)
     RUN_TEST(test_a_frequency_the_timer_refuses_is_out_of_range);
     RUN_TEST(test_a_channel_it_cannot_configure_is_internal);
     RUN_TEST(test_a_refused_start_keeps_the_running_tone_and_its_pin);
+    RUN_TEST(test_a_refused_channel_keeps_the_running_tones_pitch);
+    RUN_TEST(test_a_refused_channel_on_another_pin_keeps_the_running_tone);
     RUN_TEST(test_a_tone_is_the_last_timer_and_channel_at_half_duty);
     RUN_TEST(test_the_frequency_is_passed_whole);
     RUN_TEST(test_0_hz_stops_a_running_tone);

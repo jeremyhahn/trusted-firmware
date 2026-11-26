@@ -21,7 +21,7 @@
  *     again only after an init; a failed bus unsupported, a failed device
  *     internal; a transfer as cs low, the bytes, cs high, even when it fails;
  *     cs made an output first, a CS the driver refuses BAD_PIN with nothing
- *     sent;
+ *     sent; a CS taken off LEDC released from the tone and the PWM;
  *   - 1-Wire: each reset, bit written and bit read as its exact sequence of
  *     drive, release, delay, sample and interrupt mask; bytes LSB first.
  *
@@ -252,6 +252,25 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transactio
     return spi_xfer_err;
 }
 
+/* ---------------------------------------------------------------- tone + pwm */
+
+/* Not logged to the trace: the exact-trace tests stay as they are. */
+static unsigned n_tone_rel, n_pwm_rel, pwm_rel_at;
+static int      tone_rel_seen, pwm_rel_seen;
+
+void tfw_esp_tone_release(int gpio)
+{
+    n_tone_rel++;
+    tone_rel_seen = gpio;
+}
+
+void tfw_esp_pwm_release(int gpio)
+{
+    n_pwm_rel++;
+    pwm_rel_seen = gpio;
+    pwm_rel_at   = ntrace;
+}
+
 /* -------------------------------------------------------------------- tests */
 
 void setUp(void)
@@ -267,6 +286,8 @@ void setUp(void)
     memset(&spi_dev_cfg, 0x5A, sizeof spi_dev_cfg);
     memset(&spi_t, 0x5A, sizeof spi_t);
     wr_seen = NULL;
+    n_tone_rel = n_pwm_rel = pwm_rel_at = 0u;
+    tone_rel_seen = pwm_rel_seen = -1;
     rd_seen = NULL;
 }
 
@@ -552,10 +573,27 @@ static void test_an_spi_transfer_makes_its_cs_an_output_before_asserting_it(void
     assert_spi_xfer(16u, wbuf, rbuf, (long)(uintptr_t)SPIDEV(1));
 }
 
+/* The output enable takes the pad off LEDC, as MODE's reset does: the pin is
+ * no longer the tone's or PWM-driven, after the accepted direction and
+ * before CS is asserted (#48). */
+static void test_an_spi_cs_on_a_ledc_pin_is_taken_off_the_tone_and_pwm(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 2u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(17, tone_rel_seen);
+    TEST_ASSERT_EQUAL_UINT(1u, n_pwm_rel);
+    TEST_ASSERT_EQUAL_INT(17, pwm_rel_seen);
+    TEST_ASSERT_GREATER_THAN_UINT(0u, pwm_rel_at);
+    TEST_ASSERT_EQUAL_INT(E_DIR, trace[pwm_rel_at - 1u].op);
+    TEST_ASSERT_EQUAL_INT(E_SET, trace[pwm_rel_at].op);
+}
+
 static void test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent(void)
 {
     dir_err = ESP_ERR_INVALID_ARG;
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 2u));
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+    TEST_ASSERT_EQUAL_UINT(0u, n_pwm_rel);
     TEST_ASSERT_EQUAL_UINT(0u, count_op(E_SPI_XFER));
     TEST_ASSERT_EQUAL_UINT(0u, count_op(E_SET));
 }
@@ -818,6 +856,7 @@ int main(void)
     RUN_TEST(test_the_spi_device_is_made_once_at_the_defaults);
     RUN_TEST(test_a_failed_spi_transfer_is_internal_with_cs_released);
     RUN_TEST(test_an_spi_transfer_makes_its_cs_an_output_before_asserting_it);
+    RUN_TEST(test_an_spi_cs_on_a_ledc_pin_is_taken_off_the_tone_and_pwm);
     RUN_TEST(test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent);
     RUN_TEST(test_spi_settings_out_of_range_are_refused_and_kept);
     RUN_TEST(test_an_spi_init_remakes_the_device_at_its_settings);

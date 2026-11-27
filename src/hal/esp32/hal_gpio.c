@@ -6,6 +6,9 @@
  *
  * An output is configured INPUT_OUTPUT so that a read of it returns the level
  * on the pin, which is what a read of an AVR output returns too.
+ *
+ * MODE OUTPUT records the pin, so the RMT capture loops it back rather than
+ * silencing its output (#48).
  */
 
 #include "driver/gpio.h"
@@ -22,6 +25,9 @@ static int gpio_pin_valid(gpio_num_t n)
 {
     return n < GPIO_NUM_MAX && GPIO_IS_VALID_GPIO(n);
 }
+
+/* The pins MODE made an output, bit n for GPIO n (tfw_esp_gpio_drives). */
+static uint64_t gpio_output;
 
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
@@ -54,7 +60,21 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
         err |= gpio_set_pull_mode(n, mode == TFW_PIN_INPUT_PULLUP
                                      ? GPIO_PULLUP_ONLY : GPIO_FLOATING);
     }
+    /* gpio_pin_valid keeps n below 64; an input or a failed call clears. */
+    if (mode == TFW_PIN_OUTPUT && err == ESP_OK) {
+        gpio_output |= 1ULL << (unsigned)n;
+    } else {
+        gpio_output &= ~(1ULL << (unsigned)n);
+    }
     return err == ESP_OK ? TFW_OK : TFW_ERR_INTERNAL;
+}
+
+int tfw_esp_gpio_drives(int gpio)
+{
+    if (gpio < 0 || gpio > 63) {
+        return 0;
+    }
+    return (gpio_output >> (unsigned)gpio) & 1ULL ? 1 : 0;
 }
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)

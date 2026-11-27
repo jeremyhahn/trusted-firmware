@@ -53,6 +53,8 @@ void tfw_esp_tone_release(int gpio);
 int tfw_esp_pwm_drives(int gpio);
 /* Forgets gpio as PWM-driven: hal_gpio.c's MODE reconfigures the pin. */
 void tfw_esp_pwm_release(int gpio);
+/* 1 when MODE made gpio an output (hal_gpio.c). */
+int tfw_esp_gpio_drives(int gpio);
 
 /* The partitions this HAL owns, by label. Each board's partitions.csv names
  * them; a table without one makes the capability behind it refuse. */

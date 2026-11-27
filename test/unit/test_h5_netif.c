@@ -1210,6 +1210,62 @@ static void test_a_running_link_with_a_latched_low_first_read_stays_up(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(bmsr_latch_running));
 }
 
+/* --- a failed bring-up is tried again RNG_RETRY_MS on (#599) ------------- */
+
+/* A missing block or a failed RNG draw holds bring-up for RNG_RETRY_MS
+ * (1000 ms): not tried again on the next pass, and not a poll period late. */
+static void retry_after_missing_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x44u };
+    tfw_ms_t t0;
+
+    eeprom_fails = 1u;
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* the load fails */
+    TEST_ASSERT_NULL(netif_default);
+    eeprom_fails = 0u;
+    put_block(0u, mac);
+    now_ms = t0 + 999u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NULL(netif_default);                    /* no sooner */
+    now_ms = t0 + 1000u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NOT_NULL(netif_default);                /* not a period late */
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(mac, netif_default->hwaddr, 6);
+}
+
+static void test_a_missing_block_is_read_again_rng_retry_ms_after_the_failed_load(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(retry_after_missing_block));
+}
+
+static void retry_after_failed_rng(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x45u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* the draw fails */
+    TEST_ASSERT_NULL(netif_default);
+    good_seed();
+    now_ms = t0 + 999u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NULL(netif_default);                    /* no sooner */
+    now_ms = t0 + 1000u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NOT_NULL(netif_default);                /* not a period late */
+}
+
+static void test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(retry_after_failed_rng));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1359,6 +1415,8 @@ int main(void)
     RUN_TEST(test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll);
     RUN_TEST(test_a_link_coming_up_is_taken_from_the_second_bmsr_read);
     RUN_TEST(test_a_running_link_with_a_latched_low_first_read_stays_up);
+    RUN_TEST(test_a_missing_block_is_read_again_rng_retry_ms_after_the_failed_load);
+    RUN_TEST(test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

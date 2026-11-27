@@ -365,6 +365,59 @@ static void test_h5_provider_sign_and_pubkey_answer_from_the_soft_tier(void)
     TEST_ASSERT_EQUAL_UINT(4, soft_seen.calls);
 }
 
+/* Two distinct statuses per call, so a provider returning a constant fails. */
+static void test_h5_provider_hmac_counter_and_random_pass_their_arguments_through(void)
+{
+    static const tfw_status_t sts[2] = {TFW_ERR_CRYPTO, TFW_OK};
+    const uint8_t data[5] = {1, 2, 3, 4, 5};
+    uint8_t       mac[32], rnd[16], pat[32];
+    uint32_t      ctr;
+
+    memset(pat, SOFT_PAT, sizeof pat);
+    for (unsigned i = 0; i < 2u; i++) {
+        soft_st = sts[i];
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        memset(mac, 0, sizeof mac);
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_hmac((uint8_t)(3u + i), data, (uint16_t)(sizeof data - i), mac));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_UINT8(3u + i, soft_seen.slot);
+        TEST_ASSERT_EQUAL_PTR(data, soft_seen.data);
+        TEST_ASSERT_EQUAL_UINT16(sizeof data - i, soft_seen.len);
+        TEST_ASSERT_EQUAL_PTR(mac, soft_seen.out);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, mac, sizeof mac);
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        ctr = 0;
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_counter((uint8_t)(2u + i), &ctr));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_UINT8(2u + i, soft_seen.idx);
+        TEST_ASSERT_EQUAL_PTR(&ctr, soft_seen.out32);
+        TEST_ASSERT_EQUAL_HEX32(0x5C5C5C5Cu, ctr);
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        memset(rnd, 0, sizeof rnd);
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_random(rnd, (uint8_t)(sizeof rnd - i)));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_PTR(rnd, soft_seen.out);
+        TEST_ASSERT_EQUAL_UINT16(sizeof rnd - i, soft_seen.len);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, rnd, sizeof rnd - i);
+    }
+}
+
+static void test_h5_provider_tier_and_algorithms_are_the_soft_tiers(void)
+{
+    soft_tier_value       = TFW_CRYPTO_SOFTWARE;
+    soft_algorithms_value = 0x0003u;
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
+    TEST_ASSERT_EQUAL_HEX16(0x0003u, tfw_crypto_algorithms());
+
+    soft_tier_value       = TFW_CRYPTO_NONE;
+    soft_algorithms_value = 0x0140u;
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_NONE, tfw_crypto_tier());
+    TEST_ASSERT_EQUAL_HEX16(0x0140u, tfw_crypto_algorithms());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -375,5 +428,7 @@ int main(void)
     RUN_TEST(test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them);
     RUN_TEST(test_h5_provider_verify_image_returns_the_soft_tiers_refusal);
     RUN_TEST(test_h5_provider_sign_and_pubkey_answer_from_the_soft_tier);
+    RUN_TEST(test_h5_provider_hmac_counter_and_random_pass_their_arguments_through);
+    RUN_TEST(test_h5_provider_tier_and_algorithms_are_the_soft_tiers);
     return UNITY_END();
 }

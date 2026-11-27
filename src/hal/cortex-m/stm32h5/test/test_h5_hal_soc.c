@@ -448,6 +448,36 @@ static void test_arm_reloads_only_once_pvu_clears_after_rvu(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
 }
 
+static void test_arm_reloads_only_once_wvu_clears_after_pvu_and_rvu(void)
+{
+    sr_late_bits  = 0x4u;   /* WVU */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 2u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+static void test_arm_reloads_only_once_ewu_clears_after_the_rest(void)
+{
+    sr_late_bits  = 0x8u;   /* EWU */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 3u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
 /* The mark is in place before the watchdog can run, so a reset the new
  * watchdog causes is read as one. */
 static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
@@ -543,6 +573,8 @@ int main(void)
     RUN_TEST(test_arm_times_four_seconds_of_the_32_khz_lsi);
     RUN_TEST(test_arm_reloads_only_once_rvu_clears_after_pvu);
     RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
+    RUN_TEST(test_arm_reloads_only_once_wvu_clears_after_pvu_and_rvu);
+    RUN_TEST(test_arm_reloads_only_once_ewu_clears_after_the_rest);
     RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
     RUN_TEST(test_arm_over_an_inherited_watchdog_and_mark_writes_its_own);
     RUN_TEST(test_pet_writes_reload_only);

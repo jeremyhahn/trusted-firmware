@@ -10,7 +10,9 @@
  * configuration; a later init with a new one tears the driver down so the
  * next transfer rebuilds it. An SPI transfer makes its caller's CS an output
  * itself, as the AVR transfer does, and takes the pad off LEDC, so the pin is
- * no longer the tone's or PWM-driven, as MODE does.
+ * no longer the tone's or PWM-driven, as MODE does. The bus init takes the
+ * MISO pad for input, so it ends MODE's output record there; MOSI, SCK and CS
+ * stay outputs the SPI or the transfer drives, so a capture loops them back.
  *
  * 1-Wire is bit-banged on an open-drain GPIO with tfw_hal_delay_us -- the
  * one place a busy-wait is the protocol, exactly as on the AVR. The slots are
@@ -156,6 +158,10 @@ static tfw_status_t spi_up(void)
         if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_DISABLED) != ESP_OK) {
             return TFW_ERR_UNSUPPORTED;
         }
+        /* The bus init takes the MISO pad for the SPI input, so it is no
+         * longer a MODE output a capture loops back (#48, Codex P1). The bus
+         * is never torn down, so this runs once. */
+        tfw_esp_gpio_release(TFW_ESP_SPI_MISO_GPIO);
         spi_bus_up = 1u;
     }
     if (spi_dev == NULL) {

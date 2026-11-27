@@ -239,6 +239,36 @@ static void test_rx_after_a_failed_init_reads_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
 }
 
+static void test_a_refused_baud_after_a_good_init_keeps_the_console(void)
+{
+    static const uint8_t line[] = { 0x5Au };
+    uint8_t              b      = 0u;
+
+    /* A baud the LPUART cannot make is refused before anything is touched:
+     * the running console stays at its old configuration and keeps working. */
+    uart_up();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(0u));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, routes);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
+    TEST_ASSERT_EQUAL_HEX32(0x19000008u, m->lpuart.baud);
+    TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]); /* 68: bit 4 */
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x7Eu));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+    tfw_imx95_model_uart_interrupt();
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0x7Eu, m->lpuart.tx[0]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+
+    tfw_imx95_model_line_rx(line, sizeof line);
+    tfw_imx95_model_uart_interrupt();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+}
+
 /* A transmission starts by enabling the empty-register interrupt, inside the
  * critical section, not by writing DATA. */
 static void test_tx_queues_and_raises_tie_masked(void)
@@ -526,6 +556,7 @@ int main(void)
     RUN_TEST(test_tx_after_a_failed_init_drops_and_touches_nothing);
     RUN_TEST(test_a_failed_reinit_after_a_good_init_turns_tx_off);
     RUN_TEST(test_rx_after_a_failed_init_reads_nothing);
+    RUN_TEST(test_a_refused_baud_after_a_good_init_keeps_the_console);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);

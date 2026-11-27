@@ -374,8 +374,12 @@
  * A command the linked application defines, serial only (not on the Ethernet
  * allow-list). Request [app_op:1][args:0..63]: the application's sub-op and
  * its arguments, handed to tfw_app_command (include/tfw/app.h). The reply is
- * the application's own bytes. An image without an application, or with one
- * that defines no commands, answers TFW_ERR_UNKNOWN_CMD.
+ * the application's own bytes. An empty request answers TFW_ERR_BAD_ARGC, and
+ * any request while the application is not RUNNING TFW_ERR_BAD_STATE. An
+ * app_op the application does not define answers TFW_ERR_UNSUPPORTED with an
+ * empty reply, and so does every app_op when it defines no commands (the
+ * stand-in src/core/app_cmd_none.c). Only an image built without an APP_DIR
+ * answers TFW_ERR_UNKNOWN_CMD.
  * docs/application-sdk/adr-application-wire-commands.md. */
 #define TFW_APP_CMD_MAX_ARGS 63u
 

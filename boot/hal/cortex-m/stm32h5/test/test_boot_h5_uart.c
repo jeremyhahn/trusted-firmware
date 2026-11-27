@@ -248,6 +248,31 @@ static void test_init_over_a_live_usart_clears_its_interrupt_enables(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1 & (TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE));
 }
 
+/* Init writes the divisor of the baud it is given, not a fixed one: 9600
+ * baud at 64 MHz rounds to 6667 (0x1A0B), and a second init at 115200
+ * replaces it with 556 (0x22C). Literals, so a wrong baud cannot cancel
+ * out against a recomputed divisor. */
+static void test_init_writes_the_divisor_of_the_baud_it_is_given(void)
+{
+    tfw_boot_uart_init(9600u);
+    TEST_ASSERT_EQUAL_HEX32(0x1A0Bu, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(0x22Cu, TFW_H5_USART_BRR);
+}
+
+/* Tx is gated on TE alone: a receive-only USART (UE and RE set, TE clear)
+ * with the idle TX flags set stores nothing, and tx leaves CR1 alone. */
+static void test_tx_stores_nothing_with_ue_and_re_set_but_te_clear(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE, TFW_H5_USART_CR1);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -265,5 +290,7 @@ int main(void)
     RUN_TEST(test_after_off_a_stray_tx_stores_nothing);
     RUN_TEST(test_init_over_a_live_usart_writes_its_own_divisor);
     RUN_TEST(test_init_over_a_live_usart_clears_its_interrupt_enables);
+    RUN_TEST(test_init_writes_the_divisor_of_the_baud_it_is_given);
+    RUN_TEST(test_tx_stores_nothing_with_ue_and_re_set_but_te_clear);
     return UNITY_END();
 }

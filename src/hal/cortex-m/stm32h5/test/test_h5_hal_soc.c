@@ -478,6 +478,42 @@ static void test_arm_reloads_only_once_ewu_clears_after_the_rest(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
 }
 
+/* IWDG_SR also carries status flags outside the four busy bits: ONF
+ * (bit 8, set while the watchdog runs) and EWIF (bit 14, the early-wakeup
+ * flag).  The arm waits only for the busy bits, so a set ONF or EWIF does
+ * not hold back the RELOAD key, and SR (never written) keeps the flag. */
+static void test_arm_reload_does_not_wait_for_onf(void)
+{
+    sr_late_bits  = 0x100u;   /* ONF */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(0x100u, reg(ADDR_SR));
+}
+
+static void test_arm_reload_does_not_wait_for_ewif(void)
+{
+    sr_late_bits  = 0x4000u;   /* EWIF */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(0x4000u, reg(ADDR_SR));
+}
+
 /* The mark is in place before the watchdog can run, so a reset the new
  * watchdog causes is read as one. */
 static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
@@ -575,6 +611,8 @@ int main(void)
     RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
     RUN_TEST(test_arm_reloads_only_once_wvu_clears_after_pvu_and_rvu);
     RUN_TEST(test_arm_reloads_only_once_ewu_clears_after_the_rest);
+    RUN_TEST(test_arm_reload_does_not_wait_for_onf);
+    RUN_TEST(test_arm_reload_does_not_wait_for_ewif);
     RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
     RUN_TEST(test_arm_over_an_inherited_watchdog_and_mark_writes_its_own);
     RUN_TEST(test_pet_writes_reload_only);

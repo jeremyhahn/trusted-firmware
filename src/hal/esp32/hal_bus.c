@@ -8,7 +8,8 @@
  * first transfer, not at init: main() inits every bus on every board, and an
  * emulator that models neither peripheral must still boot. Init records the
  * configuration; a later init with a new one tears the driver down so the
- * next transfer rebuilds it.
+ * next transfer rebuilds it. An SPI transfer makes its caller's CS an output
+ * itself, as the AVR transfer does.
  *
  * 1-Wire is bit-banged on an open-drain GPIO with tfw_hal_delay_us -- the
  * one place a busy-wait is the protocol, exactly as on the AVR. The slots are
@@ -179,6 +180,11 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
 
     if (st != TFW_OK) {
         return st;
+    }
+    /* CS is made an output here, as the AVR transfer does: gpio_set_level
+     * does nothing on a pad whose output is off. */
+    if (gpio_set_direction((gpio_num_t)cs->gpio, GPIO_MODE_INPUT_OUTPUT) != ESP_OK) {
+        return TFW_ERR_BAD_PIN;
     }
     t.length    = (size_t)len * 8u;
     t.tx_buffer = wr;

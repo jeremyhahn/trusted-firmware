@@ -7,7 +7,9 @@
  * PB0, LD2 yellow PF4, LD3 red PG4. Port 0 is GPIOB, port 1 GPIOF and port 2
  * GPIOG, and no pin offers a converter or a compare unit. The console is
  * USART3 on PD8/PD9 (src/hal/cortex-m/stm32h5/soc_console.h), which the
- * board's profile selects.
+ * board's profile selects. The CAPS pin page, the only place a pin's port
+ * index leaves the firmware, is checked for each LED and for a pin past the
+ * end, which gets no page, flags or channels.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */
@@ -68,6 +70,49 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
 }
 
+static void test_each_led_s_pin_page_carries_its_port_index_and_bit(void)
+{
+    /* The board's port index, not the bank tfw_board_pin resolves. */
+    static const struct { uint8_t port; uint8_t bit; } want[3] = {
+        { 0u, 0u },   /* LD1 PB0 */
+        { 1u, 4u },   /* LD2 PF4 */
+        { 2u, 4u },   /* LD3 PG4 */
+    };
+
+    TEST_ASSERT_EQUAL_UINT8(3u, tfw_board_pin_count());
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t page[TFW_PIN_PAGE_LEN];
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin_page(i, page));
+        TEST_ASSERT_EQUAL_HEX8(i, page[0]);
+        TEST_ASSERT_EQUAL_HEX8(TFW_PIN_DIGITAL | TFW_PIN_LED, page[1]);
+        TEST_ASSERT_EQUAL_HEX8(want[i].port, page[2]);
+        TEST_ASSERT_EQUAL_HEX8(want[i].bit, page[3]);
+        TEST_ASSERT_EQUAL_HEX8(TFW_ADC_NONE, page[4]);
+        TEST_ASSERT_EQUAL_HEX8(0u, page[5]);
+        TEST_ASSERT_EQUAL_HEX8(0u, tfw_board_pin_pwm_state(i));
+    }
+}
+
+static void test_a_pin_beyond_the_board_has_no_page_flags_or_channels(void)
+{
+    uint8_t page[TFW_PIN_PAGE_LEN];
+    uint8_t ch;
+    tfw_pwmref_t p;
+
+    for (uint8_t k = 0u; k < TFW_PIN_PAGE_LEN; k++) {
+        page[k] = 0xA5u;
+    }
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin_page(TFW_PIN_COUNT, page));
+    for (uint8_t k = 0u; k < TFW_PIN_PAGE_LEN; k++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, page[k]);
+    }
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_adc_channel(TFW_PIN_COUNT, &ch));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pwm(TFW_PIN_COUNT, &p));
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_board_pin_flags(TFW_PIN_COUNT));
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_board_pin_pwm_state(TFW_PIN_COUNT));
+}
+
 static void test_the_console_is_usart3_on_pd8_pd9(void)
 {
     TEST_ASSERT_EQUAL_INT(1, TFW_H5_CONSOLE_USART3);
@@ -89,6 +134,8 @@ int main(void)
     RUN_TEST(test_the_pins_are_the_three_leds_at_their_banks);
     RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_each_led_s_pin_page_carries_its_port_index_and_bit);
+    RUN_TEST(test_a_pin_beyond_the_board_has_no_page_flags_or_channels);
     RUN_TEST(test_the_console_is_usart3_on_pd8_pd9);
     return UNITY_END();
 }

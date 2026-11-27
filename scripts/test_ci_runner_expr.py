@@ -28,8 +28,10 @@
    older one.
 7. ci-template v1.54 (ruling 1137; DS-10280 / ruling 1149: v1.54 ported):
    preflight's `Balanced runner pool (ruling 1137)` step sends a run hosted
-   with a ::warning on a short listing or a reply that is not 200, and a
-   fork's head to the hosted default with a ::notice.
+   with a ::warning on a failed call (a reply that is not 200, more than 1000
+   entries), and a fork's head to the hosted default with a ::notice.
+   ci-template v1.59: a listing short of its total_count is a lower bound,
+   counted and still chosen from, with a ::notice (C8, C9, C12, C13).
 8. Codex round 1 P1 on #1042: the balancing decision is run against a fake
    API with run and job lists per URL: the lower of hosted use H/HS and
    self-hosted use max(S1/C1, S2/C2) wins and a tie goes self-hosted; one
@@ -360,9 +362,9 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_54(self):
+    def test_header_names_v1_60(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.54 (customized)\n")
+            self.assertEqual(f.readline(), "# ci-template: v1.60 (customized)\n")
 
     def test_main_group_is_per_event(self):
         group = load(CI)["concurrency"]["group"]
@@ -445,9 +447,11 @@ def pool(h=0, hq=0, s1=0, s1q=0, s2=0, s2q=0, extra=()):
 
 @unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "needs bash and jq")
 class OverflowShortList(unittest.TestCase):
-    """ci-template v1.54 (ruling 1137): the balanced runner pool falls back to
-    the hosted default, with a ::warning on a short listing or a reply that is
-    not 200, and with a ::notice for a fork's head."""
+    """ci-template v1.59 (ruling 1137, v1.54 step): the balanced runner pool
+    falls back to the hosted default with a ::warning only on a failed call (a
+    reply that is not 200, more than 1000 entries), and with a ::notice for a
+    fork's head. A listing short of its total_count is a lower bound: counted,
+    still chosen from, with a ::notice naming the shortfall (C8, C9, C12, C13)."""
 
     def select(self, event="push", head="", code="200", body='{"total_count": 0, "workflow_runs": []}',
                ref="refs/heads/main"):
@@ -474,10 +478,63 @@ class OverflowShortList(unittest.TestCase):
     def assert_hosted(self, outputs):
         self.assertEqual(outputs, 'runner="ubuntu-latest"\nrunner_docker="ubuntu-latest"\n')
 
-    def test_short_listing_goes_hosted_with_warning(self):
-        out, outputs = self.select(body='{"total_count": 3, "workflow_runs": []}')
+    # C8, C9, C12, C13 (v1.59, the template's testdata/runner-select-tests.py):
+    # a list short of its total_count is a lower bound, counted and still
+    # chosen from, with a ::notice; never hosted for it.
+
+    def short(self, routes):
+        out, outputs, _ = BalancedPool.balance(self, routes)
+        self.assertNotIn("::warning::", out)
+        return out, outputs
+
+    def test_c8_short_run_list_is_a_lower_bound_still_chosen(self):
+        out, outputs = self.short(
+            [["runs?status=queued", 200, runs()],
+             ["runs?status=in_progress&per_page=100&page=1", 200, runs(101, total=5)],
+             ["runs?status=in_progress&per_page=100&page=2", 200, runs(total=5)],
+             ["runs/101/jobs", 200, jobs(*[jobj(101, "in_progress", HOSTED_LABELS) for _ in range(9)])]])
+        self.assertEqual(outputs, SELF_OUT, out)
+        for s in ("::notice::", "1 of 5 entries", "lower bound", "hosted 9 of CI_HOSTED_SHARE=10"):
+            self.assertIn(s, out)
+
+    def test_c9_short_job_list_is_a_lower_bound_still_chosen(self):
+        out, outputs = self.short(
+            pool(h=1)[:2] + [["runs/101/jobs?filter=latest&per_page=100&page=1", 200,
+                              jobs(jobj(101, "in_progress", HOSTED_LABELS), total=4)],
+                             ["runs/101/jobs?filter=latest&per_page=100&page=2", 200, jobs(total=4)]])
+        self.assertEqual(outputs, SELF_OUT, out)
+        for s in ("::notice::", "runs/101/jobs?filter=latest: 1 of 4 entries", "lower bound"):
+            self.assertIn(s, out)
+
+    def test_c12_short_queued_list_hosted_full_goes_self_hosted(self):
+        # go-qrdb #1680: runs?status=queued gives 1 of 2 entries.
+        out, outputs = self.short(
+            [["runs?status=queued&per_page=100&page=1", 200, runs(101, total=2)],
+             ["runs?status=queued&per_page=100&page=2", 200, runs(total=2)],
+             ["runs?status=in_progress", 200, runs(100)],
+             ["runs/101/jobs", 200, jobs(*[jobj(101, "queued", HOSTED_LABELS) for _ in range(10)])]])
+        self.assertEqual(outputs, SELF_OUT, out)
+        for s in ("::notice::", "runs?status=queued: 1 of 2 entries", "the hosted pool is full (10 of 10)"):
+            self.assertIn(s, out)
+        self.assertNotIn("no complete run list", out)
+
+    def test_c13_short_list_hosted_lower_goes_hosted_with_notice(self):
+        out, outputs = self.short(
+            [["runs?status=queued&per_page=100&page=1", 200, runs(101, total=2)],
+             ["runs?status=queued&per_page=100&page=2", 200, runs(total=2)],
+             ["runs?status=in_progress", 200, runs(100)],
+             ["runs/101/jobs", 200, jobs(jobj(101, "in_progress", HOSTED_LABELS),
+                                         *[jobj(101, "in_progress", SH_BIGDISK) for _ in range(5)])]])
+        self.assertEqual(outputs, HOSTED_OUT, out)
+        for s in ("::notice::", "1 of 2 entries", "hosted 1 of CI_HOSTED_SHARE=10"):
+            self.assertIn(s, out)
+
+    def test_more_than_1000_entries_goes_hosted_with_warning(self):
+        out, outputs, _ = BalancedPool.balance(
+            self, [["runs?status=queued", 200, runs(101, total=5000)],
+                   ["runs?status=in_progress", 200, runs(100)]])
         self.assertIn("::warning::runner selection: the Actions API gave no complete run list", out)
-        self.assertIn("0 of 3 entries", out)
+        self.assertIn("more than 1000 entries", out)
         self.assert_hosted(outputs)
 
     def test_reply_not_200_goes_hosted_with_warning(self):

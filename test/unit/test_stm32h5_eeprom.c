@@ -47,6 +47,8 @@ static struct {
     unsigned platform_erases;
     unsigned violations;
     int      drop;                     /* the next program does not take */
+    int      lock_stuck;               /* a wrong key sequence: LOCK stays set */
+    int      wrperr;                   /* the next program reports WRPERR */
     uint32_t masked;                   /* PRIMASK as the hooks hold it */
     unsigned masked_saves;             /* stores run under the mask */
     unsigned unmasked_stores;          /* stores the mask did not cover */
@@ -100,6 +102,11 @@ static uint32_t do_program(void)
             hw.violations++;
             return TFW_H5_FLASH_SR_WRPERR << 1;  /* PGSERR */
         }
+        if (hw.wrperr) {
+            memcpy(MEM + q, shadow + q, TFW_H5_FLASH_QWORD);
+            hw.wrperr = 0;
+            return TFW_H5_FLASH_SR_WRPERR;       /* the quad-word keeps its old value */
+        }
         if (hw.drop) {
             memcpy(MEM + q, shadow + q, TFW_H5_FLASH_QWORD);
             hw.drop = 0;
@@ -117,7 +124,7 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     (void)f;
     REG(TFW_H5_FLASH_NSSR_OFF) &= ~REG(TFW_H5_FLASH_NSCCR_OFF);
     REG(TFW_H5_FLASH_NSCCR_OFF) = 0u;
-    if (REG(TFW_H5_FLASH_NSKEYR_OFF) == TFW_H5_FLASH_KEY2) {
+    if (REG(TFW_H5_FLASH_NSKEYR_OFF) == TFW_H5_FLASH_KEY2 && !hw.lock_stuck) {
         REG(TFW_H5_FLASH_NSCR_OFF) &= ~TFW_H5_FLASH_CR_LOCK;
     }
     REG(TFW_H5_FLASH_NSKEYR_OFF) = 0u;
@@ -263,6 +270,46 @@ static void test_a_write_into_the_span_is_range_and_touches_no_flash(void)
     TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
 }
 
+static void test_a_refused_read_writes_no_byte_into_the_callers_buffer(void)
+{
+    uint8_t back[8];
+    uint8_t want[8];
+
+    memset(back, 0xA5, sizeof back);
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_read(USER_LAST, back, 2u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, back, 1u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_read(0xFFFFu, back, 8u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, sizeof back);
+}
+
+static void test_a_refused_write_past_the_end_touches_no_flash(void)
+{
+    uint8_t b = 0x3Cu, two[2] = { 1u, 2u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_write(USER_LAST, two, 2u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
+static void test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothing(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+
+    memset(req, 0xC3, sizeof req);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR + 1u, req, sizeof req));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR - 1u, req, sizeof req));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
 static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)
 {
     static const uint8_t data[2] = { 0x77u, 0x88u };
@@ -275,6 +322,23 @@ static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(voi
     TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back + 2, sizeof data);
 }
 
+static void test_a_read_across_the_spans_end_fills_only_the_callers_bytes(void)
+{
+    static const uint8_t data[2] = { 0x77u, 0x88u };
+    uint8_t back[8];
+    size_t i;
+
+    memset(back, 0xA5, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 2u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 2u], back[0]);
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 1u], back[1]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back + 2, sizeof data);
+    for (i = 4u; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, back[i]);
+    }
+}
+
 static void test_data_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
@@ -282,6 +346,35 @@ static void test_data_that_does_not_read_back_is_internal(void)
     hw.drop = 1;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_hal_eeprom_write(USER_LO + 32u, data, sizeof data));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u]);
+}
+
+/* hal_eeprom.c: a locked or write-protected interface is h5_flash.c's
+ * TFW_ERR_PROTECTED_REGION, handed through, not read back into INTERNAL. */
+static void test_a_locked_interface_is_protected_region_and_writes_nothing(void)
+{
+    static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
+    uint32_t i;
+
+    hw.lock_stuck = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_hal_eeprom_write(USER_LO + 32u, data, sizeof data));
+    for (i = 0u; i < sizeof data; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u + i]);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+}
+
+static void test_a_write_protect_error_is_protected_region_not_internal(void)
+{
+    static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
+    uint32_t i;
+
+    hw.wrperr = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION,
+                          tfw_hal_eeprom_write(USER_LO + 32u, data, sizeof data));
+    for (i = 0u; i < sizeof data; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 32u + i]);
+    }
 }
 
 static void test_a_rewrite_that_does_not_read_back_is_internal(void)
@@ -426,8 +519,14 @@ int main(void)
     RUN_TEST(test_an_overwrite_rewrites_the_user_sector_and_keeps_its_other_bytes);
     RUN_TEST(test_the_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_span_is_range_and_touches_no_flash);
+    RUN_TEST(test_a_refused_read_writes_no_byte_into_the_callers_buffer);
+    RUN_TEST(test_a_refused_write_past_the_end_touches_no_flash);
+    RUN_TEST(test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
+    RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
+    RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
+    RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);
     RUN_TEST(test_a_rewrite_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_rewrite_that_loses_another_value_is_internal);
     RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);

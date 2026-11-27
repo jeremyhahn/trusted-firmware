@@ -30,9 +30,12 @@
 #define TFW_H5_WIRE_KEEP_INTVL_MS 5000u
 #define TFW_H5_WIRE_KEEP_CNT      3u
 
-/* Bytes the link holds from the connection before the transport reads them.
- * At least lwIP's TCP_WND: the window is reopened only as bytes are read, so
- * a peer never has more in flight than the ring has room for. */
+/* Size of the ring that holds bytes from the connection until the transport
+ * reads them. The ring keeps one byte free, so it holds
+ * TFW_H5_WIRE_RX_RING - 1 bytes, and that must be at least lwIP's TCP_WND:
+ * the window is reopened only as bytes are read, so a peer never has more in
+ * flight than the ring has room for. Both bounds are checked at build time:
+ * the power-of-two size in hal_eth_wire.c, the window in hal_eth_wire_tcp.c. */
 #define TFW_H5_WIRE_RX_RING 2048u
 
 /* Reply bytes batched before they are handed to TCP. */

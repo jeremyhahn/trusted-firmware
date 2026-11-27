@@ -21,6 +21,7 @@ static const tfw_pinref_t pin = { 21u };
 static uint16_t iv[31];
 static uint8_t  n;
 static int      tone_gpio;      /* the pin the stand-in tone drives, or -1 */
+static int      pwm_gpio;       /* the pin the stand-in PWM drives, or -1 */
 
 /* hal_tone.c's, which this test does not link. */
 int tfw_esp_tone_gpio(void)
@@ -28,10 +29,17 @@ int tfw_esp_tone_gpio(void)
     return tone_gpio;
 }
 
+/* hal_pwm.c's, which this test does not link either. */
+int tfw_esp_pwm_drives(int gpio)
+{
+    return gpio == pwm_gpio;
+}
+
 void setUp(void)
 {
     mock_rmt_reset();
     tone_gpio = -1;
+    pwm_gpio = -1;
     for (n = 0u; n < 31u; n++) {
         iv[n] = 0xA5A5u;
     }
@@ -82,6 +90,25 @@ static void test_loop_back_only_on_the_tone_pin(void)
     tone_gpio = 22;
     mock_rmt_chunk(f, 1u, 1u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
+}
+
+/* #48: a pin LEDC PWM drives (running or stopped) is looped back as the
+ * tone's is, so the capture keeps the PWM output; another pin is left alone. */
+static void test_loop_back_on_a_pwm_pin(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 80, 0, 0) };
+    static const tfw_pinref_t      other = { 22u };
+
+    pwm_gpio = 21;
+    tone_gpio = -1;
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
+
+    mock_rmt_reset();
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&other, 1u, iv, 4u, 1000u, &n));
     TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
 }
 
@@ -374,6 +401,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_config);
     RUN_TEST(test_loop_back_only_on_the_tone_pin);
+    RUN_TEST(test_loop_back_on_a_pwm_pin);
     RUN_TEST(test_capture_from_start_level);
     RUN_TEST(test_capture_stops_at_max_edges);
     RUN_TEST(test_quiet_pin_times_out);

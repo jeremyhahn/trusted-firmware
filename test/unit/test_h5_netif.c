@@ -41,10 +41,15 @@ static uint8_t  link_up_flag;
 /* PSCSR: speed field bits 4:2, 0x6 = 100 Mbit/s full duplex; or a failed read. */
 static uint16_t pscsr_val = 0x0018u;
 static uint8_t  pscsr_fail;
+static uint8_t  phy_absent;     /* every MDIO address reads 0xFFFF: no PHY */
+static uint8_t  mac_reset_fail; /* the MAC never leaves its software reset */
 static uint32_t mac_cr;
 static uint8_t  mac_running;
 static uint8_t  mac_seen[6];            /* the address the MAC was started with */
 static unsigned tx_frames;
+static uint8_t tx_last[TFW_ETH_BUF_SIZE];   /* the last frame the MAC took */
+static size_t tx_last_len;
+static unsigned tx_busy;                    /* ring-full answers left; UINT_MAX: forever */
 
 tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 
@@ -52,7 +57,7 @@ tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 void tfw_h5_eth_mdio_init(void) { }
 int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
-    if (addr != 0u) {
+    if (addr != 0u || phy_absent) {
         *val = 0xFFFFu;
         return 0;
     }
@@ -88,7 +93,7 @@ static unsigned arp_probes;             /* ARP probes for offered_ip */
 static uint8_t  rx_frame[400];
 static size_t   rx_len;
 
-int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return 0; }
+int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return mac_reset_fail ? -1 : 0; }
 void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; memcpy(mac_seen, mac, 6); mac_cr = sp; }
 void tfw_eth_mac_start(tfw_eth_mac_t *m) { (void)m; mac_running = 1u; }
 void tfw_eth_mac_stop(tfw_eth_mac_t *m) { (void)m; mac_running = 0u; }
@@ -204,7 +209,15 @@ int tfw_eth_mac_tx(tfw_eth_mac_t *m, const void *frame, size_t len)
     static const uint8_t zero[4];
 
     (void)m;
+    if (tx_busy != 0u) {
+        if (tx_busy != UINT_MAX) {
+            tx_busy--;
+        }
+        return -1;
+    }
     tx_frames++;
+    tx_last_len = len < sizeof tx_last ? len : sizeof tx_last;
+    memcpy(tx_last, f, tx_last_len);
     ka_tx(f, len);
     if (len >= 42u && f[12] == 0x08u && f[13] == 0x06u && f[21] == 1u &&
         memcmp(f + 28, zero, 4) == 0 && memcmp(f + 38, offered_ip, 4) == 0) {
@@ -249,7 +262,22 @@ void tfw_h5_wire_dial_poll(void)
         connects++;
     }
 }
-void tfw_h5_wire_say(const char *s) { (void)s; }
+static unsigned bound_says;
+static char bound_line[48];
+static unsigned phy_none_says, mac_reset_says;
+void tfw_h5_wire_say(const char *s)
+{
+    if (strcmp(s, "eth: phy none\r\n") == 0) {
+        phy_none_says++;
+    }
+    if (strcmp(s, "eth: mac reset timeout\r\n") == 0) {
+        mac_reset_says++;
+    }
+    if (strncmp(s, "eth: dhcp bound", 15u) == 0) {
+        bound_says++;
+        strncpy(bound_line, s, sizeof bound_line - 1u);
+    }
+}
 void tfw_h5_wire_say_poll(void) { say_polls++; }
 
 /* --- the network block in EEPROM (#584, Codex round 4, ruling 989) -------- */
@@ -342,6 +370,88 @@ static void static_block(void)
 static void test_a_static_block_sets_its_address_and_mac_and_no_dhcp(void)
 {
     TEST_ASSERT_EQUAL_INT(0, in_child(static_block));
+}
+
+/* A PBUF_RAM pbuf of len bytes: an Ethernet header with the local
+ * experimental ethertype 0x88B5 (so ka_tx and the ARP/DHCP decode ignore it),
+ * then bytes counting up from seed. */
+static struct pbuf *raw_pbuf(u16_t len, uint8_t seed)
+{
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+    uint8_t *b;
+
+    TEST_ASSERT_NOT_NULL(p);
+    b = p->payload;
+    for (u16_t i = 0u; i < len; i++) {
+        b[i] = (uint8_t)(seed + i);
+    }
+    if (len >= 14u) {
+        b[12] = 0x88u;
+        b[13] = 0xB5u;
+    }
+    return p;
+}
+
+static void linkoutput_cases(void)
+{
+    struct netif *n;
+    struct pbuf *head, *tail, *p;
+    uint8_t want[100];
+    unsigned before;
+
+    static_block();
+    n = netif_default;
+
+    /* (a) a chain of two pbufs goes out as one frame, both parts in order */
+    head = raw_pbuf(60u, 0x10u);
+    tail = raw_pbuf(40u, 0xA0u);
+    memcpy(want, head->payload, 60u);
+    memcpy(want + 60, tail->payload, 40u);
+    pbuf_cat(head, tail);
+    TEST_ASSERT_EQUAL_UINT(100u, head->tot_len);
+    tx_last_len = 0u;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, head));
+    TEST_ASSERT_EQUAL_UINT(before + 1u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(100u, tx_last_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, tx_last, 100);
+    pbuf_free(head);
+
+    /* (b) one byte over the frame buffer is refused and nothing is sent */
+    p = raw_pbuf((u16_t)(TFW_ETH_BUF_SIZE + 1u), 0x20u);
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_BUF, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(before, tx_frames);
+    pbuf_free(p);
+
+    /* (c) exactly the frame buffer's size is sent */
+    p = raw_pbuf((u16_t)TFW_ETH_BUF_SIZE, 0x30u);
+    tx_last_len = 0u;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(TFW_ETH_BUF_SIZE, tx_last_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(p->payload, tx_last, TFW_ETH_BUF_SIZE);
+    pbuf_free(p);
+
+    /* (d) a ring full for a few tries still sends the frame once */
+    p = raw_pbuf(64u, 0x40u);
+    tx_busy = 3u;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_OK, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(0u, tx_busy);
+    TEST_ASSERT_EQUAL_UINT(before + 1u, tx_frames);
+
+    /* (e) a ring that never drains ends in an error, not a hang */
+    tx_busy = UINT_MAX;
+    before = tx_frames;
+    TEST_ASSERT_EQUAL_INT(ERR_IF, n->linkoutput(n, p));
+    TEST_ASSERT_EQUAL_UINT(before, tx_frames);
+    tx_busy = 0u;
+    pbuf_free(p);
+}
+
+static void test_the_netif_link_output_refuses_flattens_and_bounds_the_send(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(linkoutput_cases));
 }
 
 static void dhcp_block(void)
@@ -545,6 +655,16 @@ static void test_an_unanswered_probe_binds_the_offered_address(void)
     TEST_ASSERT_EQUAL_HEX32(PP_HTONL(0xC000020Au), ip4_addr_get_u32(netif_ip4_addr(netif_default)));
 }
 
+/* hal_eth_netif.c lines 11-12 and 500-503: the bind above says "eth: dhcp
+ * bound" and the leased address once, and later polls say it no more. */
+static void test_the_console_says_the_bound_address_once(void)
+{
+    TEST_ASSERT_EQUAL_UINT(1u, bound_says);
+    TEST_ASSERT_EQUAL_STRING("eth: dhcp bound 192.0.2.10\r\n", bound_line);
+    run_for(5000u);
+    TEST_ASSERT_EQUAL_UINT(1u, bound_says);
+}
+
 static void bind_by_hand(struct netif *nif)
 {
     struct dhcp *d = netif_dhcp_data(nif);
@@ -684,6 +804,116 @@ static void test_a_transient_rng_seed_error_recovers_on_the_next_retry(void)
     TEST_ASSERT_TRUE((fake_rcc_cr & TFW_H5_RCC_CR_HSI48ON) != 0u);
     TEST_ASSERT_TRUE((fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN) != 0u);
     TEST_ASSERT_TRUE((fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN) != 0u);
+}
+
+/* HSI48 never readies: the RNG clock and the RNG stay off and the netif stays
+ * down, with no fallback key. The next retry, with HSI48 ready, brings it up. */
+static void hsi48_never_ready(void)
+{
+    fake_rcc_cr = 0u;
+    fake_rcc_ahb2enr = 0u;
+    fake_rng[TFW_H5_RNG_CR_IX] = 0u;
+    link_up_flag = 0u;
+    run_for(1000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_TRUE((fake_rcc_cr & TFW_H5_RCC_CR_HSI48ON) != 0u);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN);
+    TEST_ASSERT_EQUAL_HEX32(0u, fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN);
+
+    fake_rcc_cr |= TFW_H5_RCC_CR_HSI48RDY;
+    run_for(2000u);
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_TRUE((fake_rcc_ahb2enr & TFW_H5_RCC_AHB2ENR_RNGEN) != 0u);
+    TEST_ASSERT_TRUE((fake_rng[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN) != 0u);
+}
+
+static void test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(hsi48_never_ready));
+}
+
+/* A missing PHY or a MAC stuck in reset is terminal for the boot: unlike an
+ * RNG or netcfg refusal, bring-up is not retried, lwIP is never brought up
+ * and never polled, and nothing is sent or dialled. */
+static void bringup_fails_for_the_boot(uint8_t *flag, const unsigned *says)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    *flag = 1u;
+    run_for(1000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, *says);
+
+    tfw_h5_eth_service_deadlines();       /* lwIP untouched while failed */
+    TEST_ASSERT_NULL(netif_default);
+
+    *flag = 0u;                           /* the fault clears: still no retry */
+    run_for(2000u);
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);
+    TEST_ASSERT_EQUAL_UINT(0u, dial_calls);
+    TEST_ASSERT_EQUAL_UINT(1u, *says);
+}
+
+static void phy_absent_fails_for_the_boot(void)
+{
+    bringup_fails_for_the_boot(&phy_absent, &phy_none_says);
+    TEST_ASSERT_EQUAL_UINT(0u, mac_reset_says);
+}
+
+static void mac_reset_timeout_fails_for_the_boot(void)
+{
+    bringup_fails_for_the_boot(&mac_reset_fail, &mac_reset_says);
+    TEST_ASSERT_EQUAL_UINT(0u, phy_none_says);
+}
+
+static void test_no_phy_keeps_the_netif_down_for_the_boot(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(phy_absent_fails_for_the_boot));
+}
+
+static void test_a_mac_reset_timeout_keeps_the_netif_down_for_the_boot(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(mac_reset_timeout_fails_for_the_boot));
+}
+
+/* The driver alone, on its own fake registers (hal_rng.c lines 33-105): an
+ * error that does not clear fails init and read, a clock error with no latch
+ * is still an error, no DRDY is no word, and a refused read leaves *out. */
+static void test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word(void)
+{
+    volatile uint32_t regs[3] = { 0u, 0u, RNG_WORD };
+    volatile uint32_t rcc_cr = TFW_H5_RCC_CR_HSI48RDY;
+    volatile uint32_t rcc_ahb2enr = 0u;
+    const tfw_h5_rng_t r = { regs, &rcc_cr, &rcc_ahb2enr };
+    uint32_t out = 0xA5A5A5A5u;
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_CECS | TFW_H5_RNG_SR_CEIS |
+                             TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_init(&r));
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                             TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_init(&r));
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_CECS | TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_read(&r, &out));
+
+    regs[TFW_H5_RNG_SR_IX] = 0u;
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_rng_read(&r, &out));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, out);
+
+    regs[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_DRDY;
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_rng_init(&r));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_rng_read(&r, &out));
+    TEST_ASSERT_EQUAL_HEX32(RNG_WORD, out);
 }
 
 /* RFC 6528: two listeners (local ports) and two keys on one 4-tuple at one M
@@ -1016,11 +1246,17 @@ int main(void)
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
+    RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);
+    RUN_TEST(test_an_hsi48_that_never_readies_keeps_the_rng_off_and_the_netif_down);
+    RUN_TEST(test_no_phy_keeps_the_netif_down_for_the_boot);
+    RUN_TEST(test_a_mac_reset_timeout_keeps_the_netif_down_for_the_boot);
+    RUN_TEST(test_the_rng_driver_reports_an_error_that_stays_and_no_ready_word);
     RUN_TEST(test_an_rng_seed_error_leaves_the_netif_down);
     RUN_TEST(test_a_transient_rng_seed_error_recovers_on_the_next_retry);
     RUN_TEST(test_tcp_isns_follow_rfc6528);
     RUN_TEST(test_a_conflicting_arp_reply_declines_the_offered_address);
     RUN_TEST(test_an_unanswered_probe_binds_the_offered_address);
+    RUN_TEST(test_the_console_says_the_bound_address_once);
     RUN_TEST(test_a_link_flap_keeps_the_lease_clock_and_an_expired_lease_clears);
     RUN_TEST(test_a_bad_pscsr_leaves_the_mac_stopped_until_a_good_read);
     return UNITY_END();

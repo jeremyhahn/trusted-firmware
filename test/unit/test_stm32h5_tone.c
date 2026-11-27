@@ -71,6 +71,8 @@ static uint32_t tone_tim_hz = 64000000u;
 #define A_ARR      (TFW_H5_TONE_TIM_BASE + 0x2Cu)
 #define A_AFRL     (GPIOB + 0x20u)
 #define A_MODER    (GPIOB + 0x00u)
+#define A_PUPDR    (GPIOB + 0x0Cu)
+#define A_BSRR     (GPIOB + 0x18u)
 
 static const tfw_pinref_t d3 = { .port = 1u, .bit = 5u };
 
@@ -160,6 +162,24 @@ static void test_start_runs_in_order(void)
     TEST_ASSERT_TRUE(last(A_CCER) < last(A_CR1));
 }
 
+/* A pull left on the pin by INPUT_PULLUP or INPUT_PULLDOWN comes off when
+ * the timer takes it, as PWM's pin_to_timer does; the bank's other pins
+ * keep theirs. */
+static void test_start_takes_the_pull_off_the_pin(void)
+{
+    poke(A_PUPDR, (0x1u << 10) | (0x2u << 12) | 0x1u);  /* PB5 up, PB6 down, PB0 up */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL_HEX32((0x2u << 12) | 0x1u, peek(A_PUPDR));
+}
+
+static void test_the_pull_comes_off_before_the_mode(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 440u));
+    TEST_ASSERT_TRUE(first(A_PUPDR) >= 0);
+    TEST_ASSERT_TRUE(last(A_PUPDR) < first(A_MODER));  /* never AF with a pull on */
+    TEST_ASSERT_TRUE(last(A_AFRL) < first(A_MODER));
+}
+
 static void test_a_second_start_retargets(void)
 {
     /* From a longer period to a shorter one, the case a running counter
@@ -197,6 +217,25 @@ static void test_stop_halts_and_holds_the_pin_low(void)
     TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
 }
 
+/* Stop hands PB5 back to the GPIO as an output driven low, as PWM's stop
+ * does, so a digital_write on D3 afterwards drives the pin again. */
+static void test_stop_hands_the_pin_back_as_an_output_driven_low(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL_HEX32(0x1u, (peek(A_MODER) >> 10) & 0x3u);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFF7FFu, peek(A_MODER));   /* other pins as they were */
+    TEST_ASSERT_EQUAL_HEX32(1u << 21, peek(A_BSRR));
+    TEST_ASSERT_TRUE(last(A_BSRR) < last(A_MODER));        /* low before it drives */
+}
+
+static void test_a_zero_hz_stop_hands_the_pin_back_too(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, (peek(A_MODER) >> 10) & 0x3u);
+}
+
 static void test_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
 {
     static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
@@ -209,13 +248,54 @@ static void test_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
     TEST_ASSERT_EQUAL_UINT32(TFW_CM_CPU_HZ, 64000000u);
 }
 
+static void test_a_refused_start_leaves_a_sounding_tone_as_it_was(void)
+{
+    static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    n_log = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&other, 440u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    tone_tim_hz = 100000u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_tone_start(&d3, 60000u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    TEST_ASSERT_EQUAL_HEX32(31999u, peek(A_ARR));      /* still the old tone */
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_PSC));
+    TEST_ASSERT_EQUAL_HEX32(0x3068u, peek(A_CCMR1));
+    TEST_ASSERT_EQUAL_HEX32(1u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());    /* still running: stop acts */
+    TEST_ASSERT_EQUAL_HEX32(0x4068u, peek(A_CCMR1));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
+}
+
+/* 0 Hz is stop whatever the pin: asked on another pin it still silences a
+ * sounding tone rather than refusing the pin and leaving it sounding. */
+static void test_zero_hz_on_any_pin_stops_a_sounding_tone(void)
+{
+    static const tfw_pinref_t other = { .port = 1u, .bit = 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL_HEX32(0x4068u, peek(A_CCMR1));   /* forced inactive */
+    n_log = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 0u)); /* idle: touches nothing */
+    TEST_ASSERT_EQUAL(0u, n_log);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_start_programs_the_divider_and_toggle_mode);
     RUN_TEST(test_start_runs_in_order);
+    RUN_TEST(test_start_takes_the_pull_off_the_pin);
+    RUN_TEST(test_the_pull_comes_off_before_the_mode);
     RUN_TEST(test_a_second_start_retargets);
     RUN_TEST(test_stop_halts_and_holds_the_pin_low);
+    RUN_TEST(test_stop_hands_the_pin_back_as_an_output_driven_low);
+    RUN_TEST(test_a_zero_hz_stop_hands_the_pin_back_too);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);
+    RUN_TEST(test_a_refused_start_leaves_a_sounding_tone_as_it_was);
+    RUN_TEST(test_zero_hz_on_any_pin_stops_a_sounding_tone);
     return UNITY_END();
 }

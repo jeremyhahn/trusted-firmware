@@ -12,6 +12,10 @@
 
 #include "tfw/protocol.h"
 
+/* A reply a connected peer takes none of for this long is dropped and the link
+ * closed, so no peer holds serial; the STM32H5 wire's TFW_H5_WIRE_TX_STALL_MS. */
+#define TFW_LINK_ETH_TX_STALL_MS 2000u
+
 static inline uint8_t tfw_link_eth_allows(uint8_t cmd)
 {
     switch (cmd) {

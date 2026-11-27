@@ -20,6 +20,8 @@
  *     device made at the mode, the AVR rate for the clock and the bit order,
  *     again only after an init; a failed bus unsupported, a failed device
  *     internal; a transfer as cs low, the bytes, cs high, even when it fails;
+ *     cs made an output first, a CS the driver refuses BAD_PIN with nothing
+ *     sent;
  *   - 1-Wire: each reset, bit written and bit read as its exact sequence of
  *     drive, release, delay, sample and interrupt mask; bytes LSB first.
  *
@@ -89,11 +91,12 @@ static const ev_t *find_op(int op)
 
 static int      levels_in[256];
 static unsigned nlevels, level_at;
+static esp_err_t dir_err;
 
 esp_err_t gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode)
 {
     log_ev(E_DIR, gpio_num, (long)mode);
-    return ESP_OK;
+    return dir_err;
 }
 
 esp_err_t gpio_set_pull_mode(gpio_num_t gpio_num, gpio_pull_mode_t pull)
@@ -257,6 +260,7 @@ void setUp(void)
     nlevels = level_at = 0u;
     bus_err = add_err = xfer_err = ESP_OK;
     spi_bus_err = spi_add_err = spi_xfer_err = ESP_OK;
+    dir_err = ESP_OK;
     memset(&bus_cfg, 0, sizeof bus_cfg);
     memset(&dev_cfg, 0, sizeof dev_cfg);
     memset(&spi_bus_cfg, 0, sizeof spi_bus_cfg);
@@ -538,6 +542,24 @@ static void test_a_failed_spi_transfer_is_internal_with_cs_released(void)
     }
 }
 
+static void test_an_spi_transfer_makes_its_cs_an_output_before_asserting_it(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 2u));
+    TEST_ASSERT_EQUAL_UINT(1u, count_op(E_DIR));
+    TEST_ASSERT_EQUAL_INT(17, find_op(E_DIR)->a);
+    TEST_ASSERT_EQUAL_INT(GPIO_MODE_INPUT_OUTPUT, find_op(E_DIR)->b);
+    TEST_ASSERT_TRUE(find_op(E_DIR) < find_op(E_SET));
+    assert_spi_xfer(16u, wbuf, rbuf, (long)(uintptr_t)SPIDEV(1));
+}
+
+static void test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent(void)
+{
+    dir_err = ESP_ERR_INVALID_ARG;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 2u));
+    TEST_ASSERT_EQUAL_UINT(0u, count_op(E_SPI_XFER));
+    TEST_ASSERT_EQUAL_UINT(0u, count_op(E_SET));
+}
+
 static void test_spi_settings_out_of_range_are_refused_and_kept(void)
 {
     static const uint8_t bad[][3] = {
@@ -795,6 +817,8 @@ int main(void)
     RUN_TEST(test_a_failed_spi_device_is_internal_and_tried_again);
     RUN_TEST(test_the_spi_device_is_made_once_at_the_defaults);
     RUN_TEST(test_a_failed_spi_transfer_is_internal_with_cs_released);
+    RUN_TEST(test_an_spi_transfer_makes_its_cs_an_output_before_asserting_it);
+    RUN_TEST(test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent);
     RUN_TEST(test_spi_settings_out_of_range_are_refused_and_kept);
     RUN_TEST(test_an_spi_init_remakes_the_device_at_its_settings);
     RUN_TEST(test_an_spi_init_at_the_same_settings_keeps_the_device);

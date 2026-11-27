@@ -13,6 +13,10 @@
  * TIM3_CH2. Port 0 is GPIOF (bank 5), 1 GPIOI (8), 2 GPIOH (7), 3 GPIOA (0),
  * 4 GPIOB (1). No pin offers a compare unit.
  *
+ * It also checks the flash map: tfw-boot, the application, the platform block
+ * and the user EEPROM sit on whole 8 KiB sectors inside the part, clear of
+ * each other, the platform block in bank 1's last sector.
+ *
  * Runs under `make board-sweep`, against this board's own profile.
  */
 
@@ -110,6 +114,60 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
 }
 
+/* Literals, not soc_regs.h: its `#include "cm_regs.h"` resolves only with
+ * -Isrc/hal/cortex-m, which board-sweep's include path does not carry. The
+ * flash base, the 8 KiB sector (soc_regs.h TFW_H5_FLASH_SECTOR) and the start
+ * of bank 2 (base + TFW_H5_FLASH_BANK_SIZE, soc_regs.h lines 93-94), RM0481. */
+#define H5_FLASH_BASE 0x08000000u
+#define H5_SECTOR     0x2000u
+#define H5_BANK2      0x08100000u
+
+static void test_the_flash_map_is_the_pinned_one(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x08000000u, (uint32_t)TFW_BOOT_REGION_BASE);
+    TEST_ASSERT_EQUAL_HEX32(0x00008000u, (uint32_t)TFW_BOOT_REGION_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(0x08008000u, (uint32_t)TFW_APP_REGION_BASE);
+    TEST_ASSERT_EQUAL_HEX32(0x00020000u, (uint32_t)TFW_APP_REGION_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(0x080FE000u, (uint32_t)TFW_CM_PLATFORM_BASE);
+    TEST_ASSERT_EQUAL_HEX32(0x00002000u, (uint32_t)TFW_CM_PLATFORM_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(0x081FE000u, (uint32_t)TFW_CM_USER_EE_BASE);
+    TEST_ASSERT_EQUAL_HEX32(0x00002000u, (uint32_t)TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(0x08200000u, (uint32_t)TFW_FLASH_TOTAL);
+}
+
+static void test_each_region_is_whole_sectors_inside_the_part_and_clear_of_the_others(void)
+{
+    static const struct { const char *name; uint32_t base; uint32_t len; } r[4] = {
+        { "boot",        (uint32_t)TFW_BOOT_REGION_BASE, (uint32_t)TFW_BOOT_REGION_SIZE },
+        { "app",         (uint32_t)TFW_APP_REGION_BASE,  (uint32_t)TFW_APP_REGION_SIZE },
+        { "platform",    (uint32_t)TFW_CM_PLATFORM_BASE, (uint32_t)TFW_CM_PLATFORM_SIZE },
+        { "user EEPROM", (uint32_t)TFW_CM_USER_EE_BASE,  (uint32_t)TFW_CM_USER_EE_SIZE },
+    };
+    static const char *const pair[4][4] = {
+        { 0, "boot overlaps app", "boot overlaps platform", "boot overlaps user EEPROM" },
+        { 0, 0, "app overlaps platform", "app overlaps user EEPROM" },
+        { 0, 0, 0, "platform overlaps user EEPROM" },
+        { 0, 0, 0, 0 },
+    };
+    const uint32_t total = (uint32_t)TFW_FLASH_TOTAL;
+
+    for (uint32_t i = 0u; i < 4u; i++) {
+        TEST_ASSERT_TRUE_MESSAGE(r[i].len > 0u, r[i].name);
+        TEST_ASSERT_TRUE_MESSAGE(r[i].base >= H5_FLASH_BASE, r[i].name);
+        TEST_ASSERT_TRUE_MESSAGE(r[i].len <= total && r[i].base <= total - r[i].len, r[i].name);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, r[i].base % H5_SECTOR, r[i].name);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, r[i].len % H5_SECTOR, r[i].name);
+        for (uint32_t j = i + 1u; j < 4u; j++) {
+            TEST_ASSERT_TRUE_MESSAGE(r[i].base + r[i].len <= r[j].base ||
+                                     r[j].base + r[j].len <= r[i].base, pair[i][j]);
+        }
+    }
+    /* The platform block is bank 1's last sector; the user EEPROM is bank 2's. */
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(H5_BANK2, r[2].base + r[2].len, r[2].name);
+    TEST_ASSERT_TRUE_MESSAGE(r[3].base >= H5_BANK2, r[3].name);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(total, r[3].base + r[3].len, r[3].name);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -118,5 +176,7 @@ int main(void)
     RUN_TEST(test_a0_to_a5_are_their_adc1_inputs);
     RUN_TEST(test_only_d6_and_d5_offer_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_the_flash_map_is_the_pinned_one);
+    RUN_TEST(test_each_region_is_whole_sectors_inside_the_part_and_clear_of_the_others);
     return UNITY_END();
 }

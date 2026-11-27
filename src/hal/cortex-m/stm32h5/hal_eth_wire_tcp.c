@@ -20,6 +20,11 @@
 #include "lwip/pbuf.h"
 #include "lwip/ip_addr.h"
 
+/* The receive ring holds one byte less than its size and must hold a full
+ * receive window, or wire_recv drops bytes the peer was allowed to send. */
+_Static_assert(TCP_WND <= TFW_H5_WIRE_RX_RING - 1u,
+               "TFW_H5_WIRE_RX_RING - 1 must hold lwIP's TCP_WND, or wire_recv loses window bytes");
+
 static struct tcp_pcb *wire_pcb;        /* the open connection */
 static struct tcp_pcb *wire_dial_pcb;   /* a connect not yet answered */
 static tfw_ms_t        wire_dial_ms;    /* when the wait began */

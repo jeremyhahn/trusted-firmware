@@ -6,7 +6,9 @@
  * software SHA-256 (sha256.c) linked: a HASH peripheral that never finishes
  * still answers the right digest from the software, and one that does answers
  * the same digest from its HR registers. The PKA and the soft provider are
- * stubs: this suite is about the HASH route alone.
+ * stubs: this suite is about the HASH route alone. It also pins init's clock
+ * enables: HASH, RNG and PKA clocked, other banks kept, before the HSI48 and
+ * the PKA start.
  */
 #include <stdint.h>
 #include <string.h>
@@ -100,9 +102,27 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
     }
 }
 
-/* The PKA and the soft provider, out of this suite's way. */
-tfw_status_t tfw_h5_pka_init(uintptr_t base) { (void)base; return TFW_ERR_TIMEOUT; }
-tfw_status_t tfw_h5_hsi48_start(uintptr_t rcc_base) { (void)rcc_base; return TFW_ERR_TIMEOUT; }
+/* The PKA and the soft provider, out of this suite's way. The HSI48 and PKA
+ * starts record the RCC AHB2ENR they find, so a case can check init clocked
+ * the peripherals before it started them. */
+static uint32_t ahb2enr_at_hsi48, ahb2enr_at_pka_init;
+static unsigned hsi48_calls, pka_init_calls;
+
+tfw_status_t tfw_h5_pka_init(uintptr_t base)
+{
+    (void)base;
+    ahb2enr_at_pka_init = h5_model_ahb2enr;
+    pka_init_calls++;
+    return TFW_ERR_TIMEOUT;
+}
+
+tfw_status_t tfw_h5_hsi48_start(uintptr_t rcc_base)
+{
+    (void)rcc_base;
+    ahb2enr_at_hsi48 = h5_model_ahb2enr;
+    hsi48_calls++;
+    return TFW_ERR_TIMEOUT;
+}
 tfw_status_t tfw_h5_pka_ecdsa_verify(uintptr_t base, const uint8_t digest[32],
                                      const uint8_t sig[64], const uint8_t pub[64])
 {
@@ -223,6 +243,32 @@ static void test_h5_provider_sha256_uses_the_hash_again_after_init(void)
     TEST_ASSERT_FALSE(m.fault);
 }
 
+/* CMSIS stm32h573xx.h: RCC_AHB2ENR_HASHEN_Pos 17, RCC_AHB2ENR_RNGEN_Pos 18,
+ * RCC_AHB2ENR_PKAEN_Pos 19. A HASH or PKA whose bus clock is off reads and
+ * writes nothing, so init sets all three, by OR, before it starts either. */
+#define ST_RCC_AHB2ENR_HASHEN (1u << 17)
+#define ST_RCC_AHB2ENR_RNGEN  (1u << 18)
+#define ST_RCC_AHB2ENR_PKAEN  (1u << 19)
+#define ST_RCC_AHB2ENR_GPIOAEN (1u << 0)
+
+static void test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them(void)
+{
+    const uint32_t want = ST_RCC_AHB2ENR_HASHEN | ST_RCC_AHB2ENR_RNGEN | ST_RCC_AHB2ENR_PKAEN;
+
+    h5_model_ahb2enr = ST_RCC_AHB2ENR_GPIOAEN;
+    ahb2enr_at_hsi48 = 0;
+    ahb2enr_at_pka_init = 0;
+    hsi48_calls = 0;
+    pka_init_calls = 0;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL_HEX32(want | ST_RCC_AHB2ENR_GPIOAEN, h5_model_ahb2enr);
+    TEST_ASSERT_EQUAL_UINT(1, hsi48_calls);
+    TEST_ASSERT_EQUAL_UINT(1, pka_init_calls);
+    TEST_ASSERT_EQUAL_HEX32(want, ahb2enr_at_hsi48 & want);
+    TEST_ASSERT_EQUAL_HEX32(want, ahb2enr_at_pka_init & want);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -230,5 +276,6 @@ int main(void)
     RUN_TEST(test_h5_provider_sha256_answers_from_the_hash_peripheral);
     RUN_TEST(test_h5_provider_sha256_polls_a_hung_hash_once_per_boot);
     RUN_TEST(test_h5_provider_sha256_uses_the_hash_again_after_init);
+    RUN_TEST(test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them);
     return UNITY_END();
 }

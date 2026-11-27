@@ -147,7 +147,10 @@ static void flush_tx(void)
     }
 }
 
-/* `baud` has no meaning on a TCP stream and is ignored. */
+/* `baud` has no meaning on a TCP stream and is ignored. A re-init closes the
+ * listener the last init made before it makes the next, so no fd leaks and the
+ * port is free to bind again (lwIP keeps one listener per port); a connected
+ * host is not touched, since closing a listener leaves what it accepted open. */
 tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     struct sockaddr_in addr;
@@ -158,6 +161,10 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     st = tfw_esp_eth_start();
     if (st != TFW_OK) {
         return st;
+    }
+    if (listener >= 0) {
+        (void)close(listener);
+        listener = -1;
     }
     listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listener < 0) {

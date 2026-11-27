@@ -63,6 +63,8 @@ typedef struct {
     unsigned sends, recvs;
     size_t   recv_len;
     int      recv_flags, send_flags;
+    int      listening;      /* listen succeeded and no close since */
+    unsigned close_seq;      /* k.seq at its last close */
 } fd_t;
 
 static struct {
@@ -78,6 +80,9 @@ static struct {
     unsigned nqueue, accepts, accepts_off_listener, fcntl_bad;
     unsigned warns;
     char     last_warn[160];
+    unsigned seq;            /* counts socket and close calls, for their order */
+    unsigned socket_seq;     /* k.seq at the last socket */
+    int      one_listener;   /* as lwIP: listen fails EADDRINUSE while another fd listens */
 } k;
 
 static tfw_ms_t     now;
@@ -132,7 +137,8 @@ int lwip_socket(int domain, int type, int protocol)
     if (k.socket_fd < 0) {
         errno = ENFILE;
     } else {
-        k.lsn = k.socket_fd;
+        k.lsn        = k.socket_fd;
+        k.socket_seq = ++k.seq;
     }
     return k.socket_fd;
 }
@@ -161,6 +167,17 @@ int lwip_listen(int s, int backlog)
         errno = k.listen_err;
         return -1;
     }
+    if (k.one_listener) {
+        int i;
+
+        for (i = 0; i < NFD; i++) {
+            if (i != s && k.fd[i].listening) {
+                errno = EADDRINUSE;
+                return -1;
+            }
+        }
+    }
+    fd_of(s)->listening = 1;
     return 0;
 }
 
@@ -253,7 +270,11 @@ ssize_t lwip_send(int s, const void *data, size_t size, int flags)
 
 int lwip_close(int s)
 {
-    fd_of(s)->closes++;
+    fd_t *f = fd_of(s);
+
+    f->closes++;
+    f->listening = 0;
+    f->close_seq = ++k.seq;
     return 0;
 }
 
@@ -349,6 +370,10 @@ void setUp(void)
     eth_starts = 0u;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
     k.warns = 0u;
+    /* The init closed the last test's listener, on whatever fd it was. */
+    for (i = 0u; i < NFD; i++) {
+        k.fd[i].closes = 0u;
+    }
 }
 
 void tearDown(void) {}
@@ -375,6 +400,7 @@ static void test_an_ethernet_failure_is_passed_up_before_any_socket(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_uart_init(0u));
     TEST_ASSERT_EQUAL_INT(0, k.backlog);
     TEST_ASSERT_EQUAL_INT(0, k.fd[9].reuse);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[LSN_FD].closes);   /* setUp's listener kept */
 }
 
 static void test_no_socket_is_internal_and_nothing_is_accepted(void)
@@ -389,14 +415,18 @@ static void test_no_socket_is_internal_and_nothing_is_accepted(void)
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
 }
 
+/* The new socket is fd 8, so setUp's listener (fd 7, closed by the re-init)
+ * and the refused one are counted apart. */
 static void check_listen_failure(void)
 {
+    k.socket_fd = 8;
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_uart_init(0u));
     TEST_ASSERT_EQUAL_UINT(1u, k.fd[LSN_FD].closes);
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[8].closes);
     TEST_ASSERT_EQUAL_UINT(1u, k.warns);
     TEST_ASSERT_EQUAL_STRING("tfw-wire: no wire: tcp/21574 would not bind or listen, errno 98",
                              k.last_warn);
-    TEST_ASSERT_EQUAL_HEX(OTHER_FL, k.fd[LSN_FD].fl);   /* never made non-blocking */
+    TEST_ASSERT_EQUAL_HEX(OTHER_FL, k.fd[8].fl);   /* never made non-blocking */
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.accepts);
@@ -817,6 +847,67 @@ static void test_a_reinit_with_no_host_drops_the_held_bytes_and_holds_afresh(voi
     TEST_ASSERT_EQUAL_MEMORY("new", k.fd[3].out, 3u);
 }
 
+/* hal_uart.c tfw_hal_uart_init: a re-init closes the listener the last init
+ * made before it makes the next, so no fd leaks and the port is free (#48). */
+static void test_a_reinit_closes_the_listener_it_made_before(void)
+{
+    k.socket_fd = 8;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[LSN_FD].closes);
+    TEST_ASSERT_TRUE(k.fd[LSN_FD].close_seq < k.socket_seq);   /* closed first */
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[8].closes);
+    TEST_ASSERT_EQUAL_HEX(OTHER_FL | O_NONBLOCK, k.fd[8].fl);
+    arrive(3);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.accepts);
+    TEST_ASSERT_EQUAL_UINT(0u, k.accepts_off_listener);
+}
+
+/* Closing a listener leaves the connection it accepted open: the host stays. */
+static void test_a_reinit_with_a_host_keeps_the_host_and_moves_the_listener(void)
+{
+    uint8_t  b = 0u;
+    unsigned ends;
+
+    take(3);
+    ends        = session_ends;
+    k.socket_fd = 8;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[LSN_FD].closes);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].closes);
+    TEST_ASSERT_EQUAL_UINT(ends, session_ends);
+    feed(3, (const uint8_t *)"h", 1u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_UINT8('h', b);
+}
+
+/* lwIP keeps one listening pcb per port, SO_REUSEADDR or not: a listener left
+ * open makes the next listen fail EADDRINUSE and leaves the wire deaf. */
+static void test_a_second_listen_on_the_port_is_refused_until_the_first_is_closed(void)
+{
+    k.one_listener = 1;
+    k.socket_fd    = 8;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_INT(0, k.fd[LSN_FD].listening);
+    TEST_ASSERT_EQUAL_INT(1, k.fd[8].listening);
+    arrive(3);
+    idle_pass();
+    TEST_ASSERT_EQUAL_UINT(1u, k.accepts);
+    TEST_ASSERT_EQUAL_UINT(0u, k.accepts_off_listener);
+}
+
+/* fd 0 is a listener like any other: a re-init closes it too. */
+static void test_a_reinit_closes_a_listener_on_fd_0(void)
+{
+    fake_reset();
+    k.socket_fd = 0;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    k.socket_fd = 8;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT(1u, k.fd[0].closes);
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[8].closes);
+}
+
 /* ---- the operator session goes with its host (#607) ------------------ */
 
 static void test_a_quiet_host_replaced_ends_its_operator_session(void)
@@ -981,6 +1072,10 @@ int main(void)
     RUN_TEST(test_eagain_on_send_keeps_the_host_and_the_bytes);
     RUN_TEST(test_a_reinit_with_a_host_keeps_its_reply_and_holds_nothing);
     RUN_TEST(test_a_reinit_with_no_host_drops_the_held_bytes_and_holds_afresh);
+    RUN_TEST(test_a_reinit_closes_the_listener_it_made_before);
+    RUN_TEST(test_a_reinit_with_a_host_keeps_the_host_and_moves_the_listener);
+    RUN_TEST(test_a_second_listen_on_the_port_is_refused_until_the_first_is_closed);
+    RUN_TEST(test_a_reinit_closes_a_listener_on_fd_0);
     RUN_TEST(test_a_quiet_host_replaced_ends_its_operator_session);
     RUN_TEST(test_a_host_that_hangs_up_ends_its_operator_session);
     RUN_TEST(test_a_hangup_and_a_new_host_in_one_poll_end_the_session_once);

@@ -243,8 +243,9 @@ CA 583 forbids: option bytes or provisioning).
 - tfw-boot's flash writes: not runnable, no OTA row for this board; the shared
   sequence ran from the application's EEPROM.
 - Cortex-M33 with TrustZone: owner (TZEN is an option byte; CA 583).
-- Hardware crypto: fails, CAPS offers the soft tier only (issue to file:
-  PKA/HASH not ported).
+- Hardware crypto: the default image is the soft tier (CAPS offers it only);
+  the `CRYPTO=stm32h5` tier drives the HASH and the PKA (#544) and is built in
+  CI (#596).
 - ST Secure Manager: not taken (ruling 935,
   [`../multi-arch/adr-mcu-dice-attestation.md`](../multi-arch/adr-mcu-dice-attestation.md));
   the secure world is upstream TF-M Profile Medium with our DICE layer as an

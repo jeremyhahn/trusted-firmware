@@ -84,6 +84,34 @@ static void test_a_reset_over_tcp_is_not_admitted(void)
     TEST_ASSERT_EQUAL_UINT(0, tfw_mock_reset_count());
 }
 
+/* The other edge of the same boundary: a RESET refused over TCP leaves the
+ * UART carrying every command, so the same RESET arriving on serial is
+ * admitted, answered TFW_OK on the UART and does reset the part. */
+static uint8_t uart_answered(uint8_t seq);
+
+static void test_a_reset_refused_over_tcp_is_carried_over_the_uart(void)
+{
+    static const uint8_t mode = 0u;
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_RESET, 0, 0u);
+
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(len, tfw_h5_wire_push(wire, len));
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(answered_with(9u, TFW_ERR_UNKNOWN_CMD));
+    TEST_ASSERT_EQUAL_UINT(0, tfw_mock_reset_count());
+
+    len = tfw_frame_encode_request(wire, sizeof wire, 11u, TFW_CMD_RESET, &mode, 1u);
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_mock_feed_rx(wire, len);
+    for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+
+    TEST_ASSERT_TRUE(uart_answered(11u));
+    TEST_ASSERT_TRUE(tfw_sys_reset_pending());
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(1, tfw_mock_reset_count());
+}
+
 static void test_a_replacement_connection_is_not_read_as_the_old_frames_tail(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
@@ -229,6 +257,7 @@ int main(void)
     RUN_TEST(test_a_replacement_connection_is_not_read_as_the_old_frames_tail);
     RUN_TEST(test_a_reply_owed_to_the_old_connection_is_not_sent_to_the_new);
     RUN_TEST(test_a_reset_over_tcp_is_not_admitted);
+    RUN_TEST(test_a_reset_refused_over_tcp_is_carried_over_the_uart);
     RUN_TEST(test_tcp_noise_does_not_hold_off_a_uart_request);
     RUN_TEST(test_a_tcp_frame_in_progress_holds_until_it_completes);
     RUN_TEST(test_a_stalled_tcp_frame_holds_until_the_idle_timeout);

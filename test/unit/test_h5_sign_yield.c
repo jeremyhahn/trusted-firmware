@@ -46,15 +46,27 @@ tfw_ms_t tfw_hal_millis(void)
 /* The netif's deadline service (hal_eth_netif.c), faked: counted per sweep.
  * test_h5_netif.c runs it on the real lwIP timers across a lease expiry. */
 static unsigned deadline_sweeps;
+static unsigned rx_drains;
+/* Sweeps with no drain since the last sweep. The flag starts clear, so a
+ * yield that sweeps before it drains is caught on its first sweep. */
+static unsigned sweeps_before_drain;
+static int      drained_this_yield;
 
 void tfw_h5_eth_service_deadlines(void)
 {
     deadline_sweeps++;
+    if (!drained_this_yield) {
+        sweeps_before_drain++;
+    }
+    drained_this_yield = 0;
 }
 
-/* The rx drain is exercised on real lwIP in test_h5_netif.c. */
+/* The rx drain is exercised on real lwIP in test_h5_netif.c; here only its
+ * call from the yield, ahead of the deadline sweep, is checked. */
 void tfw_h5_eth_service_rx_nodispatch(void)
 {
+    rx_drains++;
+    drained_this_yield = 1;
 }
 
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
@@ -123,6 +135,10 @@ void setUp(void)
     released_in_sign = 0;
     released_ms = 0u;
     released_level = 1u;
+    deadline_sweeps = 0u;
+    rx_drains = 0u;
+    sweeps_before_drain = 0u;
+    drained_this_yield = 0;
 }
 
 void tearDown(void) { }
@@ -196,11 +212,29 @@ static void test_a_sign_with_nothing_armed_writes_no_pin(void)
     TEST_ASSERT_TRUE(deadline_sweeps >= 250u);  /* the network's deadlines too */
 }
 
+/* A TCP peer answering keepalive during a long sign must not be found dead:
+ * every yield reads the received frames into lwIP before the lwIP timers and
+ * lease expiry run, so an answer already waiting is seen first. */
+static void test_every_yield_drains_received_frames_before_the_deadline_sweep(void)
+{
+    uint8_t sig[64];
+
+    rx_drains = deadline_sweeps = sweeps_before_drain = 0u;
+    drained_this_yield = 0;
+    signing = 1;
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(seed, digest, sig));
+    signing = 0;
+    TEST_ASSERT_TRUE(rx_drains >= 250u);
+    TEST_ASSERT_EQUAL_UINT(deadline_sweeps, rx_drains); /* one each per yield */
+    TEST_ASSERT_EQUAL_UINT(0u, sweeps_before_drain);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_scheduled_output_is_released_on_time_during_a_sign);
     RUN_TEST(test_a_scheduled_output_is_released_on_time_during_derivation);
     RUN_TEST(test_a_sign_with_nothing_armed_writes_no_pin);
+    RUN_TEST(test_every_yield_drains_received_frames_before_the_deadline_sweep);
     return UNITY_END();
 }

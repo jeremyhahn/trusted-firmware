@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # scripts/ci-mask-lan.sh: mask the LAN addresses a pool runner's environment names, and every SECRETS_*_REGISTRY entry; CI_MASK_REQUIRE names the SECRETS_* variables that must be set.
+# Host names are matched case-insensitively with one terminal dot ignored; the masks keep the entry's own spelling.
 set -euo pipefail
 
 private() {
-	case $1 in
+	local h=${1,,}
+	h=${h%.}
+	case $h in
 	10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
 	'' | direct | off) return 1 ;;
 	*.internal | *.lan | *.local | *.localdomain | *.home.arpa | *.corp) return 0 ;;

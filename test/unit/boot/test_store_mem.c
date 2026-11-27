@@ -256,6 +256,22 @@ static void test_boot_read_starting_past_the_span_is_refused(void)
     TEST_ASSERT_EQUAL_HEX8(0xEEu, out);
 }
 
+static void test_boot_read_with_a_long_command_is_refused(void)
+{
+    uint8_t cmd[5] = { 0x03u, 0x00u, 0x00u, 0x00u, 0x00u };  /* address 0: inside */
+    uint8_t out[4];
+
+    memset(out, 0xEE, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(cmd, 5u, out, 4u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_store_cmd(cmd, 5u, out, 0u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, out, sizeof out);
+    TEST_ASSERT_TRUE(all(0u, TFW_OTA_STORE_MEM_SIZE, 0x5Au));
+
+    /* the same opcode and address, four bytes long: the length was refused */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_store_cmd(cmd, 4u, out, 4u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x5Au, out, sizeof out);
+}
+
 static void test_boot_a_write_enable_does_not_outlive_its_session(void)
 {
     uint8_t wren = 0x06u;
@@ -299,6 +315,7 @@ int main(void)
     RUN_TEST(test_boot_program_shorter_than_its_address_or_with_a_read_is_refused);
     RUN_TEST(test_boot_program_past_the_span_is_refused_and_touches_nothing);
     RUN_TEST(test_boot_read_starting_past_the_span_is_refused);
+    RUN_TEST(test_boot_read_with_a_long_command_is_refused);
     RUN_TEST(test_boot_a_write_enable_does_not_outlive_its_session);
     return UNITY_END();
 }

@@ -230,8 +230,13 @@ The descriptor check fails, in this order, when:
 
 FAILED and UNSUPPORTED both mean firmware-only mode. The firmware answers
 every command, attests and accepts an update as if no application were
-linked. The pins the application configured before failing stay as it left
-them; an `init` that fails puts its outputs back to safe first.
+linked. On the trial boot of a newly installed image (boot_state TRIAL) it
+does not serve on: `tfw_ota_trial_after_init()` (`src/core/ota_trial.c:27`)
+resets into `tfw-boot` at once, which rolls back to the previous image, and
+`tfw_app_after_update` is not asked (open question 1, decided A; see
+[after_update](#after_update)). The pins the application configured before
+failing stay as it left them; an `init` that fails puts its outputs back to
+safe first.
 
 `tfw_app_config_read` and `tfw_app_config_write` return `TFW_ERR_RANGE` when
 `off + len` exceeds `config_len` or `TFW_APP_CONFIG_BASE + off + len` passes
@@ -373,10 +378,10 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Hook `run`, every pass, overruns of `TFW_APP_RUN_BUDGET_MS` counted and not enforced | done | `tfw_app_runner_poll` at `src/core/app_runner.c:75`, from the superloop at `src/main.c:116` | `test_app.c`: `test_run_is_given_the_time_of_the_pass`, `test_a_run_over_the_budget_is_counted_and_not_stopped`, `test_the_overrun_count_saturates` |
 | Hook `shutdown`, before a commanded reset, once | done | `tfw_app_runner_stop` at `src/core/app_runner.c:92`, from `tfw_sys_poll()` at `src/caps/sys.c:239` | `test_app.c`: `test_reset_stops_the_application_and_resets_the_device`, `test_a_stopped_application_is_not_run_or_stopped_again` |
 | Hook `before_update`: `RESET` mode 1, `OTA_ACTIVATE` mode 1, `RESET` mode 0 after `OTA_ACTIVATE` mode 0 | done | `src/core/app_runner.c:92`; `tfw_sys_reset_soon()` at `src/caps/sys.c:61`, from `src/core/ota_activate.c:98`; `tfw_stage_install_pending()` at `src/core/ota_stage.c:281`, asked at `src/caps/sys.c:239` | `test_app.c`: `test_reset_to_bootloader_calls_before_update_then_shutdown`, `test_an_install_reset_calls_before_update_then_shutdown`; `test_ota_stage.c`: `test_activate_tells_the_application_of_the_update_it_resets_into`, `test_a_reset_after_activate_mode_0_is_an_update`, `test_a_reset_with_nothing_marked_only_shuts_down`, `test_a_failed_activate_clears_the_install`; `test_none_variants.c`: `test_stage_install_pending_is_zero` |
-| Hook `after_update`, once on a trial boot after `init`; a refusal ends the trial, `TFW_OK` confirms nothing | done | declared at `include/tfw/app.h:114`; `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:27`; `tfw_app_runner_after_update()` at `src/core/app_runner.c:129`; the reset at `src/core/ota_trial.c:42`; the trial is linked on the ATmega2560 only, elsewhere `src/core/ota_trial_none.c` | `test_ota_trial.c`: `test_an_accepted_after_update_leaves_the_trial_running`, `test_a_refused_after_update_ends_the_trial_at_once`, `test_outside_a_trial_after_update_is_not_asked`; `test_app.c`: `test_a_running_application_answers_the_trial`, `test_a_running_application_can_refuse_the_trial`, `test_an_application_that_is_not_running_is_not_asked_by_the_trial`; `test_app_none.c`: `test_the_empty_runner_never_refuses_a_trial`; `test_none_standins.c`: `test_ota_trial_after_init_returns` |
-| Configuration: the EEPROM region from `TFW_APP_CONFIG_BASE`, bounded by `config_len` | done | `include/tfw/app.h:54`; `tfw_app_config_read` and `tfw_app_config_write` at `src/core/app_runner.c:186` and `:196` | `test_app.c`: `test_configuration_lands_after_the_boot_block`, `test_a_config_write_never_touches_the_network_block`, `test_configuration_past_the_declared_length_is_out_of_range`, `test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not` |
-| Evidence claims: 32 bytes in claim 273 of the alias certificate and `ATTEST_CSR`, the firmware hash without an application | done | `src/core/app_runner.c:115`; `src/caps/attest.c:76`; `src/caps/uccs.c:76`; `src/caps/csr.c:232`; `ApplicationEvidence` at `sdk/go/appevidence.go:71`; vectors at `testdata/vectors.h:384` and `:385` | `test_uccs.c`: `test_application_evidence_is_the_bytes_the_with_vector_pins`, `test_no_application_evidence_is_the_bytes_the_without_vector_pins`; `test_alias.c`: `test_a_running_applications_evidence_is_the_claim_every_page_carries`; `test_csr.c`: `test_a_running_applications_evidence_is_what_the_request_signs`; `test_app.c`: `test_a_failed_application_is_not_asked_for_evidence`; `sdk/go/appevidence_test.go`: `TestApplicationEvidenceWithTheClaim`, `TestApplicationEvidenceWithoutTheClaim`; `sdk/go/cmd/tfwctl/e2e_dice_test.go`: `TestE2EAttestCertCarriesTheApplicationsEvidence` |
-| OTA slots the images use | done | `TFW_APP_OTA_*` at `include/tfw/app.h:42`; checked at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:139`) | `test_app.c`: `test_more_update_slots_than_the_board_has_are_refused`, `test_the_slots_the_board_has_are_accepted` |
+| Hook `after_update`, once on a trial boot after `init`; a refusal ends the trial, `TFW_OK` confirms nothing | done | declared at `include/tfw/app.h:119`; `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:27`; `tfw_app_runner_after_update()` at `src/core/app_runner.c:129`; the reset at `src/core/ota_trial.c:42`; the trial is linked on the ATmega2560 only, elsewhere `src/core/ota_trial_none.c` | `test_ota_trial.c`: `test_an_accepted_after_update_leaves_the_trial_running`, `test_a_refused_after_update_ends_the_trial_at_once`, `test_outside_a_trial_after_update_is_not_asked`; `test_app.c`: `test_a_running_application_answers_the_trial`, `test_a_running_application_can_refuse_the_trial`, `test_an_application_that_is_not_running_is_not_asked_by_the_trial`; `test_app_none.c`: `test_the_empty_runner_never_refuses_a_trial`; `test_none_standins.c`: `test_ota_trial_after_init_returns` |
+| Configuration: the EEPROM region from `TFW_APP_CONFIG_BASE`, bounded by `config_len` | done | `include/tfw/app.h:55`; `tfw_app_config_read` and `tfw_app_config_write` at `src/core/app_runner.c:186` and `:196` | `test_app.c`: `test_configuration_lands_after_the_boot_block`, `test_a_config_write_never_touches_the_network_block`, `test_configuration_past_the_declared_length_is_out_of_range`, `test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not` |
+| Evidence claims: 32 bytes in claim 273 of the alias certificate and `ATTEST_CSR`, the firmware hash without an application | done | `src/core/app_runner.c:115`; `src/caps/attest.c:76`; `src/caps/uccs.c:76`; `src/caps/csr.c:232`; `ApplicationEvidence` at `sdk/go/appevidence.go:71`; vectors at `testdata/vectors.h:401` and `:402` | `test_uccs.c`: `test_application_evidence_is_the_bytes_the_with_vector_pins`, `test_no_application_evidence_is_the_bytes_the_without_vector_pins`; `test_alias.c`: `test_a_running_applications_evidence_is_the_claim_every_page_carries`; `test_csr.c`: `test_a_running_applications_evidence_is_what_the_request_signs`; `test_app.c`: `test_a_failed_application_is_not_asked_for_evidence`; `sdk/go/appevidence_test.go`: `TestApplicationEvidenceWithTheClaim`, `TestApplicationEvidenceWithoutTheClaim`; `sdk/go/cmd/tfwctl/e2e_dice_test.go`: `TestE2EAttestCertCarriesTheApplicationsEvidence` |
+| OTA slots the images use | done | `TFW_APP_OTA_*` at `include/tfw/app.h:43`; checked at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:161`) | `test_app.c`: `test_more_update_slots_than_the_board_has_are_refused`, `test_the_slots_the_board_has_are_accepted` |
 | APP_INFO (0x06) reports the descriptor and the runner state | done | `tfw_app_cmd_info` at `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`, `test_app_info_reports_a_refused_descriptor_as_written`, `test_app_info_takes_no_payload`; `test_app_example.c`: `test_app_info_reports_the_example`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppReportsItsApplication` |
 | No application: no application logic, the image and wire as before | done | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c`: `test_the_empty_runner_stays_idle`, `test_app_info_is_unknown_without_an_application`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppIsAnUnknownCommandWithoutAnApplication` |
 | APP_CMD (0x07): the application's sub-ops, the three refusals, `APP_COMMANDS` in app.mk (owner ruling 1243) | partial | the host side: `CmdAppCmd` and `Device.AppCommand` in `sdk/go`, `tfwctl app-cmd`; the device side (`tfw_app_cmd_command`, `src/core/app_cmd_none.c`, the example's sub-op `0x00`) lands in the row's APP_CMD slices ([plans/635.md](../plans/635.md), item 22) | `test_app_cmd.c`; `test_app_cmd_none.c`; `test_app_example.c`; `test_app_none.c`; `scripts/test_app_mk.py`; the `TFWV_APPCMD_*` vectors |
@@ -385,20 +390,21 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | Onboarding by device profile | partial | the device side: `profile` in the descriptor (`include/tfw/app.h:60`), reported by APP_INFO (`src/core/app_runner.c:153`); enrolment by profile is go-trusted-platform's (SPEC row `device-onboarding`, future) | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; slice 5 |
 | One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
 | The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
-| Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; the tag `v0.4.2-alpha` declares `tfw_app_after_update` and `tfw_app_evidence`, and its `include/tfw/app.h` is `main`'s (`git diff v0.4.2-alpha main -- include/tfw/app.h` is empty), so the released hook set is `main`'s; `make app-sdk-check` has not been recorded against that tag | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
-| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`), and for `BOARD=esp32p4-poe` by the `esp32-build` rule (`mk/arch/esp32-targets.mk:61`, the check at `:133`) in CI's ESP32 Build job, in its ESP-IDF image; no `BOARD=esp32-qemu` application run (`esp32-qemu-test` sets `ESP_APP_EXAMPLE=0`); `make app-header-check` against every board; slice 2 |
+| Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; the tag `v0.4.2-alpha` declares `tfw_app_after_update` and `tfw_app_evidence`, but its `include/tfw/app.h` lacks `tfw_app_command`, `tfw_app_session_ok` and the `tfw/reader.h` and `tfw/writer.h` includes that `main` adds for APP_CMD (owner ruling 1243), so the current example (`test/app/example/example.c:63` defines `tfw_app_command`) does not build against the released headers; `make app-sdk-check` run in a checkout of `v0.4.2-alpha` builds that tag's own example, not the current application; done when a release carrying the APP_CMD interface exists and `make app-sdk-check` builds the current example against it | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
+| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`), and for `BOARD=esp32p4-poe` by the `esp32-build` rule (`mk/arch/esp32-targets.mk:63`, the check at `:135`) in CI's ESP32 Build job, in its ESP-IDF image; `BOARD=esp32-qemu`: `esp32-qemu-test` builds the example's esp32c3 image and boots it once, `wirecheck -app-name heartbeat` requiring APP_INFO to name it running (step 7 of `test/integration/esp32/qemu_test.py`); the run is in esp32-qemu-test (#1043), not yet observed; `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
 Counts: 15 done, 5 partial, 0 not started.
 
 ### Remaining slices
 
-1. **The released hook set.** Released: `v0.4.2-alpha` carries
-   `after_update` and the evidence hook, its `include/tfw/app.h` the same as
-   `main`'s, so no release is needed. What remains is the validation: `make
-   app-sdk-check` (`mk/app.mk:92`) run in a checkout of `v0.4.2-alpha`, the
-   example built from outside the tree against the released headers. The row
-   moves to done when that run is recorded here; no hardware.
+1. **The released hook set.** Not done: `v0.4.2-alpha` carries
+   `after_update` and the evidence hook but not the APP_CMD interface
+   (`tfw_app_command`, `tfw_app_session_ok`, the `tfw/reader.h` and
+   `tfw/writer.h` includes), so a release carrying it is needed (the next
+   alpha tag; a lane does not tag or release). Then `make app-sdk-check`
+   (`mk/app.mk:92`) against that release, the current example built out of
+   tree; the row moves to done when that run is recorded here; no hardware.
 2. **Applications on every architecture.** Built and checked on all three:
    `mk/stages.mk` runs `make app-firmware-check` for the AVR and Cortex-M
    boards only (`BOARD=atmega2560` and QEMU's `BOARD=mps2-an505`) in the
@@ -406,9 +412,13 @@ Counts: 15 done, 5 partial, 0 not started.
    BOARD=esp32p4-poe` in its ESP-IDF image, and the `esp32-build` rule in
    `mk/arch/esp32-targets.mk` passes `APP_SRCS` and `APP_FW_CFLAGS` to the
    ESP-IDF component, links the example application into an image of its
-   own and runs `app-firmware-check` on it. Outstanding, so the row stays
-   partial: a QEMU run of the application, `BOARD=esp32-qemu`, since
-   `esp32-qemu-test` builds its images with `ESP_APP_EXAMPLE=0`; no hardware.
+   own and runs `app-firmware-check` on it. On QEMU, `BOARD=esp32-qemu`:
+   `esp32-qemu-test` keeps `ESP_APP_EXAMPLE` for its esp32c3 build, so the
+   example's image is linked beside it, and `qemu_test.py` boots that image
+   once and runs `wirecheck -app-name heartbeat`, which requires APP_INFO to
+   name the application running. The row stays partial until that run is
+   observed: the run is in esp32-qemu-test (#1043), not yet observed; no
+   hardware.
 3. **One application, one caller.** Done: `make app-link-check` (in
    `host-test`) and `make app-link-check-selftest` (in `security`). A gate in
    `mk/app.mk`, `app-link-check`, that links `test/app/example` beside
@@ -433,8 +443,11 @@ Counts: 15 done, 5 partial, 0 not started.
    first; no code until the owner rules
    ([architecture.md](architecture.md#what-it-does-not-do)).
 
-The row is not done: slices 3 and 4 are done, 2 but for its ESP32 run in CI; 1 is this project's and needs no hardware;
-5 and 6 wait on another project or the owner. Open question 1 below is
+The row is not done: slices 3 and 4 are done; 1 waits on a release that
+carries APP_CMD; 2 is done but for its
+`esp32-qemu-test` run, which runs on a push to main and on the schedule, never
+on a PR (`.github/workflows/ci.yml`, the `esp32-qemu-test` job's `if:`), so it
+is observed after the merge; 5 and 6 wait on another project or the owner. Open question 1 below is
 decided.
 
 ## Open questions

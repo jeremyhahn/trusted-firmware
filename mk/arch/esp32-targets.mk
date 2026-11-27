@@ -19,7 +19,7 @@ ESP_IMAGE_VERSION ?= 1
 # Non-empty where boards/<board>/profile.mk lists this target for ESP-IDF's anti-rollback.
 ESP_ANTI_ROLLBACK   = $(filter $(ESP_TARGET),$(ESP_ANTI_ROLLBACK_TARGETS))
 ESP_SEC_VER_MAX    := 16
-# esp32-build also builds the example application's image beside the one with none, unless ESP_APP_EXAMPLE=0, APP_DIR is set (that build is the example's) or PROVISION=1.
+# esp32-build also builds the example application's image beside the one with none, unless ESP_APP_EXAMPLE=0, APP_DIR is set (that build is the example's) or PROVISION=1; esp32-qemu-test keeps it for the esp32c3 image only, whose example image it boots.
 ESP_APP_EXAMPLE    ?= 1
 ESP_APP_EXAMPLE_RUN = $(and $(filter 1,$(ESP_APP_EXAMPLE)),$(if $(strip $(APP_DIR)),,1),$(if $(filter 1,$(PROVISION)),,1))
 ESP_PROJECT   := mk/arch/esp32
@@ -111,14 +111,15 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 esp32-qemu-test:
 	@v=$$(qemu-system-riscv32 --version 2>/dev/null | head -n 1); case "$$v" in *"$(ESP_QEMU_VERSION)"*) ;; \
 	   *) echo "esp32-qemu-test: QEMU is '$$v'; this tree is pinned to $(ESP_QEMU_VERSION)"; exit 1;; esac
-	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3 ESP_APP_EXAMPLE=0
+	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3 PROVISION=1 ESP_APP_EXAMPLE=0
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32 ESP_APP_EXAMPLE=0
 	@mkdir -p $(ESP_ROOT)
 	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
 # The two runs go one at a time, so neither QEMU starves the other of CPU on a shared runner.
 	@rc=0; python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256 esp32c3 $(ESP_ROOT)/wirecheck \
-	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov || rc=1; \
+	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov \
+	   $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-app-heartbeat || rc=1; \
 	 python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32-none esp32 $(ESP_ROOT)/wirecheck \
 	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu || rc=1; \
 	 exit $$rc

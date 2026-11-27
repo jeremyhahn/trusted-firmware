@@ -26,7 +26,8 @@ APP_SRCS := heartbeat.c
 
 `heartbeat.c` defines the descriptor and all six hooks. A hook you have no
 use for is an empty function, or for `tfw_app_evidence` one that returns
-`TFW_ERR_UNSUPPORTED`; leaving one out is a link error.
+`TFW_ERR_UNSUPPORTED`; leaving one out is a link error. The heartbeat drives
+pin 13, the LED, on a board that has one, and pin 0 on a board with fewer pins.
 
 ```c
 #include "tfw/app.h"
@@ -41,13 +42,23 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
     .version_major = 1u, .required_caps = HEARTBEAT_CAPS, .name = "heartbeat",
 };
 
+/* Pin 13 is the LED on the Arduino boards; a board with fewer pins (esp32-qemu,
+ * mps2-an505) has no pin 13, so the heartbeat takes its first pin instead. */
+#if TFW_PIN_COUNT > 13u
+#define HEARTBEAT_PIN 13u
+#else
+#define HEARTBEAT_PIN 0u
+#endif
+_Static_assert(TFW_PIN_COUNT == 0u || HEARTBEAT_PIN < TFW_PIN_COUNT,
+               "the heartbeat pin is not a pin of this board");
+
 static tfw_pinref_t led;
 static tfw_ms_t     next;
 static uint8_t      level;
 
 tfw_status_t tfw_app_init(void)
 {
-    tfw_status_t st = tfw_board_pin(13u, &led);
+    tfw_status_t st = tfw_board_pin(HEARTBEAT_PIN, &led);
     if (st != TFW_OK) {
         return st;
     }
@@ -193,6 +204,11 @@ accepts a fixed image. Nothing of yours is called again until the next reset.
 The same happens without `init` being called when the image cannot run your
 application: a missing capability, too few update slots, or a configuration
 region larger than the board's EEPROM.
+
+On the trial boot of a newly installed image, a failed `init`, or an image
+that cannot run your application, ends the trial at once: the firmware resets
+and `tfw-boot` rolls back to the previous image. `tfw_app_after_update` is not
+asked. Recovery is another update.
 
 ## Check it on the simulator
 

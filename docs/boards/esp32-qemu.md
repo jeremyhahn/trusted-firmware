@@ -82,7 +82,7 @@ Not a `make firmware` image, and never in `make ci`, whose image has no
 ESP-IDF (`profile.mk:5`–`6`). The build is
 `make esp32-build BOARD=esp32-qemu [ESP_TARGET=esp32]`
 (`mk/arch/esp32-targets.mk:35`–`108`), and the test is
-`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:110`–`125`), which needs the
+`make esp32-qemu-test` (`mk/arch/esp32-targets.mk:110`–`126`), which needs the
 pinned QEMU, `esp_develop_9.2.2_20260417` (`mk/arch/esp32.mk:8`). It builds
 the C3 row, a `PROVISION=1` C3 row and the original-ESP32 row
 (`mk/arch/esp32-targets.mk:114`–`116`), then runs the two machines side by side
@@ -92,7 +92,11 @@ checked against the literal point of a fixed UDS, its ATTEST verified as ES256
 ES256 gate, the wire over Ethernet, and the ATTEST refusal. Both check layer 0's
 gate and refuse tampered and mis-sealed images and manifests; the C3 run also
 boots the `PROVISION=1` image on a part with no UDS
-(`mk/arch/esp32-targets.mk:110`). `ATTEST` signs with the P-256 DeviceID
+(`mk/arch/esp32-targets.mk:110`). Only the C3 row keeps
+`ESP_APP_EXAMPLE`, so its `app-firmware-check` links the example application
+into `esp32-qemu-esp32c3-hmac-p256-app-heartbeat`, and the C3 run boots that
+image once and runs `wirecheck -app-name heartbeat`: `APP_INFO` must name the
+application running (`qemu_test.py`'s docstring, step 7). `ATTEST` signs with the P-256 DeviceID
 the `hmac-p256` tier derives from the eFuse UDS; a tier with no UDS answers it
 NOT_PROVISIONED or UNSUPPORTED, as an AVR board without an element does
 (`board_profile.h:43`–`47`).

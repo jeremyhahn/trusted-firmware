@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The example application of docs/application-sdk/user.md: a heartbeat on pin
- * 13, toggled every 500 ms. It is built as an application repository builds
+ * 13 (the LED) where the board has one, else on pin 0, toggled every 500 ms. It is built as an application repository builds
  * one -- against include/tfw and nothing under src/ -- by test_app_example and
  * by `make app-sdk-check`, which builds it from a copy outside this tree.
  */
@@ -18,6 +18,16 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
     .version_major = 1u, .required_caps = HEARTBEAT_CAPS, .name = "heartbeat",
 };
 
+/* Pin 13 is the LED on the Arduino boards; a board with fewer pins (esp32-qemu,
+ * mps2-an505) has no pin 13, so the heartbeat takes its first pin instead. */
+#if TFW_PIN_COUNT > 13u
+#define HEARTBEAT_PIN 13u
+#else
+#define HEARTBEAT_PIN 0u
+#endif
+_Static_assert(TFW_PIN_COUNT == 0u || HEARTBEAT_PIN < TFW_PIN_COUNT,
+               "the heartbeat pin is not a pin of this board");
+
 static tfw_pinref_t led;
 static tfw_ms_t     next;
 static uint8_t      level;
@@ -28,7 +38,7 @@ tfw_status_t tfw_app_init(void)
     tfw_status_t st;
 
     toggles = 0u;
-    st      = tfw_board_pin(13u, &led);
+    st      = tfw_board_pin(HEARTBEAT_PIN, &led);
     if (st != TFW_OK) {
         return st;
     }

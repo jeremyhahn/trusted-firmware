@@ -170,7 +170,7 @@ is on; two builds of one commit gave the same image digest.
   - the C3's CDI fingerprint equals `HMAC-SHA256(UDS, measurement)` computed
     on the host, and the DeviceID fingerprint equals `SHA-256(x ‖ y)` of the
     P-256 point the host derives from the UDS (`qemu_test.py:282-290`, pinned at
-    `:144-147`), under which `ATTEST` verifies as ES256 (`qemu_test.py:631-633`);
+    `:144-147`), under which `ATTEST` verifies as ES256 (`qemu_test.py:638-640`);
   - all three are identical across a soft reset and a cold start of a new QEMU
     on the same flash and eFuses; an EEPROM mark written over the wire
     survives both;

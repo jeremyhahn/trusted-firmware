@@ -91,6 +91,41 @@ func fakeT(t *testing.T, h handler) *tfw.Device {
 	return d
 }
 
+// The APP_INFO reply sdk/go/commands.go's AppInfo parses: state at 0,
+// overruns 1-2, abi 3, OTA slots 4, version 5-6 and 7-8, config length 9-10,
+// required caps 11-14, then the NUL-padded name (16 bytes) and profile (32).
+// sdk/go/internal/vectors is internal to sdk/go, so it is built here.
+const (
+	appReplyNameOff    = 15
+	appReplyProfileOff = appReplyNameOff + 16
+	appReplyLen        = appReplyProfileOff + 32
+)
+
+func appInfoReply(state tfw.AppState, name string) []byte {
+	p := make([]byte, appReplyLen)
+	p[0] = byte(state)
+	p[3] = 1
+	p[5] = 1
+	copy(p[appReplyNameOff:appReplyProfileOff], name)
+	copy(p[appReplyProfileOff:], "example")
+	return p
+}
+
+// appFake answers APP_INFO with st and reply, and anything else unknown.
+func appFake(st tfw.Status, reply []byte) handler {
+	return func(cmd tfw.Cmd, _ []byte) (tfw.Status, []byte) {
+		if cmd != tfw.CmdAppInfo {
+			return tfw.StatusErrUnknownCmd, nil
+		}
+		return st, reply
+	}
+}
+
+func TestAppCheckPassesARunningApplication(t *testing.T) {
+	d := fakeT(t, appFake(tfw.StatusOK, appInfoReply(tfw.AppRunning, "heartbeat")))
+	appCheck(context.Background(), d, "heartbeat")
+}
+
 // otaDevice is an OTA session that accepts an image in order and records
 // what the host sent.
 type otaDevice struct {
@@ -697,6 +732,18 @@ var children = map[string]func(){
 		os.Args = []string{"wirecheck", "-deviceid", "zz"}
 		main()
 	},
+	"app info refused": func() {
+		d, _ := fake(appFake(tfw.StatusErrUnknownCmd, nil))
+		appCheck(context.Background(), d, "heartbeat")
+	},
+	"app other name": func() {
+		d, _ := fake(appFake(tfw.StatusOK, appInfoReply(tfw.AppRunning, "other")))
+		appCheck(context.Background(), d, "heartbeat")
+	},
+	"app not running": func() {
+		d, _ := fake(appFake(tfw.StatusOK, appInfoReply(tfw.AppRunning+1, "heartbeat")))
+		appCheck(context.Background(), d, "heartbeat")
+	},
 }
 
 func childSigner() *signer {
@@ -772,6 +819,9 @@ func TestChecksRefuse(t *testing.T) {
 		"attest no deviceid":              "wirecheck: attest: tier software signs ATTEST",
 		"attest no feature":               "wirecheck: caps: tier software",
 		"main bad deviceid":               "wirecheck: deviceid: -deviceid is not a P-256 point",
+		"app info refused":                "wirecheck: app info: ",
+		"app other name":                  "wirecheck: app info: application \"other\", want \"heartbeat\"",
+		"app not running":                 "wirecheck: app info: application \"heartbeat\" in state",
 	} {
 		if got := runChild(t, name); !strings.Contains(got, want) {
 			t.Errorf("%s: stderr %q, want %q", name, got, want)

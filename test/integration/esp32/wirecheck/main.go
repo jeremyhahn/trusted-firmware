@@ -83,6 +83,7 @@ func main() {
 	refusal := flag.Int("refusal", -1, "with -silent: pass only if the device also announces this status in an EVENT, or -1 for no check")
 	hsm := flag.String("hsm", "", "run this tamper-response case (hsm.go) and nothing else")
 	hsmDir := flag.String("hsm-dir", "", "the directory hsm_sets wrote the -hsm cases' sets to")
+	appName := flag.String("app-name", "", "require APP_INFO to name this application, running; empty sends no APP_INFO")
 	flag.Parse()
 
 	if *silent > 0 {
@@ -136,6 +137,9 @@ func main() {
 		uint8(caps.BoardID), caps.PinCount, uint8(caps.CryptoTier), caps.Features)
 	fmt.Printf("wirecheck: sysinfo uptime %v free-ram %d reset-cause %d\n",
 		sys.Uptime, sys.FreeRAM, uint8(sys.ResetCause))
+	if *appName != "" {
+		appCheck(ctx, d, *appName)
+	}
 	if *genKey != "" {
 		provision(ctx, d, caps, *genKey)
 	} else {
@@ -702,6 +706,25 @@ func infoPrint(ctx context.Context, d *tfw.Device) {
 		fmt.Printf("ota: slot %d state %d version %d floor %d flags 0x%02x measurement %x\n",
 			slot, si.State, si.ImageVersion, si.Floor, si.Flags, si.Measurement)
 	}
+}
+
+// appCheck asks APP_INFO, parsed by the SDK, and requires the application the
+// image was built with to be named and running. Only an image with an
+// application answers it; any other answers StatusErrUnknownCmd, which fails
+// here as any refusal does.
+func appCheck(ctx context.Context, d *tfw.Device, name string) {
+	ai, err := d.AppInfo(ctx)
+	if err != nil {
+		fail("app info", err)
+	}
+	if ai.Name != name {
+		fail("app info", fmt.Errorf("application %q, want %q", ai.Name, name))
+	}
+	if ai.State != tfw.AppRunning {
+		fail("app info", fmt.Errorf("application %q in state %d, want running (%d)", ai.Name, ai.State, tfw.AppRunning))
+	}
+	fmt.Printf("wirecheck: app %q running abi %d version %d.%d required-caps 0x%08x\n",
+		ai.Name, ai.ABI, ai.VersionMajor, ai.VersionMinor, ai.RequiredCaps)
 }
 
 // otaKeep is how many replies a failure report shows from each end of the

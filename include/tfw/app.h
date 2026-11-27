@@ -92,7 +92,9 @@ extern const tfw_app_descriptor_t tfw_app_descriptor;
 /* Once, at the end of startup, before interrupts are enabled: the tick does not
  * advance and the link is not up. TFW_OK starts the application; anything else
  * leaves the device firmware-only until the next reset, with nothing of the
- * application called again. Budget 20 ms. */
+ * application called again. On the trial boot of a newly installed image the
+ * firmware instead resets into the bootloader at once, which rolls back, as a
+ * refused tfw_app_after_update does (src/core/ota_trial.c). Budget 20 ms. */
 tfw_status_t tfw_app_init(void);
 
 /* Every superloop pass while running. now_ms is tfw_hal_millis() at the call.
@@ -108,11 +110,13 @@ void tfw_app_shutdown(void);
 void tfw_app_before_update(void);
 
 /* Once, on the trial boot of a newly installed image (boot_state TRIAL), after
- * tfw_app_init returned TFW_OK. TFW_OK confirms nothing: the trial runs on, and
- * the control plane's OTA_CONFIRM confirms it. Anything else ends the trial at
- * once, as failed: the firmware resets into the bootloader, which rolls back
- * (decision 9 of docs/ota/adr-ota-image-format-and-trust.md). Not called on a
- * board without the trial, nor on any boot that is not one. */
+ * tfw_app_init returned TFW_OK. When init refused, or the descriptor failed its
+ * checks, it is not asked: the trial ends at once by the same reset. TFW_OK
+ * confirms nothing: the trial runs on, and the control plane's OTA_CONFIRM
+ * confirms it. Anything else ends the trial at once, as failed: the firmware
+ * resets into the bootloader, which rolls back (decision 9 of
+ * docs/ota/adr-ota-image-format-and-trust.md). Not called on a board without
+ * the trial, nor on any boot that is not one. */
 tfw_status_t tfw_app_after_update(void);
 
 /* The application's evidence: 32 opaque bytes the firmware places in the

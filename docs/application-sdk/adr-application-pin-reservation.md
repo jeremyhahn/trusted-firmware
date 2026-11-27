@@ -71,7 +71,7 @@ vtable, and preprocessor conditionals stay in the four places.
   probe (`mk/wiznet-probe.mk:26`). A call from it into the application runner
   would make each of those link a runner.
 - **The example application already conflicts.** It drives pin 13, the LED
-  (`test/app/example/example.c:27`, `:41`), which a host may also write. On the
+  (`test/app/example/example.c:41`, `:58`), which a host may also write. On the
   ATmega328P, pin 13 is the Ethernet shield's SCK in an Ethernet image
   (`boards/atmega328p/board.c:43`): there the application drives a pin the
   firmware itself has taken.
@@ -246,7 +246,7 @@ constant expressions, so a `_Static_assert` in the application cannot read
 them, and which rows carry `IN_USE` depends on the image's features
 (`TFW_PIN_ETH`, `TFW_PIN_OTA_STORE`). The bound alone is a constant: an
 application may check `pin < TFW_PIN_COUNT` at compile time as
-`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:139-143`),
+`TFW_APP_STATIC_CHECK` checks its capabilities (`include/tfw/app.h:161-165`),
 and the runner checks it again at boot for one that does not.
 
 Refusing the application, not the one pin, keeps the runner's rule that an

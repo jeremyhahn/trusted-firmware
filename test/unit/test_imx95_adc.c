@@ -329,6 +329,70 @@ static void test_the_references_accepted_and_refused(void)
     TEST_ASSERT_EQUAL_UINT(before, touches);
 }
 
+static void test_a_read_before_any_init_is_refused(void)
+{
+    uint16_t raw = 0x5A5Au;
+    unsigned before = touches;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
+    TEST_ASSERT_EQUAL_UINT(before, touches);
+    TEST_ASSERT_EQUAL_UINT(0u, conversions);
+}
+
+static void test_a_calibration_that_never_completes_is_left_powered_down(void)
+{
+    cal = CAL_HANG;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    TEST_ASSERT_TRUE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_PWDN);
+    TEST_ASSERT_EQUAL_UINT(0u, cal_runs);
+}
+
+static void test_a_failed_calibration_is_left_powered_down(void)
+{
+    uint16_t raw = 0x5A5Au;
+    unsigned before;
+
+    cal = CAL_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_adc_init());
+    TEST_ASSERT_EQUAL_UINT(1u, cal_runs);
+    TEST_ASSERT_TRUE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_PWDN);
+    before = touches;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
+    TEST_ASSERT_EQUAL_UINT(before, touches);
+    TEST_ASSERT_EQUAL_UINT(0u, conversions);
+}
+
+static void test_a_read_over_a_scan_left_running_is_one_shot(void)
+{
+    uint16_t raw = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    /* a block left in scan mode by whatever ran before */
+    R(TFW_IMX95_ADC_MCR) |= TFW_IMX95_ADC_MCR_MODE;
+    sample[0] = 0x0777u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x0777u, raw);
+    TEST_ASSERT_EQUAL_UINT(1u, conversions);
+    TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_MODE);
+    /* the model ends the chain only in one-shot */
+    TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_NSTART);
+}
+
+static void test_a_read_masks_interrupts_left_unmasked(void)
+{
+    uint16_t raw = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    R(TFW_IMX95_ADC_IMR) = TFW_IMX95_ADC_ISR_EOC | TFW_IMX95_ADC_ISR_ECH;
+    R(TFW_IMX95_ADC_CIMR0) = 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(1u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(sample[1], raw);
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_IMX95_ADC_IMR));
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_IMX95_ADC_CIMR0));
+}
+
 #else /* TFW_IMX95_ADC_BASE == 0 */
 
 static void test_base_zero_touches_nothing(void)
@@ -352,6 +416,8 @@ int main(void)
 {
     UNITY_BEGIN();
 #if TFW_IMX95_ADC_BASE != 0
+    /* first: adc_state is file-static, so only this test sees no init yet */
+    RUN_TEST(test_a_read_before_any_init_is_refused);
     RUN_TEST(test_adc_read_channel0);
     RUN_TEST(test_init_powers_up_and_calibrates_once);
     RUN_TEST(test_a_read_on_each_channel);
@@ -364,6 +430,10 @@ int main(void)
     RUN_TEST(test_the_references_accepted_and_refused);
     RUN_TEST(test_a_block_that_never_powers_down_is_not_calibrated);
     RUN_TEST(test_a_block_that_will_not_power_down_after_calibrating_times_out);
+    RUN_TEST(test_a_calibration_that_never_completes_is_left_powered_down);
+    RUN_TEST(test_a_failed_calibration_is_left_powered_down);
+    RUN_TEST(test_a_read_over_a_scan_left_running_is_one_shot);
+    RUN_TEST(test_a_read_masks_interrupts_left_unmasked);
 #else
     RUN_TEST(test_base_zero_touches_nothing);
 #endif

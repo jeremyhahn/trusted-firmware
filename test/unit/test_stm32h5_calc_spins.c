@@ -37,10 +37,29 @@ static void test_spins_do_not_overflow_at_the_widest_products(void)
     TEST_ASSERT_EQUAL_UINT32(4294u, tfw_h5_spins_us(0xFFFFFFFFu, 1u));
 }
 
+static void test_a_part_megahertz_is_dropped_before_the_multiply(void)
+{
+    /* 64.999999 MHz is 64 whole MHz: 64 * 10000 us = 640000 spins. The
+     * 0.999999 MHz is dropped, not rounded and not carried into the product. */
+    TEST_ASSERT_EQUAL_UINT32(640000u, tfw_h5_spins_us(64999999u, TFW_H5_ADC_POLL_US));
+    /* 250.999999 MHz is 250 whole MHz: 250 * 20 us = 5000 spins. */
+    TEST_ASSERT_EQUAL_UINT32(5000u, tfw_h5_spins_us(250999999u, TFW_H5_ADC_REGUL_US));
+}
+
+static void test_one_megahertz_gives_one_spin_per_us_and_zero_us_none(void)
+{
+    /* 1 MHz * 10000 us = 10000 spins: one spin a microsecond. */
+    TEST_ASSERT_EQUAL_UINT32(10000u, tfw_h5_spins_us(1000000u, TFW_H5_ADC_POLL_US));
+    /* A zero-microsecond wait is no spins, whatever the clock. */
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_spins_us(64000000u, 0u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_adc_poll_bound_is_10_ms_of_core_cycles);
     RUN_TEST(test_spins_do_not_overflow_at_the_widest_products);
+    RUN_TEST(test_a_part_megahertz_is_dropped_before_the_multiply);
+    RUN_TEST(test_one_megahertz_gives_one_spin_per_us_and_zero_us_none);
     return UNITY_END();
 }

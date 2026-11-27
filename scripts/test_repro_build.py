@@ -52,6 +52,13 @@ def write(path, text):
         f.write(text)
 
 
+def make_free_env(**extra):
+    """os.environ without the calling make's MAKEFLAGS, MFLAGS and MAKELEVEL."""
+    env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
+    env.update(extra)
+    return env
+
+
 class ReproBuild(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="tfw-repro-build-")
@@ -76,6 +83,10 @@ class ReproBuild(unittest.TestCase):
         self.b = os.path.join(t, "out", "longer", "b")
 
     def run_script(self, *make_args, env=None):
+        # `make scripts-test` sets MAKEFLAGS itself: a run that brings no env of
+        # its own must not see the calling make's flags or variables.
+        if env is None:
+            env = make_free_env()
         return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,
                                "--image", IMAGE, "--dir", self.a, "--dir", self.b, "--"]
                               + list(make_args),
@@ -98,7 +109,7 @@ class ReproBuild(unittest.TestCase):
                                  "the copy is the commit, not the working tree")
 
     def test_source_date_epoch_is_the_commit_time(self):
-        env = dict(os.environ, SOURCE_DATE_EPOCH="1")
+        env = make_free_env(SOURCE_DATE_EPOCH="1")
         run = self.run_script(env=env)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         for d in (self.a, self.b):
@@ -178,7 +189,7 @@ class ReproBuild(unittest.TestCase):
         return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,
                                "--image", IMAGE, "--dir", self.a, "--dir", self.b,
                                "--app-dir", app_dir],
-                              capture_output=True, text=True, check=False)
+                              env=make_free_env(), capture_output=True, text=True, check=False)
 
     def test_an_application_in_the_tree_is_the_committed_one_in_each_copy(self):
         write(os.path.join(self.src, "app", "ex", "app.mk"), "APP_NAME := ex\n")
@@ -208,6 +219,48 @@ class ReproBuild(unittest.TestCase):
         run = self.run_app(self.tmp.name)
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("has no app.mk", run.stdout + run.stderr)
+
+    # The calling make's command-line variables (#473, #635): GNU make puts
+    # them in MAKEFLAGS after " -- ", and the script must pass them on.
+
+    def run_with_makeflags(self, makeflags, *make_args):
+        return self.run_script(*make_args, env=make_free_env(MAKEFLAGS=makeflags))
+
+    def test_command_line_variables_of_the_calling_make_reach_both_builds(self):
+        run = self.run_with_makeflags(
+            "s -j4 --jobserver-auth=fifo:/tmp/x -- BUILD_DIR=build/imx95-imxboot IMX_BOOT=1",
+            "fw.hex")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            args = self.image(d)["args"]
+            self.assertEqual(args, "BUILD_DIR=build/imx95-imxboot IMX_BOOT=1 fw.hex")
+            self.assertNotIn("-j4", args.split())
+            self.assertNotIn("--jobserver", args)
+
+    def test_the_explicit_arguments_follow_the_forwarded_ones(self):
+        run = self.run_with_makeflags("-- BOARD=a", "BOARD=b")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "BOARD=a BOARD=b")
+
+    def test_a_forwarded_absolute_build_dir_is_refused(self):
+        out = os.path.join(self.tmp.name, "shared-build")
+        run = self.run_with_makeflags("-- BUILD_DIR=" + out)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+        self.assertFalse(os.path.lexists(self.a))
+        self.assertFalse(os.path.lexists(self.b))
+
+    def test_a_forwarded_build_dir_outside_the_copy_is_refused(self):
+        run = self.run_with_makeflags("-- BUILD_DIR=../out")
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+
+    def test_jobserver_flags_alone_forward_nothing(self):
+        run = self.run_with_makeflags("-j8 --jobserver-auth=3,4")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "")
 
 
 if __name__ == "__main__":

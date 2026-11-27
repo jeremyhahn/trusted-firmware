@@ -4,7 +4,9 @@
  * The STM32H5 RNG read's own error recovery (hal_rng.c tfw_h5_rng_read(),
  * #599): a word after one recovered latched error is returned, an error that
  * comes straight back is reported without a second recovery, and a zero word
- * after a recovery is refused with the caller's word left as it was.
+ * after a recovery is refused with the caller's word left as it was. A word
+ * read while a seed error latches is dropped and read again after one
+ * recovery; a clock error after the read keeps the word.
  */
 #include <stdint.h>
 
@@ -62,6 +64,7 @@ static uint32_t rng_sr_cell(void)
 #define DRDY TFW_H5_RNG_SR_DRDY
 #define CEIS TFW_H5_RNG_SR_CEIS
 #define SEIS TFW_H5_RNG_SR_SEIS
+#define SECS TFW_H5_RNG_SR_SECS
 #define OUT0 0xA5A5A5A5u
 
 static volatile uint32_t rcc_cr, rcc_ahb2enr;
@@ -145,11 +148,67 @@ static void test_a_zero_word_after_a_recovery_is_refused_and_leaves_out(void)
     TEST_ASSERT_EQUAL_HEX32(OUT0, out);
 }
 
+/*
+ * After the DR read: RNG_SR is looked at again, and a word taken while a seed
+ * error latches is dropped and read again after one recovery, as ST's HAL
+ * does. A clock error there keeps the word.
+ */
+static void check_seed_error_after_read_drops_word(uint32_t after)
+{
+    uint32_t out = OUT0;
+
+    setUp();
+    script(DRDY, after | DRDY, DRDY);
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    TEST_ASSERT_EQUAL_UINT32(1u, sr_nwrites);  /* one recovery */
+    TEST_ASSERT_EQUAL_HEX32(0u, sr_writes[0] & SEIS);
+    TEST_ASSERT_EQUAL_HEX32(0u, regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_RNG_CR_RNGEN,
+                            regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN);
+}
+
+static void
+test_a_seed_error_latched_by_the_read_drops_the_word_and_recovers_once(void)
+{
+    check_seed_error_after_read_drops_word(SEIS);
+}
+
+static void
+test_a_seed_error_after_the_read_that_stays_is_reported_and_leaves_out(void)
+{
+    uint32_t out = OUT0;
+
+    script(DRDY, SEIS | DRDY, SEIS | DRDY);  /* the last one repeats */
+    TEST_ASSERT_EQUAL_INT(-1, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(OUT0, out);
+}
+
+static void test_a_seed_error_now_after_the_read_drops_the_word(void)
+{
+    /* SECS alone would be written back unchanged, which is not logged. */
+    check_seed_error_after_read_drops_word(SECS | SEIS);
+}
+
+static void test_a_clock_error_after_the_read_keeps_the_word(void)
+{
+    uint32_t out = OUT0;
+
+    script(DRDY, CEIS | DRDY, CEIS | DRDY);
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    TEST_ASSERT_EQUAL_UINT32(0u, sr_nwrites);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_read_recovers_one_latched_error_and_returns_the_word);
     RUN_TEST(test_an_error_that_comes_back_after_a_recovery_is_reported_not_recovered_again);
     RUN_TEST(test_a_zero_word_after_a_recovery_is_refused_and_leaves_out);
+    RUN_TEST(test_a_seed_error_latched_by_the_read_drops_the_word_and_recovers_once);
+    RUN_TEST(test_a_seed_error_after_the_read_that_stays_is_reported_and_leaves_out);
+    RUN_TEST(test_a_seed_error_now_after_the_read_drops_the_word);
+    RUN_TEST(test_a_clock_error_after_the_read_keeps_the_word);
     return UNITY_END();
 }

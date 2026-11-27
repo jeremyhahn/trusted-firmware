@@ -15,7 +15,8 @@
  * does not come free (BUSY held before START, a flag that never comes, a bus
  * error or lost arbitration) is TFW_ERR_TIMEOUT. STOP is sent on every return
  * that reached the bus; when STOPF does not follow, the block is reset by
- * clearing PE, as ST's HAL regenerates a STOP when the bus stays busy after a
+ * clearing PE (RM0481's software reset: PE written 0, read back 0, then 1),
+ * as ST's HAL regenerates a STOP when the bus stays busy after a
  * NACK (stm32h5xx_hal_i2c.c, I2C_IsErrorOccurred).
  *
  * SPI and 1-Wire are not driven on this board: the profile says
@@ -54,6 +55,16 @@ static void i2c_pins(void)
                                             TFW_H5_I2C_SDA_PIN, TFW_H5_MODE_AF);
 }
 
+/* RM0481 software reset: PE must stay low for three APB cycles, ensured by
+ * "write PE = 0, check PE = 0, write PE = 1". This is the first two steps. */
+static void i2c_pe_off(void)
+{
+    TFW_H5_I2C_CR1 = 0u;
+    for (uint32_t n = 0u; n < H5_I2C_POLL_US &&
+                          (TFW_H5_I2C_CR1 & TFW_H5_I2C_CR1_PE) != 0u; n++) {
+    }
+}
+
 tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     uint32_t timing;
@@ -72,7 +83,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
     i2c_pins();
     TFW_H5_RCC_APB3ENR |= TFW_H5_RCC_APB3ENR_I2C4EN;
     (void)TFW_H5_RCC_APB3ENR;
-    TFW_H5_I2C_CR1 = 0u;                        /* TIMINGR is written with PE clear */
+    i2c_pe_off();                               /* TIMINGR is written with PE clear */
     TFW_H5_I2C_TIMINGR = timing;
     TFW_H5_I2C_CR1 = TFW_H5_I2C_CR1_PE;         /* analog filter on, no digital filter */
     return TFW_OK;
@@ -115,7 +126,7 @@ static tfw_status_t i2c_stop(tfw_status_t st)
         tfw_hal_delay_us(1u);
     }
     if (n == H5_I2C_POLL_US) {
-        TFW_H5_I2C_CR1 = 0u;
+        i2c_pe_off();
         TFW_H5_I2C_CR1 = TFW_H5_I2C_CR1_PE;
         st = TFW_ERR_TIMEOUT;
     }

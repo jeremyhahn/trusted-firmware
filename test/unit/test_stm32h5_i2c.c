@@ -78,6 +78,8 @@ static struct {
     uint8_t   held_busy;           /* BUSY never clears: another master or a stuck line */
     uint8_t   stall;               /* START taken, then no flag ever comes */
     uint8_t   stop_hangs;          /* STOP never completes */
+    uint8_t   pe_checked;          /* CR1 read with PE clear since PE went low */
+    unsigned  pe_unchecked;        /* PE 0->1 stores with no such read */
     uint8_t   arlo;                /* arbitration lost at the first byte */
     uint8_t   berr;                /* bus error once the first read byte is in RXDR */
     uint8_t   rxne_stuck;          /* RXNE never clears: a stuck flag */
@@ -208,6 +210,10 @@ static void on_cr1(uint32_t v)
         m.on_bus    = 0u;
         m.txdr_full = 0u;               /* PE=0 resets ISR: TXE=1, TXDR flushed */
         m.shifting  = 0u;
+        m.pe_checked = 0u;
+    }
+    if ((m.cr1 & CR1_PE) == 0u && (v & CR1_PE) != 0u && !m.pe_checked) {
+        m.pe_unchecked++;               /* RM0481: write PE=0, check PE=0, write PE=1 */
     }
     m.cr1 = v;
 }
@@ -219,6 +225,9 @@ static void commit(void)
     uint32_t  v = m.cell;
 
     m.pending = 0u;
+    if (a == CR1 && v == m.given && (v & CR1_PE) == 0u) {
+        m.pe_checked = 1u;              /* an unchanged CR1 access with PE clear reads PE=0 */
+    }
     if (a == 0u || v == m.given) {
         return;
     }
@@ -498,6 +507,33 @@ static void test_stop_that_never_completes_resets_the_block(void)
     TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);                         /* enabled again */
 }
 
+static void test_reinit_reads_pe_clear_before_enabling_again(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
+    done();
+    memset(m.log, 0, sizeof m.log);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    done();
+    TEST_ASSERT_EQUAL_UINT(0u, m.pe_unchecked);                     /* PE=0 read back */
+    TEST_ASSERT_EQUAL_STRING("X", m.log);
+    TEST_ASSERT_EQUAL_HEX32(0x60702729u, m.timingr);
+    TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);
+}
+
+static void test_a_hung_stop_reads_pe_clear_before_enabling_again(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    memset(m.log, 0, sizeof m.log);
+    m.stop_hangs = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_UINT(0u, m.pe_unchecked);                     /* PE=0 read back */
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P X", m.log);
+    TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);
+}
+
 static void test_lost_arbitration_times_out_and_stops(void)
 {
     const uint8_t wr[] = { 0x01u };
@@ -592,6 +628,8 @@ int main(void)
     RUN_TEST(test_busy_bus_times_out_without_a_start);
     RUN_TEST(test_stalled_transfer_times_out_and_stops);
     RUN_TEST(test_stop_that_never_completes_resets_the_block);
+    RUN_TEST(test_reinit_reads_pe_clear_before_enabling_again);
+    RUN_TEST(test_a_hung_stop_reads_pe_clear_before_enabling_again);
     RUN_TEST(test_lost_arbitration_times_out_and_stops);
     RUN_TEST(test_bus_error_with_a_byte_received_does_not_leak_it);
     RUN_TEST(test_a_stuck_rxne_after_an_error_is_drained_a_bounded_number_of_times);

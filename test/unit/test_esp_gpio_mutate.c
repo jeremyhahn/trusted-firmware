@@ -251,18 +251,18 @@ static void test_a_refused_pin_or_mode_leaves_the_record(void)
 static void test_a_release_clears_only_its_pin(void)
 {
     tfw_pinref_t a = { 5u };
-    tfw_pinref_t b = { 6u };
+    tfw_pinref_t b = { 33u };
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&a, TFW_PIN_OUTPUT));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&b, TFW_PIN_OUTPUT));
     tfw_esp_gpio_release(5);
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(5));
-    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(6));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(33));
     tfw_esp_gpio_release(-1);
     tfw_esp_gpio_release(64);
-    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(6));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(33));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&b, TFW_PIN_INPUT));
-    TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(6));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(33));
 }
 
 static void test_a_write_is_0_or_1(void)

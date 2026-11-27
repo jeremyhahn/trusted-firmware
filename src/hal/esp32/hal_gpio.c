@@ -77,6 +77,16 @@ int tfw_esp_gpio_drives(int gpio)
     return (gpio_output >> (unsigned)gpio) & 1ULL ? 1 : 0;
 }
 
+/* A HAL that resets the pin (hal_tone.c's moved tone) forgets it as a MODE
+ * output, so the capture no longer loops it back (#48, Codex P1). */
+void tfw_esp_gpio_release(int gpio)
+{
+    if (gpio < 0 || gpio > 63) {
+        return;
+    }
+    gpio_output &= ~(1ULL << (unsigned)gpio);
+}
+
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
     if (!gpio_pin_valid((gpio_num_t)p->gpio)) {

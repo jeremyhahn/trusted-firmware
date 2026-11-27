@@ -79,6 +79,8 @@ static uint32_t rcc_reads;
 static uint8_t  rcc_waiting;
 static uint32_t sr_reads;
 static uint8_t  sr_waiting;
+static uint32_t sr_late_bits;    /* busy bits still set at read SR_POLLS */
+static uint32_t sr_late_polls;   /* the further reads they take to clear */
 
 static void model_set(uint32_t addr, uint32_t val);
 
@@ -175,7 +177,14 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
             rcc_waiting = 0u;
         }
     } else if (addr == ADDR_SR && sr_waiting) {
-        if (++sr_reads == SR_POLLS) {
+        ++sr_reads;
+        if (sr_reads == SR_POLLS) {
+            /* PVU and RVU clear apart: sr_late_bits lag the rest. */
+            model_set(addr, sr_late_bits);
+            if (sr_late_bits == 0u) {
+                sr_waiting = 0u;
+            }
+        } else if (sr_reads == SR_POLLS + sr_late_polls) {
             model_set(addr, 0u);
             sr_waiting = 0u;
         }
@@ -267,6 +276,8 @@ void setUp(void)
     acr_reads      = 0u;
     rcc_reads      = 0u;
     sr_reads       = 0u;
+    sr_late_bits   = 0u;
+    sr_late_polls  = 0u;
     take_rsr       = 0;
     take_requested = 0xFFu;
     take_calls     = 0u;
@@ -385,6 +396,36 @@ static void test_arm_times_four_seconds_of_the_32_khz_lsi(void)
     TEST_ASSERT_EQUAL_HEX32(3999u, reg(ADDR_RLR));
 }
 
+static void test_arm_reloads_only_once_rvu_clears_after_pvu(void)
+{
+    sr_late_bits  = 0x2u;   /* RVU */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 2u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+static void test_arm_reloads_only_once_pvu_clears_after_rvu(void)
+{
+    sr_late_bits  = 0x1u;   /* PVU */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 3u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
 static void test_pet_writes_reload_only(void)
 {
     inherit_armed_watchdog();
@@ -432,6 +473,8 @@ int main(void)
     RUN_TEST(test_early_keeps_the_other_acr_and_rcc_cr_bits);
     RUN_TEST(test_arm_marks_then_keys_enable_access_pr_rlr_wait_reload);
     RUN_TEST(test_arm_times_four_seconds_of_the_32_khz_lsi);
+    RUN_TEST(test_arm_reloads_only_once_rvu_clears_after_pvu);
+    RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
     RUN_TEST(test_pet_writes_reload_only);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);

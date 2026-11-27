@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * A register model of the i.MX 95 peripherals the M7 port drives (SPEC row
- * `imx95`), for the host tests of src/hal/cortex-m/imx95/: LPUART3, the RGPIO
+ * `imx95`), for the host tests of src/hal/cortex-m/imx95/: LPUART7, the RGPIO
  * banks GPIO1 to GPIO5, WDOG5 and the NVIC words the UART's interrupt uses.
  *
  * The SoC code reaches a register only through TFW_CM_REG. The host build
@@ -124,7 +124,7 @@ void tfw_imx95_model_reset(void);
 /* The model, with the last access settled. Tests read and set it here. */
 struct tfw_imx95_model *tfw_imx95_model_get(void);
 
-/* Bytes arriving on LPUART3's receive line. */
+/* Bytes arriving on LPUART7's receive line. */
 void tfw_imx95_model_line_rx(const uint8_t *bytes, uint32_t n);
 
 /* The substitutes test/model/cortex-m/cm_regs.h links in. */
@@ -135,7 +135,7 @@ void tfw_imx95_model_irq_mask(uint32_t masked);
 
 /* The SoC code's entry points and the reset marker, in the model's names, so a
  * test names nothing of the core (test/model/cortex-m/imx95_entry.c). */
-void tfw_imx95_model_uart_interrupt(void);   /* LPUART3's handler, interrupt 64 */
+void tfw_imx95_model_uart_interrupt(void);   /* LPUART7's handler, interrupt 68 */
 void tfw_imx95_model_soc_early(void);        /* the reset handler's SoC step */
 void tfw_imx95_model_watchdog_arm(void);
 void tfw_imx95_model_watchdog_pet(void);

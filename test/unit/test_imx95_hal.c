@@ -17,7 +17,9 @@
  *   WDOG32 CS    UPDATE 0x20, EN 0x80, CLK=LPO 0x100, PRES 0x1000,
  *                CMD32EN 0x2000, FLG 0x4000
  *   WDOG32 TOVAL 8 s of 32 kHz / 256 = 1000 = 0x3E8
- *   NVIC         interrupt 64 is bit 0 of the third ISER/ICPR word
+ *   NVIC         interrupt 68 (LPUART7) is bit 4 of the third ISER/ICPR word
+ *   console      LPUART7 at 0x42690000 (owner ruling 1243, #474): the model
+ *                answers only there (imx95_model.c)
  */
 #include <stdint.h>
 #include <string.h>
@@ -25,11 +27,29 @@
 #include "unity.h"
 #include "tfw/hal.h"
 #include "imx95_model.h"
+#include "soc_regs.h"
+#include "scmi.h"
 
 static struct tfw_imx95_model *m;
 
+/* The console's pad request (console_pins.c, its own test): counted here, so
+ * the console is seen to ask before it starts. */
+static uint32_t routes, lpuart_resets_at_route;
+static int32_t route_rc;
+
+int32_t tfw_imx95_console_route(void);
+int32_t tfw_imx95_console_route(void)
+{
+    routes++;
+    lpuart_resets_at_route = tfw_imx95_model_get()->lpuart.resets;
+    return route_rc;
+}
+
 void setUp(void)
 {
+    routes = 0u;
+    route_rc = 0;
+    lpuart_resets_at_route = 0xFFFFFFFFu;
     tfw_imx95_model_reset();
     tfw_imx95_model_reset_mark_clear();
     m = tfw_imx95_model_get();
@@ -49,7 +69,23 @@ static void uart_up(void)
     m->lpuart.ctrl_unmasked = 0u;
 }
 
-/* ---------------------------------------------------------------- LPUART3 */
+/* ---------------------------------------------------------------- LPUART7 */
+
+/* The FRDM-i.MX95's console port is LPUART7 (owner ruling 1243, #474; PR #449
+ * bench record sections 14 and 15): base 0x42690000, interrupt 68. The model
+ * decodes only that base, so a byte the HAL sends must land there. */
+static void test_the_console_is_lpuart7_at_0x42690000_on_interrupt_68(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x42690000u, TFW_IMX95_LPUART7_BASE);
+    TEST_ASSERT_EQUAL_UINT32(68u, TFW_IMX95_LPUART7_IRQ);
+    uart_up();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    tfw_imx95_model_uart_interrupt();
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, m->lpuart.tx[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);
+}
 
 static void test_uart_init_programs_the_divisor_and_enables(void)
 {
@@ -58,8 +94,8 @@ static void test_uart_init_programs_the_divisor_and_enables(void)
     TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
     TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->lpuart.global);    /* out of reset */
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
-    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.iser[2]);
-    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.icpr[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);   /* 68: bit 4 */
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.icpr[2]);
     TEST_ASSERT_EQUAL_HEX32(0u, m->nvic.iser[0] | m->nvic.iser[1]);
 }
 
@@ -89,6 +125,148 @@ static void test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing(voi
     TEST_ASSERT_EQUAL_HEX32(0x0F000004u, m->lpuart.baud);       /* reset value */
     TEST_ASSERT_EQUAL_HEX32(0u, m->lpuart.ctrl);
     TEST_ASSERT_EQUAL_HEX32(0u, m->nvic.iser[2]);
+    TEST_ASSERT_EQUAL_UINT32(0u, routes);
+}
+
+/* The pads are asked for once, before the LPUART's reset. */
+static void test_uart_init_routes_the_pads_once_before_the_reset(void)
+{
+    uart_up();
+    TEST_ASSERT_EQUAL_UINT32(1u, routes);
+    TEST_ASSERT_EQUAL_UINT32(0u, lpuart_resets_at_route);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
+}
+
+/* A refused or failed pad request (the SM's refusal, a timeout, a reply whose
+ * CRC is wrong, any other error): the routing failure comes back mapped and
+ * the LPUART's TE, RE and interrupt are turned off, whatever a previous image
+ * left on, so a refused RX never leaves a TX-only console. A refusal does not
+ * establish the pads were routed already. */
+static void test_a_failed_pad_request_leaves_the_console_off(void)
+{
+    static const struct {
+        int32_t      rc;
+        tfw_status_t want;
+    } cases[] = {
+        { TFW_SCMI_DENIED, TFW_ERR_BUSY },
+        { TFW_SCMI_BUSY, TFW_ERR_BUSY },
+        { TFW_SCMI_IN_USE, TFW_ERR_BUSY },
+        { TFW_SCMI_E_TIMEOUT, TFW_ERR_TIMEOUT },
+        { TFW_SCMI_E_CRC, TFW_ERR_CRC },
+        { TFW_SCMI_GENERIC_ERROR, TFW_ERR_INTERNAL },
+        { TFW_SCMI_E_CHANNEL, TFW_ERR_INTERNAL },
+    };
+    uint32_t i;
+
+    for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+        setUp();
+        route_rc = cases[i].rc;
+        /* A previous image left the console on: TE, RE, RIE, TIE, IRQ 68. */
+        m->lpuart.ctrl   = 0x00AC0000u;
+        m->nvic.iser[2] = 0x00000010u;
+        TEST_ASSERT_EQUAL_MESSAGE(cases[i].want, tfw_hal_uart_init(115200u), "mapped status");
+        m = tfw_imx95_model_get();
+        TEST_ASSERT_EQUAL_UINT32(1u, routes);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.resets, "no LPUART reset");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl & 0x00AC0000u,
+                                        "TE, RE, RIE and TIE clear");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->nvic.iser[2] & 0x10u, "interrupt 68 disabled");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x10u, m->nvic.icpr[2] & 0x10u,
+                                        "interrupt 68 pending cleared");
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x0F000004u, m->lpuart.baud, "BAUD untouched");
+    }
+}
+
+/* The pads granted: the console starts. */
+static void test_a_granted_pad_request_starts_the_console(void)
+{
+    route_rc = 0;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, routes);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
+    TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);     /* interrupt 68 */
+}
+
+/* With the console off, a byte has nowhere to go: tx drops it and says so
+ * (1, not 0: 0 is "full, retry", a retry that never ends), touches neither
+ * the ring nor CTRL, and tx_idle answers idle without STAT so a deferred
+ * reset is not held by a UART that cannot drain. */
+static void test_tx_after_a_failed_init_drops_and_touches_nothing(void)
+{
+    uint32_t i;
+
+    route_rc = TFW_SCMI_DENIED;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_uart_init(115200u));
+    m = tfw_imx95_model_get();
+    m->lpuart.ctrl_unmasked = 0u;
+    for (i = 0u; i < 100u; i++) {
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, tfw_hal_uart_tx_try(0x55u), "dropped, not full");
+    }
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m->lpuart.ctrl, "TIE never set");
+    TEST_ASSERT_EQUAL_UINT32(0u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m->lpuart.ctrl_unmasked, "CTRL not touched");
+    m->lpuart.busy = 1u;
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(1u, tfw_hal_uart_tx_idle(), "idle without STAT");
+}
+
+static void test_a_failed_reinit_after_a_good_init_turns_tx_off(void)
+{
+    uint32_t ctrl;
+
+    uart_up();
+    route_rc = TFW_SCMI_E_TIMEOUT;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_uart_init(115200u));
+    m    = tfw_imx95_model_get();
+    ctrl = m->lpuart.ctrl;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x55u));
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(ctrl, m->lpuart.ctrl, "TIE not raised");
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+static void test_rx_after_a_failed_init_reads_nothing(void)
+{
+    static const uint8_t line[] = { 0x7Eu };
+    uint8_t              b      = 0u;
+
+    /* A byte the console took in before it went down stays unread. */
+    uart_up();
+    tfw_imx95_model_line_rx(line, sizeof line);
+    tfw_imx95_model_uart_interrupt();
+    route_rc = TFW_SCMI_DENIED;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_uart_init(115200u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
+static void test_a_refused_baud_after_a_good_init_keeps_the_console(void)
+{
+    static const uint8_t line[] = { 0x5Au };
+    uint8_t              b      = 0u;
+
+    /* A baud the LPUART cannot make is refused before anything is touched:
+     * the running console stays at its old configuration and keeps working. */
+    uart_up();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_uart_init(0u));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, routes);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
+    TEST_ASSERT_EQUAL_HEX32(0x19000008u, m->lpuart.baud);
+    TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);
+    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]); /* 68: bit 4 */
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x7Eu));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+    tfw_imx95_model_uart_interrupt();
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0x7Eu, m->lpuart.tx[0]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+
+    tfw_imx95_model_line_rx(line, sizeof line);
+    tfw_imx95_model_uart_interrupt();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
 }
 
 /* A transmission starts by enabling the empty-register interrupt, inside the
@@ -367,10 +545,18 @@ static void test_reset_cause_is_the_marker_decoded(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_console_is_lpuart7_at_0x42690000_on_interrupt_68);
     RUN_TEST(test_uart_init_programs_the_divisor_and_enables);
     RUN_TEST(test_uart_init_resets_before_the_divisor);
     RUN_TEST(test_uart_init_clears_a_latched_overrun);
     RUN_TEST(test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing);
+    RUN_TEST(test_uart_init_routes_the_pads_once_before_the_reset);
+    RUN_TEST(test_a_failed_pad_request_leaves_the_console_off);
+    RUN_TEST(test_a_granted_pad_request_starts_the_console);
+    RUN_TEST(test_tx_after_a_failed_init_drops_and_touches_nothing);
+    RUN_TEST(test_a_failed_reinit_after_a_good_init_turns_tx_off);
+    RUN_TEST(test_rx_after_a_failed_init_reads_nothing);
+    RUN_TEST(test_a_refused_baud_after_a_good_init_keeps_the_console);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);

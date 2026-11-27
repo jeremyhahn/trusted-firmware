@@ -7,8 +7,9 @@
  * Processor Reference Manual"), which this project does not hold: every SoC
  * fact here and in src/hal/cortex-m/imx95/ is TO CONFIRM against it.
  *
- * The byte link is LPUART3, the M7's debug UART on NXP's i.MX 95 boards (TO
- * CONFIRM against UM12527, the debug UART section). The pins are four RGPIO
+ * The byte link is LPUART7, the M7 console on port 2 of the board, on
+ * GPIO_IO36/37 at ALT2 (owner ruling 1243, #474; PR #449 bench record
+ * section 14). The pins are four RGPIO
  * lines, GPIO2_IO00 to GPIO2_IO03 (board.c): two GPIO pins and the two that
  * carry the TPM's PWM channels. Pulse timing and attestation (the soft root)
  * are on; analog, PWM, tone and I2C only in their profile.mk rows; every other
@@ -96,7 +97,7 @@
  * sheet; TO CONFIRM against the configuration trusted-imx95 ships). */
 #define TFW_CM_CPU_HZ 800000000uL
 
-/* LPUART3's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
+/* LPUART7's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
  * System Manager configuration sets the root). The baud divisor counts it. */
 #define TFW_IMX95_LPUART_CLK_HZ 24000000uL
 
@@ -114,7 +115,7 @@
  * base), and which one the System Manager gives the M7 is open
  * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
  * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
- * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
+ * register. Its clock root, the 24 MHz oscillator as LPUART7's, is TO
  * CONFIRM: the System Manager configuration sets it. No image overrides the
  * base; mk/host.mk's test_board_frdm-imx95-m7_pwm_base passes a stand-in one
  * so the board's PWM pin mapping is checked as it will be once it is known. */
@@ -158,15 +159,47 @@
 /* The M7 agent's SCMI channel to the System Manager and the domains the
  * tamper-response engine's A1 and A2 switch through it (src/hal/cortex-m/imx95/
  * hsm_port.c; docs/hsm-self-defence/m7-design.md section 7, slice 5). Every
- * value is the System Manager configuration's (trusted-imx95's), and no
- * document this project holds gives one: OPEN, docs/multi-arch/imx95-design.md
- * question 21 (and, for the PHYs' domain, hsm-self-defence architecture Q10).
+ * value is the System Manager configuration's.
+ *
+ * Sources (all public NXP):
+ * - imx-sm configs/mx95evk.cfg, LM1 "M7": SCMI_AGENT0 on "MAILBOX type=mu,
+ *   mu=9", a2p channel "db=0, xport=smt, check=crc32"; LM1 owns MU5_A.
+ * - imx-sm devices/MIMX95/include/MIMX95_MU.h, MU_BASE_PTRS: SM index 9 is
+ *   AON__MUI_A5__MUB (the SM's side), index 8 its MUA (ours); the same table
+ *   puts the A55's channel (mu=3) on MUI_A2, 0x445B0000, which is Linux
+ *   imx95.dtsi's scmi mailbox, so the index mapping holds.
+ * - mcux-sdk devices/MIMX9596/MIMX9596_cm7.h: MU5_MUA_BASE 0x44610000.
+ * - The SMT area is the MU's own SRAM at base + 0x1000, 0x80 bytes per
+ *   doorbell (imx-sm mb_mu; Linux imx95.dtsi sram@445b1000, scmi-sram-section
+ *   0x80): doorbell 0 is the first 0x80 bytes.
+ * Every SMT message carries a CRC32 (check=crc32).
+ * The domain ids below stay OPEN, docs/multi-arch/imx95-design.md question
+ * 21 (and, for the PHYs' domain, hsm-self-defence architecture Q10).
  * Zero means unsupported: an action whose id is zero, or any action while the
  * channel is zero, answers TFW_ERR_UNSUPPORTED and sends nothing. */
-#define TFW_IMX95_SCMI_MU_BASE   0x00000000uL   /* the MU's base */
-#define TFW_IMX95_SCMI_SHM_BASE  0x00000000uL   /* the shared memory area's base */
-#define TFW_IMX95_SCMI_SHM_LEN   0u             /* its length in bytes */
-#define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit */
+#define TFW_IMX95_SCMI_MU_BASE   0x44610000uL   /* MU5_MUA, M7 side of SM mu=9 */
+#define TFW_IMX95_SCMI_SHM_BASE  0x44611000uL   /* MU5 SRAM, doorbell 0's area */
+#define TFW_IMX95_SCMI_SHM_LEN   0x80u          /* one SMT channel */
+#define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit, db=0 */
+/* The same MAILBOX line's check=crc32: each message's CRC-32 at shm+0x0C,
+ * both ways (scmi_mu.h, tfw_scmi_crc32). */
+#define TFW_IMX95_SCMI_CRC       1u
+
+/* LPUART7's pads, which the SM owns: the M7 asks it, over the channel above,
+ * to mux them before the console starts (console_pins.c). Port 2 of the
+ * FRDM-IMX95-PRO is wired to GPIO_IO36 (TX) and GPIO_IO37 (RX), LPUART7 at
+ * ALT2 (owner ruling 1243, #474; PR #449 bench record section 14: the vendor
+ * M7 demo's mux; imx-sm devices/MIMX95/drivers/fsl_iomuxc.h at 44f76dcb,
+ * lines 328 and 331, IOMUXC_PAD_GPIO_IO36__LPUART7_TX and
+ * IOMUXC_PAD_GPIO_IO37__LPUART7_RX). The SM's pin ids are 40 and 41: the id
+ * is the mux register's index from 0x443C0000 (0xA0 / 4 and 0xA4 / 4).
+ * The pad configuration is 0: the mux alone, the pads keep the SM's setting.
+ * RX's input select is not sent: its reset value, 0, selects GPIO_IO37
+ * (section 14 read it so). */
+#define TFW_IMX95_CONSOLE_TX_PAD  40u   /* GPIO_IO36 */
+#define TFW_IMX95_CONSOLE_RX_PAD  41u   /* GPIO_IO37 */
+#define TFW_IMX95_CONSOLE_PAD_MUX 2u    /* ALT2 */
+#define TFW_IMX95_CONSOLE_PAD_CFG 0u    /* mux only */
 
 /* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/
  * imx95/sar_adc.h), open as design questions 13 and 17 are. TO CONFIRM

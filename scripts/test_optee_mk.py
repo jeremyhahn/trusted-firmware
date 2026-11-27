@@ -237,6 +237,18 @@ class OpteeJobs(unittest.TestCase):
     def test_a_given_job_count_wins(self):
         self.assertEqual(self.jobs("%d\n" % self.GIB, "MemAvailable: 1 kB\n", "OPTEE_JOBS=5"), "5")
 
+    def test_buildroot_gets_the_same_job_count(self):
+        cache = os.path.join(self.tmp, "cache")
+        rc, out = make("-n", "--assume-old=optee-tools", "OPTEE_CACHE=" + cache,
+                       "OPTEE_JOBS=3", "optee-qemu", env=self.env)
+        self.assertEqual(rc, 0, out)
+        alls = [l for l in out.splitlines() if l.endswith(" all")]
+        self.assertEqual(len(alls), 2, out)
+        for line in alls:
+            self.assertIn(" -j3 ", line)
+            self.assertIn(" BR2_JLEVEL=3 ", line)
+        self.assertFalse(os.path.exists(cache), "make -n wrote the cache")
+
 
 class OpteeNotInCi(unittest.TestCase):
 

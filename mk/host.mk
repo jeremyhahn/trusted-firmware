@@ -1839,9 +1839,13 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mutate
 # them: an analog read takes its pad from MODE output (#48).
 $(HOST_DIR)/test_esp_tone_mode_pulse: test/unit/test_esp_tone_mode_pulse.c src/hal/esp32/hal_tone.c \
                                       src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse_rmt.c \
-                                      src/hal/esp32/hal_adc.c \
+                                      src/hal/esp32/hal_adc.c src/hal/esp32/hal_bus.c \
                                       test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 -DTFW_MOCK_ADC_CHANNEL_TO_IO $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 -Itest/mock/esp32/bus -DTFW_MOCK_ADC_CHANNEL_TO_IO \
+	    -DTFW_ESP_I2C_SDA_GPIO=30 -DTFW_ESP_I2C_SCL_GPIO=31 -DTFW_ESP_SPI_MOSI_GPIO=32 \
+	    -DTFW_ESP_SPI_MISO_GPIO=33 -DTFW_ESP_SPI_SCK_GPIO=34 \
+	    -DESP_ERR_TIMEOUT=0x107 -DESP_ERR_INVALID_RESPONSE=0x108 \
+	    $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mode_pulse
 
 # The pulse timing over a stand-in gpio driver and esp_timer playing a

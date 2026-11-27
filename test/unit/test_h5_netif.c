@@ -55,10 +55,16 @@ tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 
 /* --- the PHY on MDIO: present at address 0, link as link_up_flag says ----- */
 void tfw_h5_eth_mdio_init(void) { }
+static unsigned bmsr_latched_low;       /* BMSR reads left that give the latched-low 0 */
 int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
     if (addr != 0u || phy_absent) {
         *val = 0xFFFFu;
+        return 0;
+    }
+    if (reg == TFW_PHY_REG_BMSR && bmsr_latched_low > 0u) {
+        bmsr_latched_low--;             /* the read that clears the latch */
+        *val = 0u;
         return 0;
     }
     switch (reg) {
@@ -1155,6 +1161,55 @@ static void test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(link_lost_poll));
 }
 
+/* --- BMSR's link bit latches low: the link is the second of two reads (#599) */
+static void bmsr_latch_coming_up(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x42u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    bmsr_latched_low = 1u;                              /* the first read: 0 */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, bmsr_latched_low);
+    TEST_ASSERT_TRUE(mac_running);                      /* the second read: up */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_a_link_coming_up_is_taken_from_the_second_bmsr_read(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(bmsr_latch_coming_up));
+}
+
+static void bmsr_latch_running(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x43u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);
+    bmsr_latched_low = 1u;                              /* a drop since the last poll */
+    now_ms = t0 + 200u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, bmsr_latched_low);
+    TEST_ASSERT_TRUE(mac_running);                      /* the second read: still up */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_a_running_link_with_a_latched_low_first_read_stays_up(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(bmsr_latch_running));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1302,6 +1357,8 @@ int main(void)
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
     RUN_TEST(test_the_link_is_first_polled_link_poll_ms_after_bring_up);
     RUN_TEST(test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll);
+    RUN_TEST(test_a_link_coming_up_is_taken_from_the_second_bmsr_read);
+    RUN_TEST(test_a_running_link_with_a_latched_low_first_read_stays_up);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

@@ -527,6 +527,38 @@ static void test_an_adc_that_will_not_disable_fails_init(void)
     TEST_ASSERT_EQUAL_UINT(0u, m.errors);
 }
 
+static void test_a_conversion_that_will_not_stop_fails_init(void)
+{
+    const uint32_t vreg = TFW_H5_ADC_CR_DEEPPWD | TFW_H5_ADC_CR_ADVREGEN;
+    uint16_t raw = 0xFFFFu;
+    uint32_t ccr;
+    uint32_t reg;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    m.cr |= TFW_H5_ADC_CR_ADSTART;                                 /* a conversion left running */
+    m.hang_stp = 1u;
+    ccr        = m.ccr;
+    reg        = m.cr & vreg;
+    m.nev      = 0u;
+    m.errors   = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_EQUAL_UINT(m.nev, ev_at(EV_DIS, 0u));              /* no ADDIS under ADSTART */
+    TEST_ASSERT_EQUAL_UINT(m.nev, ev_at(EV_CAL, 0u));
+    TEST_ASSERT_EQUAL_UINT(m.nev, ev_at(EV_VREG, 0u));
+    TEST_ASSERT_EQUAL_HEX32(ccr, m.ccr);
+    TEST_ASSERT_EQUAL_HEX32(reg, m.cr & vreg);
+    TEST_ASSERT_TRUE((m.cr & TFW_H5_ADC_CR_ADEN) != 0u);
+    TEST_ASSERT_TRUE((m.cr & TFW_H5_ADC_CR_ADSTART) != 0u);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+    m.hang_stp = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(0u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
 static void test_vref_plus_is_the_one_reference(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_set_ref(TFW_ADC_REF_VCC));
@@ -562,6 +594,7 @@ int main(void)
     RUN_TEST(test_a_second_init_disables_the_adc_first);
     RUN_TEST(test_init_stops_a_running_conversion_before_disabling);
     RUN_TEST(test_an_adc_that_will_not_disable_fails_init);
+    RUN_TEST(test_a_conversion_that_will_not_stop_fails_init);
     RUN_TEST(test_vref_plus_is_the_one_reference);
     RUN_TEST(test_the_arithmetic);
     return UNITY_END();

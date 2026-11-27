@@ -273,6 +273,34 @@ static void test_tx_stores_nothing_with_ue_and_re_set_but_te_clear(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE, TFW_H5_USART_CR1);
 }
 
+/* The part resets GPIOA pins to analog (MODER 0b11): init must replace
+ * PA9/PA10's mode and AF fields, not OR into them, and leave the rest. */
+static void test_init_over_analog_pins_leaves_pa9_and_pa10_on_af7(void)
+{
+    TFW_H5_GPIO_MODER(VCP_BANK) = 0xFFFFFFFFu;
+    TFW_H5_GPIO_AFRH(VCP_BANK) = 0xFFFFFFFFu;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_VCP_AF, af_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_VCP_AF, af_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_HEX32(0xFFEBFFFFu, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFF77Fu, TFW_H5_GPIO_AFRH(VCP_BANK));
+}
+
+/* An idle transmitter (TXE and TC set) with no byte received is the steady
+ * state of a polled console: rx reports nothing and touches nothing. */
+static void test_rx_with_only_the_idle_tx_flags_returns_0(void)
+{
+    uint8_t b = 0x5Au;
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_RDR = 0xA5u;
+    TEST_ASSERT_EQUAL_INT(0, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -292,5 +320,7 @@ int main(void)
     RUN_TEST(test_init_over_a_live_usart_clears_its_interrupt_enables);
     RUN_TEST(test_init_writes_the_divisor_of_the_baud_it_is_given);
     RUN_TEST(test_tx_stores_nothing_with_ue_and_re_set_but_te_clear);
+    RUN_TEST(test_init_over_analog_pins_leaves_pa9_and_pa10_on_af7);
+    RUN_TEST(test_rx_with_only_the_idle_tx_flags_returns_0);
     return UNITY_END();
 }

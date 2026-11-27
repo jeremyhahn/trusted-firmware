@@ -11,6 +11,10 @@
 #include "tfw/hal.h"
 #include "esp_pins_mock.h"
 
+/* hal_adc.c releases the pin it reads; this binary links no tone or PWM. */
+void tfw_esp_tone_release(int gpio) { (void)gpio; }
+void tfw_esp_pwm_release(int gpio) { (void)gpio; }
+
 void setUp(void)
 {
     mock_pins_reset();

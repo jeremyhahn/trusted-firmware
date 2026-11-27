@@ -71,8 +71,10 @@ def forwarded_vars(makeflags):
     """The command-line variable definitions GNU make put in MAKEFLAGS.
 
     They follow a ` -- ` separator, as words separated by unescaped spaces,
-    with `\\ ` and `\\\\` escapes; they are returned unescaped, in order. The
-    flags and jobserver descriptors before the separator are not returned.
+    with `\\ ` and `\\\\` escapes and every `$` doubled; they are returned
+    decoded, in order, as they were typed on the calling make's command
+    line. The flags and jobserver descriptors before the separator are not
+    returned.
     """
     if makeflags.startswith("-- "):
         rest = makeflags[3:]
@@ -85,6 +87,10 @@ def forwarded_vars(makeflags):
         c = rest[i]
         if c == "\\" and i + 1 < len(rest) and rest[i + 1] in " \\":
             word += rest[i + 1]
+            i += 2
+            continue
+        if c == "$" and i + 1 < len(rest) and rest[i + 1] == "$":
+            word += "$"
             i += 2
             continue
         if c == " ":

@@ -4,4 +4,6 @@
   (#473). `scripts/repro_build.py` passes them to both clean builds, so
   `IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot` checks the i.MX 95 boot-container
   image instead of failing, and a `BUILD_DIR` outside the copy is refused. A `SOURCE_DATE_EPOCH` the
-  calling make passes does not replace the commit's epoch.
+  calling make passes does not replace the commit's epoch. A variable that
+  names another, such as `IMX_BOOT=$(MODE)`, reaches the builds as written
+  (MAKEFLAGS' doubled `$` is decoded).

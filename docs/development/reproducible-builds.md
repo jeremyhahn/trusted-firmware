@@ -73,7 +73,8 @@ reaches it, and an image a previous build left behind cannot satisfy the check:
 what is checked is the commit, not the working tree. Each build runs with
 `SOURCE_DATE_EPOCH` set to the commit time (`git log -1 --format=%ct HEAD`).
 The command-line variables of the calling `make` (`BUILD_DIR`, `IMX_BOOT`,
-`V`, ...) reach both builds; a forwarded `BUILD_DIR` must be relative and
+`V`, ...) reach both builds as they were typed, `$(...)` references
+included; a forwarded `BUILD_DIR` must be relative and
 inside the tree, so each copy holds its own outputs.
 
 Two different directories specifically, because the most common

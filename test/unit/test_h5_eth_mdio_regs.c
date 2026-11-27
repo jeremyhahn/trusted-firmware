@@ -148,6 +148,36 @@ void test_init_enables_the_mac_clocks_and_keeps_the_others(void)
                             regfile_model_peek(AHB1ENR));
 }
 
+#define BANK(ix) (TFW_H5_GPIOA_BASE + TFW_H5_GPIO_STRIDE * (ix))
+
+void test_init_clears_a_pull_on_each_rmii_pin_and_keeps_the_others(void)
+{
+    regfile_model_poke(BANK(0u) + 0x0Cu, 0x55555555u);
+    regfile_model_poke(BANK(2u) + 0x0Cu, 0x55555555u);
+    regfile_model_poke(BANK(6u) + 0x0Cu, 0x55555555u);
+    tfw_h5_eth_mdio_init();
+    /* PA1, PA2, PA7; PC1, PC4, PC5; PG11-13 lose their pull-up */
+    TEST_ASSERT_EQUAL_HEX32(0x55551541u, regfile_model_peek(BANK(0u) + 0x0Cu));
+    TEST_ASSERT_EQUAL_HEX32(0x55555051u, regfile_model_peek(BANK(2u) + 0x0Cu));
+    TEST_ASSERT_EQUAL_HEX32(0x50155555u, regfile_model_peek(BANK(6u) + 0x0Cu));
+}
+
+void test_init_replaces_a_stale_alternate_function_and_keeps_the_others(void)
+{
+    regfile_model_poke(BANK(0u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(0u) + 0x24u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(2u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(6u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(6u) + 0x24u, 0xFFFFFFFFu);
+    tfw_h5_eth_mdio_init();
+    /* AF15 on every pin; the RMII pins move to AF11, the rest keep AF15 */
+    TEST_ASSERT_EQUAL_HEX32(0xBFFFFBBFu, regfile_model_peek(BANK(0u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(BANK(0u) + 0x24u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFBBFFBFu, regfile_model_peek(BANK(2u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(BANK(6u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFBBBFFFu, regfile_model_peek(BANK(6u) + 0x24u));
+}
+
 static const uint8_t rmii_pins[][2] = {
     {0u, 1u}, {0u, 2u}, {0u, 7u},       /* PA1 REF_CLK, PA2 MDIO, PA7 CRS_DV */
     {2u, 1u}, {2u, 4u}, {2u, 5u},       /* PC1 MDC, PC4 RXD0, PC5 RXD1 */
@@ -190,6 +220,8 @@ int main(void)
     RUN_TEST(test_a_command_that_never_ends_fails_the_read);
     RUN_TEST(test_a_command_that_never_ends_fails_the_write);
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);
+    RUN_TEST(test_init_clears_a_pull_on_each_rmii_pin_and_keeps_the_others);
+    RUN_TEST(test_init_replaces_a_stale_alternate_function_and_keeps_the_others);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
     return UNITY_END();

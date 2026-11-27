@@ -127,6 +127,14 @@ func TestDecodeMutationsPastTheCRC(t *testing.T) {
 				var f Frame
 				var err error
 				noPanic(t, m, func() { f, _, err = Decode(b) })
+				if b[3]&0x80 == 0 && int(b[1]) > MaxPayload+2 {
+					// A request whose body is one past MaxPayload: refused,
+					// as the C framer refuses it (#640).
+					if !errors.Is(err, ErrBadFormat) {
+						t.Fatalf("%s %v: err = %v, want ErrBadFormat", name, m, err)
+					}
+					continue
+				}
 				if err != nil {
 					t.Fatalf("%s %v: %v", name, m, err)
 				}

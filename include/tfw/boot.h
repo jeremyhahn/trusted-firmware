@@ -57,7 +57,10 @@
  *                               (TFW_BOOT_APP_BASE; address 0 on AVR)
  *    16    32  measurement      SHA-256 over those bytes -- this is FWHash
  *   ----------  the signed span ends here: bytes [0, 48)
- *    48    64  signature        Ed25519 over the signed span
+ *    48    64  signature        ES256 (P-256, r || s) over the signed
+ *                               span on every default backend; Ed25519
+ *                               on the ed25519-donna measuring build
+ *                               (mk/boot.mk:68-77)
  *   112    16  reserved         zero; a trailer with any of them set is
  *                               refused (TFW_ERR_UNSUPPORTED) before the
  *                               signature is checked
@@ -148,11 +151,12 @@ typedef struct {
 
 /* ------------------------------------------------ platform-reserved NVM */
 /*
- * NVM [0x000, 0x0C0). tfw-boot reads and writes it through tfw_boot_nvm_*
- * (boot/boot_hal.h); the application can only read it, through
- * tfw_hal_nvm_read (include/tfw/hal.h). On AVR the NVM is the part's EEPROM,
- * and this is the region src/caps/storage.c refuses writes to -- and the
- * reason that refusal is a security boundary rather than tidiness: the
+ * NVM [0x000, 0x0C0), inside [0x000, TFW_BOOT_EE_LEN) = [0x000, 0x140).
+ * tfw-boot reads and writes it through tfw_boot_nvm_* (boot/boot_hal.h); the
+ * application can only read it, through tfw_hal_nvm_read
+ * (include/tfw/hal.h). On AVR the NVM is the part's EEPROM, and
+ * [0x000, TFW_BOOT_EE_LEN) is the region src/caps/storage.c refuses writes
+ * to (TFW_EEPROM_RESERVED_END, src/caps/storage.c:47) -- and the reason that refusal is a security boundary rather than tidiness: the
  * pubkey hash below IS the root of trust, and the generic EEPROM write would
  * otherwise let anyone with the serial line replace it.
  *
@@ -161,7 +165,12 @@ typedef struct {
  *     4     1  layout_version  TFW_BOOT_EE_VERSION
  *     5     1  flags           TFW_BOOT_EE_FLAG_*; tfw-boot writes them
  *     6     2  reserved
- *     8    32  pubkey_hash     SHA-256 of the 32-byte Ed25519 public key
+ *     8    32  pubkey_hash     SHA-256 of the boot public key: the 64-byte
+ *                              P-256 key on the ESP32 layer 0
+ *                              (boot/hal/esp32/l0_gate.c), the 32-byte
+ *                              key on ed25519-donna; the AVR P-256
+ *                              backends keep their key and skip the pin
+ *                              (boot/boot_policy.c)
  *    40     4  rollback_floor  software tier only; the element tier uses its
  *                              own monotonic counter and ignores this
  *    44     4  boot_count
@@ -203,7 +212,9 @@ typedef struct {
  * 0xC0: an address a v1 host could once write is now inside the refused
  * region if it happens to fall in [0x80, 0xC0). That is a real wire-visible
  * narrowing and it is deliberate -- see docs/wire-protocol/api.md and
- * docs/host-sdk/architecture.md for EEPROMReservedEnd's new value.
+ * docs/host-sdk/architecture.md for EEPROMReservedEnd's new value. (26
+ * reserved bytes since operator_bind, #606; the end is 0x140 since #231,
+ * TFW_BOOT_EE_LEN below.)
  *
  * tfw_boot_platform_parse refuses a layout_version it does not exactly
  * recognise (TFW_ERR_UNSUPPORTED), exactly as the CDI handoff's own version
@@ -229,7 +240,9 @@ typedef struct {
  * confirm request (0x0EA-0x134), all below it (#125, owner item 149 (a)).
  * EEPROM_WRITE refuses [TFW_BOOT_EE_BASE, TFW_BOOT_EE_LEN) on every board.
  * Grew from 0x0C0, the block's own end, when the confirm request took its
- * signature (#231). */
+ * signature (#231). After it: network block [0x140,0x160) on every image;
+ * application config from 0x160 (include/tfw/eth.h, include/tfw/app.h, #640,
+ * owner ruling 1234). */
 #define TFW_BOOT_EE_LEN       0x140u
 
 #define TFW_BOOT_EE_O_MAGIC           0u
@@ -515,8 +528,10 @@ _Static_assert(TFW_OTA_PAGE_MAX != 0u && (TFW_OTA_PAGE_MAX & (TFW_OTA_PAGE_MAX -
  * is one overhead per CHUNK_MIN of image, plus 16 for OTA_BEGIN and OTA_END,
  * plus TFW_BOOT_SESSION_SLACK for PINGs, OTA_STATUS polls and retransmitted
  * frames -- 8 KB covers over a hundred full-size retransmits. For the
- * ATmega2560 that is 56 KB + 18 KB + 8 KB = about 82 KB against a 56 KB image
- * (and 7 s of wire at 115 200 baud); the 28 KB parts get about 45 KB.
+ * ATmega2560 (TFW_APP_REGION_SIZE = TFW_SWAP_SLOT_LEN = 0x10000) that is
+ * 65536 + 20490 + 16 + 8192 = 94 234 bytes, about 92 KB against a 64 KB
+ * image (and about 8 s of wire at 115 200 baud); the 28 KB parts get about
+ * 45 KB.
  */
 #define TFW_BOOT_SESSION_CHUNK_MIN      32uL
 #define TFW_BOOT_SESSION_FRAME_OVERHEAD 10uL

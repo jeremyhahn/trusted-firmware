@@ -68,7 +68,12 @@ undetectable until it has already mis-framed everything after it.
 **LEN is bound-checked on write and on read.** On write, `emit()` in
 `frame.c` refuses a payload over `TFW_MAX_PAYLOAD` before it ever reaches the
 wire. On read, the framer rejects any LEN outside `TFW_LEN_MIN..TFW_MAX_LEN`
-before it is used for anything. An unchecked length folds bytes into the next
+before it is used for anything. Once the frame is complete and its CRC has
+checked (state CRC-hi), the framer applies the per-direction bound: a
+response-shaped OP whose LEN leaves no room for STATUS is refused, and so is a
+request (no STATUS byte) whose LEN exceeds `TFW_MAX_PAYLOAD + 2`. Both are
+`TFW_FRAME_BAD_FORMAT`, counted in `err_format`; a response or event may use the
+full `TFW_MAX_LEN`. An unchecked length folds bytes into the next
 field: on read it would make the dispatcher read the payload cursor length as
 `want - 2 - has_status`, which wraps to a huge value on a too-short LEN and
 hands a capability handler a length longer than the buffer it points into.
@@ -119,7 +124,8 @@ recovers by construction rather than by scanning:
    failing byte as a candidate SOF**. Without that reprocess, a `0xA5`
    payload byte immediately followed by a genuine frame costs two frames
    instead of one, because the real SOF is consumed as the false frame's
-   length.
+   length. The post-CRC structural refusals (see the LEN bounds above) come
+   after a whole frame was consumed, so they reprocess no byte as SOF.
 3. A partial frame abandoned after `TFW_FRAME_IDLE_MS` (`tfw_transport_poll`)
    cannot absorb the opening bytes of the next good frame.
 
@@ -142,8 +148,9 @@ wire carried the last request: they are for the bench host that owns the pins.
 
 - Framing (L4) trusts nothing: it is a pure function of an untrusted byte
   stream and cannot be driven to allocate or overrun regardless of input.
-- Dispatch (L3) trusts the framer's structural check (a response-shaped OP
-  with no room for STATUS is rejected before dispatch ever sees it) but
+- Dispatch (L3) trusts the framer's structural checks (a response-shaped OP
+  with no room for STATUS, and a request longer than `TFW_MAX_PAYLOAD + 2`,
+  are rejected before dispatch ever sees them) but
   re-validates every argument itself via the bounded reader/writer.
 - The link under the transport (L5) is the only code that decides a byte came
   from a wire, which wire it came from and which one the reply goes back on;

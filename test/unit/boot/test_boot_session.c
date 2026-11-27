@@ -9,7 +9,8 @@
  * line that can be separately wrong. So this suite drives every command id,
  * every payload length at each boundary, and the bytes the handler hands to
  * the OTA engine and back, so a handler that answers but answers wrong fails
- * here. PING has no arity: it echoes a payload of any length.
+ * here. PING echoes up to TFW_MAX_PAYLOAD bytes and refuses more
+ * (TFW_ERR_TOO_LONG): the response cannot hold them.
  *
  * Mutants this suite kills (each tried against the unit and seen to fail it):
  *   S1  *rlen not cleared on entry
@@ -28,6 +29,7 @@
  *   S14 OTA_STATUS: the received count's second byte misplaced
  *   S15 RESET: `plen != 1` -> `plen > 1`
  *   S16 default: an unknown command answered TFW_OK
+ *   S17 PING: the TFW_MAX_PAYLOAD bound dropped
  */
 #include <string.h>
 #include "unity.h"
@@ -129,7 +131,7 @@ static void test_every_other_command_id_is_unknown_and_quiet(void)
 /* S3, S4 */
 static void test_ping_echoes_every_length(void)
 {
-    uint8_t p[255];
+    uint8_t p[TFW_MAX_PAYLOAD];
 
     for (unsigned i = 0u; i < sizeof p; i++) {
         p[i] = (uint8_t)(i * 7u + 1u);
@@ -140,8 +142,26 @@ static void test_ping_echoes_every_length(void)
         if (n > 0u) {
             TEST_ASSERT_EQUAL_HEX8_ARRAY(p, resp, n);
         }
-        TEST_ASSERT_EQUAL_HEX8(0xEEu, resp[n < sizeof resp ? n : sizeof resp - 1u]);
+        TEST_ASSERT_EQUAL_HEX8(0xEEu, resp[n]);
         TEST_ASSERT_EQUAL_INT(TFW_BOOT_SESSION_CONTINUE, action);
+    }
+}
+
+/* S17: the caller's response buffer is TFW_MAX_PAYLOAD bytes (boot_session.h),
+ * so a longer echo would write past it. */
+static void test_ping_refuses_more_than_a_response_holds(void)
+{
+    uint8_t p[255];
+
+    for (unsigned i = 0u; i < sizeof p; i++) {
+        p[i] = (uint8_t)(i * 7u + 1u);
+    }
+    for (unsigned n = TFW_MAX_PAYLOAD + 1u; n <= sizeof p; n++) {
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_TOO_LONG,
+                              call(TFW_CMD_PING, p, (uint8_t)n));
+        assert_quiet();
+        TEST_ASSERT_EQUAL_HEX8(0xEEu, resp[0]);
+        TEST_ASSERT_EQUAL_HEX8(0xEEu, resp[TFW_MAX_PAYLOAD]);
     }
 }
 
@@ -313,6 +333,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_every_other_command_id_is_unknown_and_quiet);
     RUN_TEST(test_ping_echoes_every_length);
+    RUN_TEST(test_ping_refuses_more_than_a_response_holds);
     RUN_TEST(test_ota_begin_takes_exactly_four_bytes);
     RUN_TEST(test_ota_begin_reads_all_four_length_bytes);
     RUN_TEST(test_ota_data_takes_one_byte_after_the_offset);

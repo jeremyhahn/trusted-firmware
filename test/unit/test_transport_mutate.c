@@ -382,8 +382,9 @@ static void test_length_field_edges(void)
         }
     }
     TEST_ASSERT_EQUAL_UINT(want, runs);
-    /* Only LEN = max resealed is a frame: one per seed. */
-    TEST_ASSERT_EQUAL_UINT(NFRAMES, dispatched);
+    /* None is a frame. Every seed is a request, and a request resealed at
+     * LEN = max would carry TFW_MAX_PAYLOAD + 1 bytes: a format error (#640). */
+    TEST_ASSERT_EQUAL_UINT(0u, dispatched);
 }
 
 /* A resealed OP that claims a STATUS byte the body is too short for. */

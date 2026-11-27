@@ -195,7 +195,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.FeatureAuthSession` | `const FeatureAuthSession` (bit 14) | Issue #4's AUTH_CHALLENGE/AUTH_RESPONSE session -- element tier only. |
 | `tfw.FeatureAttestCSR` | `const FeatureAttestCSR` (bit 15) | Issue #30's ATTEST_CSR -- the possession signature over a device-templated CertificationRequestInfo. |
 | `tfw.NetConfigAddr`, `tfw.NetConfigLen` | `const NetConfigAddr = EEPROMReservedEnd` (0x140), `const NetConfigLen = 32` | The network block, [0x140, 0x160) on the device, where the bootloader's reserved span ends (#231), mirroring include/tfw/eth.h's TFW_NETCFG_*. The tfwsim harness asks the binary (`tfwsim --netcfg-addr`) instead of using `NetConfigAddr`. |
-| `tfw.AppConfigBase` | `const AppConfigBase = NetConfigAddr + NetConfigLen` (0x160) | The EEPROM address of an application's config offset 0: the first byte above the network block, on every image, Ethernet or not, mirroring include/tfw/app.h's TFW_APP_CONFIG_BASE (#640). Config an out-of-tree application stored at 0x140 must be re-provisioned here. |
+| `tfw.AppConfigBase` | `const AppConfigBase = NetConfigAddr + NetConfigLen` (0x160) | The EEPROM address of an application's config offset 0: the first byte above the network block, on every image, Ethernet or not, mirroring include/tfw/app.h's TFW_APP_CONFIG_BASE (#640). Config an out-of-tree application stored at 0x140 must be re-provisioned here. A host writes config offset `n` at `AppConfigBase + n`. |
 | `tfw.OTAActivateAtReset` | `const OTAActivateAtReset byte = 0` | OTA_ACTIVATE mode: tried at the next reset. |
 | `tfw.OTAActivateResetNow` | `const OTAActivateResetNow byte = 1` | OTA_ACTIVATE mode: the device resets once the reply is out. |
 | `tfw.SlotFellBack` | `const SlotFellBack uint8 = 1 << 0` | SlotInfo flag: the last boot fell back. |
@@ -210,7 +210,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.CSRSigLen` | `const CSRSigLen = 64` | The length of the ATTEST_CSR response: a P-256 signature as raw r\|\|s (TFW_SIG_LEN). |
 | `tfw.DefaultBootWait` | `const DefaultBootWait = 2 * time.Second` | How long New waits for the firmware's BOOT event before proceeding anyway. |
 | `tfw.EEPROMChunk` | `const EEPROMChunk = 8` | The largest read or write the device accepts in one command. |
-| `tfw.EEPROMReservedEnd` | `const EEPROMReservedEnd = 0xC0` | The first address past the platform block, [0x000, 0x0C0) on every board. |
+| `tfw.EEPROMReservedEnd` | `const EEPROMReservedEnd = 0x140` | The first address past the bootloader's reserved EEPROM, [0x000, 0x140), on every board. |
 | `tfw.HSMSignalIMAViolation`, `tfw.HSMSignalHotplug` | `const byte` 4, 5 | The signals the A55 may report (architecture.md section 1). |
 | `tfw.HSMVerdictClear`, `tfw.HSMVerdictCompromised` | `const byte` 0, 1 | The verifier's verdict V. |
 | `tfw.HSMStateLen` | `const HSMStateLen = 6` | The reply every HSM command carries when it is not refused. |

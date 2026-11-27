@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * OTA_INFO, OTA_ACTIVATE and OTA_CONFIRM -- issue #77, ADR decision 8 (owner
+ * OTA_INFO and OTA_CONFIRM -- issue #77, ADR decision 8 (owner
  * ruling 2026-10-17, items 21 and 55), docs/ota/adr-ota-image-format-and-trust.md.
  *
  *   OTA_INFO     [slot:1] -> [slots:1][active:1][flags:1][floor:4][state:1]
@@ -21,12 +21,7 @@
  *                (#137): the trial ends in a reset on every row, and tfw-boot
  *                takes the request there, settles the trial and advances the
  *                floor. The platform block is not written.
- *   OTA_ACTIVATE [mode:1] -- 0 at the next reset, 1 reset now. The image OTA_END
- *                verified is read back and hashed again, and only then is the
- *                store's MARK written (VERIFIED -> PENDING); an image that cannot
- *                be verified fails closed: TFW_ERR_BAD_STATE and nothing is
- *                written. Refused in TRIAL and CONFIRMED, which the next reset
- *                handles first.
+ *   OTA_ACTIVATE is every stager's: src/core/ota_activate.c.
  *
  * The store's MARK is the record tfw-boot takes at reset (ota_stage.c); only
  * ACTIVATE writes it, so an image ended and not activated is never taken.

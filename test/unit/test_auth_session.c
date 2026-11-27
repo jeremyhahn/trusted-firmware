@@ -186,7 +186,7 @@ static void test_challenge_returns_a_nonce_of_the_wire_width(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_AUTH_NONCE_LEN, tfw_writer_len(&w));
 }
 
-/* auth_session.c:47-48: the element will not give a nonce, so no challenge is
+/* auth_session.c:51-53: the element will not give a nonce, so no challenge is
  * left pending and a response to it is refused. */
 static void test_a_challenge_with_no_element_is_a_crypto_error(void)
 {

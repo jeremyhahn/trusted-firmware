@@ -965,7 +965,7 @@ static void test_a_bus_error_on_the_probe_refuses_begin(void)
 
 static void test_an_oversize_begin_touches_nothing(void)
 {
-    /* ota_stage.c:142 */
+    /* ota_stage.c:149 */
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(TFW_OTA_STORE_STAGE_LEN + 256u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0xFFFFFF00u));
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
@@ -974,7 +974,7 @@ static void test_an_oversize_begin_touches_nothing(void)
 
 static void test_a_zero_length_begin_touches_nothing(void)
 {
-    /* ota_stage.c:140: 0 is a whole number of pages, so only "must exceed the
+    /* ota_stage.c:149: 0 is a whole number of pages, so only "must exceed the
      * trailer" refuses it (docs/ota/api.md, OTA_BEGIN TFW_ERR_RANGE). */
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0u));
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
@@ -990,7 +990,7 @@ static void test_data_stays_inside_the_declared_length(void)
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
     tfw_nor_model_clear_spans();
     stream(0u, 480u);
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, data(480u, CHUNK));   /* ota_stage.c:175 */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, data(480u, CHUNK));   /* ota_stage.c:204 */
     TEST_ASSERT_EQUAL_UINT32(TFW_OTA_STORE_STAGE_ADDR, tfw_nor_model_prog_lo());
     TEST_ASSERT_EQUAL_UINT32(TFW_OTA_STORE_STAGE_ADDR + 479u, tfw_nor_model_prog_hi());
     TEST_ASSERT_TRUE(tfw_nor_model_erase_hi() < STAGE_END);
@@ -1184,7 +1184,7 @@ static void test_a_trailer_measurement_unlike_the_mark_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0u, v);
 }
 
-/* ota_stage.c:156: the mark's erase fails in begin; fail() leaves FAILED. */
+/* ota_stage.c:181: the mark's erase fails in begin; fail() leaves FAILED. */
 static void test_begin_fails_on_a_store_erase_failure(void)
 {
     build(512u, 200u);
@@ -1197,7 +1197,7 @@ static void test_begin_fails_on_a_store_erase_failure(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
-/* ota_stage.c:183: a stage sector's erase fails in data; fail() leaves FAILED
+/* ota_stage.c:211: a stage sector's erase fails in data; fail() leaves FAILED
  * with nothing received, and a fresh begin recovers. */
 static void test_data_fails_on_a_store_erase_failure(void)
 {

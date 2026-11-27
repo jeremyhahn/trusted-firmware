@@ -278,6 +278,39 @@ static void test_encoder_refuses_an_oversize_payload(void)
         tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, pay, (uint8_t)sizeof pay));
 }
 
+/* LEN may reach TFW_MAX_LEN because a response carries a STATUS byte. A
+ * request of that LEN with a good CRC (the shared vector, which the Go
+ * SDK's Decode refuses too) would hand the dispatcher TFW_MAX_PAYLOAD + 1
+ * bytes, which no encoder produces. */
+static void test_a_request_longer_than_the_maximum_payload_is_refused(void)
+{
+    uint8_t  pay[TFW_MAX_PAYLOAD];
+    uint8_t  wire[TFW_MAX_LEN + 4u];
+    uint16_t n;
+    /* The shared vector: LEN 67, 65 payload bytes, CRC valid (#640). */
+    static const uint8_t over[] = TFWV_FRAME_PING_OVERSIZE_REQ;
+
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(over, sizeof over - 1u));
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+
+    /* A response of the same LEN is the full payload plus its STATUS. The
+     * same framer takes it READY: it resynced after the refusal. */
+    memset(pay, 0x5Au, sizeof pay);
+    n = tfw_frame_encode_response(wire, sizeof wire, 1u, TFW_CMD_PING, TFW_OK, pay, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_LEN, wire[1]);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
+
+    /* A request at the maximum payload, one byte short of the refused one,
+     * is READY. */
+    n = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_PING, pay, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_TRUE(n > 0u);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
+}
+
 static void test_encoder_refuses_a_buffer_it_would_overrun(void)
 {
     uint8_t small[4];
@@ -430,6 +463,7 @@ int main(void)
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);
     RUN_TEST(test_encoder_refuses_an_oversize_payload);
+    RUN_TEST(test_a_request_longer_than_the_maximum_payload_is_refused);
     RUN_TEST(test_encoder_refuses_a_buffer_it_would_overrun);
     RUN_TEST(test_a_corrupted_payload_byte_is_caught_by_the_crc);
     RUN_TEST(test_a_corrupted_length_byte_is_caught);

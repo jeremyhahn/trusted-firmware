@@ -16,7 +16,8 @@ naming the board and the fact, when
   - two boards claim one TFW_BOARD_ID, the id is outside its architecture's
     range, or the id and directory are not the row of the board-id registry
     (docs/boards/board-id-registry.md) and of its Go mirror (sdk/go/boardid.go),
-    which must agree row for row;
+    which must agree row for row, or the registry's Ranges table and
+    boardid.go's Family() ranges do not agree range for range;
   - a profile with a budget names no part in PARTS, its totals are not that
     part's, a budget exceeds its total, or the geometry the profile and
     board_profile.h both state disagree;
@@ -335,6 +336,27 @@ def go_mirror_rows(root):
     return rows, errors
 
 
+def go_family_ranges(root):
+    """([(first, last, family)], errors) from sdk/go/boardid.go's Family() cases.
+
+    Each `case b >= boardXFirst && b <= boardXLast:` with its `return "fam"`
+    is one range; a case on a name the file does not define is an error, and
+    a Family() with no case this can read fails rather than passing empty."""
+    text = read(os.path.join(root, GO_MIRROR))
+    consts = {n: int(v, 16) for n, v in re.findall(r"\b(board[A-Za-z0-9]*)\s+BoardID\s*=\s*(0x[0-9A-Fa-f]+)", text)}
+    cases = re.findall(r"case b >= (\w+) && b <= (\w+):\s*?\n\s*return \"([^\"]+)\"", text, re.S)
+    if not cases:
+        return [], ["%s: Family() has no range case board-check can read" % GO_MIRROR]
+    ranges, errors = [], []
+    for first, last, family in cases:
+        missing = [c for c in (first, last) if c not in consts]
+        for c in missing:
+            errors.append("%s: Family() case names %s, which is not a BoardID constant" % (GO_MIRROR, c))
+        if not missing:
+            ranges.append((consts[first], consts[last], family))
+    return ranges, errors
+
+
 def boot_supported_boards(root):
     """The board of each BOOT_SUPPORTED row in mk/boot.mk."""
     m = re.search(r"^BOOT_SUPPORTED\s*:=((?:[^\n]*\\\n)*[^\n]*)", read(os.path.join(root, BOOT_MK)), re.M)
@@ -594,6 +616,15 @@ def check(root):
         for d, board_id in sorted(by_dir.items()):
             if d not in boards:
                 errors.append("%s: 0x%02X names %s, which is not a directory under boards/" % (label, board_id, d))
+
+    go_ranges, range_errors = go_family_ranges(root)
+    errors.extend(range_errors)
+    for first, last, family in sorted(set(ranges) - set(go_ranges)):
+        errors.append("%s: range 0x%02X-0x%02X (%s) is not a Family() case in %s"
+                      % (REGISTRY, first, last, family, GO_MIRROR))
+    for first, last, family in sorted(set(go_ranges) - set(ranges)):
+        errors.append("%s: Family() gives %s for 0x%02X-0x%02X, which is not a range in %s"
+                      % (GO_MIRROR, family, first, last, REGISTRY))
 
     for board in sorted(boot_supported_boards(root)):
         mkpath = os.path.join(boards_dir, board, "profile.mk")

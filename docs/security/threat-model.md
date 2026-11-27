@@ -82,8 +82,9 @@ A session lasts until the device resets; there is no separate inactivity
 timeout.
 
 > Item 79: the tfw-boot verifier is P-256 on every
-> row; the 2560 soft row verifies with `BOOT_SIG=p256-soft` (`mk/boot.mk:350`).
-> The paragraph below predates it.
+> row; the 2560 soft row verifies with `BOOT_SIG=p256-soft` (the default at
+> `mk/boot.mk:30`, the p256-soft sources at `mk/boot.mk:38`-`46`). The
+> paragraph below predates it.
 
 **This is element tier only, and that is a real gap on the other two, not a
 temporary one.** The software tier's only available primitive for an

@@ -29,7 +29,8 @@ compiler, and fails when any of these is false:
   0x01–0x3F, cortex-m 0x40–0x7F, esp32 0x80–0xBF), and no two boards share one.
 - The registry's Allocated ids table and `sdk/go/boardid.go` (constants and
   `boardNames`) each give every board its own id, allocate no id twice, and name
-  no directory that does not exist.
+  no directory that does not exist. The registry's Ranges table and
+  `boardid.go`'s `Family()` ranges agree range for range, checked the same way.
 - A board with a budget names its part, and the part is one the check knows.
   `PARTS` in the script holds each part's flash, SRAM, SRAM start, EEPROM and
   boot section, each row citing its data sheet.

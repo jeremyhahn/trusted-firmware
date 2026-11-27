@@ -81,9 +81,9 @@ static void caps_header(uint8_t *want)
 
     want[0]  = TFW_PROTO_VERSION_MAJOR;
     want[1]  = TFW_PROTO_VERSION_MINOR;
-    want[2]  = 0u;                       /* TFW_FW_MAJOR, sys.c:16 */
-    want[3]  = 1u;                       /* TFW_FW_MINOR, sys.c:17 */
-    want[4]  = 0u;                       /* TFW_FW_PATCH, sys.c:18 */
+    want[2]  = 0u;                       /* TFW_FW_MAJOR, sys.c:18 */
+    want[3]  = 1u;                       /* TFW_FW_MINOR, sys.c:19 */
+    want[4]  = 0u;                       /* TFW_FW_PATCH, sys.c:20 */
     want[5]  = TFW_BOARD_ID;
     want[6]  = TFW_PIN_COUNT;
     want[7]  = (uint8_t)TFW_SCHED_SLOTS;

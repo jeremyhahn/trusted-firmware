@@ -5,11 +5,11 @@
 
 #include "boot_ota.h"
 
-/* Erased flash. A short final page is padded with this so that the bytes the
- * device measures are the bytes an offline verifier measures: padding with zero
- * would make every image whose length is not a page multiple hash differently
- * on the device than in the signing tool, and the symptom would be a signature
- * that "randomly" fails for some builds. */
+/* Erased flash. tfw_ota_begin admits only whole pages, so no page reaches
+ * flush() short and this pad never runs (test/unit/boot/test_boot_ota.c:10-12);
+ * it stays so that a short page, were one admitted, would measure as the
+ * erased flash an offline verifier assumes, not as zeros that hash differently
+ * from the signing tool. */
 #define ERASED 0xFFu
 
 static tfw_status_t flush(tfw_ota_t *o)

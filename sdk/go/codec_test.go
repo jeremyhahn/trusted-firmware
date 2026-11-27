@@ -75,6 +75,9 @@ func TestTheEEPROMMapMatchesTheVector(t *testing.T) {
 	if EEPROMReservedEnd != vectors.EEPROMReservedEnd || NetConfigAddr != vectors.EEPROMReservedEnd {
 		t.Fatalf("EEPROMReservedEnd 0x%X, NetConfigAddr 0x%X, want 0x%X", EEPROMReservedEnd, NetConfigAddr, vectors.EEPROMReservedEnd)
 	}
+	if AppConfigBase != vectors.AppConfigBase {
+		t.Fatalf("AppConfigBase 0x%X, want 0x%X", AppConfigBase, vectors.AppConfigBase)
+	}
 }
 
 func TestOTAControlFramesMatchVectors(t *testing.T) {
@@ -235,6 +238,37 @@ func TestDecodeRejectsAnImplausibleLength(t *testing.T) {
 func TestEncodeRefusesAnOversizePayload(t *testing.T) {
 	if _, err := EncodeRequest(1, CmdPing, make([]byte, MaxPayload+1)); !errors.Is(err, ErrPayloadTooLarge) {
 		t.Fatalf("err = %v, want ErrPayloadTooLarge", err)
+	}
+}
+
+// A request's body is SEQ, OP and the payload, so LEN 67 is one payload byte
+// past MaxPayload. The C framer refuses that frame after its CRC; Decode must
+// too, or the two decoders disagree on what is a frame (#640). A response of
+// the same LEN, and a request one shorter, still decode.
+func TestDecodeRefusesARequestLongerThanTheMaximumPayload(t *testing.T) {
+	if _, _, err := Decode([]byte(vectors.FramePingOversizeReq)); !errors.Is(err, ErrBadFormat) {
+		t.Fatalf("oversize request: err = %v, want ErrBadFormat", err)
+	}
+
+	resp, err := EncodeResponse(1, CmdPing, StatusOK, make([]byte, MaxPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp[1] != maxLen {
+		t.Fatalf("response LEN = %d, want %d", resp[1], maxLen)
+	}
+	f, _, err := Decode(resp)
+	if err != nil || len(f.Payload) != MaxPayload {
+		t.Fatalf("full response: payload %d bytes, err = %v; want %d bytes", len(f.Payload), err, MaxPayload)
+	}
+
+	req, err := EncodeRequest(1, CmdPing, make([]byte, MaxPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _, err = Decode(req)
+	if err != nil || len(f.Payload) != MaxPayload {
+		t.Fatalf("full request: payload %d bytes, err = %v; want %d bytes", len(f.Payload), err, MaxPayload)
 	}
 }
 

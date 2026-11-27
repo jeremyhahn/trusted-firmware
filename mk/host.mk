@@ -397,7 +397,7 @@ $(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c \
 #               dispatcher calls them, on the literal envelope
 $(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
                           src/core/hsm_record.c src/core/hsm_store_ram.c \
-                          src/core/reader.c src/core/writer.c
+                          src/core/reader.c src/core/writer.c tools/suit-emit/emit.c
 # test_hsm_loop  the superloop's pass (slice 3) over the same engine, the port's
 #                lines asserted by the test
 $(HOST_DIR)/test_hsm_loop: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \

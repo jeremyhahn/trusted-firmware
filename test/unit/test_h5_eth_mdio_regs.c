@@ -100,6 +100,25 @@ void test_a_write_masks_a_phy_or_register_past_five_bits(void)
     TEST_ASSERT_EQUAL_HEX32(0x1234u, issued_dr);
 }
 
+void test_a_write_after_a_read_issues_a_write_on_its_own_phy_and_register(void)
+{
+    uint16_t v = 0u;
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x1Fu, 0x1Fu, &v));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);
+}
+
+void test_a_write_after_a_write_drops_the_previous_phy_and_register(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x1Fu, 0x1Fu, 0xFFFFu));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);
+}
+
 void test_mb_held_past_the_spin_limit_fails_a_read(void)
 {
     uint16_t v = 0xA5A5u;
@@ -260,6 +279,8 @@ int main(void)
     RUN_TEST(test_the_model_catches_a_write_issued_before_its_data);
     RUN_TEST(test_a_phy_or_register_past_five_bits_is_masked);
     RUN_TEST(test_a_write_masks_a_phy_or_register_past_five_bits);
+    RUN_TEST(test_a_write_after_a_read_issues_a_write_on_its_own_phy_and_register);
+    RUN_TEST(test_a_write_after_a_write_drops_the_previous_phy_and_register);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_read);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write);
     RUN_TEST(test_a_command_that_never_ends_fails_the_read);

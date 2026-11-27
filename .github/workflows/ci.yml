@@ -1,4 +1,5 @@
-# ci-template: v1.60 (customized)
+# ci-template: v1.61 (customized)
+# v1.61: a push to main runs in its own concurrency group, main-push-{sha}, so a later push never cancels an earlier commit's run; pull_request, schedule and workflow_dispatch groups are unchanged (handbook #144).
 # v1.60: a selection tie goes self-hosted; preflight and the selection go self-hosted only on a push to main or a same-repository pull request.
 # v1.59 (2026-11-22, the Tenant Agent's 15:28Z order, item 1, defect found
 # by go-qrdb #1680): `Balanced runner pool (ruling 1137)` picked hosted when
@@ -1090,7 +1091,8 @@ on:
     - cron: '0 4 * * 2'
 
 # v1.53 (ruling 1087): on main the group is the workflow and the event,
-# `main-{event}`, so a newer main run cancels the older one. Before v1.53:
+# `main-{event}`, so a newer main run cancels the older one; since v1.61 that
+# holds for a workflow_dispatch run on main only, not a push. Before v1.53:
 # v1.26.2: on main the group is the workflow, the event and the commit sha,
 # so each main run is its own group and a merge never cancels the main run in
 # progress; a schedule or workflow_dispatch run is in its own event's group
@@ -1104,8 +1106,12 @@ on:
 # `schedule-{repository}`, with no sha, so a repository has one schedule run
 # at a time. It is tested first, so a schedule run never takes a main group.
 # The push, pull_request and workflow_dispatch groups do not change.
+# v1.61 (handbook #144, #1115): a push to main runs in its own group,
+# `main-push-{sha}`, so a later push never cancels an earlier commit's run (a
+# re-run of the same sha still shares it); pull_request, schedule and
+# workflow_dispatch groups are unchanged.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('schedule-{0}', github.repository) || github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('schedule-{0}', github.repository) || github.ref == 'refs/heads/main' && github.event_name == 'push' && format('main-push-{0}', github.sha) || github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) || github.ref }}
   cancel-in-progress: true
 
 permissions:

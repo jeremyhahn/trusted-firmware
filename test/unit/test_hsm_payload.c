@@ -8,6 +8,7 @@
  * encoding, and each bound at its limit and one past it. That a refusal
  * leaves the loaded set is the engine's, in test_hsm_engine.c.
  */
+#include <stdlib.h>
 #include <string.h>
 #include "unity.h"
 #include "tfw/boot.h"
@@ -388,6 +389,243 @@ static void test_every_bit_flip_is_refused_or_reads_another_set(void)
     TEST_ASSERT_GREATER_THAN_UINT32(0u, other);
 }
 
+/* Seeded mutational fuzz, as test_suit_mutate.c: xorshift32 from a literal
+ * seed, so a failure replays; each input in a malloc of exactly its length,
+ * so ASan sees a read past it. */
+static uint32_t rng;
+
+static uint32_t rnd(void)
+{
+    rng ^= rng << 13;
+    rng ^= rng >> 17;
+    rng ^= rng << 5;
+    return rng;
+}
+
+#define FUZZ_CAP 512u
+
+/* The valid sets of the literal tests above: the vector set, the truncation
+ * test's and the bit-flip test's. */
+static const uint8_t seed_trunc[] = {
+    HEAD, 0x81u, 0x82u, 0x83u, 0x06u, 0x58u, 0x20u, DIGEST, 0xF5u, RULE(2u),
+    0x03u, 0xA1u, 0x01u, 0x42u, 0xAAu, 0xBBu, 0x04u, 0x19u, 0x03u, 0xE8u,
+    0x05u, 0x1Au, 0x00u, 0x01u, 0x00u, 0x00u,
+};
+static const uint8_t seed_flip[] = {
+    HEAD, 0x82u,
+    0x82u, 0x83u, 0x06u, 0x58u, 0x20u, DIGEST, 0xF5u,
+           0x83u, 0x02u, 0x83u, 0x06u, 0x04u, 0x02u, 0xF4u,
+    0x81u, RULE(0x05u),
+    0x03u, 0xA2u, 0x01u, 0x41u, 0xAAu, 0x18u, 0x18u, 0x42u, 0xBBu, 0xCCu,
+    0x04u, 0x00u, 0x05u, 0x1Au, 0x00u, 0x01u, 0x00u, 0x00u,
+};
+static const uint8_t seed_script3[] = { 0x83u, 0x05u, 0x04u, 0x06u };
+static const uint8_t seed_script16[] = { 0x90u, X16(0x03u) };
+
+typedef struct {
+    const uint8_t *p;
+    size_t         n;
+} seed_t;
+
+static const seed_t set_seeds[] = {
+    { SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY },
+    { seed_trunc, sizeof seed_trunc },
+    { seed_flip, sizeof seed_flip },
+};
+static const seed_t script_seeds[] = {
+    { seed_script3, sizeof seed_script3 },
+    { seed_script16, sizeof seed_script16 },
+};
+
+/* CBOR lead bytes at the edges of each major type: the argument widths, the
+ * reserved and indefinite forms, the empty and long containers, the simple
+ * values and float64. */
+static const uint8_t leads[] = {
+    0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Fu, 0x38u, 0x58u, 0x59u, 0x5Fu, 0x7Fu,
+    0x80u, 0x8Fu, 0x90u, 0x9Fu, 0xA0u, 0xBFu, 0xF4u, 0xF5u, 0xF6u, 0xFBu, 0xFFu,
+};
+
+/* One input into `b` (FUZZ_CAP bytes): a seed with 1 to 4 mutations, or one
+ * time in 16 a random buffer of 0 to 300 bytes. Returns its length. */
+static size_t make_input(uint8_t *b, const seed_t *seeds, size_t n_seeds)
+{
+    size_t n;
+
+    if ((rnd() & 15u) == 0u) {
+        n = rnd() % 301u;
+        for (size_t i = 0u; i < n; i++) {
+            b[i] = (uint8_t)rnd();
+        }
+        return n;
+    }
+    const seed_t *s = &seeds[rnd() % n_seeds];
+    memcpy(b, s->p, s->n);
+    n = s->n;
+    for (uint32_t k = 1u + rnd() % 4u; k > 0u; k--) {
+        size_t at = (n == 0u) ? 0u : rnd() % n;
+        switch (rnd() % 7u) {
+        case 0u:
+            if (n > 0u) {
+                b[at] = (uint8_t)rnd();
+            }
+            break;
+        case 1u:
+            if (n > 0u) {
+                b[at] = leads[rnd() % sizeof leads];
+            }
+            break;
+        case 2u:
+            if (n < FUZZ_CAP) {
+                memmove(&b[at + 1u], &b[at], n - at);
+                b[at] = (uint8_t)rnd();
+                n++;
+            }
+            break;
+        case 3u:
+            if (n > 0u) {
+                memmove(&b[at], &b[at + 1u], n - at - 1u);
+                n--;
+            }
+            break;
+        case 4u:
+            n = (n == 0u) ? 0u : rnd() % n;
+            break;
+        case 5u: {
+            size_t len = (n - at == 0u) ? 0u : 1u + rnd() % (n - at);
+            if (len > FUZZ_CAP - n) {
+                len = FUZZ_CAP - n;
+            }
+            /* The tail moves up by len; the span stays, so it is twice. */
+            memmove(&b[at + len], &b[at], n - at);
+            n += len;
+            break;
+        }
+        default: {
+            const seed_t *o   = &seeds[rnd() % n_seeds];
+            size_t        from = rnd() % o->n;
+            size_t        len  = 1u + rnd() % (o->n - from);
+            if (at + len > FUZZ_CAP) {
+                len = FUZZ_CAP - at;
+            }
+            memcpy(&b[at], &o->p[from], len);
+            if (at + len > n) {
+                n = at + len;
+            }
+            break;
+        }
+        }
+    }
+    return n;
+}
+
+/* `b` copied into a malloc of exactly `n` bytes (one byte for n == 0, which
+ * is passed as 0, so no byte of it may be read). */
+static uint8_t *exact(const uint8_t *b, size_t n)
+{
+    uint8_t *e = malloc(n == 0u ? 1u : n);
+    TEST_ASSERT_NOT_NULL(e);
+    memcpy(e, b, n);
+    return e;
+}
+
+static void check_set(const tfw_hsm_set_t *s)
+{
+    TEST_ASSERT_TRUE(s->n >= 1u && s->n <= TFW_HSM_POLICIES_MAX);
+    for (uint8_t i = 0u; i < s->n; i++) {
+        TEST_ASSERT_TRUE(s->policy[i].n >= 1u && s->policy[i].n <= TFW_HSM_RULES_MAX);
+    }
+    TEST_ASSERT_TRUE(s->n_expected <= TFW_HSM_EXPECTED_MAX);
+    for (uint8_t i = 0u; i < s->n_expected; i++) {
+        TEST_ASSERT_TRUE(s->expected[i].n <= TFW_HSM_EXPECTED_LEN);
+        if (i > 0u) {
+            TEST_ASSERT_TRUE(s->expected[i - 1u].key < s->expected[i].key);
+        }
+    }
+}
+
+/* Every mutated set is refused with one of the contract's two statuses or
+ * read inside its bounds; a read set is consumed exactly (one byte more or
+ * one less is refused), and a second read of the same bytes agrees. */
+static void test_mutated_sets_read_inside_their_contract(void)
+{
+    static uint8_t       b[FUZZ_CAP + 1u];
+    static tfw_hsm_set_t again;
+    uint32_t             ok = 0u, range = 0u, unsupported = 0u;
+
+    for (size_t i = 0u; i < sizeof set_seeds / sizeof set_seeds[0]; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, rd(set_seeds[i].p, set_seeds[i].n));
+    }
+    rng = 20261127u;
+    for (uint32_t it = 0u; it < 200000u; it++) {
+        size_t       n = make_input(b, set_seeds, sizeof set_seeds / sizeof set_seeds[0]);
+        uint8_t     *e = exact(b, n);
+        tfw_status_t st;
+
+        memset(&set, 0, sizeof set);
+        memset(&again, 0, sizeof again);
+        st = tfw_hsm_read_set(e, (uint16_t)n, &set);
+        TEST_ASSERT_EQUAL(st, tfw_hsm_read_set(e, (uint16_t)n, &again));
+        if (st == TFW_OK) {
+            ok++;
+            check_set(&set);
+            TEST_ASSERT_EQUAL_MEMORY(&set, &again, sizeof set);
+            free(e);
+            b[n] = (uint8_t)rnd();
+            e    = exact(b, n + 1u);
+            TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_set(e, (uint16_t)(n + 1u), &again));
+            TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_set(e, (uint16_t)(n - 1u), &again));
+        } else if (st == TFW_ERR_RANGE) {
+            range++;
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, st);
+            unsupported++;
+        }
+        free(e);
+    }
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, ok);
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, range);
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, unsupported);
+}
+
+/* The same harness for the script: 1 to 16 actions, consumed exactly. */
+static void test_mutated_scripts_read_inside_their_contract(void)
+{
+    static uint8_t          b[FUZZ_CAP + 1u];
+    static tfw_hsm_script_t again;
+    uint32_t                ok = 0u, refused = 0u;
+
+    for (size_t i = 0u; i < sizeof script_seeds / sizeof script_seeds[0]; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, rs(script_seeds[i].p, script_seeds[i].n));
+    }
+    rng = 20261128u;
+    for (uint32_t it = 0u; it < 100000u; it++) {
+        size_t       n = make_input(b, script_seeds, sizeof script_seeds / sizeof script_seeds[0]);
+        uint8_t     *e = exact(b, n);
+        tfw_status_t st;
+
+        memset(&script, 0, sizeof script);
+        memset(&again, 0, sizeof again);
+        st = tfw_hsm_read_script(e, (uint16_t)n, &script);
+        TEST_ASSERT_EQUAL(st, tfw_hsm_read_script(e, (uint16_t)n, &again));
+        if (st == TFW_OK) {
+            ok++;
+            TEST_ASSERT_TRUE(script.n >= 1u && script.n <= TFW_HSM_ACTIONS_MAX);
+            TEST_ASSERT_EQUAL_MEMORY(&script, &again, sizeof script);
+            free(e);
+            b[n] = (uint8_t)rnd();
+            e    = exact(b, n + 1u);
+            TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_script(e, (uint16_t)(n + 1u), &again));
+            TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_script(e, (uint16_t)(n - 1u), &again));
+        } else {
+            TEST_ASSERT_TRUE(st == TFW_ERR_RANGE || st == TFW_ERR_UNSUPPORTED);
+            refused++;
+        }
+        free(e);
+    }
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, ok);
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, refused);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -406,5 +644,7 @@ int main(void)
     RUN_TEST(test_a_cut_at_a_head_reads_nothing_past_it);
     RUN_TEST(test_trailing_bytes_are_refused);
     RUN_TEST(test_every_bit_flip_is_refused_or_reads_another_set);
+    RUN_TEST(test_mutated_sets_read_inside_their_contract);
+    RUN_TEST(test_mutated_scripts_read_inside_their_contract);
     return UNITY_END();
 }

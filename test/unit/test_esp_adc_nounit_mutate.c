@@ -48,6 +48,13 @@ esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan,
     return ESP_OK;
 }
 
+/* hal_gpio.c's, which this test does not link: no unit, no pad taken. */
+void tfw_esp_gpio_release(int gpio)
+{
+    (void)gpio;
+    n_other++;
+}
+
 void setUp(void)
 {
     n_new = n_other = 0u;

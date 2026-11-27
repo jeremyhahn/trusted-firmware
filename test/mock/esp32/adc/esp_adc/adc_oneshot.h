@@ -56,4 +56,15 @@ esp_err_t adc_oneshot_config_channel(adc_oneshot_unit_handle_t handle, adc_chann
                                      const adc_oneshot_chan_cfg_t *config);
 esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan, int *out_raw);
 
+/* The P4's ADC1 pads: channel n is GPIO 16 + n, channels 0 to 7. */
+static inline esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel,
+                                                  int *io_num)
+{
+    if (unit_id != ADC_UNIT_1 || (int)channel < 0 || (int)channel > 7) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *io_num = 16 + (int)channel;
+    return ESP_OK;
+}
+
 #endif

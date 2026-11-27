@@ -2049,7 +2049,8 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pins
 # hal_adc.c with its unit failing to come up (#163): the failure is kept for
 # the life of the program, so it is a program of its own. It stays in
 # TEST_SRCS; this explicit rule takes the place of the pattern rule.
-$(HOST_DIR)/test_esp_adc: test/unit/test_esp_adc.c src/hal/esp32/hal_adc.c \
+$(HOST_DIR)/test_esp_adc: test/unit/test_esp_adc.c src/hal/esp32/hal_adc.c src/hal/esp32/hal_gpio.c \
+                          src/hal/esp32/hal_tone.c src/hal/esp32/hal_pwm.c \
                           test/mock/esp_pins_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

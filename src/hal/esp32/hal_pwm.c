@@ -10,11 +10,13 @@
  * cycle as on the AVR, since an 8-bit LEDC duty of 255 is 255/256. The tone
  * generator (hal_tone.c) owns the last LEDC timer; the board's PWM table
  * never names it. Each timer is configured once, on its first good write;
- * later writes configure only the channel.
+ * later writes configure only the channel. A write takes its pad off the
+ * tone, as MODE does.
  */
 
 #include "driver/ledc.h"
 
+#include "tfw/config.h"
 #include "tfw/hal.h"
 #include "hal_esp32.h"
 
@@ -61,6 +63,11 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     if (ledc_channel_config(&chan) != ESP_OK) {
         return TFW_ERR_INTERNAL;
     }
+#if TFW_FEATURE_TONE
+    /* The channel config takes the pad off the tone's LEDC channel: the pin is
+     * no longer the tone's, and a tone running there ends (#48), as MODE does. */
+    tfw_esp_tone_release((int)p->gpio);
+#endif
     if (p->gpio < 64u) {
         pwm_driven |= 1ULL << p->gpio;  /* LEDC now holds the pad's output */
     }

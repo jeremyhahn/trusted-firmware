@@ -18,7 +18,10 @@
  *     later writes on it, from any channel, configuring only the channel;
  *     a refused timer tried again on the next write. The record persists
  *     across the tests, so each test uses its own (mode, timer) pair;
- *   - a stop as the row's channel stopped low, a failed stop internal.
+ *   - a stop as the row's channel stopped low, a failed stop internal;
+ *   - a good write releasing its pin from the tone (the channel config
+ *     takes the pad off the tone's LEDC channel), a refused one releasing
+ *     nothing, as MODE does (#48).
  */
 
 #include <stdint.h>
@@ -35,6 +38,15 @@ static ledc_mode_t           stop_mode;
 static ledc_channel_t        stop_chan;
 static uint32_t              stop_idle;
 static esp_err_t             timer_err, chan_err, stop_err;
+static unsigned              n_tone_rel;
+static int                   tone_rel_gpio;
+
+/* hal_tone.c's release, logged: the write must hand its pin back from the tone. */
+void tfw_esp_tone_release(int gpio)
+{
+    n_tone_rel++;
+    tone_rel_gpio = gpio;
+}
 
 esp_err_t ledc_timer_config(const ledc_timer_config_t *timer_conf)
 {
@@ -68,6 +80,8 @@ void setUp(void)
     stop_chan = (ledc_channel_t)0x5A;
     stop_idle = 0x5Au;
     timer_err = chan_err = stop_err = ESP_OK;
+    n_tone_rel = 0u;
+    tone_rel_gpio = -1;
     tfw_esp_pwm_release(2);
     tfw_esp_pwm_release(3);
 }
@@ -285,6 +299,39 @@ static void test_a_failed_write_marks_nothing(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(2));
 }
 
+/* #48: the channel config routes the pad to the PWM channel, off the tone's,
+ * so the write takes the pin from the tone, as MODE does; otherwise a later
+ * tone on another pin resets this pad and kills the PWM. */
+static void test_a_write_takes_its_pin_from_the_tone(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(2, tone_rel_gpio);
+}
+
+/* A refused timer or channel leaves the pad's routing alone: the tone keeps
+ * the pin. The row's timer is LEDC_TIMER_MAX, outside the record, so every
+ * write reaches ledc_timer_config: the high-speed timer 1 that
+ * test_a_failed_write_marks_nothing uses is up once that test's second
+ * write has configured it. */
+static void test_a_failed_write_leaves_the_tone_alone(void)
+{
+    const tfw_pwmref_t p = { 1u, 2u, (uint8_t)LEDC_TIMER_MAX, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    timer_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_timer);
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+
+    timer_err = ESP_OK;
+    chan_err = ESP_ERR_INVALID_ARG;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_chan);
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+}
+
 /* hal_gpio.c's MODE releases the pin; pins outside the bitmap are ignored. */
 static void test_release_clears_the_pin(void)
 {
@@ -320,6 +367,8 @@ int main(void)
     RUN_TEST(test_a_write_marks_its_pin_driven);
     RUN_TEST(test_a_stop_keeps_the_pin_driven);
     RUN_TEST(test_a_failed_write_marks_nothing);
+    RUN_TEST(test_a_write_takes_its_pin_from_the_tone);
+    RUN_TEST(test_a_failed_write_leaves_the_tone_alone);
     RUN_TEST(test_release_clears_the_pin);
     return UNITY_END();
 }

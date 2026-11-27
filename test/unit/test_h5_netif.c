@@ -1099,6 +1099,62 @@ static void test_a_new_block_mac_reprograms_the_mac_before_the_next_dial(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(new_mac));
 }
 
+/* --- the PHY link is read LINK_POLL_MS (100 ms) after bring-up and after
+ * each poll, no sooner and not a period late (#599). run_for steps 100 ms,
+ * so these step now_ms by hand to land on either side of the edge. */
+static void link_first_poll(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x40u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    now_ms = t0 + 99u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_FALSE(mac_running);                     /* not read yet */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);                      /* read at 100 ms */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_the_link_is_first_polled_link_poll_ms_after_bring_up(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(link_first_poll));
+}
+
+static void link_lost_poll(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x41u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);
+    link_up_flag = 0u;
+    now_ms = t0 + 199u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);                      /* not read yet */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+    now_ms = t0 + 200u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_FALSE(mac_running);                     /* read at +100 ms */
+    TEST_ASSERT_FALSE(netif_is_link_up(netif_default));
+}
+
+static void test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(link_lost_poll));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1244,6 +1300,8 @@ int main(void)
     RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
     RUN_TEST(test_a_static_block_written_while_unbound_applies_through_the_poll);
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
+    RUN_TEST(test_the_link_is_first_polled_link_poll_ms_after_bring_up);
+    RUN_TEST(test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

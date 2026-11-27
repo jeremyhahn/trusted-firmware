@@ -24,6 +24,7 @@
 
 /* RM0481 register addresses, for the register file's peek. */
 #define RCC_CR_ADDR     ((uintptr_t)TFW_H5_RCC_BASE + 0x00u)
+#define RCC_RSR_ADDR    ((uintptr_t)TFW_H5_RCC_BASE + 0xF4u)
 #define FLASH_ACR_ADDR  0x40022000u
 #define IWDG_KR_ADDR    0x40003000u
 #define IWDG_PR_ADDR    0x40003004u
@@ -184,6 +185,47 @@ static void test_pet_writes_the_reload_key_only(void)
     TEST_ASSERT_EQUAL_UINT(1u, access_n);
 }
 
+/* RM0481 RCC_RSR: RMVF (bit 23) clears the flags, PINRSTF (26) is set by
+ * every reset, SFTRSTF (28) by SYSRESETREQ, IWDGRSTF (29) by the watchdog. */
+#define RSR_RMVF     (1u << 23)
+#define RSR_PINRSTF  (1u << 26)
+#define RSR_SFTRSTF  (1u << 28)
+#define RSR_IWDGRSTF (1u << 29)
+
+/* The cause read from RSR latched as rsr, with the mark the firmware left. */
+static tfw_reset_cause_t cause_for(uint32_t rsr, uint32_t mark)
+{
+    preset(RCC_RSR_ADDR, rsr);
+    return tfw_cm_soc_reset_cause(mark);
+}
+
+/* hal_soc.c: SFTRSTF is also set by a lockup or a debugger's reset, so it is
+ * the software cause only behind the firmware's reset-request mark; each read
+ * clears RCC_RSR with RMVF. */
+static void test_a_software_reset_is_software_only_with_the_request_mark(void)
+{
+    const uint32_t rsr = RSR_SFTRSTF | RSR_PINRSTF;
+
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_SOFTWARE, cause_for(rsr, TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_HEX32(RSR_RMVF, *__real_tfw_cm_model_reg(RCC_RSR_ADDR));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_UNKNOWN, cause_for(rsr, 0u));
+    TEST_ASSERT_EQUAL_HEX32(RSR_RMVF, *__real_tfw_cm_model_reg(RCC_RSR_ADDR));
+    TEST_ASSERT_EQUAL_INT(TFW_RESET_UNKNOWN, cause_for(rsr, TFW_CM_MARK_WATCHDOG));
+    TEST_ASSERT_EQUAL_HEX32(RSR_RMVF, *__real_tfw_cm_model_reg(RCC_RSR_ADDR));
+}
+
+/* IWDGRSTF is the watchdog whichever mark the firmware left. */
+static void test_a_watchdog_reset_is_the_watchdog_whatever_the_mark(void)
+{
+    static const uint32_t marks[] = { TFW_CM_MARK_WATCHDOG, TFW_CM_MARK_RESETREQ, 0u };
+    unsigned i;
+
+    for (i = 0u; i < sizeof marks / sizeof marks[0]; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_RESET_WATCHDOG, cause_for(RSR_IWDGRSTF | RSR_PINRSTF, marks[i]));
+        TEST_ASSERT_EQUAL_HEX32(RSR_RMVF, *__real_tfw_cm_model_reg(RCC_RSR_ADDR));
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -197,5 +239,7 @@ int main(void)
     RUN_TEST(test_arm_timeout_is_4_seconds);
     RUN_TEST(test_arm_marks_the_watchdog);
     RUN_TEST(test_pet_writes_the_reload_key_only);
+    RUN_TEST(test_a_software_reset_is_software_only_with_the_request_mark);
+    RUN_TEST(test_a_watchdog_reset_is_the_watchdog_whatever_the_mark);
     return UNITY_END();
 }

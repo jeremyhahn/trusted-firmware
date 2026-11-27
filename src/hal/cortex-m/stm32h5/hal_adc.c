@@ -10,7 +10,9 @@
  * bit soc_regs.h's, the arithmetic h5_calc.h's:
  *
  *   init   ADC bus clock on, kernel clock HCLK (no PLL, TFW_CM_CPU_HZ
- *          stays the core's), common clock HCLK / 2; out of deep power-down,
+ *          stays the core's); an ADC found enabled is stopped and disabled
+ *          first (ADSTP, ADDIS, ADEN reading 0, bounded like every poll);
+ *          common clock HCLK / 2; out of deep power-down,
  *          regulator on and its start-up waited; INP0's pin switch on;
  *          single-ended calibration; ADEN, then ADRDY. 12 bits, right
  *          aligned, single conversion, an overrun overwrites.
@@ -82,6 +84,26 @@ static uint8_t wait_isr(uint32_t flag)
     return 0u;
 }
 
+/*
+ * Stops and disables an ADC left enabled (ST's ADC_ConversionStop and
+ * ADC_Disable): ADSTP if a conversion runs, then ADDIS, then ADEN reading
+ * 0. 1 if the ADC is disabled inside the bounds.
+ */
+static uint8_t adc_disable(void)
+{
+    if ((TFW_H5_ADC1_CR & TFW_H5_ADC_CR_ADEN) == 0u) {
+        return 1u;
+    }
+    if ((TFW_H5_ADC1_CR & TFW_H5_ADC_CR_ADSTART) != 0u) {
+        cr_set(TFW_H5_ADC_CR_ADSTP);
+        if (!wait_cr(TFW_H5_ADC_CR_ADSTART, 0u)) {
+            return 0u;
+        }
+    }
+    cr_set(TFW_H5_ADC_CR_ADDIS);
+    return wait_cr(TFW_H5_ADC_CR_ADEN, 0u);
+}
+
 tfw_status_t tfw_hal_adc_init(void)
 {
     ready = 0u;
@@ -89,6 +111,9 @@ tfw_status_t tfw_hal_adc_init(void)
                         TFW_H5_RCC_ADCDACSEL_HCLK;
     TFW_H5_RCC_AHB2ENR |= TFW_H5_RCC_AHB2ENR_ADCEN;
     (void)TFW_H5_RCC_AHB2ENR;                      /* the enable lands first */
+    if (!adc_disable()) {                          /* clock, regulator, ADCAL: ADEN 0 */
+        return TFW_ERR_TIMEOUT;
+    }
 
     TFW_H5_ADC12_CCR = (TFW_H5_ADC12_CCR & ~(TFW_H5_ADC_CCR_CKMODE | TFW_H5_ADC_CCR_PRESC)) |
                        (TFW_H5_ADC_PRESC_CODE << TFW_H5_ADC_CCR_PRESC_POS);

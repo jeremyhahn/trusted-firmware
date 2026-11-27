@@ -228,6 +228,18 @@ static void test_a_tone_moved_to_another_pin_is_released_only_there(void)
     TEST_ASSERT_EQUAL_UINT(1u, stops);
 }
 
+/* MODE OUTPUT on 21, a tone on 21, then the tone moved to 22: the move
+ * resets 21 to an input, so a capture there must not loop it back and drive
+ * it again (#48, Codex P1). */
+static void test_a_mode_output_pin_a_moved_tone_resets_is_not_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 1000u));
+    TEST_ASSERT_EQUAL_INT(22, tfw_esp_tone_gpio());
+    capture_loop_back(0u);
+}
+
 static void test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
@@ -303,6 +315,7 @@ int main(void)
     RUN_TEST(test_mode_input_after_notone_takes_the_pin_back);
     RUN_TEST(test_mode_on_another_pin_after_notone_keeps_the_pin);
     RUN_TEST(test_a_tone_moved_to_another_pin_is_released_only_there);
+    RUN_TEST(test_a_mode_output_pin_a_moved_tone_resets_is_not_looped_back);
     RUN_TEST(test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone);
     return UNITY_END();
 }

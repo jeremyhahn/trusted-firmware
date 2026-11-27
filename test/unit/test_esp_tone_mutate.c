@@ -81,6 +81,16 @@ void tfw_esp_pwm_release(int gpio)
     release_seen = gpio;
 }
 
+/* hal_gpio.c's MODE output record: the moved tone's reset forgets the old pin. */
+static unsigned n_gpio_release;
+static int      gpio_release_seen;
+
+void tfw_esp_gpio_release(int gpio)
+{
+    n_gpio_release++;
+    gpio_release_seen = gpio;
+}
+
 esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
 {
     n_reset++;
@@ -97,6 +107,8 @@ void setUp(void)
     reset_seen = -1;
     n_release = 0u;
     release_seen = -1;
+    n_gpio_release = 0u;
+    gpio_release_seen = -1;
     memset(&timer_seen, 0x5A, sizeof timer_seen);
     memset(&chan_seen, 0x5A, sizeof chan_seen);
     stop_mode = (ledc_mode_t)0x5A;
@@ -334,6 +346,18 @@ static void test_a_tone_on_another_pin_forgets_the_old_pin_as_pwm_driven(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
 }
 
+static void test_a_tone_on_another_pin_forgets_the_old_pin_as_a_mode_output(void)
+{
+    const tfw_pinref_t a = { 7u };
+    const tfw_pinref_t b = { 4u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&b, 880u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_gpio_release);
+    TEST_ASSERT_EQUAL_INT(7, gpio_release_seen);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+}
+
 static void test_a_retune_on_the_same_pin_resets_nothing(void)
 {
     const tfw_pinref_t a = { 7u };
@@ -342,6 +366,7 @@ static void test_a_retune_on_the_same_pin_resets_nothing(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&a, 880u));
     TEST_ASSERT_EQUAL_UINT(0u, n_reset);
     TEST_ASSERT_EQUAL_UINT(0u, n_release);
+    TEST_ASSERT_EQUAL_UINT(0u, n_gpio_release);
     TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
     assert_stopped_once();
@@ -365,5 +390,6 @@ int main(void)
     RUN_TEST(test_a_tone_after_notone_on_another_pin_takes_the_stopped_pin_back);
     RUN_TEST(test_a_tone_on_another_pin_forgets_the_old_pin_as_pwm_driven);
     RUN_TEST(test_a_retune_on_the_same_pin_resets_nothing);
+    RUN_TEST(test_a_tone_on_another_pin_forgets_the_old_pin_as_a_mode_output);
     return UNITY_END();
 }

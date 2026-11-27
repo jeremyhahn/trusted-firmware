@@ -210,6 +210,7 @@ static void test_a_mode_releases_the_pwm_on_its_pin(void)
 
 /* hal_gpio.c's record of MODE outputs, read by the RMT capture (#48). */
 int tfw_esp_gpio_drives(int gpio);
+void tfw_esp_gpio_release(int gpio);
 
 static void test_output_mode_is_recorded_and_input_clears_it(void)
 {
@@ -245,6 +246,23 @@ static void test_a_refused_pin_or_mode_leaves_the_record(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(-1));
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(64));
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(63));
+}
+
+static void test_a_release_clears_only_its_pin(void)
+{
+    tfw_pinref_t a = { 5u };
+    tfw_pinref_t b = { 6u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&a, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&b, TFW_PIN_OUTPUT));
+    tfw_esp_gpio_release(5);
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(5));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(6));
+    tfw_esp_gpio_release(-1);
+    tfw_esp_gpio_release(64);
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(6));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&b, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_gpio_drives(6));
 }
 
 static void test_a_write_is_0_or_1(void)
@@ -342,6 +360,7 @@ int main(void)
     RUN_TEST(test_output_mode_is_recorded_and_input_clears_it);
     RUN_TEST(test_a_failed_output_mode_is_not_recorded);
     RUN_TEST(test_a_refused_pin_or_mode_leaves_the_record);
+    RUN_TEST(test_a_release_clears_only_its_pin);
     RUN_TEST(test_a_write_is_0_or_1);
     RUN_TEST(test_a_failed_write_is_a_bad_pin);
     RUN_TEST(test_a_write_of_a_pin_the_part_lacks_is_a_bad_pin_untouched);

@@ -499,6 +499,54 @@ static void test_a_tcp_peer_change_while_tcp_is_current_is_reported_once(void)
     TEST_ASSERT_EQUAL_UINT8(0, tfw_link_take_reset());
 }
 
+static void test_a_line_that_fills_the_buffer_exactly_goes_out_whole(void)
+{
+    char full[TFW_H5_WIRE_SAY_BUF + 1u];
+
+    memset(full, 'f', sizeof full - 1u);
+    full[sizeof full - 1u] = '\0';
+
+    tfw_h5_wire_say(full);
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(TFW_H5_WIRE_SAY_BUF, uart_out_len);
+    TEST_ASSERT_EQUAL_MEMORY(full, uart_out, TFW_H5_WIRE_SAY_BUF);
+}
+
+static void test_a_line_that_fills_the_room_exactly_is_kept_and_one_more_is_dropped(void)
+{
+    char first[16];
+    char fits[50];
+    char over[51];
+
+    memset(first, 'a', sizeof first - 1u);
+    first[sizeof first - 1u] = '\0';
+    memset(fits, 'b', sizeof fits - 1u);
+    fits[sizeof fits - 1u] = '\0';
+    memset(over, 'c', sizeof over - 1u);
+    over[sizeof over - 1u] = '\0';
+    TEST_ASSERT_TRUE(15u + 49u == TFW_H5_WIRE_SAY_BUF);
+
+    uart_room = 0u;
+    tfw_h5_wire_say(first);
+    tfw_h5_wire_say(fits);
+    TEST_ASSERT_EQUAL_UINT(0, uart_out_len);
+    uart_room = ~0u;
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(64, uart_out_len);
+    TEST_ASSERT_EQUAL_MEMORY(first, uart_out, 15);
+    TEST_ASSERT_EQUAL_MEMORY(fits, uart_out + 15, 49);
+
+    uart_out_len = 0u;
+    uart_room = 0u;
+    tfw_h5_wire_say(first);
+    tfw_h5_wire_say(over);
+    TEST_ASSERT_EQUAL_UINT(0, uart_out_len);
+    uart_room = ~0u;
+    tfw_h5_wire_say_poll();
+    TEST_ASSERT_EQUAL_UINT(15, uart_out_len);
+    TEST_ASSERT_EQUAL_MEMORY(first, uart_out, 15);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -520,5 +568,7 @@ int main(void)
     RUN_TEST(test_a_line_with_no_room_behind_a_queued_one_is_dropped_whole);
     RUN_TEST(test_a_tcp_peer_change_while_the_uart_is_current_keeps_its_frame);
     RUN_TEST(test_a_tcp_peer_change_while_tcp_is_current_is_reported_once);
+    RUN_TEST(test_a_line_that_fills_the_buffer_exactly_goes_out_whole);
+    RUN_TEST(test_a_line_that_fills_the_room_exactly_is_kept_and_one_more_is_dropped);
     return UNITY_END();
 }

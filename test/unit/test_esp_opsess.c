@@ -34,6 +34,12 @@ static uint8_t           uds[32];
 static int               uds_burned;
 static esp_efuse_block_t uds_block;
 static unsigned          hmac_calls;
+/* hmac_fail: the peripheral computes the true HMAC and then refuses it, so
+ * a unit that ignored the return would still see a good tag. nvm_err: the
+ * read copies the bytes and then returns this, for the same reason. */
+static int               hmac_fail;
+static unsigned          nvm_reads;
+static tfw_status_t      nvm_err;
 static uint8_t           test_handoff[TFW_BOOT_HANDOFF_LEN];
 static uint8_t           test_nvm[TFW_BOOT_EE_LEN];
 
@@ -63,6 +69,9 @@ esp_err_t esp_hmac_calculate(hmac_key_id_t key_id, const void *message,
     }
     tfw_hmac_sha256(uds, (uint8_t)sizeof uds, (const uint8_t *)message,
                     (uint16_t)message_len, hmac);
+    if (hmac_fail) {
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 
@@ -106,11 +115,12 @@ uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
 
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
+    nvm_reads++;
     if ((uint32_t)addr + len > sizeof test_nvm) {
         return TFW_ERR_CRC;
     }
     memcpy(buf, &test_nvm[addr], len);
-    return TFW_OK;
+    return nvm_err;
 }
 
 /* ------------------------------------------------------------------- helpers */
@@ -211,6 +221,8 @@ void setUp(void)
     uds_burned = 1;
     uds_block  = EFUSE_BLK_KEY3;
     hmac_calls = 0u;
+    hmac_fail  = 0;
+    nvm_err    = TFW_OK;
     adc_held   = 0;
     entropy_on = 0;
     memset(test_handoff, 0, sizeof test_handoff);
@@ -347,6 +359,87 @@ static void test_the_challenge_is_drawn_with_the_entropy_source_on(void)
     TEST_ASSERT_FALSE(entropy_on);
 }
 
+/* tfw_crypto_verify_operator at the unit, not through the session. */
+static const uint8_t D[32] = {
+    0x5Au, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+    0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+    0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+    0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0xA5u,
+};
+
+static tfw_status_t verify(const uint8_t priv[32], const uint8_t digest[32],
+                           const uint8_t pub[64])
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32u, sig, uECC_secp256r1()));
+    return tfw_crypto_verify_operator(digest, sig, pub);
+}
+
+static void test_verify_operator_accepts_the_bound_key_and_its_signature(void)
+{
+    unsigned before = hmac_calls;
+
+    nvm_reads = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, verify(operator_priv, D, operator_pub));
+    TEST_ASSERT_EQUAL_UINT(1u, nvm_reads);
+    TEST_ASSERT_EQUAL_UINT(before + 1u, hmac_calls);
+}
+
+static void test_verify_operator_refuses_an_unreadable_platform_block(void)
+{
+    unsigned before = hmac_calls;
+
+    nvm_reads = 0u;
+    nvm_err   = TFW_ERR_CRC;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, verify(operator_priv, D, operator_pub));
+    TEST_ASSERT_EQUAL_UINT(1u, nvm_reads);
+    TEST_ASSERT_EQUAL_UINT(before, hmac_calls);
+}
+
+static void test_verify_operator_refuses_when_the_peripheral_refuses_the_bind(void)
+{
+    unsigned before = hmac_calls;
+
+    hmac_fail = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, verify(operator_priv, D, operator_pub));
+    TEST_ASSERT_EQUAL_UINT(before + 1u, hmac_calls);
+}
+
+static void test_verify_operator_refuses_a_tag_off_in_its_last_byte(void)
+{
+    uint8_t tag[32];
+
+    bind_tag(operator_pub, tag);
+    tag[31] ^= 0x01u;
+    bake(operator_pub, tag);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, verify(operator_priv, D, operator_pub));
+}
+
+static void test_verify_operator_without_a_uds_reads_nothing(void)
+{
+    unsigned before;
+
+    uds_burned = 0;
+    (void)tfw_crypto_init();
+    nvm_reads = 0u;
+    before    = hmac_calls;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, verify(operator_priv, D, operator_pub));
+    TEST_ASSERT_EQUAL_UINT(0u, nvm_reads);
+    TEST_ASSERT_EQUAL_UINT(before, hmac_calls);
+}
+
+static void test_verify_operator_refuses_a_signature_over_another_digest(void)
+{
+    uint8_t sig[64];
+    uint8_t d2[32];
+
+    TEST_ASSERT_TRUE(uECC_sign(operator_priv, D, 32u, sig, uECC_secp256r1()));
+    memcpy(d2, D, sizeof d2);
+    d2[0] ^= 0x01u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(d2, sig, operator_pub));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -361,5 +454,11 @@ int main(void)
     RUN_TEST(test_no_uds_means_no_session);
     RUN_TEST(test_a_busy_entropy_source_refuses_the_challenge);
     RUN_TEST(test_the_challenge_is_drawn_with_the_entropy_source_on);
+    RUN_TEST(test_verify_operator_accepts_the_bound_key_and_its_signature);
+    RUN_TEST(test_verify_operator_refuses_an_unreadable_platform_block);
+    RUN_TEST(test_verify_operator_refuses_when_the_peripheral_refuses_the_bind);
+    RUN_TEST(test_verify_operator_refuses_a_tag_off_in_its_last_byte);
+    RUN_TEST(test_verify_operator_without_a_uds_reads_nothing);
+    RUN_TEST(test_verify_operator_refuses_a_signature_over_another_digest);
     return UNITY_END();
 }

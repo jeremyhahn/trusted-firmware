@@ -10,7 +10,9 @@
  * preload, so duty 0 is never high and duty 255 always is. The timer is
  * configured on the first write, not at boot, and the pin is handed to the
  * timer (alternate function 2) on every write. Stop disables
- * the channel and returns the pin to an output driven low.
+ * the channel, takes its CCR preload off, so the next write's duty applies at
+ * once rather than after the stale one's period, and returns the pin to an
+ * output driven low.
  *
  * Registers and bits: soc_regs.h and h5_calc.h, each cited there. Built and
  * host-tested, unchanged, against modeled registers (test/unit/test_stm32h5_pwm.c); not
@@ -35,6 +37,12 @@ static int valid(const tfw_pwmref_t *p)
 static uint32_t bank_of(const tfw_pwmref_t *p)
 {
     return tfw_h5_gpio_base(TFW_H5_GPIOA_BASE, TFW_H5_GPIO_STRIDE, p->port);
+}
+
+/* The channel's OCxPE in its CCMR (CMSIS TIM_CCMR1_OC1PE_Pos 3, OC2PE_Pos 11). */
+static uint32_t ocpe(uint8_t channel)
+{
+    return 0x8u << (8u * (((uint32_t)channel - 1u) & 1u));
 }
 
 /* The timer's base, once: clock on, prescaler, period, preload, an update
@@ -103,6 +111,11 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     bank = bank_of(p);
     if ((pwm_live & (1u << (p->channel - 1u))) != 0u) {
         TFW_H5_TIM_CCER = tfw_h5_pwm_ccer(TFW_H5_TIM_CCER, p->channel, 0u);
+        if (p->channel <= 2u) {
+            TFW_H5_TIM_CCMR1 &= ~ocpe(p->channel);
+        } else {
+            TFW_H5_TIM_CCMR2 &= ~ocpe(p->channel);
+        }
         pwm_live &= (uint8_t)~(1u << (p->channel - 1u));
     }
     TFW_H5_RCC_AHB2ENR |= 1u << p->port;

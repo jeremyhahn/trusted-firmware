@@ -200,6 +200,51 @@ static void test_a_clock_error_after_the_read_keeps_the_word(void)
     TEST_ASSERT_EQUAL_UINT32(0u, sr_nwrites);
 }
 
+/* The word's one recovery was spent at the top (a clock error before the
+ * word was ready): a seed error the read then latches is reported, not
+ * recovered a second time and the next word returned. */
+static void
+test_a_seed_error_after_the_read_once_an_error_was_recovered_is_reported(void)
+{
+    uint32_t out = OUT0;
+
+    sr_script[0] = DRDY;                    /* init */
+    sr_script[1] = CEIS | DRDY;             /* top-branch recovery */
+    sr_script[2] = DRDY;                    /* its poll */
+    sr_script[3] = DRDY;                    /* word ready, DR read */
+    sr_script[4] = SEIS | DRDY;             /* seed error after the read */
+    sr_script[5] = DRDY;
+    sr_script[6] = DRDY;
+    sr_len = 7u;
+    TEST_ASSERT_EQUAL_INT(-1, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(OUT0, out);
+    TEST_ASSERT_EQUAL_UINT32(1u, sr_nwrites);  /* one recovery, no more */
+}
+
+/* The word's one recovery was spent on a seed error after the read: the
+ * same error after the next read is reported, not recovered again. */
+static void
+test_a_second_seed_error_after_a_read_is_reported_not_recovered_again(void)
+{
+    uint32_t out = OUT0;
+
+    sr_script[0] = DRDY;                    /* init */
+    sr_script[1] = DRDY;                    /* word ready, DR read */
+    sr_script[2] = SEIS | DRDY;             /* seed error: recovery 1 */
+    sr_script[3] = DRDY;                    /* its poll */
+    sr_script[4] = DRDY;                    /* word ready again */
+    sr_script[5] = SEIS | DRDY;             /* seed error again */
+    sr_script[6] = DRDY;
+    sr_script[7] = DRDY;
+    sr_len = 8u;
+    TEST_ASSERT_EQUAL_INT(-1, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(OUT0, out);
+    TEST_ASSERT_EQUAL_UINT32(1u, sr_nwrites);  /* one recovery, no more */
+    TEST_ASSERT_EQUAL_HEX32(0u, regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_RNG_CR_RNGEN,
+                            regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -210,5 +255,7 @@ int main(void)
     RUN_TEST(test_a_seed_error_after_the_read_that_stays_is_reported_and_leaves_out);
     RUN_TEST(test_a_seed_error_now_after_the_read_drops_the_word);
     RUN_TEST(test_a_clock_error_after_the_read_keeps_the_word);
+    RUN_TEST(test_a_seed_error_after_the_read_once_an_error_was_recovered_is_reported);
+    RUN_TEST(test_a_second_seed_error_after_a_read_is_reported_not_recovered_again);
     return UNITY_END();
 }

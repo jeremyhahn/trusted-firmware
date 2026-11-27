@@ -107,6 +107,36 @@ static void test_rx_takes_rdr_with_rxne_set(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
 }
 
+/* An idle transmitter keeps TXE and TC set, so a byte arriving reads
+ * ISR as 0xE0: rx must test RXNE alone, not the whole register. */
+static void test_rx_takes_rdr_with_the_idle_flags_set(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC |
+                       TFW_H5_USART_ISR_RXNE;
+    TFW_H5_USART_RDR = 0xA5u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
+/* An overrun that comes with a byte (and the idle TX flags) is cleared,
+ * and the byte waiting in RDR is still returned. */
+static void test_rx_clears_an_overrun_and_takes_the_byte_waiting(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC |
+                       TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+}
+
 /* A UART init left off (TE clear) stores nothing, even with TXE set. */
 static void test_tx_stores_nothing_while_te_is_clear(void)
 {
@@ -207,6 +237,8 @@ int main(void)
     RUN_TEST(test_init_puts_the_pins_on_their_alternate_function);
     RUN_TEST(test_rx_clears_an_overrun_and_returns_0_with_no_byte);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
+    RUN_TEST(test_rx_takes_rdr_with_the_idle_flags_set);
+    RUN_TEST(test_rx_clears_an_overrun_and_takes_the_byte_waiting);
     RUN_TEST(test_tx_stores_nothing_while_te_is_clear);
     RUN_TEST(test_tx_writes_tdr_once_enabled);
     RUN_TEST(test_off_puts_usart1_and_its_pins_back_to_reset);

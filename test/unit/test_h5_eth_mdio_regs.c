@@ -93,6 +93,13 @@ void test_a_phy_or_register_past_five_bits_is_masked(void)
     TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x1Fu << 16) | GOC_READ | MB, issued);
 }
 
+void test_a_write_masks_a_phy_or_register_past_five_bits(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x21u, 0x3Fu, 0x1234u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x1Fu << 16) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, issued_dr);
+}
+
 void test_mb_held_past_the_spin_limit_fails_a_read(void)
 {
     uint16_t v = 0xA5A5u;
@@ -138,6 +145,13 @@ void test_init_selects_rmii_and_keeps_the_rest_of_pmcr(void)
     tfw_h5_eth_mdio_init();
     TEST_ASSERT_EQUAL_HEX32((0x4u << 21) | 0x1u, regfile_model_peek(SBS_PMCR));
     TEST_ASSERT_EQUAL_HEX32(0x1u << 1, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u) & (0x1u << 1));
+}
+
+void test_init_keeps_the_other_apb3_clocks_on(void)
+{
+    regfile_model_poke(TFW_H5_RCC_BASE + 0xA8u, (0x1u << 8) | 0x1u);   /* I2C4EN, one other bit */
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 8) | (0x1u << 1) | 0x1u, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u));
 }
 
 void test_init_enables_the_mac_clocks_and_keeps_the_others(void)
@@ -245,11 +259,13 @@ int main(void)
     RUN_TEST(test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb);
     RUN_TEST(test_the_model_catches_a_write_issued_before_its_data);
     RUN_TEST(test_a_phy_or_register_past_five_bits_is_masked);
+    RUN_TEST(test_a_write_masks_a_phy_or_register_past_five_bits);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_read);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write);
     RUN_TEST(test_a_command_that_never_ends_fails_the_read);
     RUN_TEST(test_a_command_that_never_ends_fails_the_write);
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);
+    RUN_TEST(test_init_keeps_the_other_apb3_clocks_on);
     RUN_TEST(test_init_clears_a_pull_on_each_rmii_pin_and_keeps_the_others);
     RUN_TEST(test_init_replaces_a_stale_alternate_function_and_keeps_the_others);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);

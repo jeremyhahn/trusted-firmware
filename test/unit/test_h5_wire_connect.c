@@ -37,6 +37,7 @@ static void            *cb_arg;
 static uint8_t          sent[TFW_MAX_FRAME * 4u];
 static unsigned         sent_len;
 static unsigned         close_calls, abort_calls;
+static struct tcp_pcb  *closed;                 /* the pcb tcp_close took last */
 static unsigned         sent_at_close;
 static unsigned         recved_total;
 static uint8_t          fail_new;               /* tcp_new: out of pcbs */
@@ -118,14 +119,24 @@ err_t tcp_write(struct tcp_pcb *pcb, const void *dataptr, u16_t len, u8_t apifla
 
 err_t tcp_close(struct tcp_pcb *pcb)
 {
-    (void)pcb;
+    closed = pcb;
     close_calls++;
     sent_at_close = sent_len;
     return fail_close;
 }
 
 void tcp_abort(struct tcp_pcb *pcb) { (void)pcb; abort_calls++; }
-u8_t pbuf_free(struct pbuf *p) { (void)p; return 1u; }
+/* Every pbuf lwIP hands the receive callback is the callback's to free, once:
+ * a missed free leaks a PBUF_POOL buffer per segment until reception stops. */
+static unsigned            free_calls;
+static const struct pbuf  *freed;
+
+u8_t pbuf_free(struct pbuf *p)
+{
+    free_calls++;
+    freed = p;
+    return 1u;
+}
 
 /* --- the network block: RFC 5737 endpoint, a 02:00:00 test MAC ------------- */
 static void put_block(uint16_t port)
@@ -190,6 +201,9 @@ void setUp(void)
     TEST_ASSERT_NOT_NULL(recv_cb);
     new_calls = connect_calls = 0u;     /* connect_ip and connect_port stay */
     sent_len = close_calls = abort_calls = sent_at_close = recved_total = 0u;
+    free_calls = 0u;
+    freed = NULL;
+    closed = NULL;
     (void)tfw_link_take_reset();
 }
 
@@ -512,6 +526,70 @@ static void test_data_on_another_pcb_is_dropped(void)
     request_is_answered(15u);
 }
 
+/* hal_eth_wire_tcp.c:83-86, 93-96 and 102: data on the connection, data on
+ * another pcb and data with an error each free their pbuf exactly once. */
+static void test_each_received_pbuf_is_freed_once(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 18u, TFW_CMD_CAPS, 0, 0u);
+    struct tcp_pcb other;
+    struct pbuf p;
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    memset(&other, 0, sizeof other);
+    memset(&p, 0, sizeof p);
+    p.payload = wire;
+    p.len     = len;
+    p.tot_len = len;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &conn, &p, ERR_OK));
+    TEST_ASSERT_EQUAL_UINT(1, free_calls);
+    TEST_ASSERT_EQUAL_PTR(&p, freed);
+
+    freed = NULL;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &other, &p, ERR_OK));
+    TEST_ASSERT_EQUAL_UINT(2, free_calls);
+    TEST_ASSERT_EQUAL_PTR(&p, freed);
+
+    freed = NULL;
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &other, &p, ERR_ABRT));
+    TEST_ASSERT_EQUAL_UINT(3, free_calls);
+    TEST_ASSERT_EQUAL_PTR(&p, freed);
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+    TEST_ASSERT_EQUAL_PTR(&other, closed);
+
+    for (unsigned i = 0u; i < 4u; i++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(answered(18u));    /* the connection's copy only */
+}
+
+/* hal_eth_wire_tcp.c:79 takes a FIN from the connection only: a FIN on an
+ * old pcb closes that pcb and leaves the open connection alone (87-88). */
+static void test_a_fin_on_another_pcb_closes_it_and_keeps_the_connection(void)
+{
+    struct tcp_pcb other;
+
+    memset(&other, 0, sizeof other);
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &other, NULL, ERR_OK));
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+    TEST_ASSERT_EQUAL_PTR(&other, closed);
+    TEST_ASSERT_EQUAL_UINT(0, free_calls);
+    request_is_answered(19u);
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+}
+
+/* hal_eth_wire_tcp.c:83-90: an error on an old pcb closes that pcb only. */
+static void test_an_error_on_another_pcb_closes_it_and_keeps_the_connection(void)
+{
+    struct tcp_pcb other;
+
+    memset(&other, 0, sizeof other);
+    TEST_ASSERT_EQUAL(ERR_OK, recv_cb(cb_arg, &other, NULL, ERR_ABRT));
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+    TEST_ASSERT_EQUAL_PTR(&other, closed);
+    TEST_ASSERT_EQUAL_UINT(0, free_calls);
+    request_is_answered(20u);
+    TEST_ASSERT_EQUAL_UINT(1, close_calls);
+}
+
 /* hal_eth_wire_tcp.c:78-85 with p == NULL, then 173-174: no connection. */
 static void test_an_error_with_no_data_closes_and_later_sends_are_dropped(void)
 {
@@ -644,6 +722,9 @@ int main(void)
     RUN_TEST(test_a_connected_callback_with_an_error_aborts_and_backs_off);
     RUN_TEST(test_a_connected_callback_for_another_pcb_is_refused);
     RUN_TEST(test_data_on_another_pcb_is_dropped);
+    RUN_TEST(test_each_received_pbuf_is_freed_once);
+    RUN_TEST(test_a_fin_on_another_pcb_closes_it_and_keeps_the_connection);
+    RUN_TEST(test_an_error_on_another_pcb_closes_it_and_keeps_the_connection);
     RUN_TEST(test_an_error_with_no_data_closes_and_later_sends_are_dropped);
     RUN_TEST(test_a_full_send_window_sends_nothing);
     RUN_TEST(test_a_write_lwip_refuses_sends_nothing);

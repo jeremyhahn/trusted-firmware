@@ -573,6 +573,10 @@ static void test_mutated_sets_read_inside_their_contract(void)
             b[n] = (uint8_t)rnd();
             e    = exact(b, n + 1u);
             TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_set(e, (uint16_t)(n + 1u), &again));
+            /* A read set is never empty, so n >= 1; n - 1 bytes in their
+             * own malloc, so a read of the cut byte is seen. */
+            free(e);
+            e = exact(b, n - 1u);
             TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_set(e, (uint16_t)(n - 1u), &again));
         } else if (st == TFW_ERR_RANGE) {
             range++;
@@ -615,6 +619,8 @@ static void test_mutated_scripts_read_inside_their_contract(void)
             b[n] = (uint8_t)rnd();
             e    = exact(b, n + 1u);
             TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_script(e, (uint16_t)(n + 1u), &again));
+            free(e);
+            e = exact(b, n - 1u);
             TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_hsm_read_script(e, (uint16_t)(n - 1u), &again));
         } else {
             TEST_ASSERT_TRUE(st == TFW_ERR_RANGE || st == TFW_ERR_UNSUPPORTED);

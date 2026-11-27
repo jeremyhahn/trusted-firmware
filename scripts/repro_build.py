@@ -104,7 +104,10 @@ def build(make, tree, args, epoch):
     # descriptors are not inherited: drop the flags that name them.
     env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
     env["SOURCE_DATE_EPOCH"] = epoch
-    run = subprocess.run([make, "-C", tree, "--no-print-directory"] + args,
+    # A command-line variable beats the environment in make, so the commit
+    # epoch also goes last on the command line, after any forwarded one.
+    run = subprocess.run([make, "-C", tree, "--no-print-directory"] + args
+                         + [f"SOURCE_DATE_EPOCH={epoch}"],
                          env=env, capture_output=True, text=True, check=False)
     if run.returncode != 0:
         tail = "\n".join((run.stdout + run.stderr).splitlines()[-30:])

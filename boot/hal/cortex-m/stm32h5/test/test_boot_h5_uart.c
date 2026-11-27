@@ -229,6 +229,25 @@ static void test_after_off_a_stray_tx_stores_nothing(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
 }
 
+static void test_init_over_a_live_usart_writes_its_own_divisor(void)
+{
+    TFW_H5_USART_BRR = 0x1234u;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 115200u), TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+}
+
+static void test_init_over_a_live_usart_clears_its_interrupt_enables(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE |
+                       TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1 & (TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -244,5 +263,7 @@ int main(void)
     RUN_TEST(test_off_puts_usart1_and_its_pins_back_to_reset);
     RUN_TEST(test_off_after_an_init_left_off_touches_nothing);
     RUN_TEST(test_after_off_a_stray_tx_stores_nothing);
+    RUN_TEST(test_init_over_a_live_usart_writes_its_own_divisor);
+    RUN_TEST(test_init_over_a_live_usart_clears_its_interrupt_enables);
     return UNITY_END();
 }

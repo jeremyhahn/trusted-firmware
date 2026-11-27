@@ -208,6 +208,36 @@ void test_init_puts_the_rmii_pins_on_af11(void)
                             regfile_model_peek(TFW_H5_RCC_BASE + 0x8Cu));
 }
 
+/* The model answers every read with `reply`: 0x0007 is PHYID 0007:0007 and a
+ * BMSR with LINK (bit 2) set, so the PHY at address 0 answers first. */
+void test_probe_inits_and_reports_the_first_phy_that_answers(void)
+{
+    char buf[48];
+
+    reply = 0x0007u;
+    TEST_ASSERT_EQUAL_size_t(38u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=0 id=0007:0007 link=up\r\n", buf);
+    /* last command: the second BMSR read at address 0 */
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 16) | GOC_READ | MB, issued);
+    /* the MDIO init ran first: RMII selected */
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, regfile_model_peek(SBS_PMCR));
+}
+
+/* An idle MDIO line reads all ones at every address. */
+void test_probe_with_no_phy_scans_all_32_addresses_and_says_none(void)
+{
+    char buf[48];
+
+    reply = 0xFFFFu;
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    /* last command: PHYID2 at address 31 */
+    TEST_ASSERT_EQUAL_HEX32((0x1Fu << 21) | (0x03u << 16) | GOC_READ | MB, issued);
+    /* the MDIO init ran first: MAC clocks on */
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 19) | (0x1u << 20) | (0x1u << 21),
+                            regfile_model_peek(AHB1ENR));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -224,5 +254,7 @@ int main(void)
     RUN_TEST(test_init_replaces_a_stale_alternate_function_and_keeps_the_others);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
+    RUN_TEST(test_probe_inits_and_reports_the_first_phy_that_answers);
+    RUN_TEST(test_probe_with_no_phy_scans_all_32_addresses_and_says_none);
     return UNITY_END();
 }

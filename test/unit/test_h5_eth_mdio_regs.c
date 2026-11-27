@@ -141,6 +141,24 @@ void test_mb_held_past_the_spin_limit_fails_a_write(void)
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIODR));
 }
 
+void test_a_write_waits_out_a_command_still_busy_then_issues_its_own(void)
+{
+    /* A read still in flight: the write must wait it out, not refuse. */
+    regfile_model_poke(MACMDIOAR, (0x1Fu << 21) | (0x1Fu << 16) | GOC_READ | MB);
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);   /* 3 on the old read, 3 on its own */
+}
+
+void test_mb_held_past_the_spin_limit_fails_a_write_after_the_full_spin(void)
+{
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIOAR, MB);
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_UINT32(100000u, seen);   /* MDIO_SPIN polls */
+}
+
 void test_a_command_that_never_ends_fails_the_read(void)
 {
     uint16_t v = 0xA5A5u;
@@ -283,6 +301,8 @@ int main(void)
     RUN_TEST(test_a_write_after_a_write_drops_the_previous_phy_and_register);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_read);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write);
+    RUN_TEST(test_a_write_waits_out_a_command_still_busy_then_issues_its_own);
+    RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write_after_the_full_spin);
     RUN_TEST(test_a_command_that_never_ends_fails_the_read);
     RUN_TEST(test_a_command_that_never_ends_fails_the_write);
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);

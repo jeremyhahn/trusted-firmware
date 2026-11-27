@@ -25,7 +25,9 @@
    fork clause before the variable.
 6. ci-template v1.53 (ruling 1087): on main the concurrency group is
    `main-{event}`, without the commit sha, so a newer main run cancels the
-   older one.
+   older one. ci-template v1.61 (handbook #144, #1115) replaces it for a push
+   to main by `main-push-{sha}`, so a later push never cancels an earlier
+   commit's run; schedule and workflow_dispatch keep their groups.
 7. ci-template v1.54 (ruling 1137; DS-10280 / ruling 1149: v1.54 ported):
    preflight's `Balanced runner pool (ruling 1137)` step sends a run hosted
    with a ::warning on a failed call (a reply that is not 200, more than 1000
@@ -362,14 +364,21 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_60(self):
+    def test_header_names_v1_61(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.60 (customized)\n")
+            self.assertEqual(f.readline(), "# ci-template: v1.61 (customized)\n")
 
-    def test_main_group_is_per_event(self):
+    def test_main_push_group_is_per_commit(self):
         group = load(CI)["concurrency"]["group"]
-        self.assertIn("github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) ||", group)
-        self.assertNotIn("github.sha", group)
+        schedule = "format('schedule-{0}', github.repository)"
+        push = ("github.ref == 'refs/heads/main' && github.event_name == 'push'"
+                " && format('main-push-{0}', github.sha)")
+        event = "format('main-{0}', github.event_name)"
+        for clause in (schedule, push, event):
+            self.assertIn(clause, group)
+        self.assertLess(group.index(schedule), group.index(push))
+        self.assertLess(group.index(push), group.index(event))
+        self.assertTrue(group.endswith("|| github.ref }}"), group)
         self.assertEqual(load(CI)["concurrency"]["cancel-in-progress"], "true")
 
 

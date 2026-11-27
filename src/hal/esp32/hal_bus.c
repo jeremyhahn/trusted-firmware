@@ -15,7 +15,9 @@
  * 1-Wire is bit-banged on an open-drain GPIO with tfw_hal_delay_us -- the
  * one place a busy-wait is the protocol, exactly as on the AVR. The slots are
  * short enough to run with interrupts masked, which is what keeps a
- * preemption from stretching a slot past the device's window.
+ * preemption from stretching a slot past the device's window. A reset, write
+ * or read takes its pin off LEDC, so the pin is no longer the tone's or
+ * PWM-driven, as MODE does.
  *
  * SPI_CONFIG's clkdiv keeps its AVR meaning in hertz: 0..3 are 4 MHz, 1 MHz,
  * 250 kHz and 125 kHz, the rates a 16 MHz ATmega gives, so a peripheral that
@@ -219,11 +221,25 @@ static void ow_release(gpio_num_t n)
     (void)gpio_set_level(n, 1u);
 }
 
+/* The open-drain output enable takes the pad off LEDC, so the pin is no
+ * longer the tone's or PWM-driven, as MODE and the SPI CS do (#48). */
+static void ow_take(gpio_num_t n)
+{
+#if TFW_FEATURE_TONE
+    tfw_esp_tone_release((int)n);
+#endif
+#if TFW_FEATURE_PWM
+    tfw_esp_pwm_release((int)n);
+#endif
+    (void)n;
+}
+
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 {
     gpio_num_t n = (gpio_num_t)p->gpio;
     int        level;
 
+    ow_take(n);
     (void)gpio_set_pull_mode(n, GPIO_PULLUP_ONLY);
     ow_low(n);
     tfw_hal_delay_us(480u);
@@ -268,6 +284,9 @@ tfw_status_t tfw_hal_ow_write(const tfw_pinref_t *p, const uint8_t *buf, uint8_t
     uint8_t    i;
     uint8_t    b;
 
+    if (len > 0u) {
+        ow_take(n);
+    }
     for (i = 0u; i < len; i++) {
         for (b = 0u; b < 8u; b++) {
             ow_write_bit(n, (uint8_t)((buf[i] >> b) & 1u));
@@ -282,6 +301,9 @@ tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
     uint8_t    i;
     uint8_t    b;
 
+    if (len > 0u) {
+        ow_take(n);
+    }
     for (i = 0u; i < len; i++) {
         buf[i] = 0u;
         for (b = 0u; b < 8u; b++) {

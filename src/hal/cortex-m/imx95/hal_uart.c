@@ -45,7 +45,9 @@ static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writ
 
 /* 1 only after an init that started the console. With the console off, tx
  * drops each byte and reports idle so a caller's backpressure loop and the
- * deferred reset never wait on a UART that cannot drain; rx reads nothing. */
+ * deferred reset never wait on a UART that cannot drain; rx reads nothing.
+ * A refused baud returns before touching the console, so a running console
+ * stays up. */
 static volatile uint8_t uart_up;
 
 /* tfw_imx95_console_route's result as the HAL's status: the channel's own
@@ -73,11 +75,11 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     uint32_t     reg;
     tfw_status_t st;
 
-    uart_up = 0u;
-    st      = tfw_imx95_lpuart_baud((uint32_t)TFW_IMX95_LPUART_CLK_HZ, baud, &reg);
+    st = tfw_imx95_lpuart_baud((uint32_t)TFW_IMX95_LPUART_CLK_HZ, baud, &reg);
     if (st != TFW_OK) {
         return st;
     }
+    uart_up = 0u;
     /* The pads first: the SM owns the IOMUX and routes LPUART7 to them only
      * when asked. The console starts only when both pads were granted; a
      * refusal or a failed exchange turns the LPUART's transmitter, receiver

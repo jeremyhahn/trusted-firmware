@@ -11,4 +11,6 @@
   and interrupt off (whatever a previous image left on), and the CRC-32 is
   pinned against imx-sm's `CRC_Crc32` known-answer vectors. After a failed
   console init the tx path drops bytes and reports idle, so a requested reset
-  is not held by a console that cannot drain.
+  is not held by a console that cannot drain. A baud the LPUART cannot make is
+  refused with `TFW_ERR_RANGE` before anything is touched, so a running
+  console stays up at its old rate.

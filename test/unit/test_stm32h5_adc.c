@@ -30,7 +30,7 @@ static volatile uint32_t *model_reg(uintptr_t addr);
 
 #include "unity.h"
 
-enum { EV_KERCLK, EV_CLK, EV_DEEPPWD_OFF, EV_VREG, EV_CAL, EV_EN, EV_START };
+enum { EV_KERCLK, EV_CLK, EV_DEEPPWD_OFF, EV_VREG, EV_CAL, EV_EN, EV_START, EV_DIS };
 
 static struct {
     uint32_t ccipr5, ahb2enr, ccr;
@@ -38,7 +38,7 @@ static struct {
     uint32_t moder[TFW_H5_GPIO_BANKS], pupdr[TFW_H5_GPIO_BANKS];
     uint32_t other;                   /* any address not modelled */
     unsigned unmodelled, errors;
-    uint8_t  hang_cal, hang_rdy, hang_eoc, hang_stp;
+    uint8_t  hang_cal, hang_rdy, hang_eoc, hang_stp, hang_dis;
     uint8_t  pend, pend_ch;           /* a hung conversion still running, of pend_ch */
     unsigned late_eoc;                /* ISR reads until the hung one ends; 0: never */
     uint32_t cal_dif;                 /* ADCALDIF at the calibration's start */
@@ -135,6 +135,9 @@ static void write_cr(uint32_t v, uint32_t old)
 {
     uint32_t keep = TFW_H5_ADC_CR_DEEPPWD | TFW_H5_ADC_CR_ADVREGEN | TFW_H5_ADC_CR_ADCALDIF;
 
+    if ((m.cr & TFW_H5_ADC_CR_ADEN) && ((m.cr ^ v) & (TFW_H5_ADC_CR_DEEPPWD | TFW_H5_ADC_CR_ADVREGEN))) {
+        m.errors++;                               /* the regulator changed under an enabled ADC */
+    }
     m.cr = (m.cr & ~keep) | (v & keep);
     if ((old & TFW_H5_ADC_CR_DEEPPWD) && !(m.cr & TFW_H5_ADC_CR_DEEPPWD)) {
         event(EV_DEEPPWD_OFF);
@@ -153,6 +156,15 @@ static void write_cr(uint32_t v, uint32_t old)
         m.cal_dif = v & TFW_H5_ADC_CR_ADCALDIF;
         if (m.hang_cal) {
             m.cr |= TFW_H5_ADC_CR_ADCAL;
+        }
+    }
+    if (v & TFW_H5_ADC_CR_ADDIS) {
+        event(EV_DIS);
+        if (!(m.cr & TFW_H5_ADC_CR_ADEN) || (m.cr & TFW_H5_ADC_CR_ADSTART) ||
+            (v & TFW_H5_ADC_CR_ADEN)) {
+            m.errors++;                           /* ADDIS only on an enabled, idle ADC */
+        } else if (!m.hang_dis) {
+            m.cr &= ~TFW_H5_ADC_CR_ADEN;
         }
     }
     if (v & TFW_H5_ADC_CR_ADEN) {
@@ -447,6 +459,74 @@ static void test_a_refused_read_writes_no_register(void)
     TEST_ASSERT_EQUAL_MEMORY(before, &m, sizeof m);
 }
 
+/* The index of event e's first occurrence at or past `from`; m.nev if none. */
+static unsigned ev_at(uint8_t e, unsigned from)
+{
+    while (from < m.nev && m.ev[from] != e) {
+        from++;
+    }
+    return from;
+}
+
+static void test_a_second_init_disables_the_adc_first(void)
+{
+    uint16_t raw = 0xFFFFu;
+    unsigned dis;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    m.nev    = 0u;
+    m.errors = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+    dis = ev_at(EV_DIS, 0u);
+    TEST_ASSERT_TRUE(dis < m.nev);
+    TEST_ASSERT_TRUE(ev_at(EV_VREG, 0u) > dis);    /* no regulator, no calibration before it */
+    TEST_ASSERT_TRUE(ev_at(EV_CAL, 0u) > dis);
+    TEST_ASSERT_TRUE(ev_at(EV_CAL, dis) < m.nev);  /* the calibration follows it */
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_ADC_CR_ADVREGEN | TFW_H5_ADC_CR_ADEN, m.cr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(0u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
+static void test_init_stops_a_running_conversion_before_disabling(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    m.cr    |= TFW_H5_ADC_CR_ADSTART;                               /* a conversion left running */
+    m.nev    = 0u;
+    m.errors = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);          /* ADDIS under ADSTART would count one */
+    TEST_ASSERT_TRUE(ev_at(EV_DIS, 0u) < m.nev);
+    TEST_ASSERT_FALSE(m.cr & TFW_H5_ADC_CR_ADSTART);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_ADC_CR_ADVREGEN | TFW_H5_ADC_CR_ADEN, m.cr);
+}
+
+static void test_an_adc_that_will_not_disable_fails_init(void)
+{
+    uint16_t raw = 0xFFFFu;
+    unsigned dis;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    m.hang_dis = 1u;
+    m.nev      = 0u;
+    m.errors   = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    settle();
+    dis = ev_at(EV_DIS, 0u);
+    TEST_ASSERT_TRUE(dis < m.nev);
+    TEST_ASSERT_EQUAL_UINT(m.nev, ev_at(EV_CAL, dis));             /* no calibration after it */
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(0u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
 static void test_vref_plus_is_the_one_reference(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_set_ref(TFW_ADC_REF_VCC));
@@ -479,6 +559,9 @@ int main(void)
     RUN_TEST(test_a_conversion_that_will_not_stop_refuses_later_reads);
     RUN_TEST(test_a_channel_past_the_board_is_refused_before_any_access);
     RUN_TEST(test_a_refused_read_writes_no_register);
+    RUN_TEST(test_a_second_init_disables_the_adc_first);
+    RUN_TEST(test_init_stops_a_running_conversion_before_disabling);
+    RUN_TEST(test_an_adc_that_will_not_disable_fails_init);
     RUN_TEST(test_vref_plus_is_the_one_reference);
     RUN_TEST(test_the_arithmetic);
     return UNITY_END();

@@ -2,7 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * STM32H5 RNG (RM0481): HSI48 on, RNGEN in RCC_AHB2ENR, RNGEN in RNG_CR, then
- * each word is read once RNG_SR DRDY is set and no error bit is. Nothing here
+ * each word is read once RNG_SR DRDY is set and no error bit is; a word read
+ * while a seed error latches is dropped and read again after one recovery, as
+ * ST's HAL does. Nothing here
  * touches option bytes, OTP, RDP or flash.
  */
 #include <stddef.h>
@@ -93,7 +95,18 @@ int tfw_h5_rng_read(const tfw_h5_rng_t *r, uint32_t *out)
         }
         if ((sr & TFW_H5_RNG_SR_DRDY) != 0u) {
             uint32_t v = r->regs[TFW_H5_RNG_DR_IX];
+            uint32_t after = r->regs[TFW_H5_RNG_SR_IX];
 
+            /* A seed error that latched as the word was taken: the word may
+             * not have enough entropy (ST's HAL drops it on SEIS). Drop it
+             * and read again after this word's one recovery. */
+            if ((after & (TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS)) != 0u) {
+                if (recovered || rng_recover(r, after) != 0) {
+                    return -1;
+                }
+                recovered = 1;
+                continue;
+            }
             if (v == 0u) {
                 return -1;
             }

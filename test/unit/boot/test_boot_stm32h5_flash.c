@@ -58,6 +58,7 @@ static const struct tfw_h5_flash flash = { regs, (uint8_t *)mem_words };
 static struct {
     int      key_ok;       /* the part takes the key */
     uint32_t fail;         /* NSSR error flags the next operation raises */
+    unsigned fail_skip;    /* operations that complete before hw.fail is raised */
     int      drop;         /* the next program does nothing and says nothing */
     unsigned keys, erases, programs, violations;
     uint32_t erased;       /* the last erased sector's offset */
@@ -140,6 +141,8 @@ static void do_program(void)
 void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
 {
     uint32_t cr = regs[CR];
+    uint32_t held = 0u;
+    int erase;
 
     (void)f;                                  /* always `flash`, on regs */
     regs[SR] &= ~regs[CCR];
@@ -156,18 +159,25 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
         hw.violations++;
         return;
     }
-    if ((cr & (CR_SER | CR_STRT)) == (CR_SER | CR_STRT)) {
+    erase = (cr & (CR_SER | CR_STRT)) == (CR_SER | CR_STRT);
+    if (!erase && (cr & CR_PG) == 0u) {
+        return;
+    }
+    if (hw.fail_skip != 0u) {                 /* this one completes; hw.fail waits */
+        hw.fail_skip--;
+        held = hw.fail;
+        hw.fail = 0u;
+    }
+    if (erase) {
         regs[CR] &= ~CR_STRT;
         if (hw.fail == 0u) {
             do_erase(cr);
         }
-    } else if ((cr & CR_PG) != 0u) {
-        do_program();
     } else {
-        return;
+        do_program();
     }
     regs[SR] |= hw.fail != 0u ? hw.fail : SR_EOP;
-    hw.fail = 0u;
+    hw.fail = held;
 }
 
 /* The stores between save and restore are the pending quad-word: none may be
@@ -548,6 +558,50 @@ static void test_an_erase_error_stops_the_rewrite(void)
     assert_settled();
 }
 
+static void test_a_programming_error_stops_a_two_quad_word_write(void)
+{
+    uint8_t now[2u * QWORD];
+
+    fill(now, sizeof now, 60u);
+    hw.fail = SR_PGSERR;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL,
+                          tfw_h5_flash_update(&flash, 0xFE000u, now, sizeof now));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.programs);
+    TEST_ASSERT_TRUE(blank(MEM + 0xFE010u, QWORD));
+    assert_settled();
+}
+
+static void test_an_erase_error_stops_a_two_sector_rewrite(void)
+{
+    uint8_t old[32];
+    uint8_t now[16];
+
+    fill(old, sizeof old, 50u);
+    fill(now, sizeof now, 90u);
+    seed(0x9FF0u, old, sizeof old);
+    hw.fail = SR_PGSERR;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_h5_flash_update(&flash, 0x9FF8u, now, sizeof now));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(old + 16u, MEM + 0xA000u, 16u);
+    assert_settled();
+}
+
+static void test_a_programming_error_stops_the_sector_rewrite(void)
+{
+    uint8_t old[2u * QWORD];
+    uint8_t now[QWORD];
+
+    fill(old, sizeof old, 70u);
+    fill(now, sizeof now, 110u);
+    seed(0x8000u, old, sizeof old);
+    hw.fail = SR_PGSERR;
+    hw.fail_skip = 1u;                        /* the erase passes, the first program fails */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_h5_flash_update(&flash, 0x8000u, now, sizeof now));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.programs);
+    assert_settled();
+}
+
 static void test_flags_an_earlier_operation_left_are_cleared_first(void)
 {
     static const uint8_t field[4] = { 1u, 2u, 3u, 4u };
@@ -592,6 +646,9 @@ int main(void)
     RUN_TEST(test_a_write_protection_error_is_a_protected_region);
     RUN_TEST(test_a_programming_error_is_internal);
     RUN_TEST(test_an_erase_error_stops_the_rewrite);
+    RUN_TEST(test_a_programming_error_stops_a_two_quad_word_write);
+    RUN_TEST(test_an_erase_error_stops_a_two_sector_rewrite);
+    RUN_TEST(test_a_programming_error_stops_the_sector_rewrite);
     RUN_TEST(test_flags_an_earlier_operation_left_are_cleared_first);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     return UNITY_END();

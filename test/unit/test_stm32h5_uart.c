@@ -233,6 +233,53 @@ static void test_rx_has_nothing_with_rxne_clear(void)
     TEST_ASSERT_EQUAL_HEX8(0x11u, b);
 }
 
+/* One entry with RXNE and TXE both set (full duplex) queues the received
+ * byte and also sends the next queued byte, TXEIE staying on. */
+static void test_one_entry_with_rxne_and_txe_takes_the_byte_and_sends_the_next(void)
+{
+    const uint32_t on = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE |
+                        TFW_H5_USART_CR1_TE | TFW_H5_USART_CR1_RXNEIE;
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_ISR = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    TFW_H5_USART_TDR = 0u;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_TXE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(on | TFW_H5_USART_CR1_TXEIE, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
+/* One entry with RXNE and TXE both set on an empty TX ring queues the
+ * received byte and turns TXEIE off with no TDR write. */
+static void test_one_entry_with_rxne_and_txe_on_an_empty_ring_takes_the_byte_and_drops_txeie(void)
+{
+    const uint32_t on = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE |
+                        TFW_H5_USART_CR1_TE | TFW_H5_USART_CR1_RXNEIE;
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
+
+    TFW_H5_USART_TDR = 0u;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_TXE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0x0000002Du, on);
+    TEST_ASSERT_EQUAL_HEX32(on, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+}
+
 /* One receive interrupt with RXNE set and RDR = d. */
 static void rx_push(uint8_t d)
 {
@@ -455,6 +502,8 @@ int main(void)
     RUN_TEST(test_tx_idle_waits_for_the_ring);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
     RUN_TEST(test_rx_has_nothing_with_rxne_clear);
+    RUN_TEST(test_one_entry_with_rxne_and_txe_takes_the_byte_and_sends_the_next);
+    RUN_TEST(test_one_entry_with_rxne_and_txe_on_an_empty_ring_takes_the_byte_and_drops_txeie);
     RUN_TEST(test_a_full_rx_ring_drops_the_new_byte_and_keeps_the_queued_ones);
     RUN_TEST(test_the_rx_ring_takes_bytes_again_once_read_and_wraps);
     RUN_TEST(test_an_overrun_beside_a_byte_takes_the_byte_and_clears_ore);

@@ -1843,7 +1843,7 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pulse_mutate
 # headers; the pins are the profile's -D values, distinct here (#163).
 $(HOST_DIR)/test_esp_bus_mutate: test/unit/test_esp_bus_mutate.c src/hal/esp32/hal_bus.c \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/bus \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/bus -Itest/mock/esp32 \
 	    -DTFW_ESP_I2C_SDA_GPIO=21 -DTFW_ESP_I2C_SCL_GPIO=22 -DTFW_ESP_SPI_MOSI_GPIO=23 \
 	    -DTFW_ESP_SPI_MISO_GPIO=19 -DTFW_ESP_SPI_SCK_GPIO=18 -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_bus_mutate

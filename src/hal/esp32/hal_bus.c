@@ -9,7 +9,8 @@
  * emulator that models neither peripheral must still boot. Init records the
  * configuration; a later init with a new one tears the driver down so the
  * next transfer rebuilds it. An SPI transfer makes its caller's CS an output
- * itself, as the AVR transfer does.
+ * itself, as the AVR transfer does, and takes the pad off LEDC, so the pin is
+ * no longer the tone's or PWM-driven, as MODE does.
  *
  * 1-Wire is bit-banged on an open-drain GPIO with tfw_hal_delay_us -- the
  * one place a busy-wait is the protocol, exactly as on the AVR. The slots are
@@ -29,6 +30,8 @@
 
 #include "tfw/hal.h"
 #include "tfw/config.h"
+
+#include "hal_esp32.h"
 
 #define I2C_TIMEOUT_MS 50
 
@@ -182,10 +185,18 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
         return st;
     }
     /* CS is made an output here, as the AVR transfer does: gpio_set_level
-     * does nothing on a pad whose output is off. */
+     * does nothing on a pad whose output is off. The output enable takes the
+     * pad off LEDC, so the pin is no longer the tone's or PWM-driven, as
+     * MODE does (#48); a refused CS keeps its routing and both. */
     if (gpio_set_direction((gpio_num_t)cs->gpio, GPIO_MODE_INPUT_OUTPUT) != ESP_OK) {
         return TFW_ERR_BAD_PIN;
     }
+#if TFW_FEATURE_TONE
+    tfw_esp_tone_release((int)cs->gpio);
+#endif
+#if TFW_FEATURE_PWM
+    tfw_esp_pwm_release((int)cs->gpio);
+#endif
     t.length    = (size_t)len * 8u;
     t.tx_buffer = wr;
     t.rx_buffer = rd;

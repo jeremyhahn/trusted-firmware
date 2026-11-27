@@ -259,13 +259,14 @@ static void inherit_armed_watchdog(void)
 static volatile uint32_t *take_rsr;
 static uint8_t            take_requested;
 static uint32_t           take_calls;
+static tfw_reset_cause_t  take_result;
 
 tfw_reset_cause_t tfw_h5_reset_take(volatile uint32_t *rsr, uint8_t requested)
 {
     take_rsr       = rsr;
     take_requested = requested;
     take_calls++;
-    return TFW_RESET_WATCHDOG;
+    return take_result;
 }
 
 void setUp(void)
@@ -283,6 +284,7 @@ void setUp(void)
     take_rsr       = 0;
     take_requested = 0xFFu;
     take_calls     = 0u;
+    take_result    = TFW_RESET_WATCHDOG;
     tfw_cm_reset_mark = 0u;
     model_set(ADDR_ACR, ACR_INIT);
     model_set(ADDR_RCC_CR, RCC_CR_INIT);
@@ -459,6 +461,27 @@ static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[4].mark);
 }
 
+/* An earlier stage's watchdog and mark: the arm stores its own PR, RLR
+ * and mark over them, not ORed into what was there. */
+static void test_arm_over_an_inherited_watchdog_and_mark_writes_its_own(void)
+{
+    inherit_armed_watchdog();
+    tfw_cm_reset_mark = TFW_CM_MARK_PANIC;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_PR, model_log[2].addr);
+    TEST_ASSERT_EQUAL_HEX32(3u, model_log[2].val);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_RLR, model_log[3].addr);
+    TEST_ASSERT_EQUAL_HEX32(3999u, model_log[3].val);
+    TEST_ASSERT_EQUAL_HEX32(3u, reg(ADDR_PR));
+    TEST_ASSERT_EQUAL_HEX32(3999u, reg(ADDR_RLR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+}
+
 static void test_pet_writes_reload_only(void)
 {
     inherit_armed_watchdog();
@@ -497,6 +520,17 @@ static void test_reset_cause_any_other_mark_is_not_requested(void)
     TEST_ASSERT_EQUAL_PTR(tfw_cm_model_reg(ADDR_RCC_RSR), take_rsr);
 }
 
+/* The cause is reset_take's decode, whatever it is, not a fixed one. */
+static void test_reset_cause_returns_what_reset_take_decodes(void)
+{
+    take_result = TFW_RESET_BROWNOUT;
+    TEST_ASSERT_EQUAL(TFW_RESET_BROWNOUT, tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG));
+    take_result = TFW_RESET_SOFTWARE;
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_UINT8(1u, take_requested);
+    TEST_ASSERT_EQUAL_UINT32(2u, take_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -510,8 +544,10 @@ int main(void)
     RUN_TEST(test_arm_reloads_only_once_rvu_clears_after_pvu);
     RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
     RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
+    RUN_TEST(test_arm_over_an_inherited_watchdog_and_mark_writes_its_own);
     RUN_TEST(test_pet_writes_reload_only);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);
+    RUN_TEST(test_reset_cause_returns_what_reset_take_decodes);
     return UNITY_END();
 }

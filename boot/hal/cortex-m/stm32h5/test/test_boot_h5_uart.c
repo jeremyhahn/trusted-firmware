@@ -301,6 +301,37 @@ static void test_rx_with_only_the_idle_tx_flags_returns_0(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
 }
 
+/* The hand-over leaves CR1 at its reset value, interrupt enables included:
+ * the application must not start with a live RXNEIE/TXEIE and no handler. */
+static void test_off_clears_the_interrupt_enables_set_after_init(void)
+{
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_CR1 |= TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+}
+
+/* The hand-over is gated on TE alone: a receive-only USART (UE|RE, TE clear)
+ * was not set up by tfw-boot, so its CR1, divisor, pins and clocks stay. */
+static void test_off_leaves_a_receive_only_usart_alone(void)
+{
+    seed_neighbours();
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE;
+    TFW_H5_USART_BRR = 0x1234u;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_ICR = 0u;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0x5u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -322,5 +353,7 @@ int main(void)
     RUN_TEST(test_tx_stores_nothing_with_ue_and_re_set_but_te_clear);
     RUN_TEST(test_init_over_analog_pins_leaves_pa9_and_pa10_on_af7);
     RUN_TEST(test_rx_with_only_the_idle_tx_flags_returns_0);
+    RUN_TEST(test_off_clears_the_interrupt_enables_set_after_init);
+    RUN_TEST(test_off_leaves_a_receive_only_usart_alone);
     return UNITY_END();
 }

@@ -390,6 +390,43 @@ static void test_the_confirm_request_reads_back_and_no_byte_past_it(void)
     }
 }
 
+/* A zero-length read is in range at any address up to and including the
+ * end and copies nothing; one past the end is still out of range. */
+static void test_a_zero_length_read_is_ok_and_fills_no_byte(void)
+{
+    uint8_t back[4];
+    uint8_t want[4];
+
+    memset(back, 0xA5, sizeof back);
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO, back, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, back, 0u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, 4);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_read((uint16_t)(TFW_EEPROM_SIZE + 1u), back, 0u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, 4);
+}
+
+/* A zero-length write past tfw-boot's span is TFW_OK and runs no flash
+ * operation; one into the platform window, or one past the end, is still
+ * TFW_ERR_RANGE. */
+static void test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash(void)
+{
+    static const uint8_t data[1] = { 0x00u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_write(0u, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE + 1u), data, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.masked_saves);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
 static void test_data_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
@@ -578,6 +615,8 @@ int main(void)
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_a_read_inside_the_window_fills_only_the_callers_bytes);
     RUN_TEST(test_the_confirm_request_reads_back_and_no_byte_past_it);
+    RUN_TEST(test_a_zero_length_read_is_ok_and_fills_no_byte);
+    RUN_TEST(test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
     RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);

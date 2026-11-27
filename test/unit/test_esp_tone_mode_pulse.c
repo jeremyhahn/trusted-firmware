@@ -106,6 +106,9 @@ void setUp(void)
     stop_sticks = 0u;
     tfw_esp_tone_release(tfw_esp_tone_gpio());
     (void)tfw_hal_tone_stop();
+    /* No test inherits a pin MODE left an output (#48). */
+    (void)tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT);
+    (void)tfw_hal_gpio_mode(&other, TFW_PIN_INPUT);
     mock_rmt_reset();
     stops    = 0u;
     toggling = 0u;
@@ -136,6 +139,21 @@ static void test_mode_input_after_tone_ends_the_loop_back(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT));
     TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL_UINT(1u, stops);
+    capture_loop_back(0u);
+}
+
+/* An RX channel without loopback makes the pad input-only, so a capture on
+ * a MODE OUTPUT pin must loop it back or its writes never reach it (#48). */
+static void test_a_mode_output_pin_is_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    capture_loop_back(1u);
+}
+
+static void test_a_mode_input_pin_is_not_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT_PULLUP));
     capture_loop_back(0u);
 }
 
@@ -278,6 +296,8 @@ int main(void)
     RUN_TEST(test_an_ineffective_stop_shows_its_edges);
     RUN_TEST(test_a_working_stop_reads_silence);
     RUN_TEST(test_mode_input_after_tone_ends_the_loop_back);
+    RUN_TEST(test_a_mode_output_pin_is_looped_back);
+    RUN_TEST(test_a_mode_input_pin_is_not_looped_back);
     RUN_TEST(test_mode_on_another_pin_keeps_the_tone);
     RUN_TEST(test_a_refused_mode_keeps_the_tone);
     RUN_TEST(test_mode_input_after_notone_takes_the_pin_back);

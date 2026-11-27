@@ -9,6 +9,9 @@
  * test: the clock in MHz times the microseconds. Dividing the clock to MHz
  * first keeps every product inside 32 bits; multiplying first would wrap
  * 64 MHz * 10000 us and leave the poll under a microsecond.
+ *
+ * The same header's ADC sample-time field (tfw_h5_adc_smpr) and PWM CCER off
+ * branch (tfw_h5_pwm_ccer) are pinned here too, from the RM0481 bit layouts.
  */
 
 #include <stdint.h>
@@ -54,6 +57,28 @@ static void test_one_megahertz_gives_one_spin_per_us_and_zero_us_none(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_spins_us(64000000u, 0u));
 }
 
+static void test_an_adc_sample_time_keeps_three_bits_and_channel_19_tops_smpr2(void)
+{
+    /* Channel 19 is SMPR2's tenth field: 19 % 10 = 9, shift 27, bits 29:27. */
+    TEST_ASSERT_EQUAL_HEX32(0x38000000u, tfw_h5_adc_smpr(0u, 19u, 7u));
+    /* Writing 0 there clears bits 29:27 and keeps every other bit. */
+    TEST_ASSERT_EQUAL_HEX32(0xC7FFFFFFu, tfw_h5_adc_smpr(0xFFFFFFFFu, 19u, 0u));
+    /* 0xF is masked to 7: bit 3 does not spill into channel 1's field. */
+    TEST_ASSERT_EQUAL_HEX32(0x00000007u, tfw_h5_adc_smpr(0u, 0u, 0xFu));
+    /* 8 is masked to 0: nothing lands in channel 2's field. */
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, tfw_h5_adc_smpr(0u, 1u, 8u));
+}
+
+static void test_a_pwm_channel_turned_off_clears_its_enable_and_polarity_only(void)
+{
+    /* Channel 1 off: CC1E (bit 0) and CC1P (bit 1) cleared, CC1NE and the rest kept. */
+    TEST_ASSERT_EQUAL_HEX32(0xFFFCu, tfw_h5_pwm_ccer(0xFFFFu, 1u, 0u));
+    /* Channel 4 off: CC4E and CC4P, bits 13:12, cleared. */
+    TEST_ASSERT_EQUAL_HEX32(0xCFFFu, tfw_h5_pwm_ccer(0xFFFFu, 4u, 0u));
+    /* Channel 2 off: only CC2E goes; channels 1, 3 and 4 stay on. */
+    TEST_ASSERT_EQUAL_HEX32(0x1101u, tfw_h5_pwm_ccer(0x1111u, 2u, 0u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -61,5 +86,7 @@ int main(void)
     RUN_TEST(test_spins_do_not_overflow_at_the_widest_products);
     RUN_TEST(test_a_part_megahertz_is_dropped_before_the_multiply);
     RUN_TEST(test_one_megahertz_gives_one_spin_per_us_and_zero_us_none);
+    RUN_TEST(test_an_adc_sample_time_keeps_three_bits_and_channel_19_tops_smpr2);
+    RUN_TEST(test_a_pwm_channel_turned_off_clears_its_enable_and_polarity_only);
     return UNITY_END();
 }

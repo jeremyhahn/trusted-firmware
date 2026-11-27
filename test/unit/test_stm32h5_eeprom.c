@@ -371,6 +371,32 @@ static void test_a_read_inside_the_window_fills_only_the_callers_bytes(void)
     }
 }
 
+static void test_a_read_of_the_windows_last_byte_comes_from_the_window(void)
+{
+    static const uint8_t mark = 0x6Du;
+    uint8_t b = 0u;
+
+    /* A sector byte that differs from erased, so a read wrongly taken
+     * from the sector cannot pass by matching 0xFF. */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 1u, &b, 1u));
+    /* Window byte 0x13F, from setUp's (i * 7 + 1). */
+    TEST_ASSERT_EQUAL_HEX8(0xBAu, b);
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 1u], b);
+}
+
+static void test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_the_sector(void)
+{
+    static const uint8_t mark = 0x6Du;
+    static const uint8_t want[4] = { 0xBAu, 0x6Du, 0x5Au, 0x5Au };
+    uint8_t back[4];
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 1u, back, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+}
+
 static void test_the_confirm_request_reads_back_and_no_byte_past_it(void)
 {
     uint8_t req[TFW_BOOT_CONFIRM_LEN];
@@ -614,6 +640,8 @@ int main(void)
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_a_read_inside_the_window_fills_only_the_callers_bytes);
+    RUN_TEST(test_a_read_of_the_windows_last_byte_comes_from_the_window);
+    RUN_TEST(test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_the_sector);
     RUN_TEST(test_the_confirm_request_reads_back_and_no_byte_past_it);
     RUN_TEST(test_a_zero_length_read_is_ok_and_fills_no_byte);
     RUN_TEST(test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash);

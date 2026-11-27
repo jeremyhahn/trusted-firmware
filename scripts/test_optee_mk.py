@@ -184,6 +184,72 @@ class OpteeTa(unittest.TestCase):
             self.assertIn("'" + line + "'", mk)
 
 
+class OpteeJobs(unittest.TestCase):
+    """The default job count is the smaller of the CPUs and one job per 2 GiB
+    of the memory the build may use: the cgroup limit, else MemAvailable."""
+
+    GIB = 1 << 30
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("OPTEE_")}
+        self.cpus = int(subprocess.run(["nproc"], stdout=subprocess.PIPE, text=True,
+                                       check=True).stdout)
+
+    def write(self, name, text):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def jobs(self, cgroup, meminfo="MemAvailable:   1073741824 kB\n", *args):
+        return var("OPTEE_JOBS",
+                   "OPTEE_CGROUP_MEM=" + self.write("memory.max", cgroup),
+                   "OPTEE_MEMINFO=" + self.write("meminfo", meminfo),
+                   *args, env=self.env)
+
+    def test_a_cgroup_limit_caps_the_jobs(self):
+        if self.cpus < 2:
+            self.skipTest("fewer than 2 CPUs")
+        self.assertEqual(self.jobs("%d\n" % (4 * self.GIB)), "2")
+
+    def test_no_cgroup_limit_falls_back_to_meminfo(self):
+        if self.cpus < 3:
+            self.skipTest("fewer than 3 CPUs")
+        meminfo = "MemTotal:       67108864 kB\nMemAvailable:    6291456 kB\n"
+        self.assertEqual(self.jobs("max\n", meminfo), "3")
+
+    def test_a_missing_cgroup_file_falls_back_to_meminfo(self):
+        if self.cpus < 3:
+            self.skipTest("fewer than 3 CPUs")
+        meminfo = self.write("meminfo", "MemAvailable:    6291456 kB\n")
+        out = var("OPTEE_JOBS", "OPTEE_CGROUP_MEM=" + os.path.join(self.tmp, "none"),
+                  "OPTEE_MEMINFO=" + meminfo, env=self.env)
+        self.assertEqual(out, "3")
+
+    def test_too_little_memory_still_runs_one_job(self):
+        self.assertEqual(self.jobs("%d\n" % self.GIB), "1")
+
+    def test_the_jobs_never_exceed_the_cpus(self):
+        self.assertEqual(self.jobs("%d\n" % (1024 * self.GIB)), str(self.cpus))
+
+    def test_a_given_job_count_wins(self):
+        self.assertEqual(self.jobs("%d\n" % self.GIB, "MemAvailable: 1 kB\n", "OPTEE_JOBS=5"), "5")
+
+    def test_buildroot_gets_the_same_job_count(self):
+        cache = os.path.join(self.tmp, "cache")
+        rc, out = make("-n", "--assume-old=optee-tools", "OPTEE_CACHE=" + cache,
+                       "OPTEE_JOBS=3", "optee-qemu", env=self.env)
+        self.assertEqual(rc, 0, out)
+        alls = [l for l in out.splitlines() if l.endswith(" all")]
+        self.assertEqual(len(alls), 2, out)
+        for line in alls:
+            self.assertIn(" -j3 ", line)
+            self.assertIn(" BR2_JLEVEL=3 ", line)
+        self.assertFalse(os.path.exists(cache), "make -n wrote the cache")
+
+
 class OpteeNotInCi(unittest.TestCase):
 
     def test_no_stage_names_an_optee_target(self):

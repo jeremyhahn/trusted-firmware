@@ -88,6 +88,18 @@ esp_err_t ledc_stop(ledc_mode_t speed_mode, ledc_channel_t channel, uint32_t idl
     return stop_err;
 }
 
+/* hal_pwm.c's, which this test does not link: no pin is PWM-driven here. */
+int tfw_esp_pwm_drives(int g)
+{
+    (void)g;
+    return 0;
+}
+
+void tfw_esp_pwm_release(int g)
+{
+    (void)g;
+}
+
 void setUp(void)
 {
     stop_err    = ESP_OK;

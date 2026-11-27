@@ -17,10 +17,11 @@
 #include "regfile_model.h"
 
 /* GPIOx_OTYPER, GPIO_TypeDef's second word: 0 push-pull, the reset value.
- * soc_regs.h names no OTYPER, as nothing in the port writes one. */
+ * soc_regs.h names it (TFW_H5_GPIO_OTYPER); hal_bus.c sets it for I2C. */
 #define GPIO_OTYPER_OFF 0x04u
 
 #define GPIOA 0x42020000u
+#define GPIOB 0x42020400u   /* bank 1, I2C4's PB8/PB9 */
 #define GPIOF 0x42021400u   /* bank 5, LD3 and LD4 */
 #define GPIOI 0x42022000u   /* bank 8, LD1 and LD2 */
 #define AHB2ENR (0x44020C00u + 0x8Cu)
@@ -88,6 +89,37 @@ void test_output_is_moder_01_no_pull_and_push_pull(void)
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(GPIOF + GPIO_OTYPER_OFF));
 }
 
+/* hal_bus.c's i2c_pins leaves PB8 and PB9 open-drain: a mode takes its pin
+ * back to push-pull, or OUTPUT could never drive the pin high. */
+void test_output_takes_an_open_drain_pin_back_to_push_pull(void)
+{
+    tfw_pinref_t p = pin(1u, 8u);   /* PB8, I2C4 SCL */
+
+    TFW_H5_GPIO_OTYPER(GPIOB) = (1u << 8) | (1u << 9);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL_HEX32(1u << 9, regfile_model_peek(GPIOB + GPIO_OTYPER_OFF));
+}
+
+void test_input_modes_clear_open_drain_too(void)
+{
+    tfw_pinref_t scl = pin(1u, 8u);
+    tfw_pinref_t sda = pin(1u, 9u);
+
+    TFW_H5_GPIO_OTYPER(GPIOB) = (1u << 8) | (1u << 9);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&scl, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&sda, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(GPIOB + GPIO_OTYPER_OFF));
+}
+
+void test_a_refused_mode_leaves_otyper(void)
+{
+    tfw_pinref_t p = pin(1u, 8u);
+
+    TFW_H5_GPIO_OTYPER(GPIOB) = 0x300u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_gpio_mode(&p, (tfw_pin_mode_t)99));
+    TEST_ASSERT_EQUAL_HEX32(0x300u, regfile_model_peek(GPIOB + GPIO_OTYPER_OFF));
+}
+
 void test_a_mode_keeps_the_banks_other_pins(void)
 {
     tfw_pinref_t p = pin(8u, 8u);   /* PI8, LD2 */
@@ -151,6 +183,46 @@ void test_a_write_is_bsrr_alone(void)
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(AHB2ENR));
 }
 
+void test_pin_15_low_write_is_bsrr_bit_31(void)
+{
+    tfw_pinref_t p = pin(8u, 15u);   /* the top pin: its reset half is the word's top bit */
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x80000000u, regfile_model_peek(GPIOI + 0x18u));
+}
+
+void test_any_nonzero_level_drives_high(void)
+{
+    static const uint8_t levels[] = { 2u, 0x80u, 0xFFu };
+    tfw_pinref_t p = pin(5u, 2u);
+    uint8_t i;
+
+    for (i = 0u; i < (uint8_t)(sizeof levels / sizeof levels[0]); i++) {
+        regfile_model_reset();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, levels[i]));
+        TEST_ASSERT_EQUAL_HEX32(0x1u << 2u, regfile_model_peek(GPIOF + 0x18u));
+    }
+}
+
+void test_pin_15_mode_is_moder_bits_31_30_and_keeps_pin_14(void)
+{
+    tfw_pinref_t p = pin(8u, 15u);   /* the top pin: its field is bits 31:30 */
+
+    TFW_H5_GPIO_MODER(GPIOI) = MODER_RESET;
+    TFW_H5_GPIO_PUPDR(GPIOI) = 0xAAAAAAAAu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, field2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, field2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+    TEST_ASSERT_EQUAL_HEX32(others2(MODER_RESET, 15u),
+                            others2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(others2(0xAAAAAAAAu, 15u),
+                            others2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&p, TFW_PIN_INPUT_PULLUP));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, field2(regfile_model_peek(GPIOI + 0x00u), 15u));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, field2(regfile_model_peek(GPIOI + 0x0Cu), 15u));
+}
+
 void test_a_read_is_the_pins_idr_bit(void)
 {
     tfw_pinref_t p = pin(7u, 10u);   /* PH10, ARD_D6 */
@@ -208,12 +280,18 @@ int main(void)
     RUN_TEST(test_input_is_moder_00_and_no_pull);
     RUN_TEST(test_input_pullup_is_moder_00_and_pupdr_01);
     RUN_TEST(test_output_is_moder_01_no_pull_and_push_pull);
+    RUN_TEST(test_output_takes_an_open_drain_pin_back_to_push_pull);
+    RUN_TEST(test_input_modes_clear_open_drain_too);
+    RUN_TEST(test_a_refused_mode_leaves_otyper);
     RUN_TEST(test_a_mode_keeps_the_banks_other_pins);
     RUN_TEST(test_a_mode_enables_its_banks_clock_and_keeps_the_others);
     RUN_TEST(test_each_bank_is_its_own_block);
     RUN_TEST(test_a_high_write_sets_bsrr_bs);
     RUN_TEST(test_a_low_write_sets_bsrr_br);
     RUN_TEST(test_a_write_is_bsrr_alone);
+    RUN_TEST(test_pin_15_low_write_is_bsrr_bit_31);
+    RUN_TEST(test_any_nonzero_level_drives_high);
+    RUN_TEST(test_pin_15_mode_is_moder_bits_31_30_and_keeps_pin_14);
     RUN_TEST(test_a_read_is_the_pins_idr_bit);
     RUN_TEST(test_a_bank_past_the_part_is_refused);
     RUN_TEST(test_a_pin_past_the_bank_is_refused);

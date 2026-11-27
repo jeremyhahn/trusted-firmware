@@ -394,6 +394,21 @@ static void test_h5_pka_sign_refused_leaves_sig_alone(void)
         TEST_ASSERT_EQUAL_HEX8(0x5A, sig[i]);
 }
 
+static void test_h5_pka_refused_sign_wipes_d_and_k(void)
+{
+    static const uint8_t zero[32];
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    m.refuse = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+    ram_get(ST_PKA_SIGN_IN_K, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+}
+
 static void test_h5_pka_times_out_when_procendf_never_rises(void)
 {
     uint8_t sig[64];
@@ -446,6 +461,27 @@ static void test_h5_pka_error_flags_are_no_answer(void)
         TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
     }
     TEST_ASSERT_FALSE(m.fault);
+}
+
+static void test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k(void)
+{
+    static const uint8_t zero[32];
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    memset(sig, 0x5A, sizeof sig);
+    for (uint32_t bit = 19; bit <= 21; bit++) {
+        m.err_flags = 1u << bit;
+        TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+        TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
+        ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+        TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+        ram_get(ST_PKA_SIGN_IN_K, got);
+        TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+        for (uint32_t i = 0; i < sizeof sig; i++)
+            TEST_ASSERT_EQUAL_HEX8(0x5A, sig[i]);
+    }
+    TEST_ASSERT_EQUAL(0, m.fault);
 }
 
 /* The provider (src/crypto/stm32h5/provider.c) over the same model. What it
@@ -546,6 +582,77 @@ static void test_h5_provider_leaves_a_timed_out_pka_alone(void)
     TEST_ASSERT_EQUAL(1, m.runs);
 }
 
+/* A working PKA's answer is the provider's answer: its accept, and its
+ * reject of a bad signature, come back as they are, and a rejection is not
+ * a reason to leave the PKA for software (only a timeout is). setUp resets
+ * the model to a healthy PKA. */
+static void test_h5_provider_returns_a_working_pka_answer_and_keeps_it(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(2, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(3, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+/* A fresh model, as setUp leaves it before its own PKA init: nothing pending,
+ * EN clear, the RAM filled. */
+static void h5_model_reset(void)
+{
+    memset(&m, 0, sizeof m);
+    for (uint32_t i = 0; i < RAM_WORDS; i++)
+        m.ram[i] = FILL;
+}
+
+/* Each tfw_crypto_init re-decides the PKA: one that timed out before the
+ * last init is used again once it starts, not left off for good. */
+static void test_h5_provider_uses_the_pka_again_after_init(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    h5_model_reset();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(2, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+/* A PKA that started at one init and misses INITOK at the next is left to
+ * the soft code, never started without INITOK. */
+static void test_h5_provider_drops_a_pka_that_no_longer_starts_at_init(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(1, m.runs);
+    h5_model_reset();
+    m.no_initok = 1;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
+    sig[40] ^= 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(0, m.runs);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
 /* The model decodes with ST's facts (h5_vendor_facts.h), not the driver's;
  * every PKA and RCC fact the driver uses equals its ST literal, so a wrong
  * operand offset, mode, result code or bit in h5_crypto_regs.h fails here. */
@@ -619,12 +726,17 @@ int main(void)
     RUN_TEST(test_h5_pka_signs_and_the_soft_verify_accepts_it);
     RUN_TEST(test_h5_pka_round_trips_its_own_signatures);
     RUN_TEST(test_h5_pka_sign_refused_leaves_sig_alone);
+    RUN_TEST(test_h5_pka_refused_sign_wipes_d_and_k);
     RUN_TEST(test_h5_pka_times_out_when_procendf_never_rises);
     RUN_TEST(test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped);
     RUN_TEST(test_h5_pka_busy_that_never_clears_gets_no_ram_write);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
+    RUN_TEST(test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);
     RUN_TEST(test_h5_provider_leaves_a_timed_out_pka_alone);
+    RUN_TEST(test_h5_provider_returns_a_working_pka_answer_and_keeps_it);
+    RUN_TEST(test_h5_provider_uses_the_pka_again_after_init);
+    RUN_TEST(test_h5_provider_drops_a_pka_that_no_longer_starts_at_init);
     return UNITY_END();
 }

@@ -67,6 +67,7 @@ void setUp(void)
     tfw_transport_init(&t);
     eth_starts = 0u;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
+    mock_lwip.closes = 0u;      /* the init closed the last test's listener */
 }
 
 void tearDown(void)
@@ -365,7 +366,8 @@ static void test_a_wire_that_cannot_listen_says_why(void)
     mock_lwip.bind_errno = EADDRINUSE;
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_uart_init(115200u));
     TEST_ASSERT_FALSE(mock_lwip.listening);
-    TEST_ASSERT_EQUAL_UINT(1u, mock_lwip.closes);
+    /* setUp's listener, closed by the re-init, and the socket that would not bind. */
+    TEST_ASSERT_EQUAL_UINT(2u, mock_lwip.closes);
     TEST_ASSERT_NOT_NULL(strstr(mock_lwip.last_warn, "would not bind or listen"));
     mock_lwip.bind_errno = 0;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));      /* for the next test */

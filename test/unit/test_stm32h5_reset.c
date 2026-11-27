@@ -99,6 +99,26 @@ static void test_a_watchdog_with_any_other_bit_is_unknown(void)
     }
 }
 
+/* POWER_ON and SOFTWARE are as narrow: a brownout or a requested reset
+ * beside any bit but the pin's, LPWRRSTF and undefined bits too, is not one. */
+static void test_a_brownout_or_a_request_with_any_other_bit_is_unknown(void)
+{
+    for (uint32_t bit = 0u; bit < 32u; bit++) {
+        uint32_t other = 1u << bit;
+
+        if (other == PINRSTF) {
+            continue;
+        }
+        if (other != BORRSTF) {
+            assert_either_way(TFW_RESET_UNKNOWN, BORRSTF | other, "BORRSTF with another bit");
+        }
+        if (other != SFTRSTF) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_RESET_UNKNOWN, tfw_h5_reset_decode(SFTRSTF | other, ASKED),
+                                      "SFTRSTF with another bit");
+        }
+    }
+}
+
 static void test_two_causes_with_values_are_unknown(void)
 {
     assert_either_way(TFW_RESET_UNKNOWN, BORRSTF | SFTRSTF, "BORRSTF and SFTRSTF");
@@ -131,6 +151,7 @@ int main(void)
     RUN_TEST(test_a_flag_with_no_value_is_unknown);
     RUN_TEST(test_a_bit_the_header_does_not_define_is_unknown);
     RUN_TEST(test_a_watchdog_with_any_other_bit_is_unknown);
+    RUN_TEST(test_a_brownout_or_a_request_with_any_other_bit_is_unknown);
     RUN_TEST(test_two_causes_with_values_are_unknown);
     RUN_TEST(test_a_take_decodes_then_writes_rmvf);
     return UNITY_END();

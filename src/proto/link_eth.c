@@ -18,6 +18,10 @@
  *              a failure, doubling to 64 s, back to 1 s once connected. A blank
  *              network block, an absent controller or the wrong one keeps the
  *              Ethernet side down and leaves serial exactly as it was.
+ *   Stall.     A reply a connected peer takes none of for
+ *              TFW_LINK_ETH_TX_STALL_MS closes the connection and is dropped,
+ *              as one to a peer that has gone is, so neither kind of peer
+ *              holds serial.
  *   Address.   The block's own, or a DHCP lease where its flags ask for one
  *              (tfw_dhcp_poll, src/net/dhcp.c). Asking keeps the link down;
  *              a lease that runs out drops the connection and asks again.
@@ -42,6 +46,8 @@ static uint8_t  phase;              /* TFW_ETH_DOWN / BUSY / UP */
 static uint8_t  backoff;
 static tfw_ms_t next_ms;            /* earliest next attempt while DOWN */
 static uint8_t  cur;                /* the wire of the current or last frame */
+static uint8_t  tx_stalled;         /* the last byte offered was refused */
+static tfw_ms_t tx_stall_ms;        /* since when */
 
 static void retry_later(tfw_ms_t now)
 {
@@ -76,7 +82,8 @@ void tfw_link_poll(void)
          * a reconnect for the connection it replaces. */
         if (st == TFW_OK &&
             tfw_eth_start(&cfg, (uint16_t)(PORT_EPHEMERAL + (now & 0x3FFFu))) == TFW_OK) {
-            phase = TFW_ETH_BUSY;
+            phase      = TFW_ETH_BUSY;
+            tx_stalled = 0u;
         } else {
             retry_later(now);
         }
@@ -129,15 +136,34 @@ uint8_t tfw_link_rx(uint8_t *out, uint8_t hold)
 
 uint8_t tfw_link_tx_try(uint8_t byte, uint8_t serial)
 {
+    tfw_ms_t now;
+
     if (serial || cur == WIRE_SERIAL) {
         return tfw_hal_uart_tx_try(byte);
     }
     /* The connection this reply was owed to has gone: drop it rather than let
-     * a dead peer hold the transport and starve serial. */
+     * a dead peer hold the transport and starve serial, and close one that has
+     * taken none of it for TFW_LINK_ETH_TX_STALL_MS so a live one cannot. */
     if (phase != TFW_ETH_UP) {
         return 1u;
     }
-    return tfw_eth_tx(byte);
+    if (tfw_eth_tx(byte)) {
+        tx_stalled = 0u;
+        return 1u;
+    }
+    now = tfw_hal_millis();
+    if (!tx_stalled) {
+        tx_stalled  = 1u;
+        tx_stall_ms = now;
+        return 0u;
+    }
+    if ((tfw_ms_t)(now - tx_stall_ms) < TFW_LINK_ETH_TX_STALL_MS) {
+        return 0u;
+    }
+    tx_stalled = 0u;
+    tfw_eth_close();
+    retry_later(now);
+    return 1u;
 }
 
 void tfw_link_tx_done(uint8_t serial)

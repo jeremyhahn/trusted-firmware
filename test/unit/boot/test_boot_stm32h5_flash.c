@@ -468,6 +468,35 @@ static void test_a_write_past_bank_2_is_out_of_range(void)
     assert_settled();
 }
 
+static void test_a_write_ending_at_the_last_byte_is_programmed(void)
+{
+    uint8_t buf[QWORD];
+
+    fill(buf, sizeof buf, 7u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, FLASH_BYTES, buf, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.keys);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0x1FFFF0u, buf, sizeof buf));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_UINT(1u, hw.programs);
+    TEST_ASSERT_EQUAL_MEMORY(buf, MEM + 0x1FFFF0u, sizeof buf);
+    assert_settled();
+}
+
+static void test_the_last_sector_of_bank_2_is_erased_through_bksel(void)
+{
+    uint8_t old[QWORD];
+    uint8_t now[QWORD];
+
+    fill(old, sizeof old, 21u);
+    fill(now, sizeof now, 41u);
+    seed(0x1FFFF0u, old, sizeof old);                          /* bank 2, sector 127 */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0x1FFFF0u, now, sizeof now));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_HEX32(0x1FE000u, hw.erased);
+    TEST_ASSERT_EQUAL_MEMORY(now, MEM + 0x1FFFF0u, sizeof now);
+    assert_settled();
+}
+
 static void test_an_interface_that_stays_locked_is_a_protected_region(void)
 {
     static const uint8_t field[4] = { 1u, 2u, 3u, 4u };
@@ -557,6 +586,8 @@ int main(void)
     RUN_TEST(test_a_sector_in_bank_2_is_erased_through_bksel);
     RUN_TEST(test_a_write_across_two_sectors_rewrites_both);
     RUN_TEST(test_a_write_past_bank_2_is_out_of_range);
+    RUN_TEST(test_a_write_ending_at_the_last_byte_is_programmed);
+    RUN_TEST(test_the_last_sector_of_bank_2_is_erased_through_bksel);
     RUN_TEST(test_an_interface_that_stays_locked_is_a_protected_region);
     RUN_TEST(test_a_write_protection_error_is_a_protected_region);
     RUN_TEST(test_a_programming_error_is_internal);

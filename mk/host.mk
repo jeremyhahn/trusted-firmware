@@ -3412,6 +3412,7 @@ $(HOST_DIR)/test_stm32h5_soc: test/unit/test_stm32h5_soc.c src/hal/cortex-m/stm3
 	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ \
 	   -Wl,--wrap=tfw_cm_model_reg \
 	   -Wl,--defsym=h5_soc_early=tfw_cm_soc_early \
+	   -Wl,--defsym=h5_soc_reset_cause=tfw_cm_soc_reset_cause \
 	   -Wl,--defsym=tfw_hal_watchdog_arm=tfw_cm_soc_watchdog_arm \
 	   -Wl,--defsym=tfw_hal_watchdog_pet=tfw_cm_soc_watchdog_pet \
 	   -Wl,--defsym=tfw_cm_reset_mark=h5_reset_mark $(EXTRA_LDFLAGS)

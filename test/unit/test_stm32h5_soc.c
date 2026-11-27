@@ -42,8 +42,10 @@
  * with --defsym, so no architecture name is spelt outside its directories
  * (lint-arch-leak): the watchdog through the portable tfw_hal_watchdog_arm
  * and tfw_hal_watchdog_pet, as hal_sys.c forwards them, the early hook and
- * the reset marker through h5_soc_early and h5_reset_mark. */
+ * the reset marker through h5_soc_early and h5_reset_mark, the reset cause
+ * through h5_soc_reset_cause. */
 void h5_soc_early(void);
+tfw_reset_cause_t h5_soc_reset_cause(uint32_t mark);
 volatile uint32_t h5_reset_mark;
 
 volatile uint32_t *__real_tfw_cm_model_reg(uintptr_t addr);
@@ -196,7 +198,7 @@ static void test_pet_writes_the_reload_key_only(void)
 static tfw_reset_cause_t cause_for(uint32_t rsr, uint32_t mark)
 {
     preset(RCC_RSR_ADDR, rsr);
-    return tfw_cm_soc_reset_cause(mark);
+    return h5_soc_reset_cause(mark);
 }
 
 /* hal_soc.c: SFTRSTF is also set by a lockup or a debugger's reset, so it is

@@ -41,6 +41,7 @@ static uint8_t  link_up_flag;
 /* PSCSR: speed field bits 4:2, 0x6 = 100 Mbit/s full duplex; or a failed read. */
 static uint16_t pscsr_val = 0x0018u;
 static uint8_t  pscsr_fail;
+static uint8_t  bmsr_fail;              /* the BMSR read fails */
 static uint8_t  phy_absent;     /* every MDIO address reads 0xFFFF: no PHY */
 static uint8_t  mac_reset_fail; /* the MAC never leaves its software reset */
 static uint32_t mac_cr;
@@ -65,6 +66,9 @@ int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
     case TFW_PHY_REG_PHYID1: *val = 0x0007u; break;
     case TFW_PHY_REG_PHYID2: *val = 0xC0F1u; break;
     case TFW_PHY_REG_BMSR:
+        if (bmsr_fail) {
+            return -1;
+        }
         *val = link_up_flag ? (uint16_t)(TFW_PHY_BMSR_LINK | TFW_PHY_BMSR_ANDONE) : 0u;
         break;
     case TFW_PHY_REG_PSCSR:
@@ -92,6 +96,13 @@ static uint8_t  dhcp_xid[4];            /* the xid of the last one */
 static unsigned arp_probes;             /* ARP probes for offered_ip */
 static uint8_t  rx_frame[400];
 static size_t   rx_len;
+/* Answers the rx stub gives in order before the rx_frame slot: a length of
+ * -1 is a frame the MAC dropped, any other one the frame in its buffer. */
+#define RX_SCRIPT_MAX 4u
+static uint8_t  rx_script_frame[RX_SCRIPT_MAX][sizeof rx_frame];
+static int      rx_script_len[RX_SCRIPT_MAX];
+static size_t   rx_script_n;            /* answers scripted */
+static size_t   rx_script_used;         /* answers given */
 
 int tfw_eth_mac_reset(tfw_eth_mac_t *m, uint32_t spin) { (void)m; (void)spin; return mac_reset_fail ? -1 : 0; }
 void tfw_eth_mac_init(tfw_eth_mac_t *m, const uint8_t mac[6], uint32_t sp) { (void)m; memcpy(mac_seen, mac, 6); mac_cr = sp; }
@@ -241,6 +252,17 @@ int tfw_eth_mac_rx(tfw_eth_mac_t *m, void *out, size_t cap)
     size_t n = rx_len;
 
     (void)m;
+    if (rx_script_used < rx_script_n) {
+        int len = rx_script_len[rx_script_used];
+
+        if (len > 0 && (size_t)len <= cap) {
+            memcpy(out, rx_script_frame[rx_script_used], (size_t)len);
+        } else {
+            len = -1;
+        }
+        rx_script_used++;
+        return len;
+    }
     if (n == 0u || n > cap) {
         return 0;
     }
@@ -370,6 +392,123 @@ static void static_block(void)
 static void test_a_static_block_sets_its_address_and_mac_and_no_dhcp(void)
 {
     TEST_ASSERT_EQUAL_INT(0, in_child(static_block));
+}
+
+static void rx_script_reset(void)
+{
+    rx_script_n = 0u;
+    rx_script_used = 0u;
+}
+
+/* Script the MAC's next answer: a dropped frame (-1), or the frame now in
+ * the rx_frame slot, which it takes and empties. */
+static void rx_script_drop(void)
+{
+    TEST_ASSERT_TRUE(rx_script_n < RX_SCRIPT_MAX);
+    rx_script_len[rx_script_n++] = -1;
+}
+
+static void rx_script_take_frame(void)
+{
+    TEST_ASSERT_TRUE(rx_script_n < RX_SCRIPT_MAX);
+    TEST_ASSERT_TRUE(rx_len > 0u);
+    memcpy(rx_script_frame[rx_script_n], rx_frame, rx_len);
+    rx_script_len[rx_script_n++] = (int)rx_len;
+    rx_len = 0u;
+}
+
+/* The last frame sent is our ARP reply for 192.0.2.20. */
+static void assert_arp_reply_sent(void)
+{
+    TEST_ASSERT_TRUE(tx_frames > 0u);
+    TEST_ASSERT_TRUE(tx_last_len >= 42u);
+    TEST_ASSERT_EQUAL_HEX8(0x08u, tx_last[12]);
+    TEST_ASSERT_EQUAL_HEX8(0x06u, tx_last[13]);
+    TEST_ASSERT_EQUAL_HEX8(0x00u, tx_last[20]);
+    TEST_ASSERT_EQUAL_HEX8(0x02u, tx_last[21]);                /* reply */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ka_dev_ip, tx_last + 28, 4);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ka_peer_mac, tx_last + 32, 6);
+}
+
+static void dropped_rx_frame(void)
+{
+    static_block();
+    rx_script_reset();
+    tx_frames = 0u;
+    rx_script_drop();                   /* an error, split or long frame */
+    ka_inject_arp_request();
+    rx_script_take_frame();
+    run_for(100u);                      /* one poll */
+    TEST_ASSERT_EQUAL_UINT(2u, rx_script_used);
+    assert_arp_reply_sent();
+}
+
+static void test_a_dropped_rx_frame_does_not_hold_back_the_next_one(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(dropped_rx_frame));
+}
+
+static void empty_pbuf_pool(void)
+{
+    struct pbuf *held[PBUF_POOL_SIZE + 1];
+    size_t n = 0u;
+
+    static_block();
+    rx_script_reset();
+    tx_frames = 0u;
+    while (n < sizeof held / sizeof held[0]) {
+        held[n] = pbuf_alloc(PBUF_RAW, 1u, PBUF_POOL);
+        if (held[n] == NULL) {
+            break;
+        }
+        n++;
+    }
+    TEST_ASSERT_TRUE(n < sizeof held / sizeof held[0]);   /* pool is empty */
+
+    ka_inject_arp_request();            /* frame A */
+    rx_script_take_frame();
+    ka_inject_arp_request();            /* and the one behind it */
+    rx_script_take_frame();
+    run_for(100u);                      /* one poll */
+    TEST_ASSERT_EQUAL_UINT(2u, rx_script_used);   /* both taken off the ring */
+    TEST_ASSERT_EQUAL_UINT(0u, tx_frames);        /* neither answered */
+
+    while (n > 0u) {
+        (void)pbuf_free(held[--n]);
+    }
+    ka_inject_arp_request();
+    run_for(100u);
+    TEST_ASSERT_EQUAL_size_t(0u, rx_len);
+    assert_arp_reply_sent();
+}
+
+static void test_an_empty_pbuf_pool_drops_the_frame_and_keeps_draining(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(empty_pbuf_pool));
+}
+
+static void failed_bmsr_read(void)
+{
+    struct netif *nif;
+
+    static_block();
+    nif = netif_default;
+    TEST_ASSERT_TRUE(netif_is_link_up(nif));
+
+    bmsr_fail = 1u;                     /* reads as link down */
+    run_for(1000u);
+    TEST_ASSERT_FALSE(mac_running);
+    TEST_ASSERT_FALSE(netif_is_link_up(nif));
+
+    bmsr_fail = 0u;
+    run_for(5000u);
+    TEST_ASSERT_TRUE(mac_running);
+    TEST_ASSERT_TRUE(netif_is_link_up(nif));
+}
+
+static void test_a_failed_bmsr_read_takes_a_running_link_down(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(failed_bmsr_read));
 }
 
 /* A PBUF_RAM pbuf of len bytes: an Ethernet header with the local
@@ -1234,6 +1373,9 @@ int main(void)
 
     UNITY_BEGIN();
     RUN_TEST(test_a_static_block_sets_its_address_and_mac_and_no_dhcp);
+    RUN_TEST(test_a_dropped_rx_frame_does_not_hold_back_the_next_one);
+    RUN_TEST(test_an_empty_pbuf_pool_drops_the_frame_and_keeps_draining);
+    RUN_TEST(test_a_failed_bmsr_read_takes_a_running_link_down);
     RUN_TEST(test_a_dhcp_block_starts_dhcp_with_the_block_mac);
     RUN_TEST(test_an_all_zero_block_mac_takes_the_deviceid_mac);
     RUN_TEST(test_a_missing_or_bad_block_keeps_the_device_off_the_network);

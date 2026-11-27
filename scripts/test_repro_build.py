@@ -262,6 +262,12 @@ class ReproBuild(unittest.TestCase):
         for d in (self.a, self.b):
             self.assertEqual(self.image(d)["args"], "")
 
+    def test_an_escaped_space_stays_in_one_variable(self):
+        run = self.run_with_makeflags("-- EXTRA_CFLAGS=-DA\\ -DB V=1")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "EXTRA_CFLAGS=-DA -DB V=1")
+
 
 if __name__ == "__main__":
     unittest.main()

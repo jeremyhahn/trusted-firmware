@@ -13,6 +13,8 @@
 # previous build left behind cannot satisfy the check. SOURCE_DATE_EPOCH is the
 # commit time, so anything time-derived is pinned to the source. A --dir is
 # removed and refilled, so one that is, or holds, the source tree is refused.
+# The calling make's command-line variables are passed to both builds, so a
+# BUILD_DIR the caller chose holds each copy's outputs (#473).
 #
 #   repro_build.py --image REL.hex --dir A --dir B [--src DIR] [--make MAKE]
 #                  [--app-dir APP_DIR] -- ARGS...
@@ -65,6 +67,38 @@ def app_dir_arg(src, app_dir):
     return app_abs, None
 
 
+def forwarded_vars(makeflags):
+    """The command-line variable definitions GNU make put in MAKEFLAGS.
+
+    They follow a ` -- ` separator, as words separated by unescaped spaces,
+    with `\\ ` and `\\\\` escapes; they are returned unescaped, in order. The
+    flags and jobserver descriptors before the separator are not returned.
+    """
+    if makeflags.startswith("-- "):
+        rest = makeflags[3:]
+    elif " -- " in makeflags:
+        rest = makeflags.split(" -- ", 1)[1]
+    else:
+        return []
+    words, word, i = [], "", 0
+    while i < len(rest):
+        c = rest[i]
+        if c == "\\" and i + 1 < len(rest) and rest[i + 1] in " \\":
+            word += rest[i + 1]
+            i += 2
+            continue
+        if c == " ":
+            if word:
+                words.append(word)
+            word = ""
+        else:
+            word += c
+        i += 1
+    if word:
+        words.append(word)
+    return words
+
+
 def build(make, tree, args, epoch):
     # The sub-make is started here, not by make, so the caller's jobserver
     # descriptors are not inherited: drop the flags that name them.
@@ -95,7 +129,17 @@ def main(argv):
         if os.path.commonpath([d_abs, src_abs]) == d_abs:
             p.error(f"--dir {d} is or holds the source tree {a.src}")
 
-    args = list(a.args)
+    # The calling make's command-line variables come first, so the explicit
+    # arguments and the APP_DIR set here, later on the line, win.
+    forwarded = forwarded_vars(os.environ.get("MAKEFLAGS", ""))
+    for word in forwarded:
+        name, eq, value = word.partition("=")
+        if eq and name.rstrip(":+?").strip() == "BUILD_DIR":
+            norm = os.path.normpath(value)
+            if os.path.isabs(value) or norm == os.pardir or norm.startswith(os.pardir + os.sep):
+                p.error(f"the calling make's BUILD_DIR={value} is not inside the tree: "
+                        f"each copy must hold its own outputs")
+    args = forwarded + list(a.args)
     in_copy = None
     if a.app_dir:
         app, in_copy = app_dir_arg(a.src, a.app_dir)

@@ -58,6 +58,8 @@ make reproducible-check BOARD=atmega2560 CRYPTO=soft
 make reproducible-check BOARD=atmega2560 CRYPTO=atecc608a
 # the application's image: APP_DIR names it, as the build stage does
 make reproducible-check APP_DIR=test/app/example BOARD=atmega2560
+# the i.MX 95 M7 boot-container image, in the build directory it requires
+make reproducible-check BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot
 # tfw-boot, on the ATmega2560 soft base row
 make bootloader-reproducible-check
 ```
@@ -70,6 +72,9 @@ byte-identical. Both targets run `scripts/repro_build.py` (`mk/firmware.mk`
 reaches it, and an image a previous build left behind cannot satisfy the check:
 what is checked is the commit, not the working tree. Each build runs with
 `SOURCE_DATE_EPOCH` set to the commit time (`git log -1 --format=%ct HEAD`).
+The command-line variables of the calling `make` (`BUILD_DIR`, `IMX_BOOT`,
+`V`, ...) reach both builds; a forwarded `BUILD_DIR` must be relative and
+inside the tree, so each copy holds its own outputs.
 
 Two different directories specifically, because the most common
 reproducibility defect is a path leaking into the image, and a check that

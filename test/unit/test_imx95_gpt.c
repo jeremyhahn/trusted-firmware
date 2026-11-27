@@ -236,6 +236,50 @@ void test_tone_retarget_drives_the_old_pin_low_and_starts_the_new_one_fresh(void
     TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x4u);
 }
 
+void test_tone_start_drives_a_high_pin_low_first(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&pin, 1u));
+    TEST_ASSERT_EQUAL_HEX32(0x2u, M->gpio[1].pdor & 0x2u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
+    /* The start lowers a pin left high, so the first half period is low. */
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x2u);
+    /* The first compare is a rise. */
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0x2u, M->gpio[1].pdor & 0x2u);
+    (void)tfw_hal_tone_stop();
+}
+
+void test_tone_retarget_to_a_high_pin_drives_it_low_first(void)
+{
+    const tfw_pinref_t other = { .port = 1u, .bit = 2u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&other, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&other, 1u));
+    TEST_ASSERT_EQUAL_HEX32(0x4u, M->gpio[1].pdor & 0x4u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 440u));
+    /* Old pin low, new pin low before any compare. */
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x6u);
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0x4u, M->gpio[1].pdor & 0x4u);
+    (void)tfw_hal_tone_stop();
+}
+
+void test_tone_retune_on_the_same_pin_keeps_its_level(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0x2u, M->gpio[1].pdor & 0x2u);
+    /* A retune of the active pin does not write it: the wave continues. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 880u));
+    TEST_ASSERT_EQUAL_HEX32(0x2u, M->gpio[1].pdor & 0x2u);
+    tfw_cm_irq0();
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pdor & 0x2u);
+    (void)tfw_hal_tone_stop();
+}
+
 /* test_imx95_gpt_nobase: the board's base, zero until question 17 is answered.
  * Every call answers TFW_ERR_UNSUPPORTED and touches no register: no GPT
  * word, no pin direction, no NVIC enable. A stray compare interrupt does not
@@ -267,6 +311,9 @@ int main(void)
         RUN_TEST(test_tone_stop_drives_the_pin_low);
         RUN_TEST(test_tone_bad_pin_is_refused);
         RUN_TEST(test_tone_retarget_drives_the_old_pin_low_and_starts_the_new_one_fresh);
+        RUN_TEST(test_tone_start_drives_a_high_pin_low_first);
+        RUN_TEST(test_tone_retarget_to_a_high_pin_drives_it_low_first);
+        RUN_TEST(test_tone_retune_on_the_same_pin_keeps_its_level);
     }
     RUN_TEST(test_gpt_tone_440_compare);
     RUN_TEST(test_gpt_tone_31_hz_floor);

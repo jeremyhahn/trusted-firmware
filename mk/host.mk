@@ -170,6 +170,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_gpt.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
+                            test/unit/test_imx95_console_pins.c \
                             test/unit/test_imx95_adc.c \
                             test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
@@ -1026,6 +1027,14 @@ $(HOST_DIR)/test_imx95_scmi_mu: test/unit/test_imx95_scmi_mu.c test/model/imx95_
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The console's pad request over the same channel and model, CRC-32 both ways
+# (owner ruling 1243, #474: LPUART7 on GPIO_IO36/37 at ALT2).
+$(HOST_DIR)/test_imx95_console_pins: test/unit/test_imx95_console_pins.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/console_pins.c \
+                        src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The response engine's port, A1 and A2 (slice 5), A4 and S3 (slice 6), over
 # the same channels and model, compiled against the board's zero ids.
 $(HOST_DIR)/test_imx95_hsm_port: test/unit/test_imx95_hsm_port.c test/model/imx95_model.c \
@@ -1686,6 +1695,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_gpt $(HOST_DIR)/test_imx95_gpt_nobase \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
+                    $(HOST_DIR)/test_imx95_console_pins \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
                     $(HOST_DIR)/test_board_rp2350-pico2w_i2c $(HOST_DIR)/test_board_rp2350-pico2w_periph \
@@ -1831,7 +1841,7 @@ $(HOST_DIR)/test_esp_tone_mode_pulse: test/unit/test_esp_tone_mode_pulse.c src/h
                                       src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse_rmt.c \
                                       src/hal/esp32/hal_adc.c \
                                       test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 -DTFW_MOCK_ADC_CHANNEL_TO_IO $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mode_pulse
 
 # The pulse timing over a stand-in gpio driver and esp_timer playing a
@@ -2050,7 +2060,6 @@ HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pins
 # the life of the program, so it is a program of its own. It stays in
 # TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_esp_adc: test/unit/test_esp_adc.c src/hal/esp32/hal_adc.c src/hal/esp32/hal_gpio.c \
-                          src/hal/esp32/hal_tone.c src/hal/esp32/hal_pwm.c \
                           test/mock/esp_pins_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

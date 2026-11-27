@@ -135,6 +135,14 @@ esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan,
     return ESP_OK;
 }
 
+/* The ESP32-P4 map: ADC1 channel n is on GPIO 16 + n. */
+esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel, int *io_num)
+{
+    (void)unit_id;
+    *io_num = 16 + (int)channel;
+    return ESP_OK;
+}
+
 int64_t esp_timer_get_time(void)
 {
     int64_t t = mock_pins.now;

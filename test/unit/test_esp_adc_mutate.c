@@ -15,7 +15,9 @@
  *     width, an external reference refused and the attenuation kept;
  *   - a channel the driver will not configure out of range, a failed read a
  *     timeout, neither writing the result;
- *   - the converter's raw value returned whole.
+ *   - the converter's raw value returned whole;
+ *   - a read releases its channel's pin from the tone and the PWM; a refused
+ *     channel or a failed lookup releases nothing.
  *
  * A part whose ADC does not come up is test_esp_adc_nounit_mutate.c: the
  * unit's state is static, so each outcome of the bring-up is its own binary.
@@ -66,6 +68,34 @@ esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan,
     return read_err;
 }
 
+static unsigned    n_io, n_tone_rel, n_pwm_rel;
+static adc_unit_t  io_unit;
+static int         io_chan, tone_rel_seen, pwm_rel_seen;
+static esp_err_t   io_err;
+
+/* The pad is 40 + channel, not the channel: a read that releases the channel
+ * number instead of the pad fails. */
+esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel, int *io_num)
+{
+    n_io++;
+    io_unit = unit_id;
+    io_chan = channel;
+    *io_num = 40 + (int)channel;
+    return io_err;
+}
+
+void tfw_esp_tone_release(int gpio)
+{
+    n_tone_rel++;
+    tone_rel_seen = gpio;
+}
+
+void tfw_esp_pwm_release(int gpio)
+{
+    n_pwm_rel++;
+    pwm_rel_seen = gpio;
+}
+
 /* hal_gpio.c's, which this test does not link: the last pad a read released. */
 static int released;
 
@@ -76,6 +106,10 @@ void tfw_esp_gpio_release(int gpio)
 
 void setUp(void)
 {
+    n_io = n_tone_rel = n_pwm_rel = 0u;
+    io_unit = ADC_UNIT_2;
+    io_chan = tone_rel_seen = pwm_rel_seen = -1;
+    io_err  = ESP_OK;
     released = -1;
     n_new = n_cfg = n_read = 0u;
     new_unit_id = ADC_UNIT_2;
@@ -107,6 +141,8 @@ static void test_a_channel_past_the_count_is_refused_untouched(void)
         TEST_ASSERT_EQUAL_HEX16(0xBEEFu, out);
     }
     TEST_ASSERT_EQUAL_UINT(0u, n_new + n_cfg + n_read);
+    TEST_ASSERT_EQUAL_UINT(0u, n_io);
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
 }
 
 /* Runs before any reference is set: the attenuation starts at 12 dB. */
@@ -208,8 +244,46 @@ static void test_the_raw_value_is_returned_whole(void)
         raw_in = raw[i];
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(4u, &out));
         TEST_ASSERT_EQUAL_UINT16((uint16_t)raw[i], out);
-        TEST_ASSERT_EQUAL_INT(20, released);     /* channel 4's pad, MODE's no more (#48) */
+        TEST_ASSERT_EQUAL_INT(44, released);     /* channel 4's pad, MODE's no more (#48) */
     }
+}
+
+/* The channel's IO init takes the pad off LEDC: the pin is no longer the
+ * tone's or PWM-driven, as MODE and the SPI CS release it (#48). */
+static void test_a_read_takes_its_pin_off_the_tone_and_pwm(void)
+{
+    uint16_t raw = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(3u, &raw));
+    TEST_ASSERT_EQUAL_UINT(1u, n_io);
+    TEST_ASSERT_EQUAL(ADC_UNIT_1, io_unit);
+    TEST_ASSERT_EQUAL_INT(3, io_chan);
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(43, tone_rel_seen);
+    TEST_ASSERT_EQUAL_UINT(1u, n_pwm_rel);
+    TEST_ASSERT_EQUAL_INT(43, pwm_rel_seen);
+}
+
+static void test_a_refused_channel_releases_nothing(void)
+{
+    uint16_t raw = 0u;
+
+    cfg_err = ESP_ERR_INVALID_ARG;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(3u, &raw));
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+    TEST_ASSERT_EQUAL_UINT(0u, n_pwm_rel);
+}
+
+static void test_a_failed_pin_lookup_releases_nothing_and_still_reads(void)
+{
+    uint16_t raw = 0u;
+
+    io_err = ESP_ERR_INVALID_ARG;
+    raw_in = 1234;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(3u, &raw));
+    TEST_ASSERT_EQUAL_UINT16(1234u, raw);
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+    TEST_ASSERT_EQUAL_UINT(0u, n_pwm_rel);
 }
 
 int main(void)
@@ -223,5 +297,8 @@ int main(void)
     RUN_TEST(test_a_channel_the_driver_refuses_is_out_of_range);
     RUN_TEST(test_a_failed_read_is_a_timeout);
     RUN_TEST(test_the_raw_value_is_returned_whole);
+    RUN_TEST(test_a_read_takes_its_pin_off_the_tone_and_pwm);
+    RUN_TEST(test_a_refused_channel_releases_nothing);
+    RUN_TEST(test_a_failed_pin_lookup_releases_nothing_and_still_reads);
     return UNITY_END();
 }

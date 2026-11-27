@@ -55,6 +55,18 @@ void tfw_esp_gpio_release(int gpio)
     n_other++;
 }
 
+esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel, int *io_num)
+{
+    (void)unit_id;
+    *io_num = (int)channel;
+    n_other++;
+    return ESP_OK;
+}
+
+/* hal_adc.c releases the pin it reads; this binary links no tone or PWM. */
+void tfw_esp_tone_release(int gpio) { (void)gpio; }
+void tfw_esp_pwm_release(int gpio) { (void)gpio; }
+
 void setUp(void)
 {
     n_new = n_other = 0u;

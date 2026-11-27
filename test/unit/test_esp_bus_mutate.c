@@ -24,6 +24,8 @@
  *     sent; a CS taken off LEDC released from the tone and the PWM;
  *   - 1-Wire: each reset, bit written and bit read as its exact sequence of
  *     drive, release, delay, sample and interrupt mask; bytes LSB first.
+ *   - 1-Wire: a reset, write or read releases its pin from the tone and the
+ *     PWM once; an empty one releases nothing.
  *
  * The unit's driver handles are static, so the tests run in the order
  * main() lists.
@@ -806,6 +808,62 @@ static void test_a_read_is_each_bit_lsb_first(void)
     TEST_ASSERT_EQUAL_HEX8(0x5Bu, buf[0]);
 }
 
+/* hal_bus.c's open-drain output enable takes the 1-Wire pad off LEDC, so a
+ * reset releases its pin from the tone and the PWM, as MODE does (#48). */
+static void test_a_1wire_reset_takes_its_pin_off_the_tone_and_pwm(void)
+{
+    const tfw_pinref_t p = { 4u };
+    uint8_t            presence = 0xFFu;
+
+    levels_in[0] = 0;
+    nlevels      = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_reset(&p, &presence));
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(4, tone_rel_seen);
+    TEST_ASSERT_EQUAL_UINT(1u, n_pwm_rel);
+    TEST_ASSERT_EQUAL_INT(4, pwm_rel_seen);
+}
+
+/* A write or a read releases its pin once, not once per bit. */
+static void test_a_1wire_write_and_read_take_their_pin_off_the_tone_and_pwm(void)
+{
+    static const uint8_t wr[] = { 0xA5u };
+    const tfw_pinref_t   pw = { 33u };
+    const tfw_pinref_t   pr = { 26u };
+    uint8_t  buf[1] = { 0u };
+    unsigned b;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_write(&pw, wr, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(33, tone_rel_seen);
+    TEST_ASSERT_EQUAL_UINT(1u, n_pwm_rel);
+    TEST_ASSERT_EQUAL_INT(33, pwm_rel_seen);
+
+    setUp();
+    nlevels = 8u;
+    for (b = 0u; b < 8u; b++) {
+        levels_in[b] = (int)(b & 1u);
+    }
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_read(&pr, buf, 1u));
+    TEST_ASSERT_EQUAL_UINT(1u, n_tone_rel);
+    TEST_ASSERT_EQUAL_INT(26, tone_rel_seen);
+    TEST_ASSERT_EQUAL_UINT(1u, n_pwm_rel);
+    TEST_ASSERT_EQUAL_INT(26, pwm_rel_seen);
+}
+
+/* A zero-length write or read drives nothing, so it releases nothing. */
+static void test_an_empty_1wire_transfer_releases_nothing(void)
+{
+    static const uint8_t wr[] = { 0xA5u };
+    const tfw_pinref_t   p = { 33u };
+    uint8_t              buf[1] = { 0u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_write(&p, wr, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_read(&p, buf, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, n_tone_rel);
+    TEST_ASSERT_EQUAL_UINT(0u, n_pwm_rel);
+}
+
 /* hal_bus.c spi_init removes the live device when the mode, the clock or
  * the bit order differs: the mode alone, and the bit order alone, each do. */
 static void test_an_spi_init_with_only_the_mode_or_bit_order_changed_remakes_the_device(void)
@@ -864,6 +922,9 @@ int main(void)
     RUN_TEST(test_a_reset_is_its_slot_and_the_presence);
     RUN_TEST(test_a_write_is_each_bit_lsb_first);
     RUN_TEST(test_a_read_is_each_bit_lsb_first);
+    RUN_TEST(test_a_1wire_reset_takes_its_pin_off_the_tone_and_pwm);
+    RUN_TEST(test_a_1wire_write_and_read_take_their_pin_off_the_tone_and_pwm);
+    RUN_TEST(test_an_empty_1wire_transfer_releases_nothing);
     RUN_TEST(test_an_spi_init_with_only_the_mode_or_bit_order_changed_remakes_the_device);
     return UNITY_END();
 }

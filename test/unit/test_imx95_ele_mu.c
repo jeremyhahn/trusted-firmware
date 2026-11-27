@@ -191,6 +191,50 @@ static void test_a_request_longer_than_the_client_takes_is_not_sent(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
 }
 
+static void test_a_request_header_of_no_words_is_not_sent(void)
+{
+    struct tfw_ele_msg cmd, rsp;
+    uint32_t status = 0xA5A5A5A5u;
+
+    memset(&cmd, 0, sizeof cmd);
+    cmd.w[0] = 0x17DA0006u;   /* size byte 0 */
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LENGTH, tfw_ele_call(&chan, &cmd, 2u, &rsp, &status));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, status);
+}
+
+static void test_a_response_of_one_word_is_refused_unsent(void)
+{
+    struct tfw_ele_msg cmd, rsp;
+
+    memset(&cmd, 0, sizeof cmd);
+    cmd.w[0] = 0x17DA0406u;   /* GET_INFO, four words */
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LENGTH, tfw_ele_call(&chan, &cmd, 1u, &rsp, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LENGTH, tfw_ele_call(&chan, &cmd, 0u, &rsp, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+static void test_a_response_longer_than_the_client_takes_is_refused_unsent(void)
+{
+    struct tfw_ele_msg cmd, rsp;
+
+    memset(&cmd, 0, sizeof cmd);
+    cmd.w[0] = 0x17DA0406u;   /* GET_INFO, four words */
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LENGTH,
+                            tfw_ele_call(&chan, &cmd, TFW_ELE_MSG_WORDS + 1u, &rsp, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+static void test_an_mu_without_a_transmit_register_is_refused_unsent(void)
+{
+    m->ele.par = 0x00000400u;   /* four receive registers, no transmit */
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_MU, tfw_ele_get_info(&chan, 0u, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
 static void test_the_information_buffer_parses(void)
 {
     struct tfw_ele_info info;
@@ -2332,6 +2376,10 @@ int main(void)
     RUN_TEST(test_a_transmit_register_never_empty_times_out_unsent);
     RUN_TEST(test_an_mu_without_registers_is_refused_unsent);
     RUN_TEST(test_a_request_longer_than_the_client_takes_is_not_sent);
+    RUN_TEST(test_a_request_header_of_no_words_is_not_sent);
+    RUN_TEST(test_a_response_of_one_word_is_refused_unsent);
+    RUN_TEST(test_a_response_longer_than_the_client_takes_is_refused_unsent);
+    RUN_TEST(test_an_mu_without_a_transmit_register_is_refused_unsent);
     RUN_TEST(test_the_information_buffer_parses);
     RUN_TEST(test_a_good_open_returns_the_handle);
     RUN_TEST(test_a_refused_open_leaves_the_handle);

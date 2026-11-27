@@ -60,7 +60,13 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     gpt_halt();
     if (tone_active && (tone_pin.port != p->port || tone_pin.bit != p->bit)) {
         (void)tfw_hal_gpio_write(&tone_pin, 0u);
-        /* As mcxn94x: the new pin starts a fresh half period from low. */
+    }
+    if (!tone_active || tone_pin.port != p->port || tone_pin.bit != p->bit) {
+        /* As the MPS2 tone: the new pin is driven low and starts a fresh
+         * half period from low, so a pin left high still sees a rise at the
+         * first compare. tfw_hal_gpio_mode accepted it, so the write cannot
+         * be refused. A retune of the active pin keeps its level. */
+        (void)tfw_hal_gpio_write(p, 0u);
         tone_level = 0u;
     }
     tone_pin    = *p;

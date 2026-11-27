@@ -61,6 +61,7 @@ struct model_write {
     uint32_t val;
     uint32_t acr_reads;      /* ACR reads since its LATENCY write */
     uint32_t sr_reads;       /* SR reads since the busy bits set */
+    uint32_t mark;           /* tfw_cm_reset_mark when it was seen */
 };
 
 static uint32_t          model_addr[MODEL_REGS];
@@ -96,6 +97,7 @@ static void model_wrote(uint32_t i)
     model_log[model_logged].val       = val;
     model_log[model_logged].acr_reads = acr_reads;
     model_log[model_logged].sr_reads  = sr_reads;
+    model_log[model_logged].mark      = tfw_cm_reset_mark;
     model_logged++;
 
     if (addr == ADDR_ACR) {
@@ -357,6 +359,24 @@ static void test_early_keeps_the_other_acr_and_rcc_cr_bits(void)
                             reg(ADDR_RCC_CR));
 }
 
+/* HSIDIV is two bits: an HSI / 8 start (both set) must end at HSI / 1. */
+static void test_early_clears_both_hsidiv_bits_from_hsi_over_8(void)
+{
+    uint32_t cr;
+
+    model_set(ADDR_RCC_CR, (RCC_CR_INIT & ~TFW_H5_RCC_CR_HSIDIV) | (0x3u << 3));
+
+    tfw_cm_soc_early();
+    model_flush();
+
+    cr = nth_write(ADDR_RCC_CR, 0u);
+    TEST_ASSERT_TRUE(cr < MODEL_LOG);
+    TEST_ASSERT_EQUAL_UINT32(1u, writes_to(ADDR_RCC_CR));
+    TEST_ASSERT_EQUAL_HEX32(0x50000003u | TFW_H5_RCC_CR_HSI48ON, model_log[cr].val);
+    TEST_ASSERT_EQUAL_HEX32(0x50000003u | TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSIDIVF,
+                            reg(ADDR_RCC_CR));
+}
+
 /* ---- tfw_cm_soc_watchdog_arm / _pet ---- */
 
 static void test_arm_marks_then_keys_enable_access_pr_rlr_wait_reload(void)
@@ -426,6 +446,19 @@ static void test_arm_reloads_only_once_pvu_clears_after_rvu(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
 }
 
+/* The mark is in place before the watchdog can run, so a reset the new
+ * watchdog causes is read as one. */
+static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
+{
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_ENABLE, model_log[0].val);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[4].mark);
+}
+
 static void test_pet_writes_reload_only(void)
 {
     inherit_armed_watchdog();
@@ -471,10 +504,12 @@ int main(void)
     RUN_TEST(test_early_writes_the_wait_states_before_the_divider);
     RUN_TEST(test_early_polls_latency_and_hsidivf_until_they_show);
     RUN_TEST(test_early_keeps_the_other_acr_and_rcc_cr_bits);
+    RUN_TEST(test_early_clears_both_hsidiv_bits_from_hsi_over_8);
     RUN_TEST(test_arm_marks_then_keys_enable_access_pr_rlr_wait_reload);
     RUN_TEST(test_arm_times_four_seconds_of_the_32_khz_lsi);
     RUN_TEST(test_arm_reloads_only_once_rvu_clears_after_pvu);
     RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
+    RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
     RUN_TEST(test_pet_writes_reload_only);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);

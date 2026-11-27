@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The host stand-in for ESP-IDF v5.5.5's esp_adc/adc_oneshot.h and the
- * hal/adc_types.h it includes: the three calls src/hal/esp32/hal_adc.c makes
- * and the fields of the two configs it fills. test/mock/esp_pins_mock.c
+ * hal/adc_types.h it includes: the calls src/hal/esp32/hal_adc.c makes
+ * (new_unit, config_channel, read, channel_to_io) and the fields of the two configs it fills. test/mock/esp_pins_mock.c
  * defines the calls; the unit handle is the mock's own struct.
  */
 #ifndef TFW_MOCK_ESP_ADC_ADC_ONESHOT_H
@@ -56,5 +56,6 @@ esp_err_t adc_oneshot_new_unit(const adc_oneshot_unit_init_cfg_t *init_config,
 esp_err_t adc_oneshot_config_channel(adc_oneshot_unit_handle_t handle, adc_channel_t channel,
                                      const adc_oneshot_chan_cfg_t *config);
 esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan, int *out_raw);
+esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel, int *io_num);
 
 #endif

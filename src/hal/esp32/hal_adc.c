@@ -14,12 +14,16 @@
  * to none (about 0.95 V). An external reference does not exist and is
  * refused. The raw value is the converter's 12 bits, not the AVR's 10; the
  * host reads the width from the board, as it reads everything else.
+ *
+ * A read takes its channel's pin off LEDC, so the pin is no longer the tone's
+ * or PWM-driven, as MODE does.
  */
 
 #include "esp_adc/adc_oneshot.h"
 
 #include "tfw/hal.h"
 #include "tfw/config.h"
+#include "hal_esp32.h"
 
 static adc_oneshot_unit_handle_t unit;
 static adc_atten_t               atten = ADC_ATTEN_DB_12;
@@ -43,6 +47,7 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     adc_oneshot_chan_cfg_t cfg = { .atten = atten, .bitwidth = ADC_BITWIDTH_DEFAULT };
     int raw = 0;
+    int io  = -1;
 
     if ((uint32_t)channel + 1u > TFW_ADC_COUNT) {     /* not >=: a board may have none */
         return TFW_ERR_RANGE;
@@ -58,6 +63,16 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
     }
     if (adc_oneshot_config_channel(unit, (adc_channel_t)channel, &cfg) != ESP_OK) {
         return TFW_ERR_RANGE;
+    }
+    /* The channel's IO init takes the pad off LEDC, so the pin is no longer
+     * the tone's or PWM-driven, as MODE and the SPI CS do (#48). */
+    if (adc_oneshot_channel_to_io(ADC_UNIT_1, (adc_channel_t)channel, &io) == ESP_OK) {
+#if TFW_FEATURE_TONE
+        tfw_esp_tone_release(io);
+#endif
+#if TFW_FEATURE_PWM
+        tfw_esp_pwm_release(io);
+#endif
     }
     if (adc_oneshot_read(unit, (adc_channel_t)channel, &raw) != ESP_OK) {
         return TFW_ERR_TIMEOUT;

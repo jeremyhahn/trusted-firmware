@@ -3,8 +3,8 @@
 /*
  * The host stand-in for ESP-IDF v5.5.5's esp_adc/adc_oneshot.h, for
  * test/unit/test_esp_adc_mutate.c and test_esp_adc_nounit_mutate.c alone:
- * the types, values and calls src/hal/esp32/hal_adc.c uses, with ESP-IDF's
- * values. The tests implement the calls.
+ * the types, values and calls src/hal/esp32/hal_adc.c uses (new_unit,
+ * config_channel, read, channel_to_io), with ESP-IDF's values. The tests implement the calls.
  */
 #ifndef TFW_MOCK_ESP32_ADC_ONESHOT_H
 #define TFW_MOCK_ESP32_ADC_ONESHOT_H
@@ -55,5 +55,6 @@ esp_err_t adc_oneshot_new_unit(const adc_oneshot_unit_init_cfg_t *init_config,
 esp_err_t adc_oneshot_config_channel(adc_oneshot_unit_handle_t handle, adc_channel_t channel,
                                      const adc_oneshot_chan_cfg_t *config);
 esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan, int *out_raw);
+esp_err_t adc_oneshot_channel_to_io(adc_unit_t unit_id, adc_channel_t channel, int *io_num);
 
 #endif

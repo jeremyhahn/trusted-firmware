@@ -310,6 +310,23 @@ static void test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothi
     TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
 }
 
+static void test_a_confirm_request_of_the_wrong_length_is_range_and_stores_nothing(void)
+{
+    uint8_t req[TFW_BOOT_EE_LEN - TFW_BOOT_CONFIRM_ADDR];
+
+    memset(req, 0xC3, sizeof req);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req,
+                                               TFW_BOOT_CONFIRM_LEN - 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req,
+                                               TFW_BOOT_CONFIRM_LEN + 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
 static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)
 {
     static const uint8_t data[2] = { 0x77u, 0x88u };
@@ -522,6 +539,7 @@ int main(void)
     RUN_TEST(test_a_refused_read_writes_no_byte_into_the_callers_buffer);
     RUN_TEST(test_a_refused_write_past_the_end_touches_no_flash);
     RUN_TEST(test_a_confirm_request_at_the_wrong_offset_is_range_and_stores_nothing);
+    RUN_TEST(test_a_confirm_request_of_the_wrong_length_is_range_and_stores_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);

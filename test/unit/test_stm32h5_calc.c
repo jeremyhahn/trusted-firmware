@@ -256,6 +256,38 @@ static void test_tone_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
     TEST_ASSERT_EQUAL_UINT16(0xEEEEu, arr);
 }
 
+static void test_tone_a_match_that_rounds_past_the_counter_takes_the_next_prescaler(void)
+{
+    uint16_t psc = 0xEEEEu;
+    uint16_t arr = 0xEEEEu;
+
+    /* 65536.5 rounds to 65537: past the counter, so /2 and 32768 counts. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(131073u, 1u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(1u, psc);
+    TEST_ASSERT_EQUAL_UINT16(32767u, arr);
+    psc = 0xEEEEu;
+    arr = 0xEEEEu;
+    /* Exactly 65536 counts a match: /1 fills the counter. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(131072u, 1u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0u, psc);
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, arr);
+}
+
+static void test_tone_a_rate_above_the_timer_clock_is_refused_untouched(void)
+{
+    uint16_t psc = 0xEEEEu;
+    uint16_t arr = 0xEEEEu;
+
+    /* The match rounds to 0: the divider floors at /1, the count is refused. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_tone_psc_arr(1000u, 2000u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, psc);
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, arr);
+    /* No timer clock at all. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_tone_psc_arr(0u, 1u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, psc);
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, arr);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -279,5 +311,7 @@ int main(void)
     RUN_TEST(test_tone_psc_arr_1khz);
     RUN_TEST(test_tone_takes_the_finest_prescaler);
     RUN_TEST(test_tone_a_rate_the_timer_cannot_reach_is_refused_untouched);
+    RUN_TEST(test_tone_a_match_that_rounds_past_the_counter_takes_the_next_prescaler);
+    RUN_TEST(test_tone_a_rate_above_the_timer_clock_is_refused_untouched);
     return UNITY_END();
 }

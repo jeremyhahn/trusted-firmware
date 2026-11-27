@@ -1825,9 +1825,11 @@ $(HOST_DIR)/test_esp_tone_mutate: test/unit/test_esp_tone_mutate.c src/hal/esp32
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mutate
 
 # #561: TONE, MODE on the same pin, then PULSE_CAPTURE: the three ESP32 units
-# linked together, so the capture sees the tone MODE ended.
+# linked together, so the capture sees the tone MODE ended. hal_adc.c with
+# them: an analog read takes its pad from MODE output (#48).
 $(HOST_DIR)/test_esp_tone_mode_pulse: test/unit/test_esp_tone_mode_pulse.c src/hal/esp32/hal_tone.c \
                                       src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse_rmt.c \
+                                      src/hal/esp32/hal_adc.c \
                                       test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mode_pulse

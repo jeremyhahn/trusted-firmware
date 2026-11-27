@@ -31,6 +31,7 @@ static struct {
     uint32_t en_delay;      /* EN writes ignored before one sticks */
     uint32_t en_writes;
     int      no_initok;
+    int      no_reinit; /* once EN is cleared, INITOK never rises again */
     int      hang;          /* never raise PROCENDF; BUSY stays until EN clears */
     int      busy_stuck;    /* clearing EN does not drop BUSY either */
     uint32_t err_flags;     /* SR error flags raised with PROCENDF */
@@ -209,6 +210,8 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
             m.fault = 1; /* only clearing EN (the abort) is allowed while BUSY */
         if (!(value & ST_PKA_CR_EN) && !m.busy_stuck)
             m.sr &= ~(ST_PKA_SR_BUSY | ST_PKA_SR_INITOK);
+        if (!(value & ST_PKA_CR_EN) && m.no_reinit)
+            m.no_initok = 1;
         if ((value & ST_PKA_CR_EN) && m.cr == 0u && m.en_writes++ < m.en_delay)
             return;
         m.cr = value & ~ST_PKA_CR_START;
@@ -447,6 +450,22 @@ static void test_h5_pka_busy_that_never_clears_gets_no_ram_write(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m.cr & ST_PKA_CR_EN);
     ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
     TEST_ASSERT_EQUAL_MEMORY(priv, got, sizeof got);
+}
+
+static void test_h5_pka_timed_out_sign_that_will_not_reinit_leaves_its_ram_alone(void)
+{
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    m.hang = 1;
+    m.no_reinit = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_SR_BUSY);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_MEMORY(priv, got, sizeof got);
+    ram_get(ST_PKA_SIGN_IN_K, got);
+    TEST_ASSERT_EQUAL_MEMORY(nonce, got, sizeof got);
 }
 
 /* A RAM, address or operation error is no answer: the caller falls back. */
@@ -730,6 +749,7 @@ int main(void)
     RUN_TEST(test_h5_pka_times_out_when_procendf_never_rises);
     RUN_TEST(test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped);
     RUN_TEST(test_h5_pka_busy_that_never_clears_gets_no_ram_write);
+    RUN_TEST(test_h5_pka_timed_out_sign_that_will_not_reinit_leaves_its_ram_alone);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
     RUN_TEST(test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);

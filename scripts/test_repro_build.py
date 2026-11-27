@@ -306,6 +306,24 @@ class ReproBuild(unittest.TestCase):
             self.assertEqual(argv, ["EXTRA_CFLAGS=-DA -DB", "V=1",
                                     f"SOURCE_DATE_EPOCH={COMMIT_TIME}"])
 
+    def test_a_forwarded_variable_reference_reaches_the_builds_unexpanded_once(self):
+        # `make IMX_BOOT='$(MODE)' MODE=1` puts IMX_BOOT=$$(MODE) in MAKEFLAGS;
+        # each clean build must get IMX_BOOT=$(MODE) so its make expands it.
+        run = self.run_with_makeflags("-- IMX_BOOT=$$(MODE) MODE=1")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            argv = json.loads(self.image(d)["argv"])
+            self.assertEqual(argv, ["IMX_BOOT=$(MODE)", "MODE=1",
+                                    f"SOURCE_DATE_EPOCH={COMMIT_TIME}"])
+
+    def test_a_literal_dollar_stays_escaped_for_the_child_make(self):
+        # The calling make got V=a$$b (a literal $); MAKEFLAGS doubles each $.
+        run = self.run_with_makeflags("-- V=a$$$$b")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            argv = json.loads(self.image(d)["argv"])
+            self.assertEqual(argv[0], "V=a$$b")
+
 
 if __name__ == "__main__":
     unittest.main()

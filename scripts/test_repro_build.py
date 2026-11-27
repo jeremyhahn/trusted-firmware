@@ -7,6 +7,7 @@
 # stand-in writes, as its "image", what it found in the tree it was given and
 # the SOURCE_DATE_EPOCH it was run with.
 
+import json
 import os
 import subprocess
 import sys
@@ -22,9 +23,10 @@ IMAGE = "build/fw.hex"
 # Writes IMAGE in the tree -C names: the sorted file list, the epoch, and the
 # tree's own path when the first make argument is "with-path".
 FAKE_MAKE = f"""#!{sys.executable}
-import os, sys
+import json, os, sys
 tree = sys.argv[sys.argv.index("-C") + 1]
 args = sys.argv[sys.argv.index("--no-print-directory") + 1:]
+argv = list(args)
 # As in make, the last command-line assignment beats the environment.
 epoch = os.environ.get("SOURCE_DATE_EPOCH", "<unset>")
 for a in args:
@@ -43,6 +45,7 @@ with open(out, "w") as f:
     f.write("env_epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
     f.write("last=%s\\n" % last)
     f.write("args=%s\\n" % " ".join(args))
+    f.write("argv=%s\\n" % json.dumps(argv))
     if args[:1] == ["with-path"]:
         f.write("tree=%s\\n" % tree)
 """
@@ -294,7 +297,14 @@ class ReproBuild(unittest.TestCase):
         run = self.run_with_makeflags("-- EXTRA_CFLAGS=-DA\\ -DB V=1")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         for d in (self.a, self.b):
-            self.assertEqual(self.image(d)["args"], "EXTRA_CFLAGS=-DA -DB V=1")
+            image = self.image(d)
+            self.assertEqual(image["args"], "EXTRA_CFLAGS=-DA -DB V=1")
+            # The joined args line cannot tell "-DA -DB" in one argument
+            # from "-DA" and "-DB" in two; the JSON argv can.
+            argv = json.loads(image["argv"])
+            self.assertNotIn("-DB", argv)
+            self.assertEqual(argv, ["EXTRA_CFLAGS=-DA -DB", "V=1",
+                                    f"SOURCE_DATE_EPOCH={COMMIT_TIME}"])
 
 
 if __name__ == "__main__":

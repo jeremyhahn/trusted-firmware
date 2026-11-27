@@ -34,6 +34,7 @@ OPTEE_OVERLAY  = $(OPTEE_TFW)/overlay
 OPTEE_STAGING  = $(OPTEE_ROOT)/out-br/staging
 
 # The job count follows memory as well as CPUs: a cold cache builds Buildroot and the kernel, and the compiler is killed at the memory limit.
+# Buildroot gets the same count through BR2_JLEVEL on both `all` passes, because its default is CPUs + 1.
 OPTEE_JOB_MEM_KIB ?= 2097152
 OPTEE_CGROUP_MEM  ?= /sys/fs/cgroup/memory.max
 OPTEE_MEMINFO     ?= /proc/meminfo
@@ -122,9 +123,9 @@ endef
 ## optee-qemu: build the pinned OP-TEE stack for QEMU virt (v8): TF-A, OP-TEE OS, Linux, Buildroot with xtest, and QEMU, the TA and tfw-ta-check in its root filesystem
 optee-qemu: optee-tools
 	@mkdir -p $(OPTEE_OVERLAY)
-	@$(OPTEE_MAKE) -j$(OPTEE_JOBS) all
+	@$(OPTEE_MAKE) BR2_JLEVEL=$(OPTEE_JOBS) -j$(OPTEE_JOBS) all
 	$(optee-tfw-build)
-	@$(OPTEE_MAKE) -j$(OPTEE_JOBS) all
+	@$(OPTEE_MAKE) BR2_JLEVEL=$(OPTEE_JOBS) -j$(OPTEE_JOBS) all
 	@ln -sf ../../out-br/images/rootfs.cpio.gz $(OPTEE_ROOT)/out/bin/rootfs.cpio.gz
 	@touch $(OPTEE_BUILT)
 	@echo "optee-qemu: OP-TEE $(OPTEE_RELEASE) is built in $(OPTEE_ROOT)"

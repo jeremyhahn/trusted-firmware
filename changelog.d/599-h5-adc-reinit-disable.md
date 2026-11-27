@@ -8,4 +8,6 @@
   (ADSTP), disables the ADC (ADDIS, ADEN reading 0) before it touches the
   clock, the regulator or the calibration, as ST's
   `HAL_ADCEx_Calibration_Start` does, and answers `TFW_ERR_TIMEOUT` if the
-  ADC will not disable.
+  ADC will not disable. A conversion that will not stop also answers
+  `TFW_ERR_TIMEOUT`, before any ADDIS, and leaves the regulator and the
+  common clock as they were.

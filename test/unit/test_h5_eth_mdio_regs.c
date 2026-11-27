@@ -13,6 +13,7 @@
  * run them.
  */
 #include <stdint.h>
+#include <string.h>
 
 #include "unity.h"
 #include "soc_regs.h"
@@ -178,6 +179,50 @@ void test_init_puts_the_rmii_pins_on_af11(void)
                             regfile_model_peek(TFW_H5_RCC_BASE + 0x8Cu));
 }
 
+/* tfw_h5_eth_probe, the ETH_PROBE build's boot line (hal_uart.c
+ * eth_probe_line): the init, then the scan through the register driver. */
+void test_the_probe_line_names_the_phy_the_register_driver_reads(void)
+{
+    static const char want[] = "eth: phy addr=0 id=7804:7804 link=up\r\n";
+    const uint32_t mac_clocks = (0x1u << 19) | (0x1u << 20) | (0x1u << 21);
+    char buf[48];
+
+    reply = 0x7804u;   /* BMSR link set; neither 0x0000 nor 0xFFFF */
+    TEST_ASSERT_EQUAL_size_t(strlen(want), tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING(want, buf);
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, regfile_model_peek(SBS_PMCR) & (0x7u << 21));
+    TEST_ASSERT_EQUAL_HEX32(mac_clocks, regfile_model_peek(AHB1ENR) & mac_clocks);
+}
+
+void test_the_probe_line_says_none_when_every_address_reads_ffff(void)
+{
+    static const char want[] = "eth: phy none\r\n";
+    char buf[48];
+
+    reply = 0xFFFFu;
+    TEST_ASSERT_EQUAL_size_t(strlen(want), tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING(want, buf);
+}
+
+void test_the_probe_line_says_none_on_a_hung_mdio(void)
+{
+    static const char want[] = "eth: phy none\r\n";
+    char buf[48];
+
+    busy_polls = NEVER;
+    reply = 0x7804u;   /* would name a PHY if a failed read were taken */
+    TEST_ASSERT_EQUAL_size_t(strlen(want), tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING(want, buf);
+}
+
+void test_the_probe_line_is_empty_when_the_buffer_is_too_small(void)
+{
+    char buf[8];
+
+    reply = 0x7804u;
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_h5_eth_probe(buf, sizeof buf));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -192,5 +237,9 @@ int main(void)
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
+    RUN_TEST(test_the_probe_line_names_the_phy_the_register_driver_reads);
+    RUN_TEST(test_the_probe_line_says_none_when_every_address_reads_ffff);
+    RUN_TEST(test_the_probe_line_says_none_on_a_hung_mdio);
+    RUN_TEST(test_the_probe_line_is_empty_when_the_buffer_is_too_small);
     return UNITY_END();
 }

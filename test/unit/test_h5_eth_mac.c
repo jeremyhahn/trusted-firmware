@@ -334,6 +334,82 @@ static void test_rx_a_dropped_frame_copies_nothing_and_rearms(void)
     TEST_ASSERT_EQUAL_HEX8(0xEEu, out[100]);
 }
 
+static void test_tx_takes_a_full_buffer_frame(void)
+{
+    static uint8_t frame[TFW_ETH_BUF_SIZE];
+
+    for (uint32_t i = 0u; i < TFW_ETH_BUF_SIZE; i++) {
+        frame[i] = (uint8_t)(i * 3u);
+    }
+    TEST_ASSERT_EQUAL_INT(0, tfw_eth_mac_tx(&m, frame, TFW_ETH_BUF_SIZE));
+    TEST_ASSERT_EQUAL_UINT32(TFW_ETH_BUF_SIZE, tx[0].des2);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DES3_OWN | TFW_ETH_DES3_FD | TFW_ETH_DES3_LD | 1536u,
+                            tx[0].des3);
+    TEST_ASSERT_EQUAL_MEMORY(frame, txbuf[0], TFW_ETH_BUF_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(addr32(&tx[1]), R(TFW_ETH_DMACTDTPR));
+}
+
+static void test_rx_takes_a_frame_exactly_the_callers_cap(void)
+{
+    uint8_t out[65];
+
+    memset(out, 0xEE, sizeof out);
+    dma_rx(0u, 64u, 0u);
+    TEST_ASSERT_EQUAL_INT(64, tfw_eth_mac_rx(&m, out, 64u));
+    TEST_ASSERT_EQUAL_MEMORY(rxbuf[0], out, 64u);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, out[64]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DES3_OWN | TFW_ETH_DES3_IOC | TFW_ETH_DES3_BUF1V,
+                            rx[0].des3);
+    TEST_ASSERT_EQUAL_UINT32(1u, m.rx_ix);
+}
+
+static void test_rx_takes_a_full_buffer_frame(void)
+{
+    static uint8_t out[TFW_ETH_BUF_SIZE + 64u];
+
+    memset(out, 0xEE, sizeof out);
+    dma_rx(0u, TFW_ETH_BUF_SIZE, 0u);
+    TEST_ASSERT_EQUAL_INT(1536, tfw_eth_mac_rx(&m, out, sizeof out));
+    TEST_ASSERT_EQUAL_MEMORY(rxbuf[0], out, TFW_ETH_BUF_SIZE);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, out[TFW_ETH_BUF_SIZE]);
+}
+
+static void test_rx_drops_a_split_frames_later_descriptors(void)
+{
+    static uint8_t out[TFW_ETH_BUF_SIZE];
+    static const uint32_t clear[] = {
+        TFW_ETH_DES3_FD,                    /* the last descriptor */
+        TFW_ETH_DES3_FD | TFW_ETH_DES3_LD,  /* a middle descriptor */
+    };
+
+    memset(out, 0xEE, sizeof out);
+    for (uint32_t i = 0u; i < sizeof clear / sizeof clear[0]; i++) {
+        dma_rx(i, 60u, 0u);
+        rx[i].des3 &= ~clear[i];
+        rx[i].des0 = 0u;                    /* the write-back */
+        TEST_ASSERT_EQUAL_INT(-1, tfw_eth_mac_rx(&m, out, sizeof out));
+        for (size_t k = 0u; k < sizeof out; k++) {
+            TEST_ASSERT_EQUAL_HEX8(0xEEu, out[k]);
+        }
+        TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DES3_OWN | TFW_ETH_DES3_IOC | TFW_ETH_DES3_BUF1V,
+                                rx[i].des3);
+        TEST_ASSERT_EQUAL_HEX32(addr32(rxbuf[i]), rx[i].des0);
+        TEST_ASSERT_EQUAL_HEX32(addr32(&rx[i]), R(TFW_ETH_DMACRDTPR));
+        TEST_ASSERT_EQUAL_UINT32(i + 1u, m.rx_ix);
+    }
+}
+
+static void test_init_takes_only_speed_and_duplex_from_its_argument(void)
+{
+    tfw_eth_mac_init(&m, mac_addr, 0xFFFFFFFFu);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_MACCR_FES | TFW_ETH_MACCR_DM |
+                            TFW_ETH_MACCR_ACS | TFW_ETH_MACCR_CST,
+                            R(TFW_ETH_MACCR));
+
+    tfw_eth_mac_init(&m, mac_addr, ~(TFW_ETH_MACCR_FES | TFW_ETH_MACCR_DM));
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_MACCR_ACS | TFW_ETH_MACCR_CST, R(TFW_ETH_MACCR));
+}
+
 static void test_phy_speed_decode(void)
 {
     uint32_t cr = 0u;
@@ -370,6 +446,11 @@ int main(void)
     RUN_TEST(test_rx_copies_rearms_and_wraps);
     RUN_TEST(test_rx_drops_errors_splits_and_overlong);
     RUN_TEST(test_rx_a_dropped_frame_copies_nothing_and_rearms);
+    RUN_TEST(test_tx_takes_a_full_buffer_frame);
+    RUN_TEST(test_rx_takes_a_frame_exactly_the_callers_cap);
+    RUN_TEST(test_rx_takes_a_full_buffer_frame);
+    RUN_TEST(test_rx_drops_a_split_frames_later_descriptors);
+    RUN_TEST(test_init_takes_only_speed_and_duplex_from_its_argument);
     RUN_TEST(test_phy_speed_decode);
     return UNITY_END();
 }

@@ -356,6 +356,40 @@ static void test_a_read_across_the_spans_end_fills_only_the_callers_bytes(void)
     }
 }
 
+static void test_a_read_inside_the_window_fills_only_the_callers_bytes(void)
+{
+    /* Window bytes 0x13A-0x13D, from setUp's (i * 7 + 1). */
+    static const uint8_t want[4] = { 0x97u, 0x9Eu, 0xA5u, 0xACu };
+    uint8_t back[8];
+    size_t i;
+
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 6u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+    for (i = 4u; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x5Au, back[i]);
+    }
+}
+
+static void test_the_confirm_request_reads_back_and_no_byte_past_it(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+    uint8_t back[96];
+    size_t i;
+
+    memset(req, 0xC3, sizeof req);
+    memcpy(shadow + PLAT_OFF + TFW_BOOT_CONFIRM_ADDR, req, sizeof req);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_read(TFW_BOOT_CONFIRM_ADDR, back, sizeof req));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, back, sizeof req);
+    for (i = sizeof req; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x5Au, back[i]);
+    }
+}
+
 static void test_data_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
@@ -542,6 +576,8 @@ int main(void)
     RUN_TEST(test_a_confirm_request_of_the_wrong_length_is_range_and_stores_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
+    RUN_TEST(test_a_read_inside_the_window_fills_only_the_callers_bytes);
+    RUN_TEST(test_the_confirm_request_reads_back_and_no_byte_past_it);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
     RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);

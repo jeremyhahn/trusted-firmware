@@ -25,13 +25,23 @@ FAKE_MAKE = f"""#!{sys.executable}
 import os, sys
 tree = sys.argv[sys.argv.index("-C") + 1]
 args = sys.argv[sys.argv.index("--no-print-directory") + 1:]
+# As in make, the last command-line assignment beats the environment.
+epoch = os.environ.get("SOURCE_DATE_EPOCH", "<unset>")
+for a in args:
+    if a.startswith("SOURCE_DATE_EPOCH="):
+        epoch = a.split("=", 1)[1]
+last = args[-1] if args else ""
+if last.startswith("SOURCE_DATE_EPOCH="):
+    args = args[:-1]
 files = sorted(os.path.relpath(os.path.join(d, f), tree)
                for d, _, fs in os.walk(tree) for f in fs)
 out = os.path.join(tree, {IMAGE!r})
 os.makedirs(os.path.dirname(out), exist_ok=True)
 with open(out, "w") as f:
     f.write("files=%s\\n" % ",".join(files))
-    f.write("epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
+    f.write("epoch=%s\\n" % epoch)
+    f.write("env_epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
+    f.write("last=%s\\n" % last)
     f.write("args=%s\\n" % " ".join(args))
     if args[:1] == ["with-path"]:
         f.write("tree=%s\\n" % tree)
@@ -242,6 +252,24 @@ class ReproBuild(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         for d in (self.a, self.b):
             self.assertEqual(self.image(d)["args"], "BOARD=a BOARD=b")
+
+    # A command-line variable beats the environment in make: the commit epoch
+    # must be the last SOURCE_DATE_EPOCH assignment each build's make gets.
+    def assert_commit_epoch_is_pinned_last(self, run):
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            image = self.image(d)
+            self.assertEqual(image["epoch"], COMMIT_TIME)
+            self.assertEqual(image["env_epoch"], COMMIT_TIME)
+            self.assertEqual(image["last"], f"SOURCE_DATE_EPOCH={COMMIT_TIME}")
+        self.assertIn(f"SOURCE_DATE_EPOCH={COMMIT_TIME}", run.stdout)
+
+    def test_a_forwarded_source_date_epoch_does_not_replace_the_commit_time(self):
+        self.assert_commit_epoch_is_pinned_last(
+            self.run_with_makeflags("-- SOURCE_DATE_EPOCH=1", "fw.hex"))
+
+    def test_an_explicit_source_date_epoch_does_not_replace_the_commit_time(self):
+        self.assert_commit_epoch_is_pinned_last(self.run_script("SOURCE_DATE_EPOCH=1"))
 
     def test_a_forwarded_absolute_build_dir_is_refused(self):
         out = os.path.join(self.tmp.name, "shared-build")

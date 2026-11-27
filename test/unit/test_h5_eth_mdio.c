@@ -181,6 +181,61 @@ static void test_boot_line_fits_exactly_or_not_at_all(void)
     TEST_ASSERT_EQUAL_CHAR('x', buf[0]);
 }
 
+static void test_scan_skips_a_phy_whose_id_read_fails_either_half(void)
+{
+    tfw_phy_probe_t p = { 0xFFu, 0u, 0u, 0xFFu };
+
+    put_phy(3u, 0x0007u, 0xC131u, 1, 0);
+    put_phy(7u, 0x2000u, 0x5C90u, 0, 0);
+    fail_at_addr = 3;
+    fail_reg = TFW_PHY_REG_PHYID2;
+    TEST_ASSERT_EQUAL_INT(0, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_UINT8(7u, p.addr);
+    TEST_ASSERT_EQUAL_HEX16(0x2000u, p.id1);
+    TEST_ASSERT_EQUAL_HEX16(0x5C90u, p.id2);
+    /* 0-6: two ID reads each (3's PHYID2 fails); 7: two ID reads, two BMSR */
+    TEST_ASSERT_EQUAL_INT(18, reads);
+
+    p.addr = 0xFFu;
+    p.id1 = 0u;
+    p.id2 = 0u;
+    p.link_up = 0xFFu;
+    reads = 0;
+    fail_reg = TFW_PHY_REG_PHYID1;
+    TEST_ASSERT_EQUAL_INT(0, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_UINT8(7u, p.addr);
+    TEST_ASSERT_EQUAL_HEX16(0x2000u, p.id1);
+    TEST_ASSERT_EQUAL_HEX16(0x5C90u, p.id2);
+    /* 3 stops after its failed PHYID1: PHYID2 is never read */
+    TEST_ASSERT_EQUAL_INT(17, reads);
+}
+
+static void test_boot_line_address_9_is_one_digit_and_10_is_two(void)
+{
+    char buf[48];
+    tfw_phy_probe_t p = { 9u, 0x0007u, 0xC131u, 1u };
+
+    TEST_ASSERT_EQUAL_size_t(38u, tfw_phy_format(&p, buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=9 id=0007:C131 link=up\r\n", buf);
+    p.addr = 10u;
+    TEST_ASSERT_EQUAL_size_t(39u, tfw_phy_format(&p, buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=10 id=0007:C131 link=up\r\n", buf);
+}
+
+static void test_boot_line_spells_all_sixteen_hex_digits(void)
+{
+    char buf[48];
+    tfw_phy_probe_t p = { 0u, 0x0123u, 0x4567u, 0u };
+
+    TEST_ASSERT_EQUAL_size_t(40u, tfw_phy_format(&p, buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=0 id=0123:4567 link=down\r\n", buf);
+    p.id1 = 0x89ABu;
+    p.id2 = 0xCDEFu;
+    p.link_up = 1u;
+    TEST_ASSERT_EQUAL_size_t(38u, tfw_phy_format(&p, buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=0 id=89AB:CDEF link=up\r\n", buf);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -194,5 +249,8 @@ int main(void)
     RUN_TEST(test_boot_line);
     RUN_TEST(test_scan_with_a_failed_bmsr_read_keeps_the_phy_and_reports_link_down);
     RUN_TEST(test_boot_line_fits_exactly_or_not_at_all);
+    RUN_TEST(test_scan_skips_a_phy_whose_id_read_fails_either_half);
+    RUN_TEST(test_boot_line_address_9_is_one_digit_and_10_is_two);
+    RUN_TEST(test_boot_line_spells_all_sixteen_hex_digits);
     return UNITY_END();
 }

@@ -268,6 +268,34 @@ static void test_a_refused_start_leaves_a_sounding_tone_as_it_was(void)
     TEST_ASSERT_EQUAL_HEX32(0u, peek(A_CR1) & 1u);
 }
 
+/* TIM3_CH2 is PB5 alone: pin number 5 on any other bank (PA5, PC5) is
+ * refused before a register is touched, so no other bank's pin is driven as
+ * AF2 while the answer says the tone sounds. */
+static void test_the_tone_bit_on_another_bank_is_refused_untouched(void)
+{
+    static const tfw_pinref_t pa5 = { .port = 0u, .bit = 5u };
+    static const tfw_pinref_t pc5 = { .port = 2u, .bit = 5u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&pa5, 1000u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&pc5, 1000u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    TEST_ASSERT_EQUAL_UINT(0u, running);
+}
+
+static void test_the_tone_bit_on_another_bank_leaves_a_sounding_tone_as_it_was(void)
+{
+    static const tfw_pinref_t pa5 = { .port = 0u, .bit = 5u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    n_log = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_hal_tone_start(&pa5, 440u));
+    TEST_ASSERT_EQUAL(0u, n_log);
+    TEST_ASSERT_EQUAL_HEX32(31999u, peek(A_ARR));      /* still the old tone */
+    TEST_ASSERT_EQUAL_HEX32(1u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL_UINT(1u, running);
+}
+
 /* 0 Hz is stop whatever the pin: asked on another pin it still silences a
  * sounding tone rather than refusing the pin and leaving it sounding. */
 static void test_zero_hz_on_any_pin_stops_a_sounding_tone(void)
@@ -296,6 +324,8 @@ int main(void)
     RUN_TEST(test_a_zero_hz_stop_hands_the_pin_back_too);
     RUN_TEST(test_a_rate_the_timer_cannot_reach_is_refused_untouched);
     RUN_TEST(test_a_refused_start_leaves_a_sounding_tone_as_it_was);
+    RUN_TEST(test_the_tone_bit_on_another_bank_is_refused_untouched);
+    RUN_TEST(test_the_tone_bit_on_another_bank_leaves_a_sounding_tone_as_it_was);
     RUN_TEST(test_zero_hz_on_any_pin_stops_a_sounding_tone);
     return UNITY_END();
 }

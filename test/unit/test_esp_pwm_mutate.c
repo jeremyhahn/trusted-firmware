@@ -351,6 +351,68 @@ static void test_release_clears_the_pin(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(64));
 }
 
+/* A speed mode outside the timer record is LEDC's to refuse: the write
+ * configures its timer every time and never indexes timer_up past its end,
+ * with the timer in range or out of it. */
+static void test_a_speed_mode_outside_the_record_configures_its_timer_every_write(void)
+{
+    static const tfw_pwmref_t rows[] = {
+        { 1u, 4u, 0u, (uint8_t)LEDC_SPEED_MODE_MAX },
+        { 1u, 4u, (uint8_t)LEDC_TIMER_MAX, (uint8_t)LEDC_SPEED_MODE_MAX },
+    };
+    unsigned i, w;
+
+    for (i = 0u; i < 2u; i++) {
+        for (w = 0u; w < 2u; w++) {
+            n_timer = n_chan = 0u;
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&rows[i], 9u));
+            TEST_ASSERT_EQUAL_UINT(1u, n_timer);
+            TEST_ASSERT_EQUAL_UINT(1u, n_chan);
+            TEST_ASSERT_EQUAL(LEDC_SPEED_MODE_MAX, timer_seen.speed_mode);
+            TEST_ASSERT_EQUAL((ledc_timer_t)rows[i].timer, timer_seen.timer_num);
+            TEST_ASSERT_EQUAL(LEDC_SPEED_MODE_MAX, chan_seen.speed_mode);
+        }
+    }
+    tfw_esp_pwm_release(4);
+}
+
+/* Pin 63 is the bitmap's last bit: a write marks it, drives reports it and
+ * release clears it, and its neighbour stays clear. */
+static void test_the_last_pin_of_the_bitmap_is_marked_reported_and_released(void)
+{
+    const tfw_pwmref_t p = { 1u, 63u, 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+    tfw_esp_pwm_release(62);
+    tfw_esp_pwm_release(63);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_pwm_drives(63));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(62));
+    tfw_esp_pwm_release(63);
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(63));
+}
+
+/* Pins 64 and 255 lie past the bitmap: the channel is LEDC's to refuse, and
+ * the bitmap marks nothing. A shift by 64 or 255 masked to six bits on x86
+ * would set bit 0 or bit 63, so those two are asserted clear. */
+static void test_a_pin_past_the_bitmap_marks_nothing(void)
+{
+    static const uint8_t pins[] = { 64u, 255u };
+    unsigned i;
+
+    tfw_esp_pwm_release(0);
+    tfw_esp_pwm_release(63);
+    for (i = 0u; i < 2u; i++) {
+        const tfw_pwmref_t p = { 1u, pins[i], 0u, (uint8_t)LEDC_LOW_SPEED_MODE };
+
+        n_chan = 0u;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&p, 9u));
+        TEST_ASSERT_EQUAL_UINT(1u, n_chan);
+        TEST_ASSERT_EQUAL_INT(pins[i], chan_seen.gpio_num);
+    }
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(0));
+    TEST_ASSERT_EQUAL_INT(0, tfw_esp_pwm_drives(63));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -370,5 +432,8 @@ int main(void)
     RUN_TEST(test_a_write_takes_its_pin_from_the_tone);
     RUN_TEST(test_a_failed_write_leaves_the_tone_alone);
     RUN_TEST(test_release_clears_the_pin);
+    RUN_TEST(test_a_speed_mode_outside_the_record_configures_its_timer_every_write);
+    RUN_TEST(test_the_last_pin_of_the_bitmap_is_marked_reported_and_released);
+    RUN_TEST(test_a_pin_past_the_bitmap_marks_nothing);
     return UNITY_END();
 }

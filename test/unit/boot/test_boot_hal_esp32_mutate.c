@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "unity.h"
@@ -235,6 +236,36 @@ static void fill(uint32_t addr, uint32_t len)
         flash.bytes[addr + i] = (uint8_t)(addr + i * 7u + 1u);
     }
 }
+
+/* xorshift32 with a fixed seed per fuzz test, so a failure reproduces. */
+#define FUZZ_SEED 0x4891u
+static uint32_t rng;
+
+static uint32_t rnd(void)
+{
+    rng ^= rng << 13;
+    rng ^= rng >> 17;
+    rng ^= rng << 5;
+    return rng;
+}
+
+/* One data entry at index i, its label copied for exactly 16 bytes, so a
+ * 16-character label carries no NUL. */
+static void put_entry(int i, uint16_t magic, const char *label16, uint32_t offset, uint32_t size)
+{
+    esp_partition_info_t e;
+    size_t               n = strlen(label16);
+
+    memset(&e, 0, sizeof e);
+    e.magic      = magic;
+    e.type       = 1u;                  /* data */
+    e.pos.offset = offset;
+    e.pos.size   = size;
+    memcpy(e.label, label16, n < sizeof e.label ? n : sizeof e.label);
+    memcpy(&flash.bytes[ESP_PARTITION_TABLE_OFFSET + (uint32_t)i * sizeof e], &e, sizeof e);
+}
+
+static uint8_t shadow[FLASH_SIZE];   /* what flash must hold after each write */
 
 void setUp(void)
 {
@@ -608,6 +639,184 @@ static void test_a_failed_auth_read_is_internal(void)
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_l0_auth_read(rec));
 }
 
+/* The walk as find_partition must do it: entries in order, the first without
+ * magic ends the table, the first whose 16 label bytes are the wanted label
+ * padded with NULs is the partition. */
+static int ref_find(int n, const char *label, uint32_t *offset, uint32_t *size)
+{
+    esp_partition_info_t e;
+    uint8_t              want[sizeof e.label];
+    int                  i;
+
+    memset(want, 0, sizeof want);
+    memcpy(want, label, strlen(label));
+    for (i = 0; i < n; i++) {
+        memcpy(&e, &flash.bytes[ESP_PARTITION_TABLE_OFFSET + (uint32_t)i * sizeof e], sizeof e);
+        if (e.magic != ESP_PARTITION_MAGIC) {
+            return 0;
+        }
+        if (memcmp(e.label, want, sizeof want) == 0) {
+            *offset = e.pos.offset;
+            *size   = e.pos.size;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void test_seeded_random_partition_tables_match_a_reference_walk(void)
+{
+    static const char *const labels[] = { "tfw_plat", "tfw_auth", "tfw_pla", "tfw_plat_old",
+                                          "tfw_auth0", "nvs", "tfw_platXXXXXXXX" };
+    const uint32_t sizes[] = { 0x40u, TFW_BOOT_AUTH_LEN - 1u, TFW_BOOT_AUTH_LEN, 0x100u,
+                               0x1000u, 0x2000u, 0u };
+    char     msg[96];
+    uint8_t  buf[256];
+    uint8_t  rec[TFW_BOOT_AUTH_LEN];
+    uint32_t off;
+    uint32_t size;
+    int      round;
+
+    rng = FUZZ_SEED;
+    for (round = 0; round < 3000; round++) {
+        int      n = (int)(rnd() % 97u);
+        int      i;
+        int      calls_made = 0;
+        uint16_t addr;
+        uint8_t  len;
+
+        setUp();
+        for (i = 0; i < n; i++) {
+            uint32_t o = 0x9000u + rnd() % (FLASH_SIZE - 0x9000u);
+            uint32_t s = sizes[rnd() % (sizeof sizes / sizeof sizes[0])];
+
+            if (s == 0u) {
+                s = rnd() % FLASH_SIZE;
+            }
+            if (o + s > FLASH_SIZE) {
+                s = FLASH_SIZE - o;
+            }
+            put_entry(i, ESP_PARTITION_MAGIC, labels[rnd() % (sizeof labels / sizeof labels[0])], o, s);
+        }
+        if (n > 0 && rnd() % 8u == 0u) {
+            uint16_t bad = (rnd() & 1u) != 0u ? 0xFFFFu : 0x50ABu;  /* erased, or one bit off */
+
+            i = (int)(rnd() % (uint32_t)n);
+            memcpy(&flash.bytes[ESP_PARTITION_TABLE_OFFSET + (uint32_t)i * sizeof(esp_partition_info_t)],
+                   &bad, sizeof bad);   /* magic is the entry's first field */
+        }
+        fill(0x9000u, FLASH_SIZE - 0x9000u);
+        snprintf(msg, sizeof msg, "round %d n %d seed 0x%X", round, n, FUZZ_SEED);
+
+        /* The platform-block read. */
+        len  = (uint8_t)(rnd() % 256u);
+        addr = (uint16_t)(rnd() & 0xFFFFu);
+        off = size = 0u;
+        if (ref_find(n, "tfw_plat", &off, &size) && rnd() % 4u == 0u && size >= len) {
+            uint32_t a = size - len + (rnd() & 1u);
+
+            if (a <= 0xFFFFu) {
+                addr = (uint16_t)a;
+            }
+        }
+        memset(buf, 0x5Au, sizeof buf);
+        calls_made++;
+        if (!ref_find(n, "tfw_plat", &off, &size)) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_UNSUPPORTED, tfw_boot_nvm_read(addr, buf, len), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads, msg);
+        } else if ((uint32_t)addr + len > size) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_RANGE, tfw_boot_nvm_read(addr, buf, len), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads, msg);
+        } else {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_boot_nvm_read(addr, buf, len), msg);
+            if (len > 0u) {
+                TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(&flash.bytes[off + addr], buf, len, msg);
+            }
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads_plain, msg);
+        }
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maps, unmaps, msg);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(calls_made, maps, msg);
+
+        /* The activate-authorization read. */
+        reads = reads_plain = reads_decrypt = 0;
+        calls_made++;
+        if (!ref_find(n, "tfw_auth", &off, &size)) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_AUTH_REQUIRED, tfw_l0_auth_read(rec), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads, msg);
+        } else if (size < TFW_BOOT_AUTH_LEN) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_RANGE, tfw_l0_auth_read(rec), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads, msg);
+        } else {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_l0_auth_read(rec), msg);
+            TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(&flash.bytes[off], rec, TFW_BOOT_AUTH_LEN, msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads_decrypt, msg);
+        }
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maps, unmaps, msg);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(calls_made, maps, msg);
+    }
+}
+
+static void test_seeded_random_platform_writes_match_a_shadow(void)
+{
+    const uint32_t sizes[] = { 0x40u, 0x100u, 0xFFFu, 0x1000u, 0x2000u };
+    char     msg[96];
+    uint8_t  data[256];
+    int      round;
+    int      i;
+
+    rng = FUZZ_SEED;
+    setUp();
+    add_partition("nvs", 0x9000u, 0x4000u);
+    add_partition("tfw_plat", PLAT_OFF, 0x2000u);
+    fill(PLAT_OFF, 0x2000u);
+    memcpy(shadow, flash.bytes, FLASH_SIZE);
+    for (round = 0; round < 2000; round++) {
+        uint32_t size = sizes[rnd() % (sizeof sizes / sizeof sizes[0])];
+        uint32_t a    = 0u;
+        uint8_t  len  = (uint8_t)(rnd() % 256u);
+        int      e0   = erases;
+        int      w0   = writes;
+        int      pick = -1;
+
+        put_entry(1, ESP_PARTITION_MAGIC, "tfw_plat", PLAT_OFF, size);
+        memcpy(&shadow[ESP_PARTITION_TABLE_OFFSET], &flash.bytes[ESP_PARTITION_TABLE_OFFSET],
+               2u * sizeof(esp_partition_info_t));
+        if (rnd() % 4u == 0u) {
+            pick = (int)(rnd() % 4u);
+            switch (pick) {
+            case 0: a = size - len; pick = size >= len ? 0 : -1; break;
+            case 1: a = SECTOR - len; break;
+            case 2: a = size - len + 1u; pick = size >= len ? 2 : -1; break;
+            default: a = SECTOR - len + 1u; break;
+            }
+        }
+        if (pick < 0) {
+            a = rnd() % 0x1100u;
+        }
+        for (i = 0; i < len; i++) {
+            data[i] = (uint8_t)rnd();
+        }
+        snprintf(msg, sizeof msg, "round %d size 0x%X addr 0x%X len %u seed 0x%X", round,
+                 (unsigned)size, (unsigned)a, (unsigned)len, FUZZ_SEED);
+        if (a + len > size || a + len > SECTOR) {
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_RANGE, tfw_boot_nvm_write((uint16_t)a, data, len), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(e0, erases, msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(w0, writes, msg);
+        } else {
+            erased_sector = written_at = 0;
+            TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_boot_nvm_write((uint16_t)a, data, len), msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(e0 + 1, erases, msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(w0 + 1, writes, msg);
+            TEST_ASSERT_EQUAL_UINT_MESSAGE(PLAT_OFF / SECTOR, erased_sector, msg);
+            TEST_ASSERT_EQUAL_UINT_MESSAGE(PLAT_OFF, written_at, msg);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(0, reads_plain, msg);
+            memcpy(&shadow[PLAT_OFF + a], data, len);
+        }
+        TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(shadow, flash.bytes, FLASH_SIZE, msg);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maps, unmaps, msg);
+    }
+}
+
 /* ---- l0_gate.c over this HAL ------------------------------------------ */
 
 /* The gate reads its trailer through tfw_boot_flash_read, after the image at
@@ -829,6 +1038,8 @@ int main(void)
     RUN_TEST(test_auth_read_without_the_partition_needs_authorization);
     RUN_TEST(test_auth_read_of_a_partition_smaller_than_a_record);
     RUN_TEST(test_a_failed_auth_read_is_internal);
+    RUN_TEST(test_seeded_random_partition_tables_match_a_reference_walk);
+    RUN_TEST(test_seeded_random_platform_writes_match_a_shadow);
     RUN_TEST(test_the_gate_reads_its_trailer_through_this_hal);
     RUN_TEST(test_an_erased_auth_record_authorizes_nothing);
     RUN_TEST(test_uart_rx_reports_a_waiting_byte);

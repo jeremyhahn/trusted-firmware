@@ -362,14 +362,18 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_60(self):
+    def test_header_names_v1_62(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.60 (customized)\n")
+            self.assertEqual(f.readline(),
+                             "# ci-template: v1.62 pool overflow + v1.61 main-push group on v1.60 (customized)\n")
 
     def test_main_group_is_per_event(self):
+        # v1.61: a push to main gets its own group per commit, so a later push
+        # never cancels an earlier main run; other main events stay per event.
         group = load(CI)["concurrency"]["group"]
+        self.assertIn("github.ref == 'refs/heads/main' && github.event_name == 'push' && format('main-push-{0}', github.sha) ||", group)
         self.assertIn("github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) ||", group)
-        self.assertNotIn("github.sha", group)
+        self.assertEqual(group.count("github.sha"), 1)
         self.assertEqual(load(CI)["concurrency"]["cancel-in-progress"], "true")
 
 

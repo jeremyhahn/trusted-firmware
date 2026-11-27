@@ -5,7 +5,7 @@
 
 ARG GO_IMAGE
 ARG BASE_IMAGE=debian:trixie-slim
-ARG BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+ARG BASE_DIGEST=sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 # espressif/idf:v5.5.5, by the digest of its multi-architecture index.
 ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5
 ARG ESP_IDF_DIGEST=sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2

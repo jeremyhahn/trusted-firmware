@@ -336,6 +336,72 @@ static void test_an_overrun_is_cleared_by_the_service_routine(void)
     TEST_ASSERT_EQUAL_HEX32(0x1u << 3, TFW_H5_USART_ICR);   /* ORECF */
 }
 
+/* ORE alone carries no byte: the routine clears it and queues nothing. */
+static void test_an_overrun_alone_queues_nothing(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_ORE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+}
+
+/* TXE is always set on an idle USART; the routine sends only while the
+ * driver has TXEIE on, so a TXE it did not ask for leaves the ring alone. */
+static void test_txe_with_txeie_clear_sends_nothing(void)
+{
+    init_115200();
+    TFW_H5_USART_ISR = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    TFW_H5_USART_CR1 &= ~TFW_H5_USART_CR1_TXEIE;
+    TFW_H5_USART_TDR = 0u;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());   /* 0xA5 still queued */
+}
+
+/* A second init takes the new rate, stores CR1 whole (so a TXEIE a tx_try
+ * set is gone) and empties both rings. */
+static void test_reinit_empties_both_rings_and_drops_txeie(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_ISR = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(2u));
+    rx_push(0x77u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(9600u));
+    TEST_ASSERT_EQUAL_HEX32(tfw_h5_usart_brr(64000000u, 9600u), TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE |
+                            TFW_H5_USART_CR1_TE | TFW_H5_USART_CR1_RXNEIE,
+                            TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+/* AFRH and MODER are read-modify-write: PA8 and PA11, set before init, keep
+ * their mode and alternate function. */
+static void test_the_console_pins_keep_pa8_and_pa11(void)
+{
+    TFW_H5_GPIO_MODER(GPIOA) = (1u << 16) | (2u << 22);
+    TFW_H5_GPIO_AFRH(GPIOA)  = 5u | (3u << 12);
+    init_115200();
+    TEST_ASSERT_EQUAL_UINT32(1u, mode_of(8u));
+    TEST_ASSERT_EQUAL_UINT32(2u, mode_of(11u));
+    TEST_ASSERT_EQUAL_UINT32(5u, af_of(8u));
+    TEST_ASSERT_EQUAL_UINT32(3u, af_of(11u));
+    TEST_ASSERT_EQUAL_UINT32(7u, af_of(9u));
+    TEST_ASSERT_EQUAL_UINT32(7u, af_of(10u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(9u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(10u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -359,5 +425,9 @@ int main(void)
     RUN_TEST(test_the_rx_ring_takes_bytes_again_once_read_and_wraps);
     RUN_TEST(test_an_overrun_beside_a_byte_takes_the_byte_and_clears_ore);
     RUN_TEST(test_an_overrun_is_cleared_by_the_service_routine);
+    RUN_TEST(test_an_overrun_alone_queues_nothing);
+    RUN_TEST(test_txe_with_txeie_clear_sends_nothing);
+    RUN_TEST(test_reinit_empties_both_rings_and_drops_txeie);
+    RUN_TEST(test_the_console_pins_keep_pa8_and_pa11);
     return UNITY_END();
 }

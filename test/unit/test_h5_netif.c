@@ -271,8 +271,16 @@ void tfw_h5_wire_dial_poll(void)
 static unsigned bound_says;
 static char bound_line[48];
 static unsigned phy_none_says, mac_reset_says;
+static unsigned unprov_says, rng_failed_says;
+
 void tfw_h5_wire_say(const char *s)
 {
+    if (strcmp(s, "eth: not provisioned\r\n") == 0) {
+        unprov_says++;
+    }
+    if (strcmp(s, "eth: rng failed\r\n") == 0) {
+        rng_failed_says++;
+    }
     if (strcmp(s, "eth: phy none\r\n") == 0) {
         phy_none_says++;
     }
@@ -1266,6 +1274,42 @@ static void test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(retry_after_failed_rng));
 }
 
+/* --- a failed bring-up says its line once, not on every retry ------------ */
+
+static void unprov_said_once(void)
+{
+    eeprom_fails = 1u;                                  /* no block at all */
+    link_up_flag = 1u;
+    run_for(3500u);                                     /* four bring-up tries */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, unprov_says);
+    TEST_ASSERT_EQUAL_UINT(0u, rng_failed_says);
+}
+
+static void test_the_console_says_not_provisioned_once_over_the_retries(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unprov_said_once));
+}
+
+static void rng_failed_said_once(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x46u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(3500u);                                     /* four bring-up tries */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+    TEST_ASSERT_EQUAL_UINT(0u, unprov_says);
+}
+
+static void test_the_console_says_rng_failed_once_over_the_retries(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(rng_failed_said_once));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1417,6 +1461,8 @@ int main(void)
     RUN_TEST(test_a_running_link_with_a_latched_low_first_read_stays_up);
     RUN_TEST(test_a_missing_block_is_read_again_rng_retry_ms_after_the_failed_load);
     RUN_TEST(test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it);
+    RUN_TEST(test_the_console_says_not_provisioned_once_over_the_retries);
+    RUN_TEST(test_the_console_says_rng_failed_once_over_the_retries);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

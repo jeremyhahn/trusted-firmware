@@ -395,6 +395,49 @@ static void test_an_overrun_alone_queues_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
 }
 
+/* An overrun on a full RX ring drops the new byte, but ORE must still be
+ * cleared: left set, the interrupt stays raised and the routine never ends. */
+static void test_an_overrun_on_a_full_rx_ring_clears_ore_and_keeps_the_queued_bytes(void)
+{
+    uint8_t b = 0u;
+
+    init_115200();
+    for (uint32_t i = 0u; i < RX_RING_ROOM; i++) {
+        rx_push((uint8_t)i);
+    }
+    TFW_H5_USART_ICR = 0u;
+    TFW_H5_USART_RDR = 0xEEu;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0x1u << 3, TFW_H5_USART_ICR);   /* ORECF */
+    for (uint32_t i = 0u; i < RX_RING_ROOM; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)i, b);
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));   /* 0xEE was dropped */
+}
+
+/* An overrun beside TXE clears ORE and still serves the TX ring. */
+static void test_an_overrun_beside_txe_clears_ore_and_sends_the_next_byte(void)
+{
+    const uint32_t on = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE |
+                        TFW_H5_USART_CR1_TE | TFW_H5_USART_CR1_RXNEIE;
+    uint8_t b = 0u;
+
+    init_115200();
+    TFW_H5_USART_ISR = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
+    TFW_H5_USART_TDR = 0u;
+    TFW_H5_USART_ICR = 0u;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_ORE | TFW_H5_USART_ISR_TXE;
+    tfw_cm_irq58();
+    TEST_ASSERT_EQUAL_HEX32(0x1u << 3, TFW_H5_USART_ICR);   /* ORECF */
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(on | TFW_H5_USART_CR1_TXEIE, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));   /* no RXNE: RDR not taken */
+}
+
 /* TXE is always set on an idle USART; the routine sends only while the
  * driver has TXEIE on, so a TXE it did not ask for leaves the ring alone. */
 static void test_txe_with_txeie_clear_sends_nothing(void)
@@ -509,6 +552,8 @@ int main(void)
     RUN_TEST(test_an_overrun_beside_a_byte_takes_the_byte_and_clears_ore);
     RUN_TEST(test_an_overrun_is_cleared_by_the_service_routine);
     RUN_TEST(test_an_overrun_alone_queues_nothing);
+    RUN_TEST(test_an_overrun_on_a_full_rx_ring_clears_ore_and_keeps_the_queued_bytes);
+    RUN_TEST(test_an_overrun_beside_txe_clears_ore_and_sends_the_next_byte);
     RUN_TEST(test_txe_with_txeie_clear_sends_nothing);
     RUN_TEST(test_reinit_empties_both_rings_and_drops_txeie);
     RUN_TEST(test_the_console_pins_keep_pa8_and_pa11);

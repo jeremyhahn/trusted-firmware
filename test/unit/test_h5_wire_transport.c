@@ -251,6 +251,69 @@ static void test_a_stalled_tcp_frame_holds_until_the_idle_timeout(void)
     TEST_ASSERT_FALSE(answered(2u));
 }
 
+/* A UART frame in progress reads only the UART: a whole TCP request waits
+ * off it, even while the UART's next byte is late, and is answered once the
+ * UART frame completes. */
+static void test_a_uart_frame_in_progress_holds_tcp_until_it_completes(void)
+{
+    uint8_t  uart[TFW_MAX_FRAME];
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t ulen = tfw_frame_encode_request(uart, sizeof uart, 7u, TFW_CMD_CAPS, 0, 0u);
+    uint16_t len  = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, ulen);
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_h5_wire_open();
+    tfw_mock_feed_rx(uart, 3u);
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(t.in_frame);
+    TEST_ASSERT_EQUAL_UINT16(len, tfw_h5_wire_push(wire, len));
+
+    tfw_mock_advance(200u);
+    for (unsigned k = 0u; k < 16u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_EQUAL_UINT(0u, sent_len);
+    TEST_ASSERT_TRUE(t.in_frame);
+
+    tfw_mock_feed_rx(uart + 3u, (size_t)(ulen - 3u));
+    for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(uart_answered(7u));
+    TEST_ASSERT_TRUE(answered(2u));
+}
+
+/* With requests waiting on both wires the link takes one frame from each in
+ * turn, so neither wire starves the other. */
+static void test_requests_waiting_on_both_wires_take_turns(void)
+{
+    uint8_t  w2[TFW_MAX_FRAME];
+    uint8_t  w3[TFW_MAX_FRAME];
+    uint16_t l2 = tfw_frame_encode_request(w2, sizeof w2, 2u, TFW_CMD_CAPS, 0, 0u);
+    uint16_t l3 = tfw_frame_encode_request(w3, sizeof w3, 3u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, l2);
+    TEST_ASSERT_NOT_EQUAL(0u, l3);
+    tfw_h5_wire_open();
+    feed_uart_request(7u);
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(uart_answered(7u));
+
+    feed_uart_request(8u);
+    TEST_ASSERT_EQUAL_UINT16(l2, tfw_h5_wire_push(w2, l2));
+    TEST_ASSERT_EQUAL_UINT16(l3, tfw_h5_wire_push(w3, l3));
+
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(answered(2u));
+    TEST_ASSERT_FALSE(uart_answered(8u));
+    sent_len = 0u;
+    tfw_framer_init(&rxf);
+
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(uart_answered(8u));
+    TEST_ASSERT_EQUAL_UINT(0u, sent_len);
+
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(answered(3u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -261,5 +324,7 @@ int main(void)
     RUN_TEST(test_tcp_noise_does_not_hold_off_a_uart_request);
     RUN_TEST(test_a_tcp_frame_in_progress_holds_until_it_completes);
     RUN_TEST(test_a_stalled_tcp_frame_holds_until_the_idle_timeout);
+    RUN_TEST(test_a_uart_frame_in_progress_holds_tcp_until_it_completes);
+    RUN_TEST(test_requests_waiting_on_both_wires_take_turns);
     return UNITY_END();
 }

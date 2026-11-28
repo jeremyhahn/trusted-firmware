@@ -1310,6 +1310,60 @@ static void test_the_console_says_rng_failed_once_over_the_retries(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(rng_failed_said_once));
 }
 
+/* --- the not-provisioned line re-arms after a load; the rng line does not */
+
+static void unprov_said_again_after_a_load(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x47u };
+
+    eeprom_fails = 1u;                                  /* no block at all */
+    link_up_flag = 1u;
+    run_for(500u);                                      /* try 1: no block */
+    put_block(0u, mac);
+    eeprom_fails = 0u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(1000u);                                     /* try 2: loads, draw fails */
+    eeprom_fails = 1u;
+    run_for(1000u);                                     /* try 3: no block again */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(2u, unprov_says);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+}
+
+static void test_not_provisioned_is_said_again_after_a_block_that_loaded(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unprov_said_again_after_a_load));
+}
+
+static void rng_failed_not_said_again_after_a_missing_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x48u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(500u);                                      /* try 1: draw fails */
+    eeprom_fails = 1u;
+    run_for(1000u);                                     /* try 2: no block */
+    eeprom_fails = 0u;
+    run_for(1000u);                                     /* try 3: draw fails again */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+    TEST_ASSERT_EQUAL_UINT(1u, unprov_says);
+    good_seed();
+    run_for(1000u);                                     /* try 4: comes up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, netif_default->hwaddr, 6);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);        /* try 3 loaded and drew */
+}
+
+static void test_rng_failed_is_not_said_again_after_a_missing_block(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(rng_failed_not_said_again_after_a_missing_block));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1463,6 +1517,8 @@ int main(void)
     RUN_TEST(test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it);
     RUN_TEST(test_the_console_says_not_provisioned_once_over_the_retries);
     RUN_TEST(test_the_console_says_rng_failed_once_over_the_retries);
+    RUN_TEST(test_not_provisioned_is_said_again_after_a_block_that_loaded);
+    RUN_TEST(test_rng_failed_is_not_said_again_after_a_missing_block);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

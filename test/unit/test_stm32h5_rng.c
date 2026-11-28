@@ -245,6 +245,35 @@ test_a_second_seed_error_after_a_read_is_reported_not_recovered_again(void)
                             regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_RNGEN);
 }
 
+static void
+test_a_flag_still_latched_at_the_recovery_poll_is_cleared_again(void)
+{
+    uint32_t out = OUT0;
+
+    /* CEIS: recovery 1 clears it; its poll still reads CEIS latched (the
+     * error itself gone), so the flag is cleared a second time. */
+    script(CEIS | DRDY, CEIS | DRDY, DRDY);
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    TEST_ASSERT_EQUAL_UINT32(2u, sr_nwrites);
+    TEST_ASSERT_EQUAL_HEX32(0u, sr_writes[0] & (CEIS | SEIS));
+    TEST_ASSERT_EQUAL_HEX32(0u, sr_writes[1] & (CEIS | SEIS));
+    TEST_ASSERT_EQUAL_HEX32(DRDY, sr_writes[1] & DRDY);
+}
+
+static void
+test_a_word_not_ready_yet_is_waited_for_not_taken(void)
+{
+    uint32_t out = OUT0;
+
+    script(0u, 0u, DRDY);
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    TEST_ASSERT_EQUAL_UINT32(0u, sr_nwrites);
+    /* RNG_SR reads: init, 0, 0, DRDY, and the one after the DR read. */
+    TEST_ASSERT_EQUAL_UINT32(5u, sr_seq);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -257,5 +286,7 @@ int main(void)
     RUN_TEST(test_a_clock_error_after_the_read_keeps_the_word);
     RUN_TEST(test_a_seed_error_after_the_read_once_an_error_was_recovered_is_reported);
     RUN_TEST(test_a_second_seed_error_after_a_read_is_reported_not_recovered_again);
+    RUN_TEST(test_a_flag_still_latched_at_the_recovery_poll_is_cleared_again);
+    RUN_TEST(test_a_word_not_ready_yet_is_waited_for_not_taken);
     return UNITY_END();
 }

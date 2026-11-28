@@ -397,6 +397,35 @@ static void test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_th
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
 }
 
+static void test_a_read_at_address_0_returns_the_windows_first_bytes(void)
+{
+    static const uint8_t mark = 0x6Du;
+    static const uint8_t want[8] = { 0x01u, 0x08u, 0x0Fu, 0x16u,
+                                     0x5Au, 0x5Au, 0x5Au, 0x5Au };
+    uint8_t back[8];
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+}
+
+static void test_a_255_byte_read_from_address_0_returns_255_window_bytes(void)
+{
+    static const uint8_t mark = 0x6Du;
+    uint8_t back[256];
+    unsigned i;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 255u));
+    for (i = 0u; i < 255u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(i * 7u + 1u), back[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0xF3u, back[254]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, back[255]);
+}
+
 static void test_the_confirm_request_reads_back_and_no_byte_past_it(void)
 {
     uint8_t req[TFW_BOOT_CONFIRM_LEN];
@@ -642,6 +671,8 @@ int main(void)
     RUN_TEST(test_a_read_inside_the_window_fills_only_the_callers_bytes);
     RUN_TEST(test_a_read_of_the_windows_last_byte_comes_from_the_window);
     RUN_TEST(test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_the_sector);
+    RUN_TEST(test_a_read_at_address_0_returns_the_windows_first_bytes);
+    RUN_TEST(test_a_255_byte_read_from_address_0_returns_255_window_bytes);
     RUN_TEST(test_the_confirm_request_reads_back_and_no_byte_past_it);
     RUN_TEST(test_a_zero_length_read_is_ok_and_fills_no_byte);
     RUN_TEST(test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash);

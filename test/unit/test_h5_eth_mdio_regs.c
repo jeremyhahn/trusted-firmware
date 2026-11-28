@@ -171,6 +171,59 @@ void test_init_enables_the_mac_clocks_and_keeps_the_others(void)
                             regfile_model_peek(AHB1ENR));
 }
 
+/*
+ * note_each_access looks at the register file before every access init
+ * makes. With MACMDIOAR.MB poked set, the model captures a "command" at the
+ * next register access and calls on_capture; clearing captured at the end
+ * re-arms it, so the hook runs before each access in turn. Init never reads
+ * MACMDIOAR, so MB stays set and nothing else in the model changes. It
+ * counts accesses made with a MAC clock on before RMII is selected, and
+ * accesses made with RMII in SBS_PMCR while the SBS clock is still off.
+ */
+static uint32_t accesses, clocks_before_rmii, pmcr_before_sbsen;
+
+static void note_each_access(void)
+{
+    uint32_t pmcr = *regfile_model_reg(SBS_PMCR) & (0x7u << 21);
+    uint32_t ahb1 = *regfile_model_reg(AHB1ENR);
+    uint32_t apb3 = *regfile_model_reg(TFW_H5_RCC_BASE + 0xA8u);
+
+    accesses++;
+    if ((ahb1 & ((0x1u << 19) | (0x1u << 20) | (0x1u << 21))) != 0u && pmcr != (0x4u << 21)) {
+        clocks_before_rmii++;
+    }
+    if (pmcr == (0x4u << 21) && (apb3 & (0x1u << 1)) == 0u) {
+        pmcr_before_sbsen++;
+    }
+    captured = 0u;
+}
+
+void test_init_selects_rmii_before_it_turns_the_mac_clocks_on(void)
+{
+    accesses = 0u;
+    clocks_before_rmii = 0u;
+    regfile_model_poke(MACMDIOAR, MB);
+    on_capture = note_each_access;
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_TRUE(accesses > 0u);
+    TEST_ASSERT_EQUAL_UINT32(0u, clocks_before_rmii);
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, regfile_model_peek(SBS_PMCR) & (0x7u << 21));
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 19) | (0x1u << 20) | (0x1u << 21),
+                            regfile_model_peek(AHB1ENR));
+}
+
+void test_init_turns_the_sbs_clock_on_before_it_writes_pmcr(void)
+{
+    accesses = 0u;
+    pmcr_before_sbsen = 0u;
+    regfile_model_poke(MACMDIOAR, MB);
+    on_capture = note_each_access;
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_TRUE(accesses > 0u);
+    TEST_ASSERT_EQUAL_UINT32(0u, pmcr_before_sbsen);
+    TEST_ASSERT_EQUAL_HEX32(0x1u << 1, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u));
+}
+
 static const uint8_t rmii_pins[][2] = {
     {0u, 1u}, {0u, 2u}, {0u, 7u},       /* PA1 REF_CLK, PA2 MDIO, PA7 CRS_DV */
     {2u, 1u}, {2u, 4u}, {2u, 5u},       /* PC1 MDC, PC4 RXD0, PC5 RXD1 */
@@ -276,6 +329,8 @@ int main(void)
     RUN_TEST(test_a_command_that_never_ends_fails_the_write);
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);
+    RUN_TEST(test_init_selects_rmii_before_it_turns_the_mac_clocks_on);
+    RUN_TEST(test_init_turns_the_sbs_clock_on_before_it_writes_pmcr);
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
     RUN_TEST(test_the_probe_line_names_the_phy_the_register_driver_reads);
     RUN_TEST(test_the_probe_line_says_none_when_every_address_reads_ffff);

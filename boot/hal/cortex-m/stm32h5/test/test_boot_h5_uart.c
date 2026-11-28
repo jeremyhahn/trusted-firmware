@@ -363,6 +363,35 @@ static void test_tx_writes_tdr_with_te_set_and_ue_clear(void)
     TEST_ASSERT_EQUAL_HEX32(0x8u, TFW_H5_USART_CR1);
 }
 
+/* An idle transmitter reads TXE and TC together: tx tests the TXE bit alone,
+ * not the whole register, and leaves CR1 as init set it. */
+static void test_tx_writes_tdr_with_the_idle_flags_set(void)
+{
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_HEX32(0x5Au, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0xDu, TFW_H5_USART_CR1);
+}
+
+/* A host typing while tfw-boot prints sets RXNE (and ORE) mid-transmit: tx
+ * still sends, reads no RDR and clears no flag, leaving both for rx. */
+static void test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ICR = 0u;
+    tfw_boot_uart_tx(0xC3u);
+    TEST_ASSERT_EQUAL_HEX32(0xC3u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -388,5 +417,7 @@ int main(void)
     RUN_TEST(test_off_leaves_a_receive_only_usart_alone);
     RUN_TEST(test_off_tears_down_a_usart_with_te_set_and_ue_clear);
     RUN_TEST(test_tx_writes_tdr_with_te_set_and_ue_clear);
+    RUN_TEST(test_tx_writes_tdr_with_the_idle_flags_set);
+    RUN_TEST(test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx);
     return UNITY_END();
 }

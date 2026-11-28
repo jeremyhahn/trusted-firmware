@@ -464,6 +464,39 @@ static void test_a_write_across_two_sectors_rewrites_both(void)
     assert_settled();
 }
 
+static void test_a_programmed_quad_word_the_write_repeats_is_not_programmed_again(void)
+{
+    uint8_t page[32];
+
+    fill(page, sizeof page, 11u);
+    seed(0x8000u, page, QWORD);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0x8000u, page, sizeof page));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.keys);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_UINT(1u, hw.programs);
+    TEST_ASSERT_EQUAL_MEMORY(page, MEM + 0x8000u, sizeof page);
+    assert_settled();
+}
+
+static void test_a_rewrite_erases_its_own_sector_over_a_stale_sector_field(void)
+{
+    static uint8_t old[SECTOR];
+    uint8_t now[QWORD];
+
+    /* left by an earlier erase: bank 2, sector 127 */
+    regs[CR] = CR_LOCK | CR_BKSEL | (0x7Fu << 6);
+    fill(old, sizeof old, 9u);
+    fill(now, sizeof now, 60u);
+    seed(0x8000u, old, sizeof old);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0x8000u, now, sizeof now));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, hw.erased);
+    TEST_ASSERT_EQUAL_MEMORY(now, MEM + 0x8000u, sizeof now);
+    TEST_ASSERT_EQUAL_MEMORY(old + QWORD, MEM + 0x8010u, SECTOR - QWORD);
+    TEST_ASSERT_TRUE(blank(MEM + 0x1FE000u, SECTOR));
+    assert_settled();
+}
+
 /* ------------------------------------------------------------------ errors */
 
 static void test_a_write_past_bank_2_is_out_of_range(void)
@@ -639,6 +672,8 @@ int main(void)
     RUN_TEST(test_the_model_counts_stores_outside_the_mask);
     RUN_TEST(test_a_sector_in_bank_2_is_erased_through_bksel);
     RUN_TEST(test_a_write_across_two_sectors_rewrites_both);
+    RUN_TEST(test_a_programmed_quad_word_the_write_repeats_is_not_programmed_again);
+    RUN_TEST(test_a_rewrite_erases_its_own_sector_over_a_stale_sector_field);
     RUN_TEST(test_a_write_past_bank_2_is_out_of_range);
     RUN_TEST(test_a_write_ending_at_the_last_byte_is_programmed);
     RUN_TEST(test_the_last_sector_of_bank_2_is_erased_through_bksel);

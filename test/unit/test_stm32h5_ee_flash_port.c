@@ -180,6 +180,36 @@ static void test_irq_restore_issues_a_dsb_before_the_mask(void)
     TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs_at_restore);
 }
 
+/* RM0481 FLASH_NSSR: BSY is bit 0, WBNE bit 1, DBNE bit 3 (bit 2 is
+ * reserved). The values are written here as literals, not through
+ * soc_regs.h, so a moved bit fails. */
+static void test_the_wait_holds_on_rm0481_bits_0_1_and_3(void)
+{
+    static const uint32_t bit[3] = { 0x00000001u, 0x00000002u, 0x00000008u };
+
+    TEST_ASSERT_EQUAL_HEX32(0x0000000Bu, SR_HOLD);
+    for (unsigned i = 0u; i < 3u; i++) {
+        setUp();
+        sr_regs[NSSR] = bit[i];
+        bsy_at = 3u;
+        wbne_at = 3u;
+        dbne_at = 3u;
+        tfw_h5_flash_wait(&model);
+        TEST_ASSERT_EQUAL_UINT(3u, polls);
+        TEST_ASSERT_EQUAL_HEX32(0u, sr_regs[NSSR]);
+    }
+}
+
+/* Every bit but 0, 1 and 3 set, reserved bit 2 among them: the wait leaves
+ * on its first poll and touches none of them. */
+static void test_every_bit_but_0_1_and_3_leaves_the_wait_at_once(void)
+{
+    sr_regs[NSSR] = 0xFFFFFFF4u;
+    tfw_h5_flash_wait(&model);
+    TEST_ASSERT_EQUAL_UINT(1u, polls);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFF4u, sr_regs[NSSR]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -192,5 +222,7 @@ int main(void)
     RUN_TEST(test_irq_save_masks_and_returns_the_mask_it_found);
     RUN_TEST(test_irq_restore_restores_the_saved_mask);
     RUN_TEST(test_irq_restore_issues_a_dsb_before_the_mask);
+    RUN_TEST(test_the_wait_holds_on_rm0481_bits_0_1_and_3);
+    RUN_TEST(test_every_bit_but_0_1_and_3_leaves_the_wait_at_once);
     return UNITY_END();
 }

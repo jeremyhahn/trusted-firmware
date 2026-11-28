@@ -356,6 +356,132 @@ static void test_a_read_across_the_spans_end_fills_only_the_callers_bytes(void)
     }
 }
 
+static void test_a_read_inside_the_window_fills_only_the_callers_bytes(void)
+{
+    /* Window bytes 0x13A-0x13D, from setUp's (i * 7 + 1). */
+    static const uint8_t want[4] = { 0x97u, 0x9Eu, 0xA5u, 0xACu };
+    uint8_t back[8];
+    size_t i;
+
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 6u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+    for (i = 4u; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x5Au, back[i]);
+    }
+}
+
+static void test_a_read_of_the_windows_last_byte_comes_from_the_window(void)
+{
+    static const uint8_t mark = 0x6Du;
+    uint8_t b = 0u;
+
+    /* A sector byte that differs from erased, so a read wrongly taken
+     * from the sector cannot pass by matching 0xFF. */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 1u, &b, 1u));
+    /* Window byte 0x13F, from setUp's (i * 7 + 1). */
+    TEST_ASSERT_EQUAL_HEX8(0xBAu, b);
+    TEST_ASSERT_EQUAL_HEX8(MEM[PLAT_OFF + USER_LO - 1u], b);
+}
+
+static void test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_the_sector(void)
+{
+    static const uint8_t mark = 0x6Du;
+    static const uint8_t want[4] = { 0xBAu, 0x6Du, 0x5Au, 0x5Au };
+    uint8_t back[4];
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO - 1u, back, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+}
+
+static void test_a_read_at_address_0_returns_the_windows_first_bytes(void)
+{
+    static const uint8_t mark = 0x6Du;
+    static const uint8_t want[8] = { 0x01u, 0x08u, 0x0Fu, 0x16u,
+                                     0x5Au, 0x5Au, 0x5Au, 0x5Au };
+    uint8_t back[8];
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, back, sizeof want);
+}
+
+static void test_a_255_byte_read_from_address_0_returns_255_window_bytes(void)
+{
+    static const uint8_t mark = 0x6Du;
+    uint8_t back[256];
+    unsigned i;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, &mark, 1u));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 255u));
+    for (i = 0u; i < 255u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(i * 7u + 1u), back[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0xF3u, back[254]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, back[255]);
+}
+
+static void test_the_confirm_request_reads_back_and_no_byte_past_it(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+    uint8_t back[96];
+    size_t i;
+
+    memset(req, 0xC3, sizeof req);
+    memcpy(shadow + PLAT_OFF + TFW_BOOT_CONFIRM_ADDR, req, sizeof req);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    memset(back, 0x5A, sizeof back);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_read(TFW_BOOT_CONFIRM_ADDR, back, sizeof req));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, back, sizeof req);
+    for (i = sizeof req; i < sizeof back; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x5Au, back[i]);
+    }
+}
+
+/* A zero-length read is in range at any address up to and including the
+ * end and copies nothing; one past the end is still out of range. */
+static void test_a_zero_length_read_is_ok_and_fills_no_byte(void)
+{
+    uint8_t back[4];
+    uint8_t want[4];
+
+    memset(back, 0xA5, sizeof back);
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(0u, back, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO, back, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, back, 0u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, 4);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_read((uint16_t)(TFW_EEPROM_SIZE + 1u), back, 0u));
+    TEST_ASSERT_EQUAL_MEMORY(want, back, 4);
+}
+
+/* A zero-length write past tfw-boot's span is TFW_OK and runs no flash
+ * operation; one into the platform window, or one past the end, is still
+ * TFW_ERR_RANGE. */
+static void test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash(void)
+{
+    static const uint8_t data[1] = { 0x00u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_hal_eeprom_write(0u, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE + 1u), data, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.masked_saves);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
 static void test_data_that_does_not_read_back_is_internal(void)
 {
     static const uint8_t data[4] = { 0x10u, 0x20u, 0x30u, 0x40u };
@@ -542,6 +668,14 @@ int main(void)
     RUN_TEST(test_a_confirm_request_of_the_wrong_length_is_range_and_stores_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_across_the_spans_end_fills_only_the_callers_bytes);
+    RUN_TEST(test_a_read_inside_the_window_fills_only_the_callers_bytes);
+    RUN_TEST(test_a_read_of_the_windows_last_byte_comes_from_the_window);
+    RUN_TEST(test_a_read_from_the_windows_last_byte_takes_one_window_byte_then_the_sector);
+    RUN_TEST(test_a_read_at_address_0_returns_the_windows_first_bytes);
+    RUN_TEST(test_a_255_byte_read_from_address_0_returns_255_window_bytes);
+    RUN_TEST(test_the_confirm_request_reads_back_and_no_byte_past_it);
+    RUN_TEST(test_a_zero_length_read_is_ok_and_fills_no_byte);
+    RUN_TEST(test_a_zero_length_write_past_the_span_is_ok_and_touches_no_flash);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_locked_interface_is_protected_region_and_writes_nothing);
     RUN_TEST(test_a_write_protect_error_is_protected_region_not_internal);

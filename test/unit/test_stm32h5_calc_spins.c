@@ -101,6 +101,26 @@ static void test_the_pwm_prescaler_rounds_under_a_half_divider_down(void)
     TEST_ASSERT_EQUAL_UINT16(249u, tfw_h5_pwm_psc(63877499u));
 }
 
+static void test_a_pwm_channel_turned_on_keeps_every_other_ccer_bit(void)
+{
+    /* Channel 1 on: CC1P cleared, CC1E set, CC1NE/CC1NP, channels 2-4 kept. */
+    TEST_ASSERT_EQUAL_HEX32(0xFFFDu, tfw_h5_pwm_ccer(0xFFFFu, 1u, 1u));
+    /* Channel 3 on: bits 9:8 become 01, every other bit kept. */
+    TEST_ASSERT_EQUAL_HEX32(0xFDFFu, tfw_h5_pwm_ccer(0xFFFFu, 3u, 1u));
+    /* Channel 4 on (bit 12): channels 1 and 2, already on, stay on. */
+    TEST_ASSERT_EQUAL_HEX32(0x1011u, tfw_h5_pwm_ccer(0x0011u, 4u, 1u));
+}
+
+static void test_a_pwm_channel_past_4_wraps_inside_ccer(void)
+{
+    /* Channel 5 is channel 1's nibble: CC1E, bit 0. */
+    TEST_ASSERT_EQUAL_HEX32(0x0001u, tfw_h5_pwm_ccer(0u, 5u, 1u));
+    /* Channel 5 off clears only bits 1:0. */
+    TEST_ASSERT_EQUAL_HEX32(0xFFFCu, tfw_h5_pwm_ccer(0xFFFFu, 5u, 0u));
+    /* Channel 8 is channel 4's nibble: CC4E, bit 12. */
+    TEST_ASSERT_EQUAL_HEX32(0x1000u, tfw_h5_pwm_ccer(0u, 8u, 1u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -112,5 +132,7 @@ int main(void)
     RUN_TEST(test_a_pwm_channel_turned_off_clears_its_enable_and_polarity_only);
     RUN_TEST(test_the_pwm_prescaler_rounds_a_half_divider_up);
     RUN_TEST(test_the_pwm_prescaler_rounds_under_a_half_divider_down);
+    RUN_TEST(test_a_pwm_channel_turned_on_keeps_every_other_ccer_bit);
+    RUN_TEST(test_a_pwm_channel_past_4_wraps_inside_ccer);
     return UNITY_END();
 }

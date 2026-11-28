@@ -6,7 +6,9 @@
 reports any other label as an unknown runner. These tests hold every plain-text label to that
 allowlist with the standard library alone (no actionlint binary, no PyYAML), so `make scripts-test`
 catches a misspelled self-hosted label on any host; `make lint-actionlint` checks the same in the
-toolchain image. The tests read the allowlist and every `runs-on:` key, bare or quoted (scalar,
+toolchain image. The tests read the allowlist and every job's `runs-on:` key, `jobs.<job>.runs-on`
+only (a `runs-on` action input under `with:` or a `workflow_call` input is no runner), bare or
+quoted (scalar,
 list, or group/labels mapping, a flow list or mapping on one line or across several, and a scalar
 or flow value on the line after an empty `runs-on:` or `labels:` key; a flow `labels:` or
 next-line value may also span lines; a key may have spaces before its colon, `runs-on : codex`; a
@@ -25,8 +27,9 @@ escapes and `[^...]`, none of which a runner label uses. A label with a `${{ }}`
 anywhere in it is skipped, as actionlint skips it: its value is known only when the workflow runs.
 A comma or bracket inside a quoted label or a `${{ }}` expression neither splits nor closes a flow
 list or mapping, so `"${{ format('runner-{0}', matrix.arch) }}"` is one (skipped) label.
-A job written as a flow mapping (`jobs: {build: {runs-on: x}}`) is not parsed: its `runs-on` key
-fails the test as the label `<runs-on in a flow mapping>`.
+A `jobs:` value or job written as a flow mapping (`jobs: {build: {runs-on: x}}`) is not parsed:
+its `runs-on` key fails the test as the label `<runs-on in a flow mapping>`; a flow mapping under
+a step, `with:`, `env:` or `on:` is not a job.
 """
 
 import fnmatch
@@ -645,8 +648,63 @@ def _read_quoted(lines, i, col, node):
     return " ".join(r.strip() for r in rows if r.strip()), last
 
 
+def _job_keys(lines, skip):
+    """Return (keys, flows) for the `jobs:` mapping at column 0 in lines,
+    outside multi-line scalar content (skip, see _scalar_lines): keys holds
+    the indexes of the lines of the direct keys of each job,
+    `jobs.<job>.<key>`, by indent as the file writes them (each job key one
+    level deeper than `jobs:`, its keys the next level); flows holds the
+    indexes of the `jobs:` line and the job-key lines whose value is a flow
+    mapping with a `runs-on` key in it (see _flow_runs_on), read to where
+    the flow closes. A flow value's continuation lines are not keys."""
+    keys, flows = set(), set()
+    in_jobs, job_indent, key_indent, last = False, None, None, -1
+    for i, line in enumerate(lines):
+        if i <= last or i in skip:
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent, entry = _indent(line), ENTRY.match(line)
+        if indent == 0:
+            in_jobs = bool(entry) and entry.group(2) == "jobs"
+            job_indent = key_indent = None
+        elif not in_jobs:
+            continue
+        elif job_indent is None or indent == job_indent:
+            job_indent, key_indent = indent, None
+        elif indent < job_indent:
+            in_jobs = False
+            continue
+        elif key_indent is None or indent == key_indent:
+            key_indent = indent
+            if entry:
+                keys.add(i)
+                node = _node(entry.group(3) or "")
+                if node.startswith(("[", "{")):
+                    value, end = _flow(lines, i, node)
+                    if value is not None:
+                        last = end
+            continue
+        else:
+            continue
+        if not in_jobs or not entry:
+            continue
+        # The `jobs:` line or a job-key line: its value may be a flow.
+        node = _node(entry.group(3) or "")
+        if node.startswith("{"):
+            value, last = _flow(lines, i, node)
+            if value is None:
+                value, last = node, i
+            if _flow_runs_on(value):
+                flows.add(i)
+    return keys, flows
+
+
 def plain_labels(text):
-    """Yield (lineno, label) for each plain-text label of each `runs-on:` key.
+    """Yield (lineno, label) for each plain-text label of each job's `runs-on:`
+    key. Only a direct key of a job, `jobs.<job>.runs-on`, is read (see
+    _job_keys): a `runs-on` key under a step's `with:` or `env:`, under
+    `on.workflow_call.inputs` or anywhere else is not a runner.
 
     The value is a scalar (`codex`), a flow list (`[self-hosted, linux]`), a
     block list on the lines after an empty `runs-on:`, or a mapping whose
@@ -681,11 +739,13 @@ def plain_labels(text):
     `"*r"`, `"&a linux"`, `"!!str linux"`, `"linux # x"` and `"'linux'"` are
     labels, not an alias, anchor, tag, comment or second quote.
 
-    A job written as a flow mapping is not parsed: a `runs-on` key, bare or
-    quoted, after a `{` or `,` on a line, outside quoted scalars, `${{ }}`
-    expressions and comments (`jobs: {build: {runs-on: x}}`), yields the
-    label `<runs-on in a flow mapping>`, which no allowlist accepts, so the
-    test fails closed on it.
+    A `jobs:` value or a job written as a flow mapping is not parsed: a
+    `runs-on` key, bare or quoted, after a `{` or `,` in that flow, outside
+    quoted scalars, `${{ }}` expressions and comments
+    (`jobs: {build: {runs-on: x}}`, `  build: {runs-on: x}`), yields the
+    label `<runs-on in a flow mapping>` at the line the flow opens on, which
+    no allowlist accepts, so the test fails closed on it. A flow mapping
+    under a step, `with:`, `env:` or `on:` is not a job.
 
     The content lines of a block scalar (`run: |`, `>-`, `|2`, anchored or
     tagged), every blank line or line deeper than its key or `-` after the
@@ -697,15 +757,16 @@ def plain_labels(text):
     lines = text.splitlines()
     skip = _scalar_lines(lines)
     anchors = _anchors(lines, skip)
+    keys, flows = _job_keys(lines, skip)
     # The last line of a multi-line runs-on value already read.
     done = -1
     for i, line in enumerate(lines):
         if i in skip or i <= done:
             continue
-        key = RUNS_ON.match(line)
+        if i in flows:
+            yield i + 1, FLOW_RUNS_ON
+        key = RUNS_ON.match(line) if i in keys else None
         if not key:
-            if _flow_runs_on(line):
-                yield i + 1, FLOW_RUNS_ON
             continue
         col = _line_node(line)[0]
         if col is None:
@@ -1008,10 +1069,9 @@ class RunnerLabelsTest(unittest.TestCase):
             self.assertEqual(found, ["w.yml:11: qwne"], header)
         # A sibling key at the owning key's column ends the scalar.
         found = self.check(
-            "jobs:\n  build:\n    steps:\n      - run: |\n          echo\n"
-            "        shell: bash\n        runs-on: qwne\n"
+            "jobs:\n  build:\n    env: |\n      echo\n    runs-on: qwne\n"
         )
-        self.assertEqual(found, ["w.yml:7: qwne"])
+        self.assertEqual(found, ["w.yml:5: qwne"])
 
     def test_an_alias_resolves_to_its_anchor(self):
         job = "jobs:\n  build:\n    runs-on:"

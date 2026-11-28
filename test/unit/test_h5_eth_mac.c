@@ -410,6 +410,21 @@ static void test_init_takes_only_speed_and_duplex_from_its_argument(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_ETH_MACCR_ACS | TFW_ETH_MACCR_CST, R(TFW_ETH_MACCR));
 }
 
+static void test_init_sets_the_dma_bus_and_tx_burst_and_clears_skip_and_filter(void)
+{
+    R(TFW_ETH_DMASBMR) = 0xFFFFFFFFu;
+    R(TFW_ETH_DMACCR) = 0xFFFFFFFFu;
+    R(TFW_ETH_DMACTCR) = 0xFFFFFFFFu;
+    R(TFW_ETH_MACPFR) = 0xFFFFFFFFu;
+
+    tfw_eth_mac_init(&m, mac_addr, TFW_ETH_MACCR_FES | TFW_ETH_MACCR_DM);
+
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DMASBMR_FB | TFW_ETH_DMASBMR_AAL, R(TFW_ETH_DMASBMR));
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_ETH_DMACCR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_ETH_DMA_PBL32, R(TFW_ETH_DMACTCR));
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_ETH_MACPFR));
+}
+
 static void test_phy_speed_decode(void)
 {
     uint32_t cr = 0u;
@@ -451,6 +466,7 @@ int main(void)
     RUN_TEST(test_rx_takes_a_full_buffer_frame);
     RUN_TEST(test_rx_drops_a_split_frames_later_descriptors);
     RUN_TEST(test_init_takes_only_speed_and_duplex_from_its_argument);
+    RUN_TEST(test_init_sets_the_dma_bus_and_tx_burst_and_clears_skip_and_filter);
     RUN_TEST(test_phy_speed_decode);
     return UNITY_END();
 }

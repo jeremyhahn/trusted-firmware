@@ -468,6 +468,36 @@ static void test_h5_pka_timed_out_sign_that_will_not_reinit_leaves_its_ram_alone
     TEST_ASSERT_EQUAL_MEMORY(nonce, got, sizeof got);
 }
 
+/* A verify whose PKA cannot be stopped is a timeout, not the result word the
+ * still-running run left: the provider verifies in software on a timeout. */
+static void test_h5_pka_verify_on_a_pka_that_will_not_stop_is_a_timeout(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    m.busy_stuck = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_verify(BASE, digest, sig, pub));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.cr & ST_PKA_CR_EN);
+    TEST_ASSERT_EQUAL_UINT32(ST_PKA_SR_BUSY, m.sr & ST_PKA_SR_BUSY);
+    TEST_ASSERT_EQUAL(1, m.runs);
+}
+
+/* A verify whose PKA will not come back up after the abort is a timeout too. */
+static void test_h5_pka_verify_on_a_pka_that_will_not_reinit_is_a_timeout(void)
+{
+    uint8_t sig[64];
+
+    TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
+    m.hang = 1;
+    m.no_reinit = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_verify(BASE, digest, sig, pub));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & (ST_PKA_SR_BUSY | ST_PKA_SR_INITOK));
+    TEST_ASSERT_EQUAL(1, m.runs);
+}
+
 /* A RAM, address or operation error is no answer: the caller falls back. */
 static void test_h5_pka_error_flags_are_no_answer(void)
 {
@@ -750,6 +780,8 @@ int main(void)
     RUN_TEST(test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped);
     RUN_TEST(test_h5_pka_busy_that_never_clears_gets_no_ram_write);
     RUN_TEST(test_h5_pka_timed_out_sign_that_will_not_reinit_leaves_its_ram_alone);
+    RUN_TEST(test_h5_pka_verify_on_a_pka_that_will_not_stop_is_a_timeout);
+    RUN_TEST(test_h5_pka_verify_on_a_pka_that_will_not_reinit_is_a_timeout);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
     RUN_TEST(test_h5_pka_sign_error_flags_are_no_answer_and_wipe_d_and_k);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);

@@ -315,6 +315,39 @@ static void test_h5_hash_times_out_when_busy_never_clears(void)
     TEST_ASSERT_FALSE(m.computed);
 }
 
+/* BUSY is checked only once a whole 16-word block is in: a stuck core times
+ * out with the first block written, no DCAL and the output untouched. */
+static void test_h5_hash_writes_the_whole_first_block_before_a_stuck_busy_times_it_out(void)
+{
+    uint8_t data[128] = { 0 }, out[32];
+    uint32_t i;
+
+    memset(out, 0xA5, sizeof out);
+    m.stuck = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hash_sha256(BASE, data, sizeof data, out));
+    TEST_ASSERT_EQUAL_UINT32(16u, m.words);
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_POLL_LIMIT, m.busy_waits);
+    TEST_ASSERT_FALSE(m.closed);
+    TEST_ASSERT_FALSE(m.fault);
+    for (i = 0; i < sizeof out; i++)
+        TEST_ASSERT_EQUAL_HEX8(0xA5, out[i]);
+}
+
+/* A message under one block never reaches a block boundary, so it digests
+ * even though BUSY never clears: the only SR reads are the DCIS poll's. */
+static void test_h5_hash_of_a_message_under_one_block_never_waits_on_busy(void)
+{
+    uint8_t data[60];
+    uint32_t i;
+
+    for (i = 0; i < sizeof data; i++)
+        data[i] = (uint8_t)(i * 7u + 3u);
+    m.stuck = 1;
+    check_against_soft(data, sizeof data);
+    TEST_ASSERT_EQUAL_UINT32(15u, m.words);
+    TEST_ASSERT_EQUAL_UINT32(MODEL_DELAY + 1u, m.busy_waits);
+}
+
 /* Every HASH fact the driver uses equals ST's (h5_vendor_facts.h): a wrong
  * offset, bit or field value in h5_crypto_regs.h fails here even where the
  * model would not notice it. */
@@ -351,5 +384,7 @@ int main(void)
     RUN_TEST(test_h5_hash_clears_dcis_only_once_init_has_dropped_the_digest_in_flight);
     RUN_TEST(test_h5_hash_times_out_when_dcis_never_rises);
     RUN_TEST(test_h5_hash_times_out_when_busy_never_clears);
+    RUN_TEST(test_h5_hash_writes_the_whole_first_block_before_a_stuck_busy_times_it_out);
+    RUN_TEST(test_h5_hash_of_a_message_under_one_block_never_waits_on_busy);
     return UNITY_END();
 }

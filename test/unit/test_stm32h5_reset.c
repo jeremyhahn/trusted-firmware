@@ -175,6 +175,29 @@ static void test_any_nonzero_request_is_the_marker(void)
     }
 }
 
+static void test_any_nonzero_marker_makes_a_request_software(void)
+{
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_decode(SFTRSTF, 2u));
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_decode(SFTRSTF, 0x80u));
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_decode(SFTRSTF | PINRSTF, 0xFFu));
+}
+
+static void test_a_take_without_the_marker_reads_a_request_as_unknown(void)
+{
+    volatile uint32_t fake = SFTRSTF;
+
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_h5_reset_take(&fake, NOT_ASKED));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+
+    fake = SFTRSTF | PINRSTF;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_h5_reset_take(&fake, NOT_ASKED));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+
+    fake = SFTRSTF;
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_take(&fake, 2u));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -190,5 +213,7 @@ int main(void)
     RUN_TEST(test_a_take_decodes_then_writes_rmvf);
     RUN_TEST(test_a_take_without_the_marker_leaves_a_reset_request_unknown);
     RUN_TEST(test_any_nonzero_request_is_the_marker);
+    RUN_TEST(test_any_nonzero_marker_makes_a_request_software);
+    RUN_TEST(test_a_take_without_the_marker_reads_a_request_as_unknown);
     return UNITY_END();
 }

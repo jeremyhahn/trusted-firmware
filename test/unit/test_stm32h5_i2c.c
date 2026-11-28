@@ -382,6 +382,30 @@ static void test_a_refused_rate_leaves_a_running_block_as_it_was(void)
     TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);                   /* the bus still works */
 }
 
+static void test_init_keeps_the_other_clock_enables(void)
+{
+    m.apb3enr = (1u << 1) | (1u << 31);              /* SBSEN for the RMII select */
+    m.ahb2enr = (1u << 0) | (1u << 3) | (1u << 16);  /* GPIOA, GPIOD, ADC */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    done();
+    TEST_ASSERT_EQUAL_HEX32(0x80000102u, m.apb3enr);
+    TEST_ASSERT_EQUAL_HEX32(0x0001000Bu, m.ahb2enr);
+}
+
+static void test_init_keeps_gpiob_s_other_pins(void)
+{
+    m.gpio[0] = 0xFFFFFFFFu;   /* MODER: every pin analog */
+    m.gpio[1] = 0x00000080u;   /* OTYPER: PB7 open drain */
+    m.gpio[3] = 0xAAAAAAAAu;   /* PUPDR: every pin pull-down */
+    m.gpio[9] = 0xFFFFFFFFu;   /* AFRH: every pin AF15 */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    done();
+    TEST_ASSERT_EQUAL_HEX32(0xFFFAFFFFu, m.gpio[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000380u, m.gpio[1]);
+    TEST_ASSERT_EQUAL_HEX32(0xAAA5AAAAu, m.gpio[3]);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF66u, m.gpio[9]);
+}
+
 static void test_write(void)
 {
     const uint8_t wr[] = { 0x01u, 0x02u };
@@ -507,6 +531,38 @@ static void test_stop_that_never_completes_resets_the_block(void)
     TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);                         /* enabled again */
 }
 
+/* A flag that never comes is waited out: 25000 one-microsecond delays
+ * (H5_I2C_POLL_US, 25 ms) on the TXIS wait, not a bare spin. BUSY is clear
+ * before START and the STOP completes at once, so neither adds a delay. */
+static void test_a_stalled_transfer_waits_out_the_full_poll_limit(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    m.stall = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 P", m.log);
+    TEST_ASSERT_EQUAL_UINT32(25000u, m.delays);
+}
+
+/* A STOP that never completes is waited out for the full poll limit before
+ * the block is reset, so a STOP that is only slow is not cut short. */
+static void test_a_hung_stop_waits_out_the_full_poll_limit_before_the_reset(void)
+{
+    const uint8_t wr[] = { 0x01u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000uL));
+    done();
+    memset(m.log, 0, sizeof m.log);
+    m.delays = 0u;
+    m.stop_hangs = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, wr, 1u, NULL, 0u));
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P X", m.log);
+    TEST_ASSERT_EQUAL_UINT32(25000u, m.delays);
+    TEST_ASSERT_EQUAL_HEX32(CR1_PE, m.cr1);                         /* enabled again */
+}
+
 static void test_reinit_reads_pe_clear_before_enabling_again(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(400000uL));
@@ -617,6 +673,8 @@ int main(void)
     RUN_TEST(test_init_routes_i2c4_and_loads_the_timing);
     RUN_TEST(test_init_rates);
     RUN_TEST(test_a_refused_rate_leaves_a_running_block_as_it_was);
+    RUN_TEST(test_init_keeps_the_other_clock_enables);
+    RUN_TEST(test_init_keeps_gpiob_s_other_pins);
     RUN_TEST(test_write);
     RUN_TEST(test_write_then_read_is_a_repeated_start);
     RUN_TEST(test_read_only);
@@ -628,6 +686,8 @@ int main(void)
     RUN_TEST(test_busy_bus_times_out_without_a_start);
     RUN_TEST(test_stalled_transfer_times_out_and_stops);
     RUN_TEST(test_stop_that_never_completes_resets_the_block);
+    RUN_TEST(test_a_stalled_transfer_waits_out_the_full_poll_limit);
+    RUN_TEST(test_a_hung_stop_waits_out_the_full_poll_limit_before_the_reset);
     RUN_TEST(test_reinit_reads_pe_clear_before_enabling_again);
     RUN_TEST(test_a_hung_stop_reads_pe_clear_before_enabling_again);
     RUN_TEST(test_lost_arbitration_times_out_and_stops);

@@ -51,7 +51,7 @@ void setUp(void)
     captured = 0u;
     seen = 0u;
     reply = 0u;
-    on_capture = NULL;
+    on_capture = note_first_command;
     first_pmcr = 0u;
     first_ahb1 = 0u;
     first_moder_a = 0u;
@@ -108,12 +108,56 @@ void test_the_model_catches_a_write_issued_before_its_data(void)
     TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, issued_dr);
 }
 
+void test_the_model_records_the_init_state_at_the_first_command(void)
+{
+    uint16_t v = 0u;
+
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
+    TEST_ASSERT_EQUAL_UINT32(1u, commands);
+    /* no init yet: the reset state */
+    TEST_ASSERT_EQUAL_HEX32(0u, first_pmcr);
+    TEST_ASSERT_EQUAL_HEX32(0u, first_ahb1);
+
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
+    TEST_ASSERT_EQUAL_UINT32(2u, commands);
+    /* only the first command is snapshotted */
+    TEST_ASSERT_EQUAL_HEX32(0u, first_pmcr);
+    TEST_ASSERT_EQUAL_HEX32(0u, first_ahb1);
+}
+
 void test_a_phy_or_register_past_five_bits_is_masked(void)
 {
     uint16_t v = 0u;
 
     TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x21u, 0x3Fu, &v));
     TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x1Fu << 16) | GOC_READ | MB, issued);
+}
+
+void test_a_write_masks_a_phy_or_register_past_five_bits(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x21u, 0x3Fu, 0x1234u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | (0x1Fu << 16) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, issued_dr);
+}
+
+void test_a_write_after_a_read_issues_a_write_on_its_own_phy_and_register(void)
+{
+    uint16_t v = 0u;
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x1Fu, 0x1Fu, &v));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);
+}
+
+void test_a_write_after_a_write_drops_the_previous_phy_and_register(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x1Fu, 0x1Fu, 0xFFFFu));
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);
 }
 
 void test_mb_held_past_the_spin_limit_fails_a_read(void)
@@ -136,6 +180,24 @@ void test_mb_held_past_the_spin_limit_fails_a_write(void)
     TEST_ASSERT_EQUAL_INT(-1, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
     TEST_ASSERT_EQUAL_HEX32(MB, regfile_model_peek(MACMDIOAR));
     TEST_ASSERT_EQUAL_HEX32(0x0u, regfile_model_peek(MACMDIODR));
+}
+
+void test_a_write_waits_out_a_command_still_busy_then_issues_its_own(void)
+{
+    /* A read still in flight: the write must wait it out, not refuse. */
+    regfile_model_poke(MACMDIOAR, (0x1Fu << 21) | (0x1Fu << 16) | GOC_READ | MB);
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 21) | GOC_WRITE | MB, issued);
+    TEST_ASSERT_EQUAL_HEX32(0x8000u, issued_dr);
+    TEST_ASSERT_EQUAL_UINT32(6u, seen);   /* 3 on the old read, 3 on its own */
+}
+
+void test_mb_held_past_the_spin_limit_fails_a_write_after_the_full_spin(void)
+{
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIOAR, MB);
+    TEST_ASSERT_EQUAL_INT(-1, tfw_h5_eth_mdio_write(0x01u, 0x00u, 0x8000u));
+    TEST_ASSERT_EQUAL_UINT32(100000u, seen);   /* MDIO_SPIN polls */
 }
 
 void test_a_command_that_never_ends_fails_the_read(void)
@@ -163,12 +225,49 @@ void test_init_selects_rmii_and_keeps_the_rest_of_pmcr(void)
     TEST_ASSERT_EQUAL_HEX32(0x1u << 1, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u) & (0x1u << 1));
 }
 
+void test_init_keeps_the_other_apb3_clocks_on(void)
+{
+    regfile_model_poke(TFW_H5_RCC_BASE + 0xA8u, (0x1u << 8) | 0x1u);   /* I2C4EN, one other bit */
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 8) | (0x1u << 1) | 0x1u, regfile_model_peek(TFW_H5_RCC_BASE + 0xA8u));
+}
+
 void test_init_enables_the_mac_clocks_and_keeps_the_others(void)
 {
     regfile_model_poke(AHB1ENR, 0x1u);
     tfw_h5_eth_mdio_init();
     TEST_ASSERT_EQUAL_HEX32(0x1u | (0x1u << 19) | (0x1u << 20) | (0x1u << 21),
                             regfile_model_peek(AHB1ENR));
+}
+
+#define BANK(ix) (TFW_H5_GPIOA_BASE + TFW_H5_GPIO_STRIDE * (ix))
+
+void test_init_clears_a_pull_on_each_rmii_pin_and_keeps_the_others(void)
+{
+    regfile_model_poke(BANK(0u) + 0x0Cu, 0x55555555u);
+    regfile_model_poke(BANK(2u) + 0x0Cu, 0x55555555u);
+    regfile_model_poke(BANK(6u) + 0x0Cu, 0x55555555u);
+    tfw_h5_eth_mdio_init();
+    /* PA1, PA2, PA7; PC1, PC4, PC5; PG11-13 lose their pull-up */
+    TEST_ASSERT_EQUAL_HEX32(0x55551541u, regfile_model_peek(BANK(0u) + 0x0Cu));
+    TEST_ASSERT_EQUAL_HEX32(0x55555051u, regfile_model_peek(BANK(2u) + 0x0Cu));
+    TEST_ASSERT_EQUAL_HEX32(0x50155555u, regfile_model_peek(BANK(6u) + 0x0Cu));
+}
+
+void test_init_replaces_a_stale_alternate_function_and_keeps_the_others(void)
+{
+    regfile_model_poke(BANK(0u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(0u) + 0x24u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(2u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(6u) + 0x20u, 0xFFFFFFFFu);
+    regfile_model_poke(BANK(6u) + 0x24u, 0xFFFFFFFFu);
+    tfw_h5_eth_mdio_init();
+    /* AF15 on every pin; the RMII pins move to AF11, the rest keep AF15 */
+    TEST_ASSERT_EQUAL_HEX32(0xBFFFFBBFu, regfile_model_peek(BANK(0u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(BANK(0u) + 0x24u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFBBFFBFu, regfile_model_peek(BANK(2u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, regfile_model_peek(BANK(6u) + 0x20u));
+    TEST_ASSERT_EQUAL_HEX32(0xFFBBBFFFu, regfile_model_peek(BANK(6u) + 0x24u));
 }
 
 static const uint8_t rmii_pins[][2] = {
@@ -263,18 +362,95 @@ void test_the_probe_line_inits_before_its_first_mdio_command(void)
     TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_c >> 2) & 0x3u);   /* PC1 MDC */
 }
 
+/* The model answers every read with `reply`: 0x0007 is PHYID 0007:0007 and a
+ * BMSR with LINK (bit 2) set, so the PHY at address 0 answers first. */
+void test_probe_inits_and_reports_the_first_phy_that_answers(void)
+{
+    char buf[48];
+
+    reply = 0x0007u;
+    TEST_ASSERT_EQUAL_size_t(38u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy addr=0 id=0007:0007 link=up\r\n", buf);
+    /* last command: the second BMSR read at address 0 */
+    TEST_ASSERT_EQUAL_HEX32((0x01u << 16) | GOC_READ | MB, issued);
+    /* the MDIO init ran before the first command: RMII selected, MAC clocks on */
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, first_pmcr & (0x7u << 21));
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 19) | (0x1u << 20) | (0x1u << 21),
+                            first_ahb1 & ((0x1u << 19) | (0x1u << 20) | (0x1u << 21)));
+}
+
+/* An idle MDIO line reads all ones at every address. */
+void test_probe_with_no_phy_scans_all_32_addresses_and_says_none(void)
+{
+    char buf[48];
+
+    reply = 0xFFFFu;
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    /* last command: PHYID2 at address 31 */
+    TEST_ASSERT_EQUAL_HEX32((0x1Fu << 21) | (0x03u << 16) | GOC_READ | MB, issued);
+    /* the MDIO pins were on their alternate function at the first command */
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_a >> 4) & 0x3u);   /* PA2 MDIO */
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_c >> 2) & 0x3u);   /* PC1 MDC */
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, first_pmcr & (0x7u << 21));
+    /* 32 addresses x PHYID1 + PHYID2 */
+    TEST_ASSERT_EQUAL_UINT32(64u, commands);
+}
+
+/* A MAC that never clears MB: the stale MACMDIODR would read as PHYID
+ * 0007:0007 with link up, but every read times out, one spin per address. */
+void test_probe_on_a_mac_that_never_finishes_says_none(void)
+{
+    char buf[48];
+
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIODR, 0x00000007u);
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    /* only PHYID1 at address 0 was issued */
+    TEST_ASSERT_EQUAL_UINT32(1u, commands);
+    TEST_ASSERT_EQUAL_HEX32((0x02u << 16) | GOC_READ | MB, issued);
+    /* the first read's post-wait, then 31 pre-waits, MDIO_SPIN polls each */
+    TEST_ASSERT_EQUAL_UINT32(32u * 100000u, seen);
+}
+
+/* A command already in flight that never ends: the probe waits it out at
+ * every address and writes no command of its own over it. */
+void test_probe_behind_a_command_that_never_ends_issues_none_of_its_own(void)
+{
+    char buf[48];
+    const uint32_t stuck = (0x1Fu << 21) | (0x1Fu << 16) | GOC_READ | MB;
+
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIOAR, stuck);
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    TEST_ASSERT_EQUAL_HEX32(stuck, regfile_model_peek(MACMDIOAR));
+    /* one pre-wait of MDIO_SPIN polls per address */
+    TEST_ASSERT_EQUAL_UINT32(32u * 100000u, seen);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_read_names_the_phy_and_register_and_waits_on_mb);
     RUN_TEST(test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb);
     RUN_TEST(test_the_model_catches_a_write_issued_before_its_data);
+    RUN_TEST(test_the_model_records_the_init_state_at_the_first_command);
     RUN_TEST(test_a_phy_or_register_past_five_bits_is_masked);
+    RUN_TEST(test_a_write_masks_a_phy_or_register_past_five_bits);
+    RUN_TEST(test_a_write_after_a_read_issues_a_write_on_its_own_phy_and_register);
+    RUN_TEST(test_a_write_after_a_write_drops_the_previous_phy_and_register);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_read);
     RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write);
+    RUN_TEST(test_a_write_waits_out_a_command_still_busy_then_issues_its_own);
+    RUN_TEST(test_mb_held_past_the_spin_limit_fails_a_write_after_the_full_spin);
     RUN_TEST(test_a_command_that_never_ends_fails_the_read);
     RUN_TEST(test_a_command_that_never_ends_fails_the_write);
     RUN_TEST(test_init_selects_rmii_and_keeps_the_rest_of_pmcr);
+    RUN_TEST(test_init_keeps_the_other_apb3_clocks_on);
+    RUN_TEST(test_init_clears_a_pull_on_each_rmii_pin_and_keeps_the_others);
+    RUN_TEST(test_init_replaces_a_stale_alternate_function_and_keeps_the_others);
     RUN_TEST(test_init_enables_the_mac_clocks_and_keeps_the_others);
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
     RUN_TEST(test_the_probe_line_names_the_phy_the_register_driver_reads);
@@ -282,5 +458,9 @@ int main(void)
     RUN_TEST(test_the_probe_line_says_none_on_a_hung_mdio);
     RUN_TEST(test_the_probe_line_is_empty_when_the_buffer_is_too_small);
     RUN_TEST(test_the_probe_line_inits_before_its_first_mdio_command);
+    RUN_TEST(test_probe_inits_and_reports_the_first_phy_that_answers);
+    RUN_TEST(test_probe_with_no_phy_scans_all_32_addresses_and_says_none);
+    RUN_TEST(test_probe_on_a_mac_that_never_finishes_says_none);
+    RUN_TEST(test_probe_behind_a_command_that_never_ends_issues_none_of_its_own);
     return UNITY_END();
 }

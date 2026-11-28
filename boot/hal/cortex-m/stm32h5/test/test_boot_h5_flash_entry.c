@@ -195,6 +195,29 @@ static void test_the_irq_hooks_mask_and_put_back_the_found_mask(void)
     TEST_ASSERT_EQUAL_UINT(2u, stub_restores);
 }
 
+static void test_a_refused_update_is_fenced_and_its_status_returned(void)
+{
+    static const uint8_t data[16] = { 0 };
+
+    update_ret = TFW_ERR_RANGE;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(TFW_H5_FLASH_MEM + 0x1FFFF8u, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT32(1u, update_calls);
+    TEST_ASSERT_EQUAL_UINT(0u, update_dsbs);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs);
+}
+
+static void test_an_address_past_the_first_bank_reaches_the_driver_unclipped(void)
+{
+    static const uint8_t data[16] = { 0 };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(TFW_H5_FLASH_MEM + 0x1FFFF0u, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX32(0x001FFFF0u, update_off);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(0xFFFFFFF0u, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX32(0xF7FFFFF0u, update_off);
+    TEST_ASSERT_EQUAL_UINT32(2u, update_calls);
+    TEST_ASSERT_EQUAL_UINT(2u, stub_dsbs);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -205,5 +228,7 @@ int main(void)
     RUN_TEST(test_the_wait_returns_at_once_on_other_bits);
     RUN_TEST(test_the_write_issues_one_dsb_after_the_update);
     RUN_TEST(test_the_irq_hooks_mask_and_put_back_the_found_mask);
+    RUN_TEST(test_a_refused_update_is_fenced_and_its_status_returned);
+    RUN_TEST(test_an_address_past_the_first_bank_reaches_the_driver_unclipped);
     return UNITY_END();
 }

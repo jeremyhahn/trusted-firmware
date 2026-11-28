@@ -1217,6 +1217,20 @@ class RunnerLabelsTest(unittest.TestCase):
                 found = self.check(head + body + after)
                 self.assertEqual(found, [f"w.yml:{line}: qwne"])
 
+    def test_a_quote_inside_a_plain_scalar_opens_no_quoted_scalar(self):
+        head = "jobs:\n  a:\n    runs-on: ubuntu-latest\n"
+        after = "  b:\n    runs-on: qwne\n"
+        for body in (
+            '    env: {NOTE: say "hello}\n',
+            '    env: [say "hello]\n',
+            "    env: {NOTE: it is 'fine}\n",
+            '    env:\n      NOTE: say "hello\n',
+        ):
+            with self.subTest(body=body):
+                line = (head + body).count("\n") + 2
+                found = self.check(head + body + after)
+                self.assertEqual(found, [f"w.yml:{line}: qwne"])
+
     def test_a_quoted_label_is_decoded(self):
         # The YAML escape backslash, u, 0063: the letter c.
         U63 = "\\" + "u0063"

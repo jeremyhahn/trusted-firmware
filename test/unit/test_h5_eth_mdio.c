@@ -15,10 +15,14 @@ static int      link_latched_low[32];
 static int      link_now[32];
 static int      reads, fail_at_addr = -1;
 static int      fail_reg = -1;     /* with fail_at_addr: fail only this register (-1: all) */
+static int      fail_read_n = -1;  /* fail only the Nth read, counted from 1 (-1: none) */
 
 static int fake_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
     reads++;
+    if (reads == fail_read_n) {
+        return -1;
+    }
     if ((int)addr == fail_at_addr && (fail_reg < 0 || (int)reg == fail_reg)) {
         return -1;
     }
@@ -52,6 +56,7 @@ void setUp(void)
     reads = 0;
     fail_at_addr = -1;
     fail_reg = -1;
+    fail_read_n = -1;
 }
 
 void tearDown(void) { }
@@ -181,6 +186,38 @@ static void test_boot_line_fits_exactly_or_not_at_all(void)
     TEST_ASSERT_EQUAL_CHAR('x', buf[0]);
 }
 
+static void test_scan_reports_link_down_when_only_the_second_bmsr_read_fails(void)
+{
+    tfw_phy_probe_t p = { 0xFFu, 0u, 0u, 0xFFu };
+
+    put_phy(3u, 0x0007u, 0xC131u, 1, 0);    /* link up, not latched: the first BMSR read says up */
+    put_phy(8u, 0x0007u, 0xC131u, 1, 0);
+    /* 0-2: two ID reads each; 3: ID, ID, BMSR, then the failed second BMSR read */
+    fail_read_n = 3 * 2 + 4;
+    TEST_ASSERT_EQUAL_INT(0, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_UINT8(3u, p.addr);
+    TEST_ASSERT_EQUAL_HEX16(0x0007u, p.id1);
+    TEST_ASSERT_EQUAL_HEX16(0xC131u, p.id2);
+    TEST_ASSERT_EQUAL_UINT8(0u, p.link_up);
+    TEST_ASSERT_EQUAL_INT(10, reads);
+}
+
+static void test_scan_skips_addresses_that_read_all_zeros(void)
+{
+    tfw_phy_probe_t p = { 0xFFu, 0u, 0u, 0xFFu };
+
+    memset(bus, 0x00, sizeof bus);          /* MDIO held low: every register reads 0x0000 */
+    TEST_ASSERT_EQUAL_INT(-1, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_INT(64, reads);
+    TEST_ASSERT_EQUAL_UINT8(0xFFu, p.addr);
+    reads = 0;
+    put_phy(6u, 0x0007u, 0xC131u, 1, 0);
+    TEST_ASSERT_EQUAL_INT(0, tfw_phy_scan(fake_read, &p));
+    TEST_ASSERT_EQUAL_UINT8(6u, p.addr);
+    TEST_ASSERT_EQUAL_UINT8(1u, p.link_up);
+    TEST_ASSERT_EQUAL_INT(6 * 2 + 4, reads);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -194,5 +231,7 @@ int main(void)
     RUN_TEST(test_boot_line);
     RUN_TEST(test_scan_with_a_failed_bmsr_read_keeps_the_phy_and_reports_link_down);
     RUN_TEST(test_boot_line_fits_exactly_or_not_at_all);
+    RUN_TEST(test_scan_reports_link_down_when_only_the_second_bmsr_read_fails);
+    RUN_TEST(test_scan_skips_addresses_that_read_all_zeros);
     return UNITY_END();
 }

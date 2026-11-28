@@ -156,7 +156,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_mps2_pwm.c test/unit/test_mps2_tone.c test/unit/test_mps2_onewire.c test/unit/test_mps2_gpio_line.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c test/unit/test_stm32h5_eeprom.c test/unit/test_mcxn94x_eeprom.c test/unit/test_rp2350_eeprom.c test/unit/test_rp2350_uart.c \
                             test/unit/test_mps2_uart.c \
                             test/unit/test_mps2_gpio.c \
-                            test/unit/test_mps2_soc.c test/unit/test_tz_regions.c \
+                            test/unit/test_mps2_soc.c \
                             test/unit/test_mps2_bus_regs.c test/unit/test_mps2_adc.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
@@ -202,7 +202,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
                             test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c test/unit/test_dice_service.c \
-                            test/unit/test_attest_root.c, \
+                            test/unit/test_dice_partition.c test/unit/test_attest_root.c \
+                            test/unit/test_tfw_dice_glue.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 # The crypto tiers' mutation suites (#163) have their own links below.
@@ -1429,12 +1430,34 @@ $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 # The secure-world DICE service (#590 slice b) beside the
 # non-secure path it must match byte for byte: the soft P-256 identity and
-# alias.c's certificate. The suite is its own provider and CDI handoff.
+# alias.c's certificate. The suite is its own provider and CDI handoff. It
+# also holds sdk/go's dice evidence vectors (#590 slice c) to
+# the service's answers.
+DICE_VECTORS := sdk/go/testdata/dice_service_vectors.txt
 $(HOST_DIR)/test_dice_service: test/unit/test_dice_service.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
                                src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                                src/core/reader.c src/core/writer.c src/core/secure_zero.c \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_DICE_VECTORS='"$(abspath $(DICE_VECTORS))"' -o $@ $^ $(EXTRA_LDFLAGS)
+# The TF-M DICE partition's dispatch and start (#608 slice 3) over that
+# service, and the non-secure client (src/tz/tz_s_client.c) over a psa_call
+# that does what TF-M's SPM does with the vectors; test/unit/tz_s_client has
+# the psa/client.h and psa_manifest/sid.h it compiles against.
+$(HOST_DIR)/test_dice_partition: test/unit/test_dice_partition.c src/tz/dice_partition.c \
+                                 src/tz/tz_s_client.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
+                                 src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                                 src/core/reader.c src/core/writer.c src/core/secure_zero.c \
+                                 src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/unit/tz_s_client -o $@ $^ $(EXTRA_LDFLAGS)
+# The partition's TF-M side (src/tz/tfm/tfw_dice_partition.c, #608 slice 3)
+# over stand-ins for TF-M's psa/service.h, psa/crypto.h, the builtin key ids
+# and tf-m-extras' measured_boot_api.h in test/unit/tfw_dice_glue.
+$(HOST_DIR)/test_tfw_dice_glue: test/unit/test_tfw_dice_glue.c src/tz/tfm/tfw_dice_partition.c \
+                                src/tz/dice_partition.c src/tz/dice_service.c $(SOFT_ID_SRCS) \
+                                src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                                src/core/reader.c src/core/writer.c src/core/secure_zero.c \
+                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/unit/tfw_dice_glue -o $@ $^ $(EXTRA_LDFLAGS)
 # The tenant-key verify an HSM image links in place of the soft provider's
 # refusal (mk/firmware.mk HSM_SRCS), on the literal policy signature.
 $(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verify_p256.c \
@@ -1658,14 +1681,6 @@ $(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_puls
                            src/hal/cortex-m/cm_cycles.h $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
-# test_tz_regions_<board> checks a TZ=1 board's SAU table (#590): the same
-# test and table source, with the board's map header, as its secure image.
-$(HOST_DIR)/test_tz_regions_%: test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c \
-                               src/hal/cortex-m/tz/tz_regions.h src/hal/cortex-m/tz/tz_map_%.h \
-                               $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -include src/hal/cortex-m/tz/tz_map_$*.h -Isrc/hal/cortex-m/tz $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	  -o $@ test/unit/test_tz_regions.c src/hal/cortex-m/tz/tz_regions.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
-
 # test_rp2350_eeprom links the RP2350's flash EEPROM and tfw-boot's
 # read-modify-write and the Cortex-M millisecond clock over a NOR, TIMER0 and
 # SysTick model; the model's cm_regs.h comes ahead of src/hal/cortex-m/.
@@ -1684,7 +1699,6 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_mps2_soc \
                     $(HOST_DIR)/test_mps2_bus_regs $(HOST_DIR)/test_mps2_adc \
-                    $(HOST_DIR)/test_tz_regions_mps2_an505 $(HOST_DIR)/test_tz_regions_nucleo_h563zi \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
@@ -1730,6 +1744,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small $(HOST_DIR)/test_sha256_small_mutate \
                     $(HOST_DIR)/test_board_lookup_mutate \
                     $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence $(HOST_DIR)/test_dice_service \
+                    $(HOST_DIR)/test_dice_partition $(HOST_DIR)/test_tfw_dice_glue \
                     $(HOST_DIR)/test_ota_trial_block_mutate $(HOST_DIR)/test_provision_atecc_mutate \
                     $(HOST_DIR)/test_suit_integrated \
                     $(HOST_DIR)/test_suit_integrated_mutate \
@@ -2155,13 +2170,6 @@ test-verdict = fail=0; for t in $(1); do read -r rc < $$t.rc; \
 host-test: $(HOST_TEST_BINS) $(addsuffix .run,$(HOST_TEST_BINS))
 	@$(call test-verdict,$(HOST_TEST_BINS))
 
-# The TZ=1 QEMU case's fault-report parse (#591) over fixed CRLF and LF
-# reports: no QEMU, so host-test carries it.
-.PHONY: qemu-tz-parse-test
-qemu-tz-parse-test:
-	@test/integration/cortex-m/qemu_tz_test.sh --self-test
-host-test: qemu-tz-parse-test
-
 ## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is
 # where a memory bug will be, so it gets its own gate rather than riding along.
@@ -2296,7 +2304,7 @@ lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter
 
 lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep lint-no-delay
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
-	          -i src/third_party \
+	          -i src/third_party -i src/tz/tfm/platform \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
 	          src/ boards/ boot/
 	@echo "cppcheck avr:atmega328p clean"
@@ -2330,7 +2338,9 @@ LINT_GREP_ROOT ?= .
 # TA and its check, #253). Exempt:
 # the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
 # globs so a second architecture needs no edit here), commands.def, the
-# vendored src/third_party (cppcheck skips it for the same reason), and the
+# vendored src/third_party (cppcheck skips it for the same reason), the TF-M
+# board ports under src/tz/tfm/platform/ (TF-M and ST files, built only by
+# TF-M's CMake, #608), and the
 # include guard of a header -- an #ifndef of a NAME_H macro, which is not a
 # conditional on anything. config.h, progmem.h and the board profiles live
 # under include/ and boards/, which this sweep does not enter.
@@ -2338,7 +2348,7 @@ lint-conditionals:
 	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools optee \
 	     --include='*.c' --include='*.h' --exclude-dir=third_party \
 	     | grep -v 'commands.def' \
-	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' \
+	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' | grep -v '^src/tz/tfm/platform/' \
 	     | grep -v ':[[:space:]]*#[[:space:]]*ifndef[[:space:]]\+[A-Za-z0-9_]*_H[[:space:]]*$$' || true); \
 	if [ -n "$$hits" ]; then \
 	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: preprocessor-conditional"; done; \

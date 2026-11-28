@@ -9,8 +9,7 @@ MCU            := stm32h563zit6
 
 # No QEMU_MACHINE: QEMU models no STM32H5.
 
-# TZ=1: the TrustZone-M split's secure and non-secure images (mk/arch/cortex-m-targets.mk tz-firmware), built and size-checked only; running them needs TZEN=1 and the bank 1 secure watermark, option bytes nothing in this tree writes.
-TZ_MAP         := src/hal/cortex-m/tz/tz_map_nucleo_h563zi.h
+# TrustZone-M is TF-M with the DICE partition (#608): make tfm-image TFM_BOARD=nucleo-h563zi.
 
 # The memory map, the STM32H573I-DK's: the same two 1 MiB flash banks at 0x08000000 and 0x08100000, and SRAM1, 256 KiB at 0x20000000, of which this port uses the same 32 KiB.
 FLASH_BUDGET   := 131072

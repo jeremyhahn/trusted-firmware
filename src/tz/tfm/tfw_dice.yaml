@@ -1,0 +1,36 @@
+#-------------------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The DICE layer as a TF-M Application RoT partition (#608 slice 3, ruling
+# 1024 (a)): one stateless service, the call types in src/tz/dice_partition.h.
+# It reads the HUK through TF-M's crypto service and the non-secure image's
+# measurement through tf-m-extras' Measured Boot partition at init.
+#-------------------------------------------------------------------------------
+
+{
+  "psa_framework_version": 1.1,
+  "name": "TFW_SP_DICE",
+  "type": "APPLICATION-ROT",
+  "model": "SFN",
+  "priority": "NORMAL",
+  "entry_init": "tfw_dice_partition_init",
+  "stack_size": "0x800",
+  "services": [
+    {
+      "name": "TFW_DICE_SERVICE",
+      # Our vendor prefix 0xD1CE0 in bits [31:12], function 0: clear of the
+      # SIDs tfm_secure_partition_addition.rst lists as in use.
+      "sid": "0xD1CE0000",
+      "non_secure_clients": true,
+      "connection_based": false,
+      "stateless_handle": "auto",
+      "version": 1,
+      "version_policy": "STRICT"
+    }
+  ],
+  "dependencies": [
+    "TFM_CRYPTO",
+    "TFM_MEASURED_BOOT"
+  ]
+}

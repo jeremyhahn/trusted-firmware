@@ -255,14 +255,21 @@ and *Cryptographic supported features*, each listed with its SHA-256 in
 
 ## Upstream TF-M
 
-As ADR #15 states it ("Platforms upstream at v2.3.1"): there is **no nRF54L15
-port in upstream TF-M** at v2.3.1. Nordic carries TF-M for the part in its own
-SDK.
+TF-M **v2.3.1** carries an nRF54L15 port,
+`nordic_nrf/nrf54l15dk_nrf54l15_cpuapp` (read from the pin, #608). Its
+`common/nrf54l/config.cmake` forces BL2 OFF (and NRF_NS_SECONDARY OFF),
+overriding `-DBL2=ON`, so there is no MCUboot boot record and no Measured
+Boot slot 3 for our DICE partition: upstream expects MCUboot built outside
+TF-M. `scripts/tfm-build.sh` does not take nrf54l15-dk until the coordinator
+rules (#608). ADR #15's "Platforms upstream at v2.3.1" line
+([`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md))
+says there is no nRF54L15 port upstream; its correction is the coordinator's.
 
 ## What this page bears on
 
-- **ADR #15 open question 2** (vendor secure worlds): with no upstream port,
-  this part's secure world is Nordic's TF-M or none, so the licence check of
+- **ADR #15 open question 2** (vendor secure worlds): with upstream's port
+  forcing BL2 off, this part's secure world with our DICE partition is
+  Nordic's TF-M, an external MCUboot or none, so the licence check of
   Nordic's SDK is on this board's path.
 - **ADR #15 open question 4** (crypto tier values): a KMU key used through
   CRACEN is hidden even from secure code, which is a stronger claim than

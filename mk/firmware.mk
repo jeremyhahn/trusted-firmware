@@ -579,9 +579,8 @@ firmware-matrix:
 
 ## firmware: build the firmware for BOARD (default atmega328p)
 ifeq ($(TZ),1)
-firmware: tz-firmware
-size-check: tz-size-check
-else
+$(error TZ=1 is retired (#608): use make tfm-image)
+endif
 firmware: $(TARGET).hex size-check
 	@echo "built $(TARGET).hex"
 
@@ -597,7 +596,6 @@ size-check: $(TARGET).elf
 	 if [ "$$flash" -gt "$(FLASH_BUDGET)" ]; then echo "FLASH BUDGET EXCEEDED for $(BOARD)"; fail=1; fi; \
 	 if [ "$$ram"   -gt "$(RAM_BUDGET)"   ]; then echo "RAM BUDGET EXCEEDED for $(BOARD)";   fail=1; fi; \
 	 exit $$fail
-endif
 
 ## reproducible-check: build twice from clean copies of HEAD and diff the image
 reproducible-check:

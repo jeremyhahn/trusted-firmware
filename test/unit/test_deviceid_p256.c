@@ -182,6 +182,20 @@ static const uint8_t NM1_PUB[64] = {
     0xB8,0x0A,0xE7,0x30,0x1E,0x18,0xA2,0xFF,0x2A,0xBB,0x02,0xCA,0x4A,0x63,0x95,0xB6,
     0xAC,0x4E,0xD5,0x70,0x0C,0x2C,0x21,0xD3,0x53,0xEF,0x11,0x0B,0x8A,0x55,0xF6,0x31
 };
+/* The seed n-2: derive() hashes it again as it does 1 and n-1. NM2_D is
+ * SHA-256 of the 32 bytes of n-2 and NM2_PUB its point (X||Y), computed
+ * off-target with the same pure-Python P-256 over SEC 2's domain parameters
+ * and hashlib as the vectors above (it reproduces NM1_D and NM1_PUB too). */
+static const uint8_t NM2_D[32] = {
+    0x29,0x05,0x24,0x3D,0x3F,0x39,0xBF,0x2C,0xDE,0xD9,0xA7,0x77,0xC0,0xA6,0xDF,0xE3,
+    0xD5,0x67,0x11,0x79,0x4A,0x79,0xD3,0xF3,0x15,0x4A,0xA0,0x38,0xB5,0x75,0xA2,0x04
+};
+static const uint8_t NM2_PUB[64] = {
+    0x80,0xB8,0x71,0xFA,0xF0,0xE9,0x95,0xA2,0x61,0xCD,0x66,0x36,0x1B,0xC5,0xB6,0xE3,
+    0x82,0x97,0xF0,0x4F,0x5F,0x37,0x06,0x76,0x2F,0x00,0x27,0x8F,0x1D,0x22,0xE4,0x74,
+    0x4B,0x65,0xEF,0x93,0x94,0x09,0x05,0x7B,0xF9,0x2A,0x80,0xDF,0x26,0x57,0xA1,0xDA,
+    0xBD,0x09,0xA2,0xB6,0x57,0xB7,0x4D,0xE3,0x25,0x0E,0x77,0x40,0x21,0x51,0x80,0xBC
+};
 
 static void one(uint8_t s[32])
 {
@@ -193,6 +207,12 @@ static void n_minus_one(uint8_t s[32])
 {
     memcpy(s, P256_N, 32u);
     s[31] = (uint8_t)(s[31] - 1u);
+}
+
+static void n_minus_two(uint8_t s[32])
+{
+    memcpy(s, P256_N, 32u);
+    s[31] = (uint8_t)(s[31] - 2u);
 }
 
 static void test_signing_reproduces_rfc_6979_a_2_5(void)
@@ -282,6 +302,19 @@ static void test_the_seeds_one_and_n_minus_one_are_hashed_again(void)
     TEST_ASSERT_TRUE(verifies(NM1_PUB, DIGEST, sig));
 }
 
+static void test_the_seed_n_minus_two_is_hashed_again(void)
+{
+    uint8_t s[32], pub[64], sig[64];
+
+    n_minus_two(s);
+    /* micro-ecc refuses n-2 as a scalar with a working RNG: that is why
+     * derive() hashes it again. */
+    TEST_ASSERT_EQUAL_INT(0, uECC_compute_public_key(s, pub, uECC_secp256r1()));
+    check_retry(s, NM2_D, NM2_PUB);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(s, DIGEST, sig));
+    TEST_ASSERT_TRUE(verifies(NM2_PUB, DIGEST, sig));
+}
+
 /* ------------------------------------------------------------------ refusal */
 
 static int failing_rng(uint8_t *dest, unsigned size)
@@ -318,6 +351,70 @@ static void test_a_refusal_that_persists_is_returned_with_the_output_zeroed(void
     memset(sig, 0xA5, sizeof sig);
     TEST_ASSERT_FALSE(tfw_p256_sign_rfc6979(RFC_PRIV, DIGEST, sig));
     TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
+}
+
+/* Refuses its first call, then fills bytes from a counter: a blinding RNG that
+ * fails once and recovers. */
+static unsigned flaky_calls;
+static uint8_t  flaky_byte;
+
+static int flaky_rng(uint8_t *dest, unsigned size)
+{
+    if (flaky_calls++ == 0u) {
+        return 0;
+    }
+    while (size--) {
+        *dest++ = (uint8_t)(++flaky_byte | 0x01u);
+    }
+    return 1;
+}
+
+static void flaky_arm(void)
+{
+    flaky_calls = 0u;
+    flaky_byte  = 0u;
+    uECC_set_rng(flaky_rng);
+}
+
+/* #608: one RNG failure is the RNG's, not the scalar's. The call is refused
+ * with its output zeroed, and the next call (the RNG recovered) gives the key
+ * the UDS always gives, never a scalar hashed once more. */
+static void test_a_blinding_rng_that_fails_once_refuses_and_then_gives_the_same_key(void)
+{
+    uint8_t d[32], pub[64], sig[64], s[32];
+
+    flaky_arm();
+    memset(pub, 0xA5, sizeof pub);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_public(SEED, pub));
+    TEST_ASSERT_TRUE(all_zero(pub, sizeof pub));
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(SEED, pub));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(SEED_PUB, pub, 64);
+
+    flaky_arm();
+    memset(d, 0xA5, sizeof d);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_scalar(SEED, d));
+    TEST_ASSERT_TRUE(all_zero(d, sizeof d));
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(SEED, d));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(SEED, d, 32);
+
+    flaky_arm();
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_sign(SEED, DIGEST, sig));
+    TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(SEED, DIGEST, sig));
+    TEST_ASSERT_TRUE(verifies(SEED_PUB, DIGEST, sig));
+
+    /* The scalars the curve refuses are still hashed again, RNG working. */
+    one(s);
+    check_retry(s, ONE_D, ONE_PUB);
+    n_minus_one(s);
+    check_retry(s, NM1_D, NM1_PUB);
+    /* n-2 too: the ladder's last step lands on -G for it. */
+    s[31] = (uint8_t)(s[31] - 1u);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(s, d));
+    TEST_ASSERT_FALSE(memcmp(s, d, 32) == 0);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(s, pub));
+    TEST_ASSERT_TRUE(uECC_valid_public_key(pub, uECC_secp256r1()));
 }
 
 static void test_the_signer_refuses_a_scalar_outside_the_range(void)
@@ -410,7 +507,9 @@ int main(void)
     RUN_TEST(test_a_seed_above_n_is_hashed_again);
     RUN_TEST(test_a_seed_of_exactly_n_is_hashed_again);
     RUN_TEST(test_the_seeds_one_and_n_minus_one_are_hashed_again);
+    RUN_TEST(test_the_seed_n_minus_two_is_hashed_again);
     RUN_TEST(test_a_refusal_that_persists_is_returned_with_the_output_zeroed);
+    RUN_TEST(test_a_blinding_rng_that_fails_once_refuses_and_then_gives_the_same_key);
     RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);
     RUN_TEST(test_a_digest_above_n_signs_as_the_rfc_reduces_it);

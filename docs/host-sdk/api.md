@@ -451,3 +451,5 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfwsim.StartElementWithOperator` | `func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...tfw.Option) *tfw.Device` | StartElement with operator baked into the platform block as the auth session's trust anchor. |
 | `tfwsim.StartProvisioningWith` | `func StartProvisioningWith(tb testing.TB, args []string, opts ...tfw.Option) *tfw.Device` | The element tier as the provisioning jig image, tfwsim-prov, with exactly the given command-line arguments. |
 | `tfwsim.TestDeviceIDPublicKey` | `func TestDeviceIDPublicKey() *ecdsa.PublicKey` | The public key the element-tier test identity signs with. |
+| `tfw.FormatDICE` | `const FormatDICE = "dice"` | The fmt of a device-attest-01 attestation object whose statement is a TCG DICE certificate chain. |
+| `tfw.DICEAttestationObject` | `func DICEAttestationObject(aliasCert, deviceIDCert, nonce, sig []byte) ([]byte, error)` | Assembles the device-attest-01 "dice" attestation object from the secure DICE service's alias certificate, a DeviceID certificate, the nonce and the alias key's r‖s over SHA-256(nonce). |

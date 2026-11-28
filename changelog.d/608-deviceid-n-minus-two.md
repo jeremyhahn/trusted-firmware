@@ -1,0 +1,1 @@
+- A DeviceID seed of n-2 is pinned as hashed again, and plan 608 records the Codex round-5 blinding-RNG fix and the round-limit state (#608).

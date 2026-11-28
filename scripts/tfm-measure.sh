@@ -5,18 +5,10 @@
 # Measure the flash and RAM footprint of TF-M v2.3.1, Profile Medium with BL2 (MCUboot), on the STM32H573I-DK.
 set -euo pipefail
 
-TFM_URL=https://git.trustedfirmware.org/TF-M/trusted-firmware-m.git
-TFM_TAG=TF-Mv2.3.1
-TFM_COMMIT=0b40d7806136baadf489febf8e2f91bf87aca63d
-EXTRAS_URL=https://git.trustedfirmware.org/TF-M/tf-m-extras.git
-# The tf-m-extras commit TF-M v2.3.1 itself fetches
-# (lib/ext/tf-m-extras in its build tree).
-EXTRAS_COMMIT=2ac90aff6da35cde4a67f2d34076b1adf6ca9161
-CMAKE_PIN=3.31.6
-NINJA_PIN=1.11.1.4
+# The pins, shared with scripts/tfm-build.sh.
+# shellcheck source=scripts/tfm-pins.sh
+. "$(dirname "$0")/tfm-pins.sh"
 PLATFORM=stm/stm32h573i_dk
-PROFILE=profile_medium
-BUILD_TYPE=MinSizeRel
 
 WORK=${1:-/tmp/tfm-measure}
 mkdir -p "$WORK"

@@ -1,0 +1,1 @@
+- A blinding-RNG failure now refuses the DeviceID operation and never changes the derived key; the scalars 1, n-2 and n-1, which the curve refuses, are still hashed again (#608).

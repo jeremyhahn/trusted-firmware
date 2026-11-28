@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The secure-world DICE service (#590 slice b).
+ * The secure-world DICE service (#590 slice b), the core
+ * of the TF-M DICE partition since #608 slice 3 (src/tz/dice_partition.c).
  *
  * Built over the existing code without changing it: the DeviceID key is
  * src/crypto/deviceid_p256.c over HMAC-SHA256(UDS, TFW_DEVICEID_LABEL), the
@@ -32,6 +33,15 @@ static tfw_crypto_tier_t s_tier;
 static uint8_t           s_ready;
 static uint8_t           s_alias[32];
 static uint8_t           s_alias_ready;
+
+/* A caller buffer: non-NULL, a non-empty length, and no wrap past the
+ * address space. The buffers are the partition's own copies (TF-M's SPM
+ * checks the non-secure ones), so this is a bounds check, not a CMSE one. */
+static int buf_ok(const void *ptr, uint32_t len)
+{
+    return ptr != NULL && len != 0u &&
+           (uintptr_t)ptr <= UINTPTR_MAX - (uintptr_t)(len - 1u);
+}
 
 /* The alias seed, or NULL while it is not derived: no caller falls back to
  * the DeviceID seed. */
@@ -87,7 +97,7 @@ static tfw_status_t put_key(const uint8_t *seed, uint8_t *out, uint32_t cap)
 {
     uint8_t pub[TFW_DICE_KEY_LEN];
 
-    if (!TFW_NS_CHECK(out, cap) || cap < TFW_DICE_KEY_LEN) {
+    if (!buf_ok(out, cap) || cap < TFW_DICE_KEY_LEN) {
         return TFW_ERR_RANGE;
     }
     if (!s_ready || seed == NULL) {
@@ -100,25 +110,25 @@ static tfw_status_t put_key(const uint8_t *seed, uint8_t *out, uint32_t cap)
     return TFW_OK;
 }
 
-TFW_NSC tfw_status_t tfw_dice_deviceid_pub(uint8_t *out, uint32_t cap)
+tfw_status_t tfw_dice_deviceid_pub(uint8_t *out, uint32_t cap)
 {
     return put_key(s_seed, out, cap);
 }
 
-TFW_NSC tfw_status_t tfw_dice_alias_pub(uint8_t *out, uint32_t cap)
+tfw_status_t tfw_dice_alias_pub(uint8_t *out, uint32_t cap)
 {
     return put_key(alias_seed(), out, cap);
 }
 
-TFW_NSC tfw_status_t tfw_dice_alias_sign(const uint8_t *digest, uint32_t dlen,
-                                         uint8_t *sig, uint32_t cap)
+tfw_status_t tfw_dice_alias_sign(const uint8_t *digest, uint32_t dlen,
+                                 uint8_t *sig, uint32_t cap)
 {
     uint8_t d[TFW_DICE_DIGEST_LEN];
     uint8_t s[TFW_DICE_SIG_LEN];
     const uint8_t *k;
 
-    if (dlen != TFW_DICE_DIGEST_LEN || !TFW_NS_CHECK_READ(digest, dlen) ||
-        !TFW_NS_CHECK(sig, cap) || cap < TFW_DICE_SIG_LEN) {
+    if (dlen != TFW_DICE_DIGEST_LEN || !buf_ok(digest, dlen) ||
+        !buf_ok(sig, cap) || cap < TFW_DICE_SIG_LEN) {
         return TFW_ERR_RANGE;
     }
     /* Alias key only: a digest the caller chose is never signed by the
@@ -135,7 +145,7 @@ TFW_NSC tfw_status_t tfw_dice_alias_sign(const uint8_t *digest, uint32_t dlen,
     return TFW_OK;
 }
 
-TFW_NSC tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *req)
+tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *req)
 {
     tfw_dice_cert_page_t r;
     uint8_t           pub[TFW_DICE_KEY_LEN];
@@ -148,12 +158,12 @@ TFW_NSC tfw_status_t tfw_dice_alias_cert(tfw_dice_cert_page_t *req)
     tfw_status_t      st;
     const uint8_t    *k;
 
-    if (!TFW_NS_CHECK(req, sizeof *req)) {
+    if (!buf_ok(req, sizeof *req)) {
         return TFW_ERR_RANGE;
     }
     /* Copied in once: the caller cannot move out or cap after the check. */
     memcpy(&r, req, sizeof r);
-    if (!TFW_NS_CHECK(r.out, r.cap) || r.off > UINT16_MAX) {
+    if (!buf_ok(r.out, r.cap) || r.off > UINT16_MAX) {
         return TFW_ERR_RANGE;
     }
     k = alias_seed();

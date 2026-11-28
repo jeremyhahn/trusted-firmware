@@ -19,8 +19,9 @@
 #define TFW_DEVICEID_LABEL_LEN 15u
 
 /* Each returns 1, or 0 when micro-ecc refuses: then the output is zeroed and
- * must not be used. The derivation hashes a scalar micro-ecc refuses again, so
- * only a blinding RNG that keeps failing (uECC_set_rng) makes them refuse. */
+ * must not be used. The derivation hashes a scalar again only when it is outside
+ * [1, n-1] or is 1, n-2 or n-1, so only a failing blinding RNG (uECC_set_rng) makes
+ * them refuse, and the next call with a working RNG gives the same key. */
 
 /* The scalar d from the seed, big-endian: one uECC_compute_public_key accepts,
  * so in [1, n-1] and neither 1 nor n-1. The caller zeroes it. */

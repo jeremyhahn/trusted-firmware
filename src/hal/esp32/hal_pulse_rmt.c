@@ -110,7 +110,8 @@ static tfw_status_t status_of(esp_err_t err)
 /* A pin whose pad output LEDC holds, a tone or a PWM channel, running or
  * stopped: the capture after NOTONE or a PWM stop then reads what the channel
  * really drives, not a pad its own input configuration silenced (#561, Codex
- * P1). */
+ * P1). A pin MODE made an output is looped back too, so its level and every
+ * later write still reach the pad through and after the capture (#48). */
 static bool driven_here(int gpio)
 {
     bool driven = false;
@@ -121,7 +122,7 @@ static bool driven_here(int gpio)
 #if TFW_FEATURE_PWM
     driven = driven || tfw_esp_pwm_drives(gpio) != 0;
 #endif
-    (void)gpio;
+    driven = driven || tfw_esp_gpio_drives(gpio) != 0;
     return driven;
 }
 

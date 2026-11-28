@@ -273,6 +273,16 @@ void tfw_esp_pwm_release(int gpio)
     pwm_rel_at   = ntrace;
 }
 
+/* The MODE output record the SPI bus init ends on its MISO pad; kept out of
+ * the trace like the tone release. */
+static unsigned n_gpio_rel;
+static int      gpio_rel_seen;
+void tfw_esp_gpio_release(int gpio)
+{
+    n_gpio_rel++;
+    gpio_rel_seen = gpio;
+}
+
 /* -------------------------------------------------------------------- tests */
 
 void setUp(void)
@@ -290,6 +300,8 @@ void setUp(void)
     wr_seen = NULL;
     n_tone_rel = n_pwm_rel = pwm_rel_at = 0u;
     tone_rel_seen = pwm_rel_seen = -1;
+    n_gpio_rel    = 0u;
+    gpio_rel_seen = -1;
     rd_seen = NULL;
 }
 
@@ -496,6 +508,8 @@ static void test_a_failed_spi_bus_is_unsupported_and_tried_again(void)
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 3u));
         TEST_ASSERT_EQUAL_UINT(1u, ntrace);
         TEST_ASSERT_EQUAL_INT(E_SPI_BUS, trace[0].op);
+        /* a refused bus took no pad: MISO keeps its MODE record */
+        TEST_ASSERT_EQUAL_UINT(0u, n_gpio_rel);
     }
 }
 
@@ -514,6 +528,9 @@ static void test_a_failed_spi_device_is_internal_and_tried_again(void)
     TEST_ASSERT_EQUAL_INT(-1, spi_bus_cfg.quadhd_io_num);
     TEST_ASSERT_EQUAL_INT(64, spi_bus_cfg.max_transfer_sz);
     TEST_ASSERT_EQUAL_INT(E_SPI_ADD, trace[1].op);
+    /* the bus took the MISO pad for its input: no MODE output there now */
+    TEST_ASSERT_EQUAL_UINT(1u, n_gpio_rel);
+    TEST_ASSERT_EQUAL_INT(TFW_ESP_SPI_MISO_GPIO, gpio_rel_seen);
 
     /* the bus stays up; a failed device left no handle behind */
     setUp();
@@ -521,6 +538,8 @@ static void test_a_failed_spi_device_is_internal_and_tried_again(void)
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 3u));
     TEST_ASSERT_EQUAL_UINT(1u, ntrace);
     TEST_ASSERT_EQUAL_INT(E_SPI_ADD, trace[0].op);
+    /* the bus already up releases nothing again */
+    TEST_ASSERT_EQUAL_UINT(0u, n_gpio_rel);
 }
 
 static void test_the_spi_device_is_made_once_at_the_defaults(void)
@@ -588,6 +607,14 @@ static void test_an_spi_cs_on_a_ledc_pin_is_taken_off_the_tone_and_pwm(void)
     TEST_ASSERT_GREATER_THAN_UINT(0u, pwm_rel_at);
     TEST_ASSERT_EQUAL_INT(E_DIR, trace[pwm_rel_at - 1u].op);
     TEST_ASSERT_EQUAL_INT(E_SET, trace[pwm_rel_at].op);
+}
+
+static void test_an_spi_transfer_does_not_release_its_cs_as_a_mode_output(void)
+{
+    /* CS 17 is driven as an output by the transfer, so a capture may still
+     * loop it back: only the bus init's MISO pad leaves the MODE record */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&cs, wbuf, rbuf, 2u));
+    TEST_ASSERT_EQUAL_UINT(0u, n_gpio_rel);
 }
 
 static void test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent(void)
@@ -915,6 +942,7 @@ int main(void)
     RUN_TEST(test_a_failed_spi_transfer_is_internal_with_cs_released);
     RUN_TEST(test_an_spi_transfer_makes_its_cs_an_output_before_asserting_it);
     RUN_TEST(test_an_spi_cs_on_a_ledc_pin_is_taken_off_the_tone_and_pwm);
+    RUN_TEST(test_an_spi_transfer_does_not_release_its_cs_as_a_mode_output);
     RUN_TEST(test_a_cs_the_gpio_driver_refuses_is_bad_pin_and_nothing_is_sent);
     RUN_TEST(test_spi_settings_out_of_range_are_refused_and_kept);
     RUN_TEST(test_an_spi_init_remakes_the_device_at_its_settings);

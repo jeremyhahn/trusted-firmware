@@ -35,11 +35,20 @@ int tfw_esp_pwm_drives(int gpio)
     return gpio == pwm_gpio;
 }
 
+/* hal_gpio.c is not linked here: the pin MODE made an output (#48). */
+static int gpio_out_pin;
+int        tfw_esp_gpio_drives(int gpio);
+int        tfw_esp_gpio_drives(int gpio)
+{
+    return gpio == gpio_out_pin;
+}
+
 void setUp(void)
 {
     mock_rmt_reset();
     tone_gpio = -1;
     pwm_gpio = -1;
+    gpio_out_pin = -1;
     for (n = 0u; n < 31u; n++) {
         iv[n] = 0xA5A5u;
     }
@@ -102,6 +111,25 @@ static void test_loop_back_on_a_pwm_pin(void)
 
     pwm_gpio = 21;
     tone_gpio = -1;
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
+
+    mock_rmt_reset();
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&other, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
+}
+
+/* A pin MODE made an output is looped back like the tone and PWM pins,
+ * so the RX channel never drops its drive (#48). */
+static void test_loop_back_on_a_gpio_output_pin(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 80, 0, 0) };
+    static const tfw_pinref_t      other = { 22u };
+
+    gpio_out_pin = 21;
+    TEST_ASSERT_EQUAL_INT(1, tfw_esp_gpio_drives(21));
     mock_rmt_chunk(f, 1u, 1u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
     TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
@@ -402,6 +430,7 @@ int main(void)
     RUN_TEST(test_config);
     RUN_TEST(test_loop_back_only_on_the_tone_pin);
     RUN_TEST(test_loop_back_on_a_pwm_pin);
+    RUN_TEST(test_loop_back_on_a_gpio_output_pin);
     RUN_TEST(test_capture_from_start_level);
     RUN_TEST(test_capture_stops_at_max_edges);
     RUN_TEST(test_quiet_pin_times_out);

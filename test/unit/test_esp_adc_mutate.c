@@ -96,12 +96,21 @@ void tfw_esp_pwm_release(int gpio)
     pwm_rel_seen = gpio;
 }
 
+/* hal_gpio.c's, which this test does not link: the last pad a read released. */
+static int released;
+
+void tfw_esp_gpio_release(int gpio)
+{
+    released = gpio;
+}
+
 void setUp(void)
 {
     n_io = n_tone_rel = n_pwm_rel = 0u;
     io_unit = ADC_UNIT_2;
     io_chan = tone_rel_seen = pwm_rel_seen = -1;
     io_err  = ESP_OK;
+    released = -1;
     n_new = n_cfg = n_read = 0u;
     new_unit_id = ADC_UNIT_2;
     cfg_handle = read_handle = NULL;
@@ -205,6 +214,7 @@ static void test_a_channel_the_driver_refuses_is_out_of_range(void)
         TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(2u, &out));
         TEST_ASSERT_EQUAL_HEX16(0xBEEFu, out);
         TEST_ASSERT_EQUAL_UINT(0u, n_read);
+        TEST_ASSERT_EQUAL_INT(-1, released);
     }
 }
 
@@ -234,6 +244,7 @@ static void test_the_raw_value_is_returned_whole(void)
         raw_in = raw[i];
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(4u, &out));
         TEST_ASSERT_EQUAL_UINT16((uint16_t)raw[i], out);
+        TEST_ASSERT_EQUAL_INT(44, released);     /* channel 4's pad, MODE's no more (#48) */
     }
 }
 

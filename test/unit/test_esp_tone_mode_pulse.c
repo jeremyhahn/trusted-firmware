@@ -10,6 +10,9 @@
 #include "tfw/hal.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "esp_adc/adc_oneshot.h"
+#include "driver/i2c_master.h"
+#include "driver/spi_master.h"
 #include "esp_rmt_mock.h"
 
 #include "hal_esp32.h"
@@ -19,6 +22,11 @@
 
 static const tfw_pinref_t pin   = { 21u };
 static const tfw_pinref_t other = { 22u };
+/* GPIO20, ADC1 channel 4 on the P4: a pin MODE and an analog read share. */
+static const tfw_pinref_t adc_pin = { 20u };
+/* The profile's SPI MISO pad here (mk/host.mk), and a CS for the transfer. */
+static const tfw_pinref_t miso_pin = { 33u };
+static const tfw_pinref_t spi_cs   = { 35u };
 static uint16_t iv[4];
 static uint8_t  n;
 static unsigned stops;
@@ -100,12 +108,160 @@ void tfw_esp_pwm_release(int g)
     (void)g;
 }
 
+/* The oneshot ADC: every call succeeds, so a read configures its pad. */
+struct adc_oneshot_unit_ctx_t { int unused; };
+static struct adc_oneshot_unit_ctx_t the_unit;
+
+esp_err_t adc_oneshot_new_unit(const adc_oneshot_unit_init_cfg_t *init_config,
+                               adc_oneshot_unit_handle_t *ret_unit)
+{
+    (void)init_config;
+    *ret_unit = &the_unit;
+    return ESP_OK;
+}
+
+esp_err_t adc_oneshot_config_channel(adc_oneshot_unit_handle_t handle, adc_channel_t channel,
+                                     const adc_oneshot_chan_cfg_t *config)
+{
+    (void)handle;
+    (void)channel;
+    (void)config;
+    return ESP_OK;
+}
+
+esp_err_t adc_oneshot_read(adc_oneshot_unit_handle_t handle, adc_channel_t chan, int *out_raw)
+{
+    (void)handle;
+    (void)chan;
+    *out_raw = 0;
+    return ESP_OK;
+}
+
+/* hal_bus.c's I2C and SPI master drivers, all succeeding: the SPI bus init
+ * takes the MISO pad, which the capture after it must see (#48). */
+static int bus_handle;
+
+void tfw_hal_delay_us(uint16_t us)
+{
+    (void)us;
+}
+
+esp_err_t i2c_new_master_bus(const i2c_master_bus_config_t *bus_config,
+                             i2c_master_bus_handle_t *ret_bus_handle)
+{
+    (void)bus_config;
+    *ret_bus_handle = (i2c_master_bus_handle_t)&bus_handle;
+    return ESP_OK;
+}
+
+esp_err_t i2c_del_master_bus(i2c_master_bus_handle_t bus_handle_)
+{
+    (void)bus_handle_;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_probe(i2c_master_bus_handle_t bus_handle_, uint16_t address,
+                           int xfer_timeout_ms)
+{
+    (void)bus_handle_;
+    (void)address;
+    (void)xfer_timeout_ms;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_bus_add_device(i2c_master_bus_handle_t bus_handle_,
+                                    const i2c_device_config_t *dev_config,
+                                    i2c_master_dev_handle_t *ret_handle)
+{
+    (void)bus_handle_;
+    (void)dev_config;
+    *ret_handle = (i2c_master_dev_handle_t)&bus_handle;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_bus_rm_device(i2c_master_dev_handle_t handle)
+{
+    (void)handle;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t i2c_dev,
+                                      const uint8_t *write_buffer, size_t write_size,
+                                      uint8_t *read_buffer, size_t read_size,
+                                      int xfer_timeout_ms)
+{
+    (void)i2c_dev;
+    (void)write_buffer;
+    (void)write_size;
+    (void)read_buffer;
+    (void)read_size;
+    (void)xfer_timeout_ms;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_transmit(i2c_master_dev_handle_t i2c_dev, const uint8_t *write_buffer,
+                              size_t write_size, int xfer_timeout_ms)
+{
+    (void)i2c_dev;
+    (void)write_buffer;
+    (void)write_size;
+    (void)xfer_timeout_ms;
+    return ESP_OK;
+}
+
+esp_err_t i2c_master_receive(i2c_master_dev_handle_t i2c_dev, uint8_t *read_buffer,
+                             size_t read_size, int xfer_timeout_ms)
+{
+    (void)i2c_dev;
+    (void)read_buffer;
+    (void)read_size;
+    (void)xfer_timeout_ms;
+    return ESP_OK;
+}
+
+esp_err_t spi_bus_initialize(spi_host_device_t host_id, const spi_bus_config_t *bus_config,
+                             spi_dma_chan_t dma_chan)
+{
+    (void)host_id;
+    (void)bus_config;
+    (void)dma_chan;
+    return ESP_OK;
+}
+
+esp_err_t spi_bus_add_device(spi_host_device_t host_id,
+                             const spi_device_interface_config_t *dev_config,
+                             spi_device_handle_t *handle)
+{
+    (void)host_id;
+    (void)dev_config;
+    *handle = (spi_device_handle_t)&bus_handle;
+    return ESP_OK;
+}
+
+esp_err_t spi_bus_remove_device(spi_device_handle_t handle)
+{
+    (void)handle;
+    return ESP_OK;
+}
+
+esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
+{
+    (void)handle;
+    (void)trans_desc;
+    return ESP_OK;
+}
+
 void setUp(void)
 {
     stop_err    = ESP_OK;
     stop_sticks = 0u;
     tfw_esp_tone_release(tfw_esp_tone_gpio());
     (void)tfw_hal_tone_stop();
+    /* No test inherits a pin MODE left an output (#48). */
+    (void)tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT);
+    (void)tfw_hal_gpio_mode(&other, TFW_PIN_INPUT);
+    (void)tfw_hal_gpio_mode(&adc_pin, TFW_PIN_INPUT);
+    (void)tfw_hal_gpio_mode(&miso_pin, TFW_PIN_INPUT);
     mock_rmt_reset();
     stops    = 0u;
     toggling = 0u;
@@ -136,6 +292,21 @@ static void test_mode_input_after_tone_ends_the_loop_back(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT));
     TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL_UINT(1u, stops);
+    capture_loop_back(0u);
+}
+
+/* An RX channel without loopback makes the pad input-only, so a capture on
+ * a MODE OUTPUT pin must loop it back or its writes never reach it (#48). */
+static void test_a_mode_output_pin_is_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    capture_loop_back(1u);
+}
+
+static void test_a_mode_input_pin_is_not_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_INPUT_PULLUP));
     capture_loop_back(0u);
 }
 
@@ -210,6 +381,50 @@ static void test_a_tone_moved_to_another_pin_is_released_only_there(void)
     TEST_ASSERT_EQUAL_UINT(1u, stops);
 }
 
+/* MODE OUTPUT on 21, a tone on 21, then the tone moved to 22: the move
+ * resets 21 to an input, so a capture there must not loop it back and drive
+ * it again (#48, Codex P1). */
+static void test_a_mode_output_pin_a_moved_tone_resets_is_not_looped_back(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 1000u));
+    TEST_ASSERT_EQUAL_INT(22, tfw_esp_tone_gpio());
+    capture_loop_back(0u);
+}
+
+/* MODE OUTPUT on GPIO20, then an analog read on ADC1 channel 4, its pad: the
+ * ADC takes the pad for analog input, so a capture there must be input-only
+ * and not drive the sensor it measures (#48, Codex P1). */
+static void test_a_mode_output_pin_an_adc_read_takes_is_not_looped_back(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 80, 0, 0) };
+    uint16_t raw = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&adc_pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(4u, &raw));
+
+    mock_rmt_reset();
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&adc_pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
+}
+
+static void test_a_mode_output_pin_the_spi_bus_takes_for_miso_is_not_looped_back(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 80, 0, 0) };
+    uint8_t w[2] = { 0x5au, 0xa5u };
+    uint8_t r[2] = { 0u, 0u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&miso_pin, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_spi_xfer(&spi_cs, w, r, 2u));
+
+    mock_rmt_reset();
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&miso_pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
+}
+
 static void test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 1000u));
@@ -278,11 +493,16 @@ int main(void)
     RUN_TEST(test_an_ineffective_stop_shows_its_edges);
     RUN_TEST(test_a_working_stop_reads_silence);
     RUN_TEST(test_mode_input_after_tone_ends_the_loop_back);
+    RUN_TEST(test_a_mode_output_pin_is_looped_back);
+    RUN_TEST(test_a_mode_input_pin_is_not_looped_back);
     RUN_TEST(test_mode_on_another_pin_keeps_the_tone);
     RUN_TEST(test_a_refused_mode_keeps_the_tone);
     RUN_TEST(test_mode_input_after_notone_takes_the_pin_back);
     RUN_TEST(test_mode_on_another_pin_after_notone_keeps_the_pin);
     RUN_TEST(test_a_tone_moved_to_another_pin_is_released_only_there);
+    RUN_TEST(test_a_mode_output_pin_a_moved_tone_resets_is_not_looped_back);
+    RUN_TEST(test_a_mode_output_pin_an_adc_read_takes_is_not_looped_back);
+    RUN_TEST(test_a_mode_output_pin_the_spi_bus_takes_for_miso_is_not_looped_back);
     RUN_TEST(test_mode_over_a_refused_stop_releases_the_pin_and_a_retry_stops_the_tone);
     return UNITY_END();
 }

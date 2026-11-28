@@ -18,4 +18,8 @@ typedef struct tskTaskControlBlock *TaskHandle_t;
 
 void vTaskPrioritySet(TaskHandle_t xTask, UBaseType_t uxNewPriority);
 
+/* hal_bus.c's 1-Wire slots mask interrupts; nothing to mask on the host. */
+#define taskDISABLE_INTERRUPTS() ((void)0)
+#define taskENABLE_INTERRUPTS()  ((void)0)
+
 #endif

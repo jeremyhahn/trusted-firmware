@@ -7,6 +7,7 @@
 # stand-in writes, as its "image", what it found in the tree it was given and
 # the SOURCE_DATE_EPOCH it was run with.
 
+import json
 import os
 import subprocess
 import sys
@@ -22,17 +23,29 @@ IMAGE = "build/fw.hex"
 # Writes IMAGE in the tree -C names: the sorted file list, the epoch, and the
 # tree's own path when the first make argument is "with-path".
 FAKE_MAKE = f"""#!{sys.executable}
-import os, sys
+import json, os, sys
 tree = sys.argv[sys.argv.index("-C") + 1]
 args = sys.argv[sys.argv.index("--no-print-directory") + 1:]
+argv = list(args)
+# As in make, the last command-line assignment beats the environment.
+epoch = os.environ.get("SOURCE_DATE_EPOCH", "<unset>")
+for a in args:
+    if a.startswith("SOURCE_DATE_EPOCH="):
+        epoch = a.split("=", 1)[1]
+last = args[-1] if args else ""
+if last.startswith("SOURCE_DATE_EPOCH="):
+    args = args[:-1]
 files = sorted(os.path.relpath(os.path.join(d, f), tree)
                for d, _, fs in os.walk(tree) for f in fs)
 out = os.path.join(tree, {IMAGE!r})
 os.makedirs(os.path.dirname(out), exist_ok=True)
 with open(out, "w") as f:
     f.write("files=%s\\n" % ",".join(files))
-    f.write("epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
+    f.write("epoch=%s\\n" % epoch)
+    f.write("env_epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
+    f.write("last=%s\\n" % last)
     f.write("args=%s\\n" % " ".join(args))
+    f.write("argv=%s\\n" % json.dumps(argv))
     if args[:1] == ["with-path"]:
         f.write("tree=%s\\n" % tree)
 """
@@ -50,6 +63,13 @@ def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(text)
+
+
+def make_free_env(**extra):
+    """os.environ without the calling make's MAKEFLAGS, MFLAGS and MAKELEVEL."""
+    env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
+    env.update(extra)
+    return env
 
 
 class ReproBuild(unittest.TestCase):
@@ -76,6 +96,10 @@ class ReproBuild(unittest.TestCase):
         self.b = os.path.join(t, "out", "longer", "b")
 
     def run_script(self, *make_args, env=None):
+        # `make scripts-test` sets MAKEFLAGS itself: a run that brings no env of
+        # its own must not see the calling make's flags or variables.
+        if env is None:
+            env = make_free_env()
         return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,
                                "--image", IMAGE, "--dir", self.a, "--dir", self.b, "--"]
                               + list(make_args),
@@ -98,7 +122,7 @@ class ReproBuild(unittest.TestCase):
                                  "the copy is the commit, not the working tree")
 
     def test_source_date_epoch_is_the_commit_time(self):
-        env = dict(os.environ, SOURCE_DATE_EPOCH="1")
+        env = make_free_env(SOURCE_DATE_EPOCH="1")
         run = self.run_script(env=env)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         for d in (self.a, self.b):
@@ -178,7 +202,7 @@ class ReproBuild(unittest.TestCase):
         return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,
                                "--image", IMAGE, "--dir", self.a, "--dir", self.b,
                                "--app-dir", app_dir],
-                              capture_output=True, text=True, check=False)
+                              env=make_free_env(), capture_output=True, text=True, check=False)
 
     def test_an_application_in_the_tree_is_the_committed_one_in_each_copy(self):
         write(os.path.join(self.src, "app", "ex", "app.mk"), "APP_NAME := ex\n")
@@ -208,6 +232,105 @@ class ReproBuild(unittest.TestCase):
         run = self.run_app(self.tmp.name)
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("has no app.mk", run.stdout + run.stderr)
+
+    # The calling make's command-line variables (#473, #635): GNU make puts
+    # them in MAKEFLAGS after " -- ", and the script must pass them on.
+
+    def run_with_makeflags(self, makeflags, *make_args):
+        return self.run_script(*make_args, env=make_free_env(MAKEFLAGS=makeflags))
+
+    def test_command_line_variables_of_the_calling_make_reach_both_builds(self):
+        run = self.run_with_makeflags(
+            "s -j4 --jobserver-auth=fifo:/tmp/x -- BUILD_DIR=build/imx95-imxboot IMX_BOOT=1",
+            "fw.hex")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            args = self.image(d)["args"]
+            self.assertEqual(args, "BUILD_DIR=build/imx95-imxboot IMX_BOOT=1 fw.hex")
+            self.assertNotIn("-j4", args.split())
+            self.assertNotIn("--jobserver", args)
+
+    def test_the_explicit_arguments_follow_the_forwarded_ones(self):
+        run = self.run_with_makeflags("-- BOARD=a", "BOARD=b")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "BOARD=a BOARD=b")
+
+    # A command-line variable beats the environment in make: the commit epoch
+    # must be the last SOURCE_DATE_EPOCH assignment each build's make gets.
+    def assert_commit_epoch_is_pinned_last(self, run):
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            image = self.image(d)
+            self.assertEqual(image["epoch"], COMMIT_TIME)
+            self.assertEqual(image["env_epoch"], COMMIT_TIME)
+            self.assertEqual(image["last"], f"SOURCE_DATE_EPOCH={COMMIT_TIME}")
+        self.assertIn(f"SOURCE_DATE_EPOCH={COMMIT_TIME}", run.stdout)
+
+    def test_a_forwarded_source_date_epoch_does_not_replace_the_commit_time(self):
+        self.assert_commit_epoch_is_pinned_last(
+            self.run_with_makeflags("-- SOURCE_DATE_EPOCH=1", "fw.hex"))
+
+    def test_an_explicit_source_date_epoch_does_not_replace_the_commit_time(self):
+        self.assert_commit_epoch_is_pinned_last(self.run_script("SOURCE_DATE_EPOCH=1"))
+
+    def test_a_forwarded_absolute_build_dir_is_refused(self):
+        out = os.path.join(self.tmp.name, "shared-build")
+        run = self.run_with_makeflags("-- BUILD_DIR=" + out)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+        self.assertFalse(os.path.lexists(self.a))
+        self.assertFalse(os.path.lexists(self.b))
+
+    def test_a_forwarded_build_dir_that_is_a_make_reference_is_refused(self):
+        out = os.path.join(self.tmp.name, "shared-build")
+        run = self.run_with_makeflags("-- BUILD_DIR=$(OUT) OUT=" + out)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+        self.assertFalse(os.path.lexists(self.a))
+        self.assertFalse(os.path.lexists(self.b))
+
+    def test_a_forwarded_build_dir_outside_the_copy_is_refused(self):
+        run = self.run_with_makeflags("-- BUILD_DIR=../out")
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+
+    def test_jobserver_flags_alone_forward_nothing(self):
+        run = self.run_with_makeflags("-j8 --jobserver-auth=3,4")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "")
+
+    def test_an_escaped_space_stays_in_one_variable(self):
+        run = self.run_with_makeflags("-- EXTRA_CFLAGS=-DA\\ -DB V=1")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            image = self.image(d)
+            self.assertEqual(image["args"], "EXTRA_CFLAGS=-DA -DB V=1")
+            # The joined args line cannot tell "-DA -DB" in one argument
+            # from "-DA" and "-DB" in two; the JSON argv can.
+            argv = json.loads(image["argv"])
+            self.assertNotIn("-DB", argv)
+            self.assertEqual(argv, ["EXTRA_CFLAGS=-DA -DB", "V=1",
+                                    f"SOURCE_DATE_EPOCH={COMMIT_TIME}"])
+
+    def test_a_forwarded_variable_reference_reaches_the_builds_unexpanded_once(self):
+        # `make IMX_BOOT='$(MODE)' MODE=1` puts IMX_BOOT=$$(MODE) in MAKEFLAGS;
+        # each clean build must get IMX_BOOT=$(MODE) so its make expands it.
+        run = self.run_with_makeflags("-- IMX_BOOT=$$(MODE) MODE=1")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            argv = json.loads(self.image(d)["argv"])
+            self.assertEqual(argv, ["IMX_BOOT=$(MODE)", "MODE=1",
+                                    f"SOURCE_DATE_EPOCH={COMMIT_TIME}"])
+
+    def test_a_literal_dollar_stays_escaped_for_the_child_make(self):
+        # The calling make got V=a$$b (a literal $); MAKEFLAGS doubles each $.
+        run = self.run_with_makeflags("-- V=a$$$$b")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            argv = json.loads(self.image(d)["argv"])
+            self.assertEqual(argv[0], "V=a$$b")
 
 
 if __name__ == "__main__":

@@ -86,6 +86,22 @@ static void test_op_ff_is_unsupported(void)
     assert_unsupported_and_empty(req, (uint8_t)sizeof req);
 }
 
+static void test_an_empty_request_is_bad_argc(void)
+{
+    static const uint8_t req[] = { 0x00u };
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_ARGC, app_cmd(req, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
+static void test_a_stopped_application_is_bad_state(void)
+{
+    static const uint8_t req[] = { 0x00u };
+    tfw_app_runner_stop(0u);
+    TEST_ASSERT_NOT_EQUAL(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, app_cmd(req, (uint8_t)sizeof req));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -93,5 +109,7 @@ int main(void)
     RUN_TEST(test_op_00_is_unsupported);
     RUN_TEST(test_op_01_with_an_argument_is_unsupported);
     RUN_TEST(test_op_ff_is_unsupported);
+    RUN_TEST(test_an_empty_request_is_bad_argc);
+    RUN_TEST(test_a_stopped_application_is_bad_state);
     return UNITY_END();
 }

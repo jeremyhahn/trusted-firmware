@@ -282,6 +282,14 @@ class ReproBuild(unittest.TestCase):
         self.assertFalse(os.path.lexists(self.a))
         self.assertFalse(os.path.lexists(self.b))
 
+    def test_a_forwarded_build_dir_that_is_a_make_reference_is_refused(self):
+        out = os.path.join(self.tmp.name, "shared-build")
+        run = self.run_with_makeflags("-- BUILD_DIR=$(OUT) OUT=" + out)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("BUILD_DIR", run.stderr)
+        self.assertFalse(os.path.lexists(self.a))
+        self.assertFalse(os.path.lexists(self.b))
+
     def test_a_forwarded_build_dir_outside_the_copy_is_refused(self):
         run = self.run_with_makeflags("-- BUILD_DIR=../out")
         self.assertEqual(run.returncode, 2, run.stdout + run.stderr)

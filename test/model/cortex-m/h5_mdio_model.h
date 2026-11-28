@@ -6,11 +6,13 @@
  * tfw_cm_model_reg renamed regfile_model_reg (mk/host.mk), so the one here
  * stands in for the MAC: it clears MACMDIOAR.MB once the driver has polled
  * it busy_polls times. Include it once, from that test, after
- * regfile_model.h; the test reads and sets the state below.
+ * regfile_model.h; the test reads and sets the state below. A test may set
+ * on_capture to see the register file as each command is captured.
  */
 #ifndef TFW_TEST_H5_MDIO_MODEL_H
 #define TFW_TEST_H5_MDIO_MODEL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define MACMDIOAR  0x40028200u
@@ -28,6 +30,7 @@ static uint32_t issued_dr;    /* MACMDIODR as the last command found it */
 static uint32_t seen;         /* MB-set reads in all */
 static uint32_t reply;        /* MACMDIODR a read's completion publishes */
 static uint32_t captured;     /* the command in flight has been captured */
+static void (*on_capture)(void); /* called as each command is captured */
 
 /*
  * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
@@ -46,6 +49,9 @@ volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
         issued = *ar;
         issued_dr = *regfile_model_reg(MACMDIODR);
         captured = 1u;
+        if (on_capture != NULL) {
+            on_capture();
+        }
     }
     if (addr == MACMDIOAR && (*r & MB) != 0u) {
         if (busy_polls != NEVER && polls >= busy_polls) {

@@ -25,6 +25,22 @@
 #define SBS_PMCR   (0x44000400u + 0x100u)
 #define GOC_WRITE  (0x1u << 2)
 
+/* The init state the register file holds at the first captured command. */
+static uint32_t first_pmcr, first_ahb1, first_moder_a, first_moder_c, commands;
+
+/* on_capture hook: snapshot PMCR, AHB1ENR and the GPIOA/GPIOC MODER at the
+ * first command, through the raw register file so the snapshot itself does
+ * not step the model. */
+static void note_first_command(void)
+{
+    if (commands++ == 0u) {
+        first_pmcr = *regfile_model_reg(SBS_PMCR);
+        first_ahb1 = *regfile_model_reg(AHB1ENR);
+        first_moder_a = *regfile_model_reg(TFW_H5_GPIOA_BASE);
+        first_moder_c = *regfile_model_reg(TFW_H5_GPIOA_BASE + TFW_H5_GPIO_STRIDE * 2u);
+    }
+}
+
 void setUp(void)
 {
     regfile_model_reset();
@@ -35,6 +51,12 @@ void setUp(void)
     captured = 0u;
     seen = 0u;
     reply = 0u;
+    on_capture = NULL;
+    first_pmcr = 0u;
+    first_ahb1 = 0u;
+    first_moder_a = 0u;
+    first_moder_c = 0u;
+    commands = 0u;
 }
 
 void tearDown(void)
@@ -223,6 +245,24 @@ void test_the_probe_line_is_empty_when_the_buffer_is_too_small(void)
     TEST_ASSERT_EQUAL_size_t(0u, tfw_h5_eth_probe(buf, sizeof buf));
 }
 
+/* The probe inits before it scans: at its first MDIO command RMII is
+ * selected, the MAC clocks are on and MDIO (PA2) and MDC (PC1) are on their
+ * alternate function. A probe that scans before its init fails here. */
+void test_the_probe_line_inits_before_its_first_mdio_command(void)
+{
+    const uint32_t mac_clocks = (0x1u << 19) | (0x1u << 20) | (0x1u << 21);
+    char buf[48];
+
+    on_capture = note_first_command;
+    reply = 0x7804u;
+    (void)tfw_h5_eth_probe(buf, sizeof buf);
+    TEST_ASSERT_TRUE(commands > 0u);
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, first_pmcr & (0x7u << 21));
+    TEST_ASSERT_EQUAL_HEX32(mac_clocks, first_ahb1 & mac_clocks);
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_a >> 4) & 0x3u);   /* PA2 MDIO */
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_c >> 2) & 0x3u);   /* PC1 MDC */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -241,5 +281,6 @@ int main(void)
     RUN_TEST(test_the_probe_line_says_none_when_every_address_reads_ffff);
     RUN_TEST(test_the_probe_line_says_none_on_a_hung_mdio);
     RUN_TEST(test_the_probe_line_is_empty_when_the_buffer_is_too_small);
+    RUN_TEST(test_the_probe_line_inits_before_its_first_mdio_command);
     return UNITY_END();
 }

@@ -56,10 +56,16 @@ tfw_ms_t tfw_hal_millis(void) { return now_ms; }
 
 /* --- the PHY on MDIO: present at address 0, link as link_up_flag says ----- */
 void tfw_h5_eth_mdio_init(void) { }
+static unsigned bmsr_latched_low;       /* BMSR reads left that give the latched-low 0 */
 int tfw_h5_eth_mdio_read(uint8_t addr, uint8_t reg, uint16_t *val)
 {
     if (addr != 0u || phy_absent) {
         *val = 0xFFFFu;
+        return 0;
+    }
+    if (reg == TFW_PHY_REG_BMSR && bmsr_latched_low > 0u) {
+        bmsr_latched_low--;             /* the read that clears the latch */
+        *val = 0u;
         return 0;
     }
     switch (reg) {
@@ -287,8 +293,16 @@ void tfw_h5_wire_dial_poll(void)
 static unsigned bound_says;
 static char bound_line[48];
 static unsigned phy_none_says, mac_reset_says;
+static unsigned unprov_says, rng_failed_says;
+
 void tfw_h5_wire_say(const char *s)
 {
+    if (strcmp(s, "eth: not provisioned\r\n") == 0) {
+        unprov_says++;
+    }
+    if (strcmp(s, "eth: rng failed\r\n") == 0) {
+        rng_failed_says++;
+    }
     if (strcmp(s, "eth: phy none\r\n") == 0) {
         phy_none_says++;
     }
@@ -1238,6 +1252,257 @@ static void test_a_new_block_mac_reprograms_the_mac_before_the_next_dial(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(new_mac));
 }
 
+/* --- the PHY link is read LINK_POLL_MS (100 ms) after bring-up and after
+ * each poll, no sooner and not a period late (#599). run_for steps 100 ms,
+ * so these step now_ms by hand to land on either side of the edge. */
+static void link_first_poll(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x40u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_FALSE(mac_running);
+    now_ms = t0 + 99u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_FALSE(mac_running);                     /* not read yet */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);                      /* read at 100 ms */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_the_link_is_first_polled_link_poll_ms_after_bring_up(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(link_first_poll));
+}
+
+static void link_lost_poll(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x41u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);
+    link_up_flag = 0u;
+    now_ms = t0 + 199u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);                      /* not read yet */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+    now_ms = t0 + 200u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_FALSE(mac_running);                     /* read at +100 ms */
+    TEST_ASSERT_FALSE(netif_is_link_up(netif_default));
+}
+
+static void test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(link_lost_poll));
+}
+
+/* --- BMSR's link bit latches low: the link is the second of two reads (#599) */
+static void bmsr_latch_coming_up(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x42u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    bmsr_latched_low = 1u;                              /* the first read: 0 */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, bmsr_latched_low);
+    TEST_ASSERT_TRUE(mac_running);                      /* the second read: up */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_a_link_coming_up_is_taken_from_the_second_bmsr_read(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(bmsr_latch_coming_up));
+}
+
+static void bmsr_latch_running(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x43u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* bring-up */
+    now_ms = t0 + 100u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_TRUE(mac_running);
+    bmsr_latched_low = 1u;                              /* a drop since the last poll */
+    now_ms = t0 + 200u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, bmsr_latched_low);
+    TEST_ASSERT_TRUE(mac_running);                      /* the second read: still up */
+    TEST_ASSERT_TRUE(netif_is_link_up(netif_default));
+}
+
+static void test_a_running_link_with_a_latched_low_first_read_stays_up(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(bmsr_latch_running));
+}
+
+/* --- a failed bring-up is tried again RNG_RETRY_MS on (#599) ------------- */
+
+/* A missing block or a failed RNG draw holds bring-up for RNG_RETRY_MS
+ * (1000 ms): not tried again on the next pass, and not a poll period late. */
+static void retry_after_missing_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x44u };
+    tfw_ms_t t0;
+
+    eeprom_fails = 1u;
+    link_up_flag = 1u;
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* the load fails */
+    TEST_ASSERT_NULL(netif_default);
+    eeprom_fails = 0u;
+    put_block(0u, mac);
+    now_ms = t0 + 999u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NULL(netif_default);                    /* no sooner */
+    now_ms = t0 + 1000u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NOT_NULL(netif_default);                /* not a period late */
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(mac, netif_default->hwaddr, 6);
+}
+
+static void test_a_missing_block_is_read_again_rng_retry_ms_after_the_failed_load(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(retry_after_missing_block));
+}
+
+static void retry_after_failed_rng(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x45u };
+    tfw_ms_t t0;
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    t0 = now_ms;
+    tfw_hal_eth_poll();                                 /* the draw fails */
+    TEST_ASSERT_NULL(netif_default);
+    good_seed();
+    now_ms = t0 + 999u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NULL(netif_default);                    /* no sooner */
+    now_ms = t0 + 1000u;
+    tfw_hal_eth_poll();
+    TEST_ASSERT_NOT_NULL(netif_default);                /* not a period late */
+}
+
+static void test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(retry_after_failed_rng));
+}
+
+/* --- a failed bring-up says its line once, not on every retry ------------ */
+
+static void unprov_said_once(void)
+{
+    eeprom_fails = 1u;                                  /* no block at all */
+    link_up_flag = 1u;
+    run_for(3500u);                                     /* four bring-up tries */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, unprov_says);
+    TEST_ASSERT_EQUAL_UINT(0u, rng_failed_says);
+}
+
+static void test_the_console_says_not_provisioned_once_over_the_retries(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unprov_said_once));
+}
+
+static void rng_failed_said_once(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x46u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(3500u);                                     /* four bring-up tries */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+    TEST_ASSERT_EQUAL_UINT(0u, unprov_says);
+}
+
+static void test_the_console_says_rng_failed_once_over_the_retries(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(rng_failed_said_once));
+}
+
+/* --- the not-provisioned line re-arms after a load; the rng line does not */
+
+static void unprov_said_again_after_a_load(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x47u };
+
+    eeprom_fails = 1u;                                  /* no block at all */
+    link_up_flag = 1u;
+    run_for(500u);                                      /* try 1: no block */
+    put_block(0u, mac);
+    eeprom_fails = 0u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(1000u);                                     /* try 2: loads, draw fails */
+    eeprom_fails = 1u;
+    run_for(1000u);                                     /* try 3: no block again */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(2u, unprov_says);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+}
+
+static void test_not_provisioned_is_said_again_after_a_block_that_loaded(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(unprov_said_again_after_a_load));
+}
+
+static void rng_failed_not_said_again_after_a_missing_block(void)
+{
+    static const uint8_t mac[6] = { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x48u };
+
+    put_block(0u, mac);
+    link_up_flag = 1u;
+    fake_rng[TFW_H5_RNG_SR_IX] = TFW_H5_RNG_SR_SECS | TFW_H5_RNG_SR_SEIS |
+                                 TFW_H5_RNG_SR_DRDY;    /* a seed error that stays */
+    run_for(500u);                                      /* try 1: draw fails */
+    eeprom_fails = 1u;
+    run_for(1000u);                                     /* try 2: no block */
+    eeprom_fails = 0u;
+    run_for(1000u);                                     /* try 3: draw fails again */
+    TEST_ASSERT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);
+    TEST_ASSERT_EQUAL_UINT(1u, unprov_says);
+    good_seed();
+    run_for(1000u);                                     /* try 4: comes up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, netif_default->hwaddr, 6);
+    TEST_ASSERT_EQUAL_UINT(1u, rng_failed_says);        /* try 3 loaded and drew */
+}
+
+static void test_rng_failed_is_not_said_again_after_a_missing_block(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(rng_failed_not_said_again_after_a_missing_block));
+}
+
 /* --- LWIP_RAND: xorshift32, seeded at bring-up from the RNG (#599) --- */
 
 /* LWIP_RAND is tfw_h5_eth_rand, seeded from the fifth RNG word with bit 0
@@ -1436,6 +1701,16 @@ int main(void)
     RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
     RUN_TEST(test_a_static_block_written_while_unbound_applies_through_the_poll);
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
+    RUN_TEST(test_the_link_is_first_polled_link_poll_ms_after_bring_up);
+    RUN_TEST(test_a_lost_link_is_seen_link_poll_ms_after_the_last_poll);
+    RUN_TEST(test_a_link_coming_up_is_taken_from_the_second_bmsr_read);
+    RUN_TEST(test_a_running_link_with_a_latched_low_first_read_stays_up);
+    RUN_TEST(test_a_missing_block_is_read_again_rng_retry_ms_after_the_failed_load);
+    RUN_TEST(test_a_failed_rng_draw_is_tried_again_rng_retry_ms_after_it);
+    RUN_TEST(test_the_console_says_not_provisioned_once_over_the_retries);
+    RUN_TEST(test_the_console_says_rng_failed_once_over_the_retries);
+    RUN_TEST(test_not_provisioned_is_said_again_after_a_block_that_loaded);
+    RUN_TEST(test_rng_failed_is_not_said_again_after_a_missing_block);
     RUN_TEST(test_the_first_local_tcp_port_comes_from_the_rng_seed);
     RUN_TEST(test_lwip_rand_steps_xorshift32_and_the_seed_replaces_the_boot_state);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);

@@ -34,6 +34,11 @@ void setUp(void)
     captured = 0u;
     seen = 0u;
     reply = 0u;
+    commands = 0u;
+    first_pmcr = 0u;
+    first_ahb1enr = 0u;
+    first_moder_a = 0u;
+    first_moder_c = 0u;
 }
 
 void tearDown(void)
@@ -83,6 +88,24 @@ void test_the_model_catches_a_write_issued_before_its_data(void)
     (void)mdio_model_load(MACMDIOAR);
     TEST_ASSERT_EQUAL_HEX32(GOC_WRITE | MB, issued);
     TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, issued_dr);
+}
+
+void test_the_model_records_the_init_state_at_the_first_command(void)
+{
+    uint16_t v = 0u;
+
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
+    TEST_ASSERT_EQUAL_UINT32(1u, commands);
+    /* no init yet: the reset state */
+    TEST_ASSERT_EQUAL_HEX32(0u, first_pmcr);
+    TEST_ASSERT_EQUAL_HEX32(0u, first_ahb1enr);
+
+    tfw_h5_eth_mdio_init();
+    TEST_ASSERT_EQUAL_INT(0, tfw_h5_eth_mdio_read(0x01u, 0x02u, &v));
+    TEST_ASSERT_EQUAL_UINT32(2u, commands);
+    /* only the first command is snapshotted */
+    TEST_ASSERT_EQUAL_HEX32(0u, first_pmcr);
+    TEST_ASSERT_EQUAL_HEX32(0u, first_ahb1enr);
 }
 
 void test_a_phy_or_register_past_five_bits_is_masked(void)
@@ -270,8 +293,10 @@ void test_probe_inits_and_reports_the_first_phy_that_answers(void)
     TEST_ASSERT_EQUAL_STRING("eth: phy addr=0 id=0007:0007 link=up\r\n", buf);
     /* last command: the second BMSR read at address 0 */
     TEST_ASSERT_EQUAL_HEX32((0x01u << 16) | GOC_READ | MB, issued);
-    /* the MDIO init ran first: RMII selected */
-    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, regfile_model_peek(SBS_PMCR));
+    /* the MDIO init ran before the first command: RMII selected, MAC clocks on */
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, first_pmcr & (0x7u << 21));
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 19) | (0x1u << 20) | (0x1u << 21),
+                            first_ahb1enr & ((0x1u << 19) | (0x1u << 20) | (0x1u << 21)));
 }
 
 /* An idle MDIO line reads all ones at every address. */
@@ -284,9 +309,12 @@ void test_probe_with_no_phy_scans_all_32_addresses_and_says_none(void)
     TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
     /* last command: PHYID2 at address 31 */
     TEST_ASSERT_EQUAL_HEX32((0x1Fu << 21) | (0x03u << 16) | GOC_READ | MB, issued);
-    /* the MDIO init ran first: MAC clocks on */
-    TEST_ASSERT_EQUAL_HEX32((0x1u << 19) | (0x1u << 20) | (0x1u << 21),
-                            regfile_model_peek(AHB1ENR));
+    /* the MDIO pins were on their alternate function at the first command */
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_a >> 4) & 0x3u);   /* PA2 MDIO */
+    TEST_ASSERT_EQUAL_HEX32(0x2u, (first_moder_c >> 2) & 0x3u);   /* PC1 MDC */
+    TEST_ASSERT_EQUAL_HEX32(0x4u << 21, first_pmcr & (0x7u << 21));
+    /* 32 addresses x PHYID1 + PHYID2 */
+    TEST_ASSERT_EQUAL_UINT32(64u, commands);
 }
 
 int main(void)
@@ -295,6 +323,7 @@ int main(void)
     RUN_TEST(test_a_read_names_the_phy_and_register_and_waits_on_mb);
     RUN_TEST(test_a_write_loads_dr_then_issues_the_write_and_waits_on_mb);
     RUN_TEST(test_the_model_catches_a_write_issued_before_its_data);
+    RUN_TEST(test_the_model_records_the_init_state_at_the_first_command);
     RUN_TEST(test_a_phy_or_register_past_five_bits_is_masked);
     RUN_TEST(test_a_write_masks_a_phy_or_register_past_five_bits);
     RUN_TEST(test_a_write_after_a_read_issues_a_write_on_its_own_phy_and_register);

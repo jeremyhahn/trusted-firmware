@@ -596,6 +596,44 @@ static void test_pet_keeps_an_armed_watchdog_mark(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
 }
 
+/* An image entered right after an earlier stage armed the watchdog can
+ * find PVU/RVU still set.  The pets do not wait on SR: the running
+ * watchdog is reloaded at once, and SR is never read.  The model clears
+ * SR on its SR_POLLS-th read, so a wait added in front ends, not hangs. */
+static void test_early_pets_without_reading_an_inherited_busy_sr(void)
+{
+    inherit_armed_watchdog();
+    model_set(ADDR_SR, TFW_H5_IWDG_SR_BUSY);
+    sr_waiting = 1u;
+
+    tfw_cm_soc_early();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_UINT32(0u, model_log[0].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(1u, writes_to(ADDR_KR));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_SR_BUSY, reg(ADDR_SR));
+}
+
+static void test_pet_does_not_read_an_inherited_busy_sr(void)
+{
+    inherit_armed_watchdog();
+    model_set(ADDR_SR, TFW_H5_IWDG_SR_BUSY);
+    sr_waiting = 1u;
+
+    tfw_cm_soc_watchdog_pet();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_UINT32(0u, model_log[0].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_SR_BUSY, reg(ADDR_SR));
+}
+
 /* ---- tfw_cm_soc_reset_cause ---- */
 
 static void test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take(void)
@@ -650,6 +688,8 @@ int main(void)
     RUN_TEST(test_pet_writes_reload_only);
     RUN_TEST(test_early_leaves_the_cleared_reset_mark);
     RUN_TEST(test_pet_keeps_an_armed_watchdog_mark);
+    RUN_TEST(test_early_pets_without_reading_an_inherited_busy_sr);
+    RUN_TEST(test_pet_does_not_read_an_inherited_busy_sr);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);
     RUN_TEST(test_reset_cause_returns_what_reset_take_decodes);

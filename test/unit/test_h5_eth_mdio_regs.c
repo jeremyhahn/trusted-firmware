@@ -317,6 +317,39 @@ void test_probe_with_no_phy_scans_all_32_addresses_and_says_none(void)
     TEST_ASSERT_EQUAL_UINT32(64u, commands);
 }
 
+/* A MAC that never clears MB: the stale MACMDIODR would read as PHYID
+ * 0007:0007 with link up, but every read times out, one spin per address. */
+void test_probe_on_a_mac_that_never_finishes_says_none(void)
+{
+    char buf[48];
+
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIODR, 0x00000007u);
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    /* only PHYID1 at address 0 was issued */
+    TEST_ASSERT_EQUAL_UINT32(1u, commands);
+    TEST_ASSERT_EQUAL_HEX32((0x02u << 16) | GOC_READ | MB, issued);
+    /* the first read's post-wait, then 31 pre-waits, MDIO_SPIN polls each */
+    TEST_ASSERT_EQUAL_UINT32(32u * 100000u, seen);
+}
+
+/* A command already in flight that never ends: the probe waits it out at
+ * every address and writes no command of its own over it. */
+void test_probe_behind_a_command_that_never_ends_issues_none_of_its_own(void)
+{
+    char buf[48];
+    const uint32_t stuck = (0x1Fu << 21) | (0x1Fu << 16) | GOC_READ | MB;
+
+    busy_polls = NEVER;
+    regfile_model_poke(MACMDIOAR, stuck);
+    TEST_ASSERT_EQUAL_size_t(15u, tfw_h5_eth_probe(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_STRING("eth: phy none\r\n", buf);
+    TEST_ASSERT_EQUAL_HEX32(stuck, regfile_model_peek(MACMDIOAR));
+    /* one pre-wait of MDIO_SPIN polls per address */
+    TEST_ASSERT_EQUAL_UINT32(32u * 100000u, seen);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -342,5 +375,7 @@ int main(void)
     RUN_TEST(test_init_puts_the_rmii_pins_on_af11);
     RUN_TEST(test_probe_inits_and_reports_the_first_phy_that_answers);
     RUN_TEST(test_probe_with_no_phy_scans_all_32_addresses_and_says_none);
+    RUN_TEST(test_probe_on_a_mac_that_never_finishes_says_none);
+    RUN_TEST(test_probe_behind_a_command_that_never_ends_issues_none_of_its_own);
     return UNITY_END();
 }

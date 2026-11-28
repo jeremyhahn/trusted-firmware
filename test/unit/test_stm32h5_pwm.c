@@ -401,6 +401,33 @@ void test_a_ref_outside_tim5_and_the_banks_is_refused_untouched(void)
         TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(TIM5_CCR_ADDR(i)));
 }
 
+void test_a_write_to_a_high_pin_keeps_the_banks_other_pins(void)
+{
+    TFW_H5_GPIO_AFRH(GPIOH) = 0x77777777u;
+    TFW_H5_GPIO_PUPDR(GPIOH) = 0x55555555u;
+    TFW_H5_GPIO_MODER(GPIOH) = 0xFFFFFFFFu;
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(1u, 100u));
+    TEST_ASSERT_EQUAL_HEX32(0x77777277u, TFW_H5_GPIO_AFRH(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0x55455555u, TFW_H5_GPIO_PUPDR(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0xFFEFFFFFu, TFW_H5_GPIO_MODER(GPIOH));
+}
+
+void test_a_write_to_a_low_pin_and_its_stop_keep_the_banks_other_pins(void)
+{
+    tfw_pwmref_t lo = ref_of(1u);
+
+    lo.bit = 7u;
+    TFW_H5_GPIO_AFRL(GPIOH) = 0x77777777u;
+    TFW_H5_GPIO_MODER(GPIOH) = 0xFFFFFFFFu;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&lo, 100u));
+    TEST_ASSERT_EQUAL_HEX32(0x27777777u, TFW_H5_GPIO_AFRL(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFBFFFu, TFW_H5_GPIO_MODER(GPIOH));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&lo));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFF7FFFu, TFW_H5_GPIO_MODER(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(0x27777777u, TFW_H5_GPIO_AFRL(GPIOH));
+    TEST_ASSERT_EQUAL_HEX32(1u << 23u, TFW_H5_GPIO_BSRR(GPIOH));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -428,5 +455,7 @@ int main(void)
     RUN_TEST(test_a_bad_ref_is_refused_untouched);
     RUN_TEST(test_a_refused_stop_leaves_a_live_channel_running);
     RUN_TEST(test_a_write_and_a_stop_clock_the_bank_and_route_the_pin);
+    RUN_TEST(test_a_write_to_a_high_pin_keeps_the_banks_other_pins);
+    RUN_TEST(test_a_write_to_a_low_pin_and_its_stop_keep_the_banks_other_pins);
     return UNITY_END();
 }

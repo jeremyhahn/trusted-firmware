@@ -16,6 +16,7 @@
 #include <stddef.h>
 
 #include "unity.h"
+#include "stm32h5_ee_port_stubs.h"
 #include "stm32h5/soc_regs.h"
 #include "../h5_flash.h"
 
@@ -49,11 +50,20 @@ static uint32_t                   update_off;
 static const uint8_t             *update_data;
 static uint32_t                   update_len;
 static tfw_status_t               update_ret;
+static unsigned                   update_dsbs; /* DSBs issued before the update */
+
+/* stm32h5_ee_port_stubs.h's model: PRIMASK, and the DSB and irq hook counts. */
+uint32_t stub_primask;
+unsigned stub_dsbs;
+unsigned stub_saves;
+unsigned stub_restores;
+unsigned stub_dsbs_at_restore;
 
 tfw_status_t tfw_h5_flash_update(const struct tfw_h5_flash *f, uint32_t off,
                                  const uint8_t *data, uint32_t len)
 {
     update_calls++;
+    update_dsbs = stub_dsbs;
     update_f    = f;
     update_off  = off;
     update_data = data;
@@ -79,6 +89,12 @@ void setUp(void)
     update_len   = 0u;
     update_ret   = TFW_OK;
     model_polls  = 0u;
+    update_dsbs  = 0u;
+    stub_primask = 0u;
+    stub_dsbs    = 0u;
+    stub_saves   = 0u;
+    stub_restores        = 0u;
+    stub_dsbs_at_restore = 0u;
 }
 
 void tearDown(void)
@@ -145,6 +161,40 @@ static void test_the_wait_returns_at_once_on_other_bits(void)
     TEST_ASSERT_EQUAL_UINT32(1u, model_polls);
 }
 
+/* The write fences once after the driver's update returns, so the programmed
+ * words are out before the caller goes on; a refused address issues none. */
+static void test_the_write_issues_one_dsb_after_the_update(void)
+{
+    static const uint8_t data[16] = { 0 };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_cm_boot_flash_write(TFW_H5_FLASH_MEM + 0x4000u, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(0u, update_dsbs);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs);
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_cm_boot_flash_write(TFW_H5_FLASH_MEM - 1u, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs);
+    TEST_ASSERT_EQUAL_UINT32(1u, update_calls);
+}
+
+/* The driver's irq hooks mask PRIMASK and hand back the mask they found, and
+ * the restore puts back exactly the mask it is given, so a nested save keeps
+ * interrupts masked until the outer restore. */
+static void test_the_irq_hooks_mask_and_put_back_the_found_mask(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_flash_irq_save());
+    TEST_ASSERT_EQUAL_UINT32(1u, stub_primask);
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_h5_flash_irq_save());
+    TEST_ASSERT_EQUAL_UINT32(1u, stub_primask);
+
+    tfw_h5_flash_irq_restore(1u);
+    TEST_ASSERT_EQUAL_UINT32(1u, stub_primask);
+    tfw_h5_flash_irq_restore(0u);
+    TEST_ASSERT_EQUAL_UINT32(0u, stub_primask);
+
+    TEST_ASSERT_EQUAL_UINT(2u, stub_saves);
+    TEST_ASSERT_EQUAL_UINT(2u, stub_restores);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -153,5 +203,7 @@ int main(void)
     RUN_TEST(test_the_flash_start_is_offset_0);
     RUN_TEST(test_the_wait_spins_while_bsy_wbne_or_dbne_is_set);
     RUN_TEST(test_the_wait_returns_at_once_on_other_bits);
+    RUN_TEST(test_the_write_issues_one_dsb_after_the_update);
+    RUN_TEST(test_the_irq_hooks_mask_and_put_back_the_found_mask);
     return UNITY_END();
 }

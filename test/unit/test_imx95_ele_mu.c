@@ -2086,6 +2086,48 @@ static void test_a_get_event_names_its_session_and_returns_the_events(void)
     TEST_ASSERT_EQUAL_HEX32(0x000000D6u, status);
 }
 
+/* A six-word request, the session in word 4, so its CRC word 5 is due. */
+static const struct tfw_ele_event_layout evt6_long = { 0x9Au, 6u, 6u, 4u, 2u, 3u };
+/* A four-word request, the session in its last word 3: no CRC word. */
+static const struct tfw_ele_event_layout evt6_four = { 0x9Au, 4u, 6u, 3u, 2u, 3u };
+
+static void test_a_long_get_event_request_ends_in_its_crc_word(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 9u;
+
+    evt_reply(2u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6_long, 0x5E550001u, ev,
+                                                 TFW_ELE_EVENTS_MAX, &n, NULL));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(6u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_HEX32(0x179A0606u, m->ele.req[0]);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->ele.req[1]);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->ele.req[2]);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->ele.req[3]);
+    TEST_ASSERT_EQUAL_HEX32(0x5E550001u, m->ele.req[4]);   /* session */
+    /* 0x179A0606 ^ 0 ^ 0 ^ 0 ^ 0x5E550001 = 0x49CF0607 */
+    TEST_ASSERT_EQUAL_HEX32(0x49CF0607u, m->ele.req[5]);
+    TEST_ASSERT_EQUAL_UINT32(2u, n);
+}
+
+static void test_a_four_word_get_event_request_has_no_crc_word(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 9u;
+
+    evt_reply(2u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6_four, 0x5E550001u, ev,
+                                                 TFW_ELE_EVENTS_MAX, &n, NULL));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(4u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_HEX32(0x179A0406u, m->ele.req[0]);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->ele.req[1]);
+    TEST_ASSERT_EQUAL_HEX32(0u, m->ele.req[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x5E550001u, m->ele.req[3]);   /* the session, not a CRC */
+    TEST_ASSERT_EQUAL_UINT32(2u, n);
+}
+
 static void test_a_get_event_count_never_reads_past_the_response(void)
 {
     uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
@@ -2492,6 +2534,8 @@ int main(void)
     RUN_TEST(test_a_delete_with_no_service_is_not_sent);
     RUN_TEST(test_a_delete_with_no_layout_is_not_sent);
     RUN_TEST(test_a_get_event_names_its_session_and_returns_the_events);
+    RUN_TEST(test_a_long_get_event_request_ends_in_its_crc_word);
+    RUN_TEST(test_a_four_word_get_event_request_has_no_crc_word);
     RUN_TEST(test_a_get_event_count_never_reads_past_the_response);
     RUN_TEST(test_a_get_event_never_writes_past_the_callers_room);
     RUN_TEST(test_a_get_event_never_returns_more_than_the_cap);

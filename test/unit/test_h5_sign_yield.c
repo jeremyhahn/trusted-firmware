@@ -47,6 +47,7 @@ tfw_ms_t tfw_hal_millis(void)
  * test_h5_netif.c runs it on the real lwIP timers across a lease expiry. */
 static unsigned deadline_sweeps;
 static unsigned rx_drains;
+static int      released_at_drain; /* the scheduled write came before the drain */
 /* Sweeps with no drain since the last sweep. The flag starts clear, so a
  * yield that sweeps before it drains is caught on its first sweep. */
 static unsigned sweeps_before_drain;
@@ -67,6 +68,7 @@ void tfw_h5_eth_service_rx_nodispatch(void)
 {
     rx_drains++;
     drained_this_yield = 1;
+    released_at_drain = released;
 }
 
 tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
@@ -139,6 +141,7 @@ void setUp(void)
     rx_drains = 0u;
     sweeps_before_drain = 0u;
     drained_this_yield = 0;
+    released_at_drain = 0;
 }
 
 void tearDown(void) { }
@@ -229,6 +232,39 @@ static void test_every_yield_drains_received_frames_before_the_deadline_sweep(vo
     TEST_ASSERT_EQUAL_UINT(0u, sweeps_before_drain);
 }
 
+/* One yield, called directly: the received-frame drain and the deadline sweep
+ * run once each, drain first. A second pass would double every ladder step's
+ * cost and sweep the lwIP timers twice. */
+static void test_one_yield_drains_once_and_sweeps_once(void)
+{
+    tfw_sign_yield();
+
+    TEST_ASSERT_EQUAL_UINT(1u, rx_drains);
+    TEST_ASSERT_EQUAL_UINT(1u, deadline_sweeps);
+    TEST_ASSERT_EQUAL_UINT(0u, sweeps_before_drain);
+}
+
+/* An output due at the yield drops before the network is serviced, so the
+ * release edge never waits on the drain or the lwIP timers. */
+static void test_a_due_output_is_released_before_the_network_is_serviced(void)
+{
+    arm_high_for(ARM_MS);
+
+    now_ms = ARM_MS - 1u;
+    tfw_sign_yield();
+    TEST_ASSERT_FALSE(released);
+    TEST_ASSERT_TRUE(tfw_sched_active());
+
+    now_ms = ARM_MS;
+    tfw_sign_yield();
+    TEST_ASSERT_TRUE(released);
+    TEST_ASSERT_EQUAL_UINT8(0u, released_level);
+    TEST_ASSERT_EQUAL_UINT32(ARM_MS, released_ms);
+    TEST_ASSERT_TRUE(released_at_drain);
+    TEST_ASSERT_FALSE(tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT(2u, rx_drains);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -236,5 +272,7 @@ int main(void)
     RUN_TEST(test_a_scheduled_output_is_released_on_time_during_derivation);
     RUN_TEST(test_a_sign_with_nothing_armed_writes_no_pin);
     RUN_TEST(test_every_yield_drains_received_frames_before_the_deadline_sweep);
+    RUN_TEST(test_one_yield_drains_once_and_sweeps_once);
+    RUN_TEST(test_a_due_output_is_released_before_the_network_is_serviced);
     return UNITY_END();
 }

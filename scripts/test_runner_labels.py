@@ -1425,6 +1425,17 @@ class RunnerLabelsTest(unittest.TestCase):
         )
         self.assertEqual(self.check(workflow), ["w.yml:9: qwne"])
 
+    def test_an_escaped_line_break_in_a_multi_line_flow_label_is_decoded(self):
+        head = "jobs:\n  build:\n"
+        for body, want in (
+            ('    runs-on: ["ubuntu-\\\n      latest"]\n', []),
+            ('    runs-on: {group: g, labels: "ubuntu-\\\n      latest"}\n', []),
+            ('    runs-on: [self-hosted, "qw\\\n      ne"]\n', ["w.yml:3: qwne"]),
+            ('    runs-on: ["ubuntu-\n      latest"]\n', ["w.yml:3: ubuntu- latest"]),
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(self.check(head + body), want)
+
     def test_a_builtin_label_in_any_case_is_accepted(self):
         for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

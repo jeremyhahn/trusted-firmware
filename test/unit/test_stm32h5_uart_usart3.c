@@ -196,6 +196,32 @@ static void test_an_overrun_is_cleared_in_usart3s_icr(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, peek(USART3_ICR));
 }
 
+/* The console's clock enables are read-modify-writes: TIM3 (bit 1, the tone)
+ * and TIM5 (the PWM) share RCC_APB1LENR with USART3, and the other GPIO bank
+ * clocks share RCC_AHB2ENR with GPIOD, so a console (re)init must not switch
+ * them off. */
+static void test_init_keeps_the_other_clock_enables(void)
+{
+    TFW_H5_RCC_APB1LENR = TFW_H5_RCC_APB1LENR_TIM5EN | (0x1u << 1);
+    TFW_H5_RCC_AHB2ENR = (0x1u << 0) | (0x1u << 1) | (0x1u << 5);   /* A, B, F */
+    init_115200();
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_RCC_APB1LENR_TIM5EN | (0x1u << 1) | USART3EN,
+                            regfile_model_peek(RCC_APB1LENR));
+    TEST_ASSERT_EQUAL_HEX32((0x1u << 0) | (0x1u << 1) | (0x1u << 5) | GPIODEN,
+                            TFW_H5_RCC_AHB2ENR);
+}
+
+/* PD8/PD9 are set field by field: every other GPIOD pin keeps its reset
+ * (analog) mode and its alternate function. */
+static void test_the_pins_keep_gpiods_other_pins(void)
+{
+    TFW_H5_GPIO_MODER(GPIOD) = 0xFFFFFFFFu;
+    TFW_H5_GPIO_AFRH(GPIOD) = 0xFFFFFFFFu;
+    init_115200();
+    TEST_ASSERT_EQUAL_HEX32(0xFFFAFFFFu, TFW_H5_GPIO_MODER(GPIOD));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF77u, TFW_H5_GPIO_AFRH(GPIOD));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -213,5 +239,7 @@ int main(void)
     RUN_TEST(test_rx_takes_usart3s_rdr_on_irq60);
     RUN_TEST(test_rx_ignores_usart1s_rdr);
     RUN_TEST(test_an_overrun_is_cleared_in_usart3s_icr);
+    RUN_TEST(test_init_keeps_the_other_clock_enables);
+    RUN_TEST(test_the_pins_keep_gpiods_other_pins);
     return UNITY_END();
 }

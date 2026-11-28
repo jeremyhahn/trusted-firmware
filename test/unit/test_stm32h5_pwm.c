@@ -301,6 +301,24 @@ void test_a_stop_takes_the_preload_off_in_ccmr2(void)
     TEST_ASSERT_EQUAL_UINT32(40u, TFW_H5_TIM_CCR(4u));
 }
 
+/* Channels 2 and 4 keep their preload in bit 11 of CCMR1 and CCMR2: a stop
+ * of one takes its own OCxPE off and leaves its CCMR partner preloaded. */
+void test_a_stop_of_channel_two_takes_oc2pe_off_and_keeps_oc1pe(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(1u, 100u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(2u, 80u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_stop(2u));
+    TEST_ASSERT_EQUAL_HEX32(0x00006068u, TFW_H5_TIM_CCMR1);
+}
+
+void test_a_stop_of_channel_four_takes_oc4pe_off_and_keeps_oc3pe(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(3u, 100u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_write(4u, 80u));
+    TEST_ASSERT_EQUAL(TFW_OK, hal_stop(4u));
+    TEST_ASSERT_EQUAL_HEX32(0x00006068u, TFW_H5_TIM_CCMR2);
+}
+
 static const tfw_pwmref_t bad_refs[] = {
     { .unit = 4u, .channel = 1u, .port = 7u, .bit = 10u },
     { .unit = TFW_H5_PWM_UNIT, .channel = 0u, .port = 7u, .bit = 10u },
@@ -403,6 +421,8 @@ int main(void)
     RUN_TEST(test_a_wire_write_of_duty_0_stops_a_running_channel);
     RUN_TEST(test_a_wire_restart_after_stop_loads_its_duty_at_once);
     RUN_TEST(test_a_stop_takes_the_preload_off_in_ccmr2);
+    RUN_TEST(test_a_stop_of_channel_two_takes_oc2pe_off_and_keeps_oc1pe);
+    RUN_TEST(test_a_stop_of_channel_four_takes_oc4pe_off_and_keeps_oc3pe);
     RUN_TEST(test_a_ref_outside_tim5_and_the_banks_is_refused_untouched);
     RUN_TEST(test_each_wire_write_gives_the_pin_back_to_the_timer);
     RUN_TEST(test_a_bad_ref_is_refused_untouched);

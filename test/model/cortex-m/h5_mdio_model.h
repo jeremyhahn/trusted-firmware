@@ -6,11 +6,13 @@
  * tfw_cm_model_reg renamed regfile_model_reg (mk/host.mk), so the one here
  * stands in for the MAC: it clears MACMDIOAR.MB once the driver has polled
  * it busy_polls times. Include it once, from that test, after
- * regfile_model.h; the test reads and sets the state below.
+ * regfile_model.h; the test reads and sets the state below. A test may set
+ * on_capture to see the register file as each command is captured.
  */
 #ifndef TFW_TEST_H5_MDIO_MODEL_H
 #define TFW_TEST_H5_MDIO_MODEL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define MACMDIOAR  0x40028200u
@@ -28,8 +30,7 @@ static uint32_t issued_dr;    /* MACMDIODR as the last command found it */
 static uint32_t seen;         /* MB-set reads in all */
 static uint32_t reply;        /* MACMDIODR a read's completion publishes */
 static uint32_t captured;     /* the command in flight has been captured */
-static uint32_t commands;     /* commands captured in all */
-static uint32_t first_pmcr, first_ahb1enr, first_moder_a, first_moder_c;   /* at the first command */
+static void (*on_capture)(void); /* called as each command is captured */
 
 /*
  * The register file, with MACMDIOAR's MB cleared after busy_polls reads.
@@ -38,9 +39,6 @@ static uint32_t first_pmcr, first_ahb1enr, first_moder_a, first_moder_c;   /* at
  * and its data are captured at the first register access after MB is set,
  * whatever register that access names, as the MAC starts the frame at once:
  * a driver that loads MACMDIODR after issuing a write sends the stale value.
- * The first command captured also snapshots SBS_PMCR, RCC_AHB1ENR and the
- * GPIOA and GPIOC MODER registers, so a test sees the init state the MAC
- * had when the first MDIO frame went out, not only after the driver returns.
  */
 volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
 {
@@ -50,13 +48,10 @@ volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
     if ((*ar & MB) != 0u && captured == 0u) {
         issued = *ar;
         issued_dr = *regfile_model_reg(MACMDIODR);
-        if (commands++ == 0u) {
-            first_pmcr = *regfile_model_reg(0x44000500u);   /* SBS_PMCR */
-            first_ahb1enr = *regfile_model_reg(TFW_H5_RCC_BASE + 0x88u);
-            first_moder_a = *regfile_model_reg(TFW_H5_GPIOA_BASE);
-            first_moder_c = *regfile_model_reg(TFW_H5_GPIOA_BASE + 2u * TFW_H5_GPIO_STRIDE);
-        }
         captured = 1u;
+        if (on_capture != NULL) {
+            on_capture();
+        }
     }
     if (addr == MACMDIOAR && (*r & MB) != 0u) {
         if (busy_polls != NEVER && polls >= busy_polls) {

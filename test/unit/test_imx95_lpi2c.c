@@ -86,6 +86,11 @@ static struct {
     int      lose_late;   /* that loss reaches MSR only at the STOP */
     int      alf_held;    /* a late loss not yet in MSR */
     int      fef_at;      /* the data byte the master takes as out of order, -1 none */
+    int      rx_give;     /* bytes a RECEIVE command delivers, -1 all it asks for */
+    int      rx_lose_at;  /* the received byte another master wins, -1 none */
+    int      rx_alf_held; /* that loss reaches MSR once the bytes before it are read */
+    unsigned rx_stale;    /* MRDR reads that answer RXEMPTY under RDF */
+    int      rx_stale_now; /* the pending MRDR read was a stale one: no pop */
     unsigned lost_logn;   /* MTDR writes when ALF was raised */
     unsigned busy;        /* 1 between a START and its STOP */
     uint8_t  addressed;   /* the address byte of the last START */
@@ -148,6 +153,15 @@ static void run(void)
             }
         } else if (op == CMD_RX) {
             for (i = 0u; i <= d && md.rxn < FIFO; i++) {
+                if (md.rx_give >= 0 && i >= (unsigned)md.rx_give) {
+                    break;   /* the target stops sending */
+                }
+                if (md.rx_lose_at >= 0 && i == (unsigned)md.rx_lose_at) {
+                    /* Another master wins this byte: ALF lands once the
+                     * bytes already received have been read. */
+                    md.rx_alf_held = 1;
+                    break;
+                }
                 md.rxq[md.rxn++] = md.give[md.given++ % FIFO];
             }
         } else if (op == CMD_STOP) {
@@ -181,7 +195,14 @@ static uint32_t view(enum reg r)
     case R_MCCR0:  return md.mccr0;
     case R_MFCR:   return md.mfcr;
     case R_MFSR:   return (uint32_t)md.txn | ((uint32_t)md.rxn << 16);
-    case R_MRDR:   return md.rxn ? md.rxq[0] : MRDR_RXEMPTY;
+    case R_MRDR:
+        if (md.rxn && md.rx_stale) {
+            /* RDF shows, but this read finds the FIFO empty. */
+            md.rx_stale--;
+            md.rx_stale_now = 1;
+            return MRDR_RXEMPTY;
+        }
+        return md.rxn ? md.rxq[0] : MRDR_RXEMPTY;
     default:       return 0u;
     }
 }
@@ -228,9 +249,16 @@ static void settle(void)
 
     if (pending == R_MTDR || (pending != R_MRDR && pending > R_OTHER && now != presented)) {
         on_write(pending, now);
-    } else if (pending == R_MRDR && md.rxn) {
+    } else if (pending == R_MRDR && md.rxn && !md.rx_stale_now) {
         memmove(md.rxq, md.rxq + 1, md.rxn - 1u);
         md.rxn--;
+    }
+    md.rx_stale_now = 0;
+    if (md.rx_alf_held && md.rxn == 0u) {
+        md.rx_alf_held = 0;
+        md.busy        = 0u;
+        md.msr        |= MSR_ALF;
+        md.lost_logn   = md.logn;
     }
     pending = R_NONE;
     run();
@@ -279,6 +307,8 @@ void setUp(void)
     md.nack_at = -1;
     md.lose_at = -1;
     md.fef_at  = -1;
+    md.rx_give    = -1;
+    md.rx_lose_at = -1;
     pending    = R_NONE;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_init(BASE, 24000000uL, 100000uL));
     sync();
@@ -508,6 +538,73 @@ static void test_lpi2c_fifo_error(void)
     TEST_ASSERT_EQUAL_MEMORY(wr, md.got, 3u);
 }
 
+static void test_lpi2c_a_read_the_target_stops_answering_times_out(void)
+{
+    static const uint8_t want[] = { 0x11u, 0x22u, 0x33u };
+    uint8_t              rd[3]  = { 0xA5u, 0xA5u, 0xA5u };
+
+    memcpy(md.give, want, sizeof want);
+    md.rx_give = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 3u));
+    sync();
+    TEST_ASSERT_EQUAL_HEX8(0x11u, rd[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rd[1]);   /* the missing bytes untouched */
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rd[2]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, (TARGET << 1) | 1u), md.log[0]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_RX, 2u), md.log[1]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[md.logn - 1u]);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+
+    md.rx_give = -1;
+    md.given   = 0u;
+    memset(rd, 0xA5, sizeof rd);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 3u));
+    sync();
+    TEST_ASSERT_EQUAL_MEMORY(want, rd, 3u);
+}
+
+static void test_lpi2c_a_read_byte_lost_to_another_master_is_busy(void)
+{
+    static const uint8_t want[] = { 0x11u, 0x22u, 0x33u };
+    uint8_t              rd[3]  = { 0xA5u, 0xA5u, 0xA5u };
+
+    memcpy(md.give, want, sizeof want);
+    md.rx_lose_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 3u));
+    sync();
+    TEST_ASSERT_EQUAL_HEX8(0x11u, rd[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rd[1]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rd[2]);
+    TEST_ASSERT_EQUAL_UINT(md.lost_logn, md.logn);   /* nothing after ALF */
+    TEST_ASSERT_EQUAL_UINT(0u, md.stops);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.txn);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
+
+    md.rx_lose_at = -1;
+    md.given      = 0u;
+    memset(rd, 0xA5, sizeof rd);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 3u));
+    sync();
+    TEST_ASSERT_EQUAL_MEMORY(want, rd, 3u);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+static void test_lpi2c_a_stale_rdf_over_an_empty_fifo_is_not_a_byte(void)
+{
+    static const uint8_t want[] = { 0x11u, 0x22u };
+    uint8_t              rd[2]  = { 0xA5u, 0xA5u };
+
+    memcpy(md.give, want, sizeof want);
+    md.rx_stale = 2u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 2u));
+    sync();
+    TEST_ASSERT_EQUAL_MEMORY(want, rd, 2u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.rx_stale);
+    TEST_ASSERT_EQUAL_UINT(0u, md.rxn);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
 static void test_lpi2c_zero_length_touches_nothing(void)
 {
     unsigned before = md.accesses;
@@ -596,6 +693,9 @@ int main(void)
     RUN_TEST(test_lpi2c_arbitration_lost);
     RUN_TEST(test_lpi2c_arbitration_lost_at_the_stop);
     RUN_TEST(test_lpi2c_fifo_error);
+    RUN_TEST(test_lpi2c_a_read_the_target_stops_answering_times_out);
+    RUN_TEST(test_lpi2c_a_read_byte_lost_to_another_master_is_busy);
+    RUN_TEST(test_lpi2c_a_stale_rdf_over_an_empty_fifo_is_not_a_byte);
     RUN_TEST(test_lpi2c_zero_length_touches_nothing);
     RUN_TEST(test_lpi2c_clock_at_24mhz);
     RUN_TEST(test_lpi2c_clock_at_16mhz);

@@ -52,6 +52,22 @@ static void test_a_zero_divisor_writes_nothing(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
 }
 
+/* A non-zero baud whose divisor falls below the USART's minimum of 16
+ * (CPU/8 gives 8) is refused the same way: nothing is enabled or written. */
+static void test_a_baud_too_fast_for_the_divisor_writes_nothing(void)
+{
+    uint32_t baud = (uint32_t)TFW_CM_CPU_HZ / 8u;
+
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, baud));
+    tfw_boot_uart_init(baud);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+}
+
 /* Init clocks GPIOA and USART1, writes the divisor, and enables the USART
  * with its receiver and transmitter and nothing else: no interrupt. */
 static void test_init_sets_cr1_and_brr(void)
@@ -105,6 +121,20 @@ static void test_rx_takes_rdr_with_rxne_set(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
     TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
+/* ORE and RXNE together: the overrun is cleared and the byte waiting in RDR
+ * is still taken, not dropped. */
+static void test_rx_takes_the_byte_beside_an_overrun_and_clears_ore(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_ORE | TFW_H5_USART_ISR_RXNE;
+    TFW_H5_USART_RDR = 0xA5u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
 }
 
 /* A UART init left off (TE clear) stores nothing, even with TXE set. */
@@ -203,10 +233,12 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_zero_divisor_writes_nothing);
+    RUN_TEST(test_a_baud_too_fast_for_the_divisor_writes_nothing);
     RUN_TEST(test_init_sets_cr1_and_brr);
     RUN_TEST(test_init_puts_the_pins_on_their_alternate_function);
     RUN_TEST(test_rx_clears_an_overrun_and_returns_0_with_no_byte);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
+    RUN_TEST(test_rx_takes_the_byte_beside_an_overrun_and_clears_ore);
     RUN_TEST(test_tx_stores_nothing_while_te_is_clear);
     RUN_TEST(test_tx_writes_tdr_once_enabled);
     RUN_TEST(test_off_puts_usart1_and_its_pins_back_to_reset);

@@ -22,6 +22,9 @@
 #include "tfw/protocol.h"
 #include "suit.h"
 #include "suit_vectors.h"
+#include "sha256.h"
+#include "uECC.h"
+#include "emit.h"
 #include "reader.h"
 #include "writer.h"
 #include "hsm.h"
@@ -42,12 +45,14 @@ tfw_ms_t tfw_hal_millis(void) { return clock_ms; }
 /* The mock port. */
 static uint8_t acted[64];
 static uint8_t n_acted;
+/* What the port answers to KEYS_WIPE; every other action is TFW_OK. */
+static tfw_status_t wipe_st;
 
 tfw_status_t tfw_hsm_port_act(uint8_t action)
 {
     TEST_ASSERT_LESS_THAN_UINT8(sizeof acted, n_acted);
     acted[n_acted++] = action;
-    return TFW_OK;
+    return (action == TFW_HSM_ACT_KEYS_WIPE) ? wipe_st : TFW_OK;
 }
 
 /* S3 is the engine's test's (test_hsm_engine.c); here nothing measures. */
@@ -81,6 +86,7 @@ void setUp(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     clock_ms = 0u;
     n_acted  = 0u;
+    wipe_st  = TFW_OK;
     tfw_hsm_cmd_reset();
     /* The test's own reset of the record; no command reaches this (O9). */
     tfw_hsm_record_erase();
@@ -449,6 +455,94 @@ static void test_a_compromised_verdict_with_no_set_never_wipes(void)
     state_is(LOCKED, 0u, 0u);
 }
 
+/* A set, heartbeat 1000 ms, W 500 ms, whose one policy has one rule:
+ *   S4: [record], wipe
+ * signed at run time with the tenant key, as test_hsm_engine.c does. */
+static const uint8_t WIPE_SET[] = {
+    0xA5u, 0x01u, 0x01u, 0x02u, 0x81u,
+    0x81u,
+    0x83u, 0x04u, 0x81u, 0x06u, 0xF5u,
+    0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
+};
+static uint8_t  wipe_env[TFW_SUIT_INTEGRATED_MAX];
+static uint32_t rng;
+
+static int ecdsa_rng(uint8_t *d, unsigned n)
+{
+    for (unsigned i = 0u; i < n; i++) {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        d[i] = (uint8_t)rng;
+    }
+    return 1;
+}
+
+static tfw_status_t load_wipe_set(void)
+{
+    static const uint8_t vendor[TFW_SUIT_ID_LEN] = TFW_SUIT_VENDOR_ID;
+    static const uint8_t cls[TFW_SUIT_ID_LEN]    = TFW_SUIT_POLICY_CLASS_ID;
+    uint8_t              priv[32];
+    uint8_t              man[160];
+    uint8_t              dig[32];
+    uint8_t              tbs[192];
+    uint8_t              hash[32];
+    uint8_t              sig[64];
+    size_t               mn;
+    size_t               tn;
+    size_t               n;
+
+    for (uint8_t i = 0u; i < sizeof priv; i++) {
+        priv[i] = (uint8_t)(0x40u + i);
+    }
+    rng = 0x5017C0DEu;
+    tfw_sha256(WIPE_SET, (uint16_t)sizeof WIPE_SET, dig);
+    mn = tfw_suit_emit_manifest_integrated(man, sizeof man, dig, (uint32_t)sizeof WIPE_SET, 1u,
+                                           vendor, cls, "#policy");
+    TEST_ASSERT_NOT_EQUAL(0u, mn);
+    tn = tfw_suit_emit_tbs(tbs, sizeof tbs, man, mn);
+    TEST_ASSERT_NOT_EQUAL(0u, tn);
+    tfw_sha256(tbs, (uint16_t)tn, hash);
+    uECC_set_rng(ecdsa_rng);
+    TEST_ASSERT_EQUAL_INT(1, uECC_sign(priv, hash, sizeof hash, sig, uECC_secp256r1()));
+    n = tfw_suit_emit_envelope_integrated(wipe_env, sizeof wipe_env, man, mn, sig, "#policy",
+                                          WIPE_SET, sizeof WIPE_SET);
+    TEST_ASSERT_NOT_EQUAL(0u, n);
+    return load(wipe_env, (uint16_t)n);
+}
+
+static void test_an_acknowledged_wipe_reports_wiped_in_the_state(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, load_wipe_set());
+    state_is(SET, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_COMPROMISED));
+    NO_ACTS();
+    clock_ms = 400u;
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_IMA_VIOLATION));
+    ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+    state_is(SET | LOCKED | TFW_HSM_STATE_WIPED, 0u, 0u);
+}
+
+static void test_a_refused_wipe_never_reports_wiped(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, load_wipe_set());
+    wipe_st = TFW_ERR_CRYPTO;
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_COMPROMISED));
+    clock_ms = 400u;
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_IMA_VIOLATION));
+    ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+    state_is(SET | LOCKED, 0u, 0u);
+}
+
+static void test_an_uncorroborated_wipe_rule_never_reports_wiped(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, load_wipe_set());
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_CLEAR));
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_IMA_VIOLATION));
+    ACTS(TFW_HSM_ACT_RECORD);
+    state_is(SET, 0u, 0u);
+}
+
 /* What the A55 may not send is refused with no set held too, and a refused
  * message is not a refused envelope: nothing is counted. */
 static void test_a_refused_message_with_no_set_is_not_counted(void)
@@ -648,6 +742,9 @@ int main(void)
     RUN_TEST(test_reset_clears_the_engine_and_the_pending_envelope);
     RUN_TEST(test_lockdown_is_latched_over_the_channel);
     RUN_TEST(test_a_compromised_verdict_with_no_set_never_wipes);
+    RUN_TEST(test_an_acknowledged_wipe_reports_wiped_in_the_state);
+    RUN_TEST(test_a_refused_wipe_never_reports_wiped);
+    RUN_TEST(test_an_uncorroborated_wipe_rule_never_reports_wiped);
     RUN_TEST(test_a_refused_message_with_no_set_is_not_counted);
     RUN_TEST(test_an_empty_record_reads_range);
     RUN_TEST(test_one_entry_reads_back_with_every_field);

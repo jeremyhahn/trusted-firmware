@@ -135,33 +135,73 @@ tfw_status_t tfw_h5_pka_ecdsa_sign(uintptr_t base, const uint8_t digest[32],
     (void)base; (void)digest; (void)d; (void)k; (void)sig;
     return TFW_ERR_TIMEOUT;
 }
+/* The soft tier the provider forwards to (#599): each stub records what it
+ * was called with in soft_seen, answers soft_st (TFW_ERR_UNSUPPORTED unless a
+ * case sets it) and fills its out buffer with SOFT_PAT, so a provider that
+ * answers without calling it, swaps an argument or invents a status fails. */
+#define SOFT_PAT 0x5Cu
+
+static struct {
+    unsigned       calls;
+    const uint8_t *digest;
+    const uint8_t *sig_in;
+    uint8_t       *sig;
+    uint8_t       *alg_id;
+    uint8_t       *out;
+    uint32_t      *out32;
+    const uint8_t *data;
+    uint16_t       len;
+    uint8_t        slot;
+    uint8_t        idx;
+} soft_seen;
+static tfw_status_t      soft_st;
+static tfw_crypto_tier_t soft_tier_value;
+static uint16_t          soft_algorithms_value;
+
 tfw_status_t      tfw_crypto_soft_init(void) { return TFW_OK; }
-tfw_crypto_tier_t tfw_crypto_soft_tier(void) { return TFW_CRYPTO_SOFTWARE; }
-uint16_t          tfw_crypto_soft_algorithms(void) { return 0; }
+tfw_crypto_tier_t tfw_crypto_soft_tier(void) { return soft_tier_value; }
+uint16_t          tfw_crypto_soft_algorithms(void) { return soft_algorithms_value; }
 tfw_status_t      tfw_crypto_soft_random(uint8_t *out, uint8_t len)
 {
-    (void)out; (void)len;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.out = out;
+    soft_seen.len = len;
+    memset(out, SOFT_PAT, len);
+    return soft_st;
 }
 tfw_status_t tfw_crypto_soft_hmac(uint8_t slot, const uint8_t *data, uint16_t len, uint8_t out[32])
 {
-    (void)slot; (void)data; (void)len; (void)out;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.slot = slot;
+    soft_seen.data = data;
+    soft_seen.len  = len;
+    soft_seen.out  = out;
+    memset(out, SOFT_PAT, 32);
+    return soft_st;
 }
 tfw_status_t tfw_crypto_soft_sign(const uint8_t d[32], uint8_t sig[64], uint8_t *alg_id)
 {
-    (void)d; (void)sig; (void)alg_id;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.digest = d;
+    soft_seen.sig    = sig;
+    soft_seen.alg_id = alg_id;
+    memset(sig, SOFT_PAT, 64);
+    return soft_st;
 }
 tfw_status_t tfw_crypto_soft_pubkey(uint8_t out[64])
 {
-    (void)out;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.out = out;
+    memset(out, SOFT_PAT, 64);
+    return soft_st;
 }
 tfw_status_t tfw_crypto_soft_counter(uint8_t idx, uint32_t *out)
 {
-    (void)idx; (void)out;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.idx   = idx;
+    soft_seen.out32 = out;
+    *out = 0x5C5C5C5Cu;
+    return soft_st;
 }
 tfw_status_t tfw_crypto_soft_verify_p256(const uint8_t digest[32], const uint8_t sig[64],
                                          const uint8_t pubkey[64])
@@ -171,14 +211,20 @@ tfw_status_t tfw_crypto_soft_verify_p256(const uint8_t digest[32], const uint8_t
 }
 tfw_status_t tfw_crypto_soft_verify_image(const uint8_t d[32], const uint8_t sig[64])
 {
-    (void)d; (void)sig;
-    return TFW_ERR_UNSUPPORTED;
+    soft_seen.calls++;
+    soft_seen.digest = d;
+    soft_seen.sig_in = sig;
+    return soft_st;
 }
 
 /* Each case is a fresh boot: tfw_crypto_init brings the HASH back. */
 void setUp(void)
 {
     memset(&m, 0, sizeof m);
+    memset(&soft_seen, 0, sizeof soft_seen);
+    soft_st               = TFW_ERR_UNSUPPORTED;
+    soft_tier_value       = TFW_CRYPTO_SOFTWARE;
+    soft_algorithms_value = 0;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
 }
 void tearDown(void) {}
@@ -269,6 +315,109 @@ static void test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them(v
     TEST_ASSERT_EQUAL_HEX32(want, ahb2enr_at_pka_init & want);
 }
 
+/* #599: the STM32H5 image check is the soft tier's, not the PKA's. Its
+ * refusal is the provider's answer, with the digest and signature handed
+ * over in that order. */
+static void test_h5_provider_verify_image_returns_the_soft_tiers_refusal(void)
+{
+    uint8_t digest[32], sig[64];
+
+    memset(digest, 0x11, sizeof digest);
+    memset(sig, 0x22, sizeof sig);
+    soft_st = TFW_ERR_CRYPTO;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_image(digest, sig));
+    TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+    TEST_ASSERT_EQUAL_PTR(digest, soft_seen.digest);
+    TEST_ASSERT_EQUAL_PTR(sig, soft_seen.sig_in);
+
+    soft_st = TFW_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_image(digest, sig));
+    TEST_ASSERT_EQUAL_UINT(2, soft_seen.calls);
+}
+
+static void test_h5_provider_sign_and_pubkey_answer_from_the_soft_tier(void)
+{
+    uint8_t digest[32], sig[64], pub[64], alg_id = 0;
+    uint8_t pat[64];
+
+    memset(pat, SOFT_PAT, sizeof pat);
+    memset(digest, 0x11, sizeof digest);
+    memset(sig, 0, sizeof sig);
+    soft_st = TFW_ERR_CRYPTO;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_sign(digest, sig, &alg_id));
+    TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+    TEST_ASSERT_EQUAL_PTR(digest, soft_seen.digest);
+    TEST_ASSERT_EQUAL_PTR(sig, soft_seen.sig);
+    TEST_ASSERT_EQUAL_PTR(&alg_id, soft_seen.alg_id);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, sig, sizeof sig);
+    soft_st = TFW_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg_id));
+    TEST_ASSERT_EQUAL_UINT(2, soft_seen.calls);
+
+    memset(pub, 0, sizeof pub);
+    soft_st = TFW_ERR_UNSUPPORTED;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL_UINT(3, soft_seen.calls);
+    TEST_ASSERT_EQUAL_PTR(pub, soft_seen.out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, pub, sizeof pub);
+    soft_st = TFW_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL_UINT(4, soft_seen.calls);
+}
+
+/* Two distinct statuses per call, so a provider returning a constant fails. */
+static void test_h5_provider_hmac_counter_and_random_pass_their_arguments_through(void)
+{
+    static const tfw_status_t sts[2] = {TFW_ERR_CRYPTO, TFW_OK};
+    const uint8_t data[5] = {1, 2, 3, 4, 5};
+    uint8_t       mac[32], rnd[16], pat[32];
+    uint32_t      ctr;
+
+    memset(pat, SOFT_PAT, sizeof pat);
+    for (unsigned i = 0; i < 2u; i++) {
+        soft_st = sts[i];
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        memset(mac, 0, sizeof mac);
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_hmac((uint8_t)(3u + i), data, (uint16_t)(sizeof data - i), mac));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_UINT8(3u + i, soft_seen.slot);
+        TEST_ASSERT_EQUAL_PTR(data, soft_seen.data);
+        TEST_ASSERT_EQUAL_UINT16(sizeof data - i, soft_seen.len);
+        TEST_ASSERT_EQUAL_PTR(mac, soft_seen.out);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, mac, sizeof mac);
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        ctr = 0;
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_counter((uint8_t)(2u + i), &ctr));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_UINT8(2u + i, soft_seen.idx);
+        TEST_ASSERT_EQUAL_PTR(&ctr, soft_seen.out32);
+        TEST_ASSERT_EQUAL_HEX32(0x5C5C5C5Cu, ctr);
+
+        memset(&soft_seen, 0, sizeof soft_seen);
+        memset(rnd, 0, sizeof rnd);
+        TEST_ASSERT_EQUAL(sts[i], tfw_crypto_random(rnd, (uint8_t)(sizeof rnd - i)));
+        TEST_ASSERT_EQUAL_UINT(1, soft_seen.calls);
+        TEST_ASSERT_EQUAL_PTR(rnd, soft_seen.out);
+        TEST_ASSERT_EQUAL_UINT16(sizeof rnd - i, soft_seen.len);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(pat, rnd, sizeof rnd - i);
+    }
+}
+
+static void test_h5_provider_tier_and_algorithms_are_the_soft_tiers(void)
+{
+    soft_tier_value       = TFW_CRYPTO_SOFTWARE;
+    soft_algorithms_value = 0x0003u;
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
+    TEST_ASSERT_EQUAL_HEX16(0x0003u, tfw_crypto_algorithms());
+
+    soft_tier_value       = TFW_CRYPTO_NONE;
+    soft_algorithms_value = 0x0140u;
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_NONE, tfw_crypto_tier());
+    TEST_ASSERT_EQUAL_HEX16(0x0140u, tfw_crypto_algorithms());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -277,5 +426,9 @@ int main(void)
     RUN_TEST(test_h5_provider_sha256_polls_a_hung_hash_once_per_boot);
     RUN_TEST(test_h5_provider_sha256_uses_the_hash_again_after_init);
     RUN_TEST(test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them);
+    RUN_TEST(test_h5_provider_verify_image_returns_the_soft_tiers_refusal);
+    RUN_TEST(test_h5_provider_sign_and_pubkey_answer_from_the_soft_tier);
+    RUN_TEST(test_h5_provider_hmac_counter_and_random_pass_their_arguments_through);
+    RUN_TEST(test_h5_provider_tier_and_algorithms_are_the_soft_tiers);
     return UNITY_END();
 }

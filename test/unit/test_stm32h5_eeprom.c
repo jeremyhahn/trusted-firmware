@@ -229,6 +229,48 @@ static void test_a_round_trip_past_the_span(void)
     TEST_ASSERT_EQUAL_UINT(0u, hw.erases);      /* erased cells: programmed only */
 }
 
+static void test_a_255_byte_write_lands_byte_for_byte_across_17_quad_words(void)
+{
+    static uint8_t data[255];
+    uint8_t back[255];
+    uint32_t i;
+
+    for (i = 0u; i < sizeof data; i++) {
+        data[i] = (uint8_t)(i ^ 0x5Au);
+    }
+    /* user offsets 2..256: quad-words 0..256, the last holding only 256 */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO + 2u, data, 255u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, MEM + USER_OFF + 2u, 255u);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 1u]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, MEM[USER_OFF + 257u]);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);      /* erased cells: in place */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_read(USER_LO + 2u, back, 255u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back, 255u);
+}
+
+static void test_a_255_byte_rewrite_ending_on_the_last_byte_lands_and_one_later_is_range(void)
+{
+    static uint8_t first[255];
+    static uint8_t second[255];
+    uint32_t i;
+
+    for (i = 0u; i < sizeof first; i++) {
+        first[i] = (uint8_t)(i ^ 0x5Au);
+    }
+    memcpy(second, first, sizeof second);
+    second[254] = (uint8_t)~first[254];     /* only the last quad-word differs */
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(TFW_EEPROM_SIZE - 255u, first, 255u));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(TFW_EEPROM_SIZE - 255u, second, 255u));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(second, MEM + USER_OFF + TFW_CM_USER_EE_SIZE - 255u, 255u);
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_hal_eeprom_write(TFW_EEPROM_SIZE - 254u, first, 255u));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(second, MEM + USER_OFF + TFW_CM_USER_EE_SIZE - 255u, 255u);
+}
+
 static void test_an_overwrite_rewrites_the_user_sector_and_keeps_its_other_bytes(void)
 {
     static const uint8_t first[4]  = { 0x01u, 0x02u, 0x03u, 0x04u };
@@ -533,6 +575,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_user_sector_is_bank_2s_last);
     RUN_TEST(test_a_round_trip_past_the_span);
+    RUN_TEST(test_a_255_byte_write_lands_byte_for_byte_across_17_quad_words);
+    RUN_TEST(test_a_255_byte_rewrite_ending_on_the_last_byte_lands_and_one_later_is_range);
     RUN_TEST(test_an_overwrite_rewrites_the_user_sector_and_keeps_its_other_bytes);
     RUN_TEST(test_the_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_span_is_range_and_touches_no_flash);

@@ -141,6 +141,40 @@ static void test_a_take_decodes_then_writes_rmvf(void)
     }
 }
 
+/* The take decodes with the caller's marker: a CPU reset request taken
+ * without TFW_CM_MARK_RESETREQ is not the firmware's own restart. */
+static void test_a_take_without_the_marker_leaves_a_reset_request_unknown(void)
+{
+    volatile uint32_t fake = SFTRSTF;
+
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_h5_reset_take(&fake, NOT_ASKED));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+
+    fake = SFTRSTF | PINRSTF;
+    TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_h5_reset_take(&fake, NOT_ASKED));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+
+    fake = IWDGRSTF | PINRSTF;
+    TEST_ASSERT_EQUAL(TFW_RESET_WATCHDOG, tfw_h5_reset_take(&fake, NOT_ASKED));
+    TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+}
+
+/* soc_reset.h: requested is nonzero when the reset handler found the
+ * marker, so any nonzero value counts as asked, not only 1. */
+static void test_any_nonzero_request_is_the_marker(void)
+{
+    static const uint8_t requested[] = { 1u, 2u, 0x80u, 0xFFu };
+
+    for (uint32_t i = 0u; i < sizeof requested / sizeof requested[0]; i++) {
+        volatile uint32_t fake = SFTRSTF | PINRSTF;
+
+        TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_decode(SFTRSTF, requested[i]));
+        TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_h5_reset_take(&fake, requested[i]));
+        TEST_ASSERT_EQUAL_HEX32(RMVF, fake);
+        TEST_ASSERT_EQUAL(TFW_RESET_UNKNOWN, tfw_h5_reset_decode(SFTRSTF | IWDGRSTF, requested[i]));
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -154,5 +188,7 @@ int main(void)
     RUN_TEST(test_a_brownout_or_a_request_with_any_other_bit_is_unknown);
     RUN_TEST(test_two_causes_with_values_are_unknown);
     RUN_TEST(test_a_take_decodes_then_writes_rmvf);
+    RUN_TEST(test_a_take_without_the_marker_leaves_a_reset_request_unknown);
+    RUN_TEST(test_any_nonzero_request_is_the_marker);
     return UNITY_END();
 }

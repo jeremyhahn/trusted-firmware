@@ -396,6 +396,47 @@ static void test_eoc_never_set_is_a_timeout(void)
     TEST_ASSERT_EQUAL_UINT(1u, m.nconv);
 }
 
+static void test_a_second_init_waits_for_its_own_adrdy(void)
+{
+    uint16_t raw = 0xFFFFu;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_TRUE(m.isr & TFW_H5_ADC_ISR_ADRDY);     /* the first init's, left set */
+    m.isr |= TFW_H5_ADC_ISR_EOS;    /* so the init's ADRDY clear is a visible write */
+    m.hang_rdy = 1u;
+    m.errors = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_FALSE(m.isr & TFW_H5_ADC_ISR_ADRDY);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(0u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+    TEST_ASSERT_EQUAL_UINT(0u, m.nconv);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
+static void test_a_read_does_not_take_the_last_reads_eoc_for_its_own(void)
+{
+    uint16_t raw = 0xFFFFu;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m.sample[3] = 0x0333u;
+    m.sample[6] = 0x0666u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(3u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0x0333u, raw);
+    TEST_ASSERT_TRUE(m.isr & TFW_H5_ADC_ISR_EOC);       /* the model leaves it set */
+    m.hang_eoc = 1u;
+    raw = 0xFFFFu;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(6u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);                          /* not written */
+    TEST_ASSERT_EQUAL_UINT(2u, m.nconv);
+    TEST_ASSERT_EQUAL_UINT8(6u, m.conv_ch[1]);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
 static void test_a_timed_out_conversion_never_answers_the_next_read(void)
 {
     uint16_t raw = 0xFFFFu;
@@ -615,6 +656,8 @@ int main(void)
     RUN_TEST(test_a_calibration_that_never_ends_is_a_timeout);
     RUN_TEST(test_adrdy_never_set_is_a_timeout);
     RUN_TEST(test_eoc_never_set_is_a_timeout);
+    RUN_TEST(test_a_second_init_waits_for_its_own_adrdy);
+    RUN_TEST(test_a_read_does_not_take_the_last_reads_eoc_for_its_own);
     RUN_TEST(test_a_timed_out_conversion_never_answers_the_next_read);
     RUN_TEST(test_a_conversion_that_will_not_stop_refuses_later_reads);
     RUN_TEST(test_a_channel_past_the_board_is_refused_before_any_access);

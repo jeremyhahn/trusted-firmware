@@ -281,6 +281,32 @@ static void test_init_brings_the_adc_up_in_order(void)
     TEST_ASSERT_EQUAL_UINT(0u, m.nconv);
 }
 
+static void test_init_clears_a_leftover_clock_mode_and_differential_selection(void)
+{
+    m.ccr = TFW_H5_ADC_CCR_CKMODE | TFW_H5_ADC_CCR_PRESC;   /* an earlier owner's sync clock */
+    m.difsel = 0x000FFFFFu;                                  /* every input differential */
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+    TEST_ASSERT_EQUAL_UINT(0u, m.unmodelled);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_ADC_PRESC_CODE << TFW_H5_ADC_CCR_PRESC_POS, m.ccr);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.difsel);
+}
+
+static void test_init_clears_leftover_resolution_alignment_and_continuous_mode(void)
+{
+    m.cfgr |= TFW_H5_ADC_CFGR_RES | TFW_H5_ADC_CFGR_ALIGN | TFW_H5_ADC_CFGR_CONT;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    settle();
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+    TEST_ASSERT_EQUAL_UINT(0u, m.unmodelled);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.cfgr & (TFW_H5_ADC_CFGR_RES | TFW_H5_ADC_CFGR_ALIGN |
+                                          TFW_H5_ADC_CFGR_CONT));
+    TEST_ASSERT_TRUE(m.cfgr & TFW_H5_ADC_CFGR_OVRMOD);
+}
+
 static void test_each_channel_is_one_conversion_of_its_12_bits(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
@@ -582,6 +608,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_brings_the_adc_up_in_order);
+    RUN_TEST(test_init_clears_a_leftover_clock_mode_and_differential_selection);
+    RUN_TEST(test_init_clears_leftover_resolution_alignment_and_continuous_mode);
     RUN_TEST(test_each_channel_is_one_conversion_of_its_12_bits);
     RUN_TEST(test_a_read_puts_its_pin_back_to_analog_no_pull);
     RUN_TEST(test_a_calibration_that_never_ends_is_a_timeout);

@@ -1238,6 +1238,56 @@ static void test_a_new_block_mac_reprograms_the_mac_before_the_next_dial(void)
     TEST_ASSERT_EQUAL_INT(0, in_child(new_mac));
 }
 
+/* --- LWIP_RAND: xorshift32, seeded at bring-up from the RNG (#599) --- */
+
+/* LWIP_RAND is tfw_h5_eth_rand, seeded from the fifth RNG word with bit 0
+ * set (good_seed reads 0x5eed1234 on every word, so the seed is 0x5EED1235)
+ * before lwip_init. lwip_init runs udp_init and then tcp_init, each taking
+ * one draw for its first local port: the first draw (0x69D24060) is UDP's,
+ * the second (0x1A14416F) is TCP's, so tcp_port starts at 0xC16F and the
+ * first bind to port 0 takes the next one, 0xC170. */
+static void first_tcp_port(void)
+{
+    link_up_flag = 0u;
+    put_block(0u, mac_a);
+    run_for(100u);                                      /* bring-up */
+    TEST_ASSERT_NOT_NULL(netif_default);
+
+    struct tcp_pcb *pcb = tcp_new();
+    TEST_ASSERT_NOT_NULL(pcb);
+    TEST_ASSERT_EQUAL_INT(ERR_OK, tcp_bind(pcb, IP4_ADDR_ANY, 0u));
+    TEST_ASSERT_EQUAL_UINT16(0xC170u, pcb->local_port);
+    TEST_ASSERT_EQUAL_INT(ERR_OK, tcp_close(pcb));
+}
+
+static void test_the_first_local_tcp_port_comes_from_the_rng_seed(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(first_tcp_port));
+}
+
+/* Before bring-up the generator runs from its boot state 1; the RNG seed
+ * then replaces that state, so the draws after bring-up are the seed's
+ * own third and fourth (udp_init and tcp_init took the first two), with
+ * nothing of the boot-state draws in them. */
+static void rand_steps(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x00042021u, tfw_h5_eth_rand());
+    TEST_ASSERT_EQUAL_HEX32(0x04080601u, tfw_h5_eth_rand());
+    TEST_ASSERT_EQUAL_HEX32(0x9DCCA8C5u, tfw_h5_eth_rand());
+
+    link_up_flag = 0u;
+    put_block(0u, mac_a);
+    run_for(100u);                                      /* seeded, two draws */
+
+    TEST_ASSERT_EQUAL_HEX32(0xD504E613u, tfw_h5_eth_rand());
+    TEST_ASSERT_EQUAL_HEX32(0x7112FCF0u, tfw_h5_eth_rand());
+}
+
+static void test_lwip_rand_steps_xorshift32_and_the_seed_replaces_the_boot_state(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, in_child(rand_steps));
+}
+
 /* --- the network deadlines run through an ATTEST signature (#584) -------- */
 
 static unsigned sched_polls;
@@ -1386,6 +1436,8 @@ int main(void)
     RUN_TEST(test_a_static_address_set_before_any_lease_is_kept);
     RUN_TEST(test_a_static_block_written_while_unbound_applies_through_the_poll);
     RUN_TEST(test_a_new_block_mac_reprograms_the_mac_before_the_next_dial);
+    RUN_TEST(test_the_first_local_tcp_port_comes_from_the_rng_seed);
+    RUN_TEST(test_lwip_rand_steps_xorshift32_and_the_seed_replaces_the_boot_state);
     RUN_TEST(test_the_lease_expires_on_time_during_a_signature);
     RUN_TEST(test_keepalive_answers_are_read_during_a_signature);
     RUN_TEST(test_the_netif_link_output_refuses_flattens_and_bounds_the_send);

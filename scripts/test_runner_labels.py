@@ -90,12 +90,22 @@ class _Scanner:
     in nested `[...]` and `{...}` flows. A single-quoted scalar escapes its
     quote as `''`, a double-quoted one with a backslash; an expression's own
     string literals are single-quoted. A quote opens a scalar only at the
-    start of a value (after a blank, `:`, `,` or an opening bracket) or inside
-    an expression. The state carries over from one feed to the next, so a
-    flow can be walked line by line."""
+    start of a value or inside an expression; a value starts at the start of
+    a line (see line), after a `- ` item indicator there, after a `:` that a
+    blank or the end of the text follows, and after a `,`, `[` or `{` outside
+    quotes and expressions. A quote inside a plain scalar (`say "hello`,
+    `{NOTE: it is 'fine}`) is text, as is a `[`, `]`, `{` or `}` inside a
+    plain scalar outside any flow (`run: echo '{a}'`). The state carries over from one feed to
+    the next, so a flow can be walked line by line."""
 
     def __init__(self):
         self.quote, self.expr, self.nest, self.prev = None, 0, 0, " "
+        # Whether the next non-blank top-level character starts a value.
+        self.start = True
+
+    def line(self):
+        """Mark the start of a new line: a value may start on it."""
+        self.prev, self.start = " ", True
 
     def feed(self, text):
         """Yield (index, char, top) for each character of text; top is True
@@ -104,6 +114,7 @@ class _Scanner:
         i = 0
         while i < len(text):
             c, top, step = text[i], False, 1
+            follow = text[i + 1 : i + 2]
             if self.quote == "'":
                 if text.startswith("''", i):
                     step = 2
@@ -116,18 +127,28 @@ class _Scanner:
                     self.quote = None
             elif text.startswith("${{", i):
                 self.expr += 1
+                self.start = False
                 step = 3
             elif self.expr and text.startswith("}}", i):
                 self.expr -= 1
                 step = 2
-            elif c in "'\"" and (self.expr or self.prev in " \t:,[{"):
+            elif c in "'\"" and (self.expr or self.start):
                 self.quote = c
+                self.start = False
             elif not self.expr:
                 top = True
-                if c in "[{":
+                # A bracket inside a plain scalar outside a flow is text.
+                flow = self.start or self.nest > 0
+                if c in "[{" and flow:
                     self.nest += 1
-                elif c in "]}":
+                elif c in "]}" and flow:
                     self.nest -= 1
+                if (c in "[{" and flow) or c == "," or (c == ":" and follow in ("", " ", "\t")):
+                    self.start = True
+                elif c == "-" and self.start and follow in ("", " ", "\t"):
+                    pass
+                elif c not in " \t":
+                    self.start = False
             yield i, c, top
             self.prev = text[min(i + step, len(text)) - 1]
             i += step
@@ -382,7 +403,7 @@ def _flow(lines, i, value):
     for j in range(i, len(lines)):
         text = value if j == i else lines[j].strip()
         # Lines join with a blank, as the folded line break of a flow.
-        scanner.prev = " "
+        scanner.line()
         end = len(text)
         for k, c, top in scanner.feed(text):
             if _is_comment(scanner, c, top):
@@ -407,7 +428,8 @@ def _flow_runs_on(line):
     for i, c, top in scanner.feed(line):
         # quote and expr are the scanner's state before this character.
         outside = quote is None and not expr
-        if outside and before in ("{", ",") and FLOW_KEY.match(line, i):
+        flow = outside and scanner.nest > 0 and before in ("{", ",")
+        if flow and FLOW_KEY.match(line, i):
             return True
         if _is_comment(scanner, c, top):
             return False
@@ -479,7 +501,7 @@ def _scalar_lines(lines):
             ):
                 if scanner.quote is not None:
                     skip.add(i)
-                scanner.prev = " "
+                scanner.line()
                 for _, c, top in scanner.feed(lines[i]):
                     if _is_comment(scanner, c, top):
                         break

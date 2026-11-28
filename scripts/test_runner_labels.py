@@ -1347,6 +1347,24 @@ class RunnerLabelsTest(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 self.assertEqual(self.check(workflow), [])
 
+    def test_a_runs_on_action_input_is_not_a_runner(self):
+        job = "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        step = "    steps:\n      - uses: a/b@v1\n"
+        for workflow in (
+            job + step + "        with: {runs-on: arbitrary-input}\n",
+            job + step + "        with:\n          runs-on: arbitrary-input\n",
+            job + step + "        env: {runs-on: x}\n",
+            "on:\n  workflow_call:\n    inputs:\n      runs-on:\n"
+            "        type: string\n" + job,
+        ):
+            with self.subTest(workflow=workflow):
+                self.assertEqual(self.check(workflow), [])
+        workflow = (
+            job + step + "        with:\n          runs-on: arbitrary-input\n"
+            "  next:\n    runs-on: qwne\n"
+        )
+        self.assertEqual(self.check(workflow), ["w.yml:9: qwne"])
+
     def test_a_builtin_label_in_any_case_is_accepted(self):
         for value in ("[Self-Hosted, Linux, X64]", "ARM64"):
             found = self.check(f"jobs:\n  build:\n    runs-on: {value}\n")

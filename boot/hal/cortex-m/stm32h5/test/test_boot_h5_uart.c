@@ -392,6 +392,43 @@ static void test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
 }
 
+/* 8 Mbaud at 64 MHz rounds to divisor 8, below BRR's floor of 16: init
+ * must take its early return on the divisor, not on baud 0, so no clock,
+ * pin, BRR or CR1 is written and a later tx with TXE set stores nothing. */
+static void test_init_at_a_baud_too_fast_for_the_clock_writes_nothing(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 8000000u));
+    tfw_boot_uart_init(8000000u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+}
+
+/* 900 baud at 64 MHz rounds to divisor 71111, above BRR's 0xFFFF: init
+ * leaves the USART off, so the hand-over returns on its TE gate and leaves
+ * the neighbouring clocks and pins, and ICR, as they were. */
+static void test_init_at_a_baud_too_slow_for_the_clock_leaves_off_nothing_to_undo(void)
+{
+    seed_neighbours();
+    TFW_H5_USART_ICR = 0u;
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 900u));
+    tfw_boot_uart_init(900u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -419,5 +456,7 @@ int main(void)
     RUN_TEST(test_tx_writes_tdr_with_te_set_and_ue_clear);
     RUN_TEST(test_tx_writes_tdr_with_the_idle_flags_set);
     RUN_TEST(test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx);
+    RUN_TEST(test_init_at_a_baud_too_fast_for_the_clock_writes_nothing);
+    RUN_TEST(test_init_at_a_baud_too_slow_for_the_clock_leaves_off_nothing_to_undo);
     return UNITY_END();
 }

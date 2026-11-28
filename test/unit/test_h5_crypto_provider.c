@@ -158,7 +158,13 @@ static tfw_status_t      soft_st;
 static tfw_crypto_tier_t soft_tier_value;
 static uint16_t          soft_algorithms_value;
 
-tfw_status_t      tfw_crypto_soft_init(void) { return TFW_OK; }
+static tfw_status_t soft_init_st;
+static unsigned     soft_init_calls;
+tfw_status_t        tfw_crypto_soft_init(void)
+{
+    soft_init_calls++;
+    return soft_init_st;
+}
 tfw_crypto_tier_t tfw_crypto_soft_tier(void) { return soft_tier_value; }
 uint16_t          tfw_crypto_soft_algorithms(void) { return soft_algorithms_value; }
 tfw_status_t      tfw_crypto_soft_random(uint8_t *out, uint8_t len)
@@ -225,6 +231,8 @@ void setUp(void)
     soft_st               = TFW_ERR_UNSUPPORTED;
     soft_tier_value       = TFW_CRYPTO_SOFTWARE;
     soft_algorithms_value = 0;
+    soft_init_st          = TFW_OK;
+    soft_init_calls       = 0;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
 }
 void tearDown(void) {}
@@ -282,6 +290,37 @@ static void test_h5_provider_sha256_uses_the_hash_again_after_init(void)
 
     memset(&m, 0, sizeof m);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
+    TEST_ASSERT_EQUAL_UINT32(8, m.hr_reads);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+static void test_h5_provider_sha256_keeps_a_working_hash_for_the_next_digest(void)
+{
+    uint8_t out[32];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_UINT32(8, m.hr_reads);
+
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
+    TEST_ASSERT_EQUAL_UINT32(16, m.hr_reads);
+    TEST_ASSERT_FALSE(m.fault);
+}
+
+static void test_h5_provider_init_returns_the_soft_tiers_init_refusal(void)
+{
+    uint8_t out[32];
+
+    memset(&m, 0, sizeof m);
+    soft_init_st    = TFW_ERR_CRYPTO;
+    soft_init_calls = 0;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_init());
+    TEST_ASSERT_EQUAL_UINT(1, soft_init_calls);
+
     memset(out, 0xA5, sizeof out);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3, out));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(ABC_DIGEST, out, sizeof out);
@@ -425,6 +464,8 @@ int main(void)
     RUN_TEST(test_h5_provider_sha256_answers_from_the_hash_peripheral);
     RUN_TEST(test_h5_provider_sha256_polls_a_hung_hash_once_per_boot);
     RUN_TEST(test_h5_provider_sha256_uses_the_hash_again_after_init);
+    RUN_TEST(test_h5_provider_sha256_keeps_a_working_hash_for_the_next_digest);
+    RUN_TEST(test_h5_provider_init_returns_the_soft_tiers_init_refusal);
     RUN_TEST(test_h5_provider_init_clocks_hash_rng_and_pka_before_starting_them);
     RUN_TEST(test_h5_provider_verify_image_returns_the_soft_tiers_refusal);
     RUN_TEST(test_h5_provider_sign_and_pubkey_answer_from_the_soft_tier);

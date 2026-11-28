@@ -82,6 +82,8 @@ static uint32_t sr_reads;
 static uint8_t  sr_waiting;
 static uint32_t sr_late_bits;    /* busy bits still set at read SR_POLLS */
 static uint32_t sr_late_polls;   /* the further reads they take to clear */
+static uint32_t kr_first_mark;   /* tfw_cm_reset_mark at the first KR call */
+static uint8_t  kr_called;
 
 static void model_set(uint32_t addr, uint32_t val);
 
@@ -168,6 +170,11 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
     model_flush();
     r = model_slot(addr);
     model_access[r - model_val]++;
+    if (addr == ADDR_KR && !kr_called) {
+        /* Before the store: the mark as the first key finds it. */
+        kr_first_mark = tfw_cm_reset_mark;
+        kr_called = 1u;
+    }
     if (addr == ADDR_ACR && acr_waiting) {
         if (++acr_reads == ACR_POLLS) {
             model_set(addr, acr_pending);
@@ -281,6 +288,8 @@ void setUp(void)
     sr_reads       = 0u;
     sr_late_bits   = 0u;
     sr_late_polls  = 0u;
+    kr_first_mark  = 0u;
+    kr_called      = 0u;
     take_rsr       = 0;
     take_requested = 0xFFu;
     take_calls     = 0u;
@@ -523,7 +532,7 @@ static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
 
     TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_ENABLE, model_log[0].val);
-    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, kr_first_mark);
     TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[4].mark);
 }
 
@@ -544,7 +553,7 @@ static void test_arm_over_an_inherited_watchdog_and_mark_writes_its_own(void)
     TEST_ASSERT_EQUAL_HEX32(3999u, model_log[3].val);
     TEST_ASSERT_EQUAL_HEX32(3u, reg(ADDR_PR));
     TEST_ASSERT_EQUAL_HEX32(3999u, reg(ADDR_RLR));
-    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, kr_first_mark);
     TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
 }
 

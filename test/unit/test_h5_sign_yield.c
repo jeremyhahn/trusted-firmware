@@ -265,6 +265,35 @@ static void test_a_due_output_is_released_before_the_network_is_serviced(void)
     TEST_ASSERT_EQUAL_UINT(2u, rx_drains);
 }
 
+static void test_an_armed_output_not_yet_due_does_not_hold_back_the_deadline_sweep(void)
+{
+    arm_high_for(ARM_MS);
+
+    now_ms = ARM_MS - 1u;
+    tfw_sign_yield();
+    tfw_sign_yield();
+    tfw_sign_yield();
+    TEST_ASSERT_FALSE(released);
+    TEST_ASSERT_TRUE(tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT(3u, rx_drains);
+    TEST_ASSERT_EQUAL_UINT(3u, deadline_sweeps);
+    TEST_ASSERT_EQUAL_UINT(0u, sweeps_before_drain);
+}
+
+static void test_the_yield_that_releases_an_output_still_sweeps_the_deadlines_once(void)
+{
+    arm_high_for(ARM_MS);
+
+    now_ms = ARM_MS;
+    tfw_sign_yield();
+    TEST_ASSERT_TRUE(released);
+    TEST_ASSERT_EQUAL_UINT8(0u, released_level);
+    TEST_ASSERT_FALSE(tfw_sched_active());
+    TEST_ASSERT_EQUAL_UINT(1u, rx_drains);
+    TEST_ASSERT_EQUAL_UINT(1u, deadline_sweeps);
+    TEST_ASSERT_EQUAL_UINT(0u, sweeps_before_drain);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -274,5 +303,7 @@ int main(void)
     RUN_TEST(test_every_yield_drains_received_frames_before_the_deadline_sweep);
     RUN_TEST(test_one_yield_drains_once_and_sweeps_once);
     RUN_TEST(test_a_due_output_is_released_before_the_network_is_serviced);
+    RUN_TEST(test_an_armed_output_not_yet_due_does_not_hold_back_the_deadline_sweep);
+    RUN_TEST(test_the_yield_that_releases_an_output_still_sweeps_the_deadlines_once);
     return UNITY_END();
 }

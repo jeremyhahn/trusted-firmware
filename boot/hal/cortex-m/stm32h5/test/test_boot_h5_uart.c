@@ -137,6 +137,36 @@ static void test_rx_takes_the_byte_beside_an_overrun_and_clears_ore(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
 }
 
+/* An idle transmitter keeps TXE and TC set, so a byte arriving reads
+ * ISR as 0xE0: rx must test RXNE alone, not the whole register. */
+static void test_rx_takes_rdr_with_the_idle_flags_set(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC |
+                       TFW_H5_USART_ISR_RXNE;
+    TFW_H5_USART_RDR = 0xA5u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
+/* An overrun that comes with a byte (and the idle TX flags) is cleared,
+ * and the byte waiting in RDR is still returned. */
+static void test_rx_clears_an_overrun_and_takes_the_byte_waiting(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC |
+                       TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+}
+
 /* A UART init left off (TE clear) stores nothing, even with TXE set. */
 static void test_tx_stores_nothing_while_te_is_clear(void)
 {
@@ -229,6 +259,206 @@ static void test_after_off_a_stray_tx_stores_nothing(void)
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
 }
 
+static void test_init_over_a_live_usart_writes_its_own_divisor(void)
+{
+    TFW_H5_USART_BRR = 0x1234u;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 115200u), TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+}
+
+static void test_init_over_a_live_usart_clears_its_interrupt_enables(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE |
+                       TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1 & (TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE));
+}
+
+/* Init writes the divisor of the baud it is given, not a fixed one: 9600
+ * baud at 64 MHz rounds to 6667 (0x1A0B), and a second init at 115200
+ * replaces it with 556 (0x22C). Literals, so a wrong baud cannot cancel
+ * out against a recomputed divisor. */
+static void test_init_writes_the_divisor_of_the_baud_it_is_given(void)
+{
+    tfw_boot_uart_init(9600u);
+    TEST_ASSERT_EQUAL_HEX32(0x1A0Bu, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE | TFW_H5_USART_CR1_TE,
+                            TFW_H5_USART_CR1);
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_HEX32(0x22Cu, TFW_H5_USART_BRR);
+}
+
+/* Tx is gated on TE alone: a receive-only USART (UE and RE set, TE clear)
+ * with the idle TX flags set stores nothing, and tx leaves CR1 alone. */
+static void test_tx_stores_nothing_with_ue_and_re_set_but_te_clear(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE, TFW_H5_USART_CR1);
+}
+
+/* The part resets GPIOA pins to analog (MODER 0b11): init must replace
+ * PA9/PA10's mode and AF fields, not OR into them, and leave the rest. */
+static void test_init_over_analog_pins_leaves_pa9_and_pa10_on_af7(void)
+{
+    TFW_H5_GPIO_MODER(VCP_BANK) = 0xFFFFFFFFu;
+    TFW_H5_GPIO_AFRH(VCP_BANK) = 0xFFFFFFFFu;
+    tfw_boot_uart_init(115200u);
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_VCP_AF, af_of(TFW_H5_VCP_TX_PIN));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_VCP_AF, af_of(TFW_H5_VCP_RX_PIN));
+    TEST_ASSERT_EQUAL_HEX32(0xFFEBFFFFu, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFF77Fu, TFW_H5_GPIO_AFRH(VCP_BANK));
+}
+
+/* An idle transmitter (TXE and TC set) with no byte received is the steady
+ * state of a polled console: rx reports nothing and touches nothing. */
+static void test_rx_with_only_the_idle_tx_flags_returns_0(void)
+{
+    uint8_t b = 0x5Au;
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_RDR = 0xA5u;
+    TEST_ASSERT_EQUAL_INT(0, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
+/* The hand-over leaves CR1 at its reset value, interrupt enables included:
+ * the application must not start with a live RXNEIE/TXEIE and no handler. */
+static void test_off_clears_the_interrupt_enables_set_after_init(void)
+{
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_CR1 |= TFW_H5_USART_CR1_RXNEIE | TFW_H5_USART_CR1_TXEIE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+}
+
+/* The hand-over is gated on TE alone: a receive-only USART (UE|RE, TE clear)
+ * was not set up by tfw-boot, so its CR1, divisor, pins and clocks stay. */
+static void test_off_leaves_a_receive_only_usart_alone(void)
+{
+    seed_neighbours();
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_UE | TFW_H5_USART_CR1_RE;
+    TFW_H5_USART_BRR = 0x1234u;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_ICR = 0u;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0x5u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+}
+
+/* The hand-over reads TE alone, the bit init sets last and off clears; UE is
+ * not consulted, so TE set with UE clear is still torn down to reset. */
+static void test_off_tears_down_a_usart_with_te_set_and_ue_clear(void)
+{
+    seed_neighbours();
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_TE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_ICR = 0u;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER | (0x3u << 18u) | (0x3u << 20u),
+                            TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+}
+
+/* Tx reads TE alone too: with TE set and UE clear the byte goes to TDR, and
+ * tx leaves CR1 alone. */
+static void test_tx_writes_tdr_with_te_set_and_ue_clear(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_TE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0x8u, TFW_H5_USART_CR1);
+}
+
+/* An idle transmitter reads TXE and TC together: tx tests the TXE bit alone,
+ * not the whole register, and leaves CR1 as init set it. */
+static void test_tx_writes_tdr_with_the_idle_flags_set(void)
+{
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_TC;
+    tfw_boot_uart_tx(0x5Au);
+    TEST_ASSERT_EQUAL_HEX32(0x5Au, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0xDu, TFW_H5_USART_CR1);
+}
+
+/* A host typing while tfw-boot prints sets RXNE (and ORE) mid-transmit: tx
+ * still sends, reads no RDR and clears no flag, leaving both for rx. */
+static void test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx(void)
+{
+    uint8_t b = 0u;
+
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE | TFW_H5_USART_ISR_RXNE | TFW_H5_USART_ISR_ORE;
+    TFW_H5_USART_RDR = 0x3Cu;
+    TFW_H5_USART_ICR = 0u;
+    tfw_boot_uart_tx(0xC3u);
+    TEST_ASSERT_EQUAL_HEX32(0xC3u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_uart_rx(&b));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+}
+
+/* 8 Mbaud at 64 MHz rounds to divisor 8, below BRR's floor of 16: init
+ * must take its early return on the divisor, not on baud 0, so no clock,
+ * pin, BRR or CR1 is written and a later tx with TXE set stores nothing. */
+static void test_init_at_a_baud_too_fast_for_the_clock_writes_nothing(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 8000000u));
+    tfw_boot_uart_init(8000000u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_TDR);
+}
+
+/* 900 baud at 64 MHz rounds to divisor 71111, above BRR's 0xFFFF: init
+ * leaves the USART off, so the hand-over returns on its TE gate and leaves
+ * the neighbouring clocks and pins, and ICR, as they were. */
+static void test_init_at_a_baud_too_slow_for_the_clock_leaves_off_nothing_to_undo(void)
+{
+    seed_neighbours();
+    TFW_H5_USART_ICR = 0u;
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_h5_usart_brr((uint32_t)TFW_CM_CPU_HZ, 900u));
+    tfw_boot_uart_init(900u);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER, TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_ICR);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -239,10 +469,26 @@ int main(void)
     RUN_TEST(test_rx_clears_an_overrun_and_returns_0_with_no_byte);
     RUN_TEST(test_rx_takes_rdr_with_rxne_set);
     RUN_TEST(test_rx_takes_the_byte_beside_an_overrun_and_clears_ore);
+    RUN_TEST(test_rx_takes_rdr_with_the_idle_flags_set);
+    RUN_TEST(test_rx_clears_an_overrun_and_takes_the_byte_waiting);
     RUN_TEST(test_tx_stores_nothing_while_te_is_clear);
     RUN_TEST(test_tx_writes_tdr_once_enabled);
     RUN_TEST(test_off_puts_usart1_and_its_pins_back_to_reset);
     RUN_TEST(test_off_after_an_init_left_off_touches_nothing);
     RUN_TEST(test_after_off_a_stray_tx_stores_nothing);
+    RUN_TEST(test_init_over_a_live_usart_writes_its_own_divisor);
+    RUN_TEST(test_init_over_a_live_usart_clears_its_interrupt_enables);
+    RUN_TEST(test_init_writes_the_divisor_of_the_baud_it_is_given);
+    RUN_TEST(test_tx_stores_nothing_with_ue_and_re_set_but_te_clear);
+    RUN_TEST(test_init_over_analog_pins_leaves_pa9_and_pa10_on_af7);
+    RUN_TEST(test_rx_with_only_the_idle_tx_flags_returns_0);
+    RUN_TEST(test_off_clears_the_interrupt_enables_set_after_init);
+    RUN_TEST(test_off_leaves_a_receive_only_usart_alone);
+    RUN_TEST(test_off_tears_down_a_usart_with_te_set_and_ue_clear);
+    RUN_TEST(test_tx_writes_tdr_with_te_set_and_ue_clear);
+    RUN_TEST(test_tx_writes_tdr_with_the_idle_flags_set);
+    RUN_TEST(test_tx_with_a_byte_and_an_overrun_waiting_leaves_them_for_rx);
+    RUN_TEST(test_init_at_a_baud_too_fast_for_the_clock_writes_nothing);
+    RUN_TEST(test_init_at_a_baud_too_slow_for_the_clock_leaves_off_nothing_to_undo);
     return UNITY_END();
 }

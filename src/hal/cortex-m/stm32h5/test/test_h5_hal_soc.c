@@ -573,6 +573,29 @@ static void test_pet_writes_reload_only(void)
     TEST_ASSERT_EQUAL_HEX32(INHERITED_RLR, reg(ADDR_RLR));
 }
 
+static void test_early_leaves_the_cleared_reset_mark(void)
+{
+    /* hal_early.c clears the mark before early; early must not set one. */
+    tfw_cm_soc_early();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+}
+
+static void test_pet_keeps_an_armed_watchdog_mark(void)
+{
+    tfw_cm_reset_mark = TFW_CM_MARK_WATCHDOG;
+    tfw_cm_soc_watchdog_pet();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+}
+
 /* ---- tfw_cm_soc_reset_cause ---- */
 
 static void test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take(void)
@@ -625,6 +648,8 @@ int main(void)
     RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
     RUN_TEST(test_arm_over_an_inherited_watchdog_and_mark_writes_its_own);
     RUN_TEST(test_pet_writes_reload_only);
+    RUN_TEST(test_early_leaves_the_cleared_reset_mark);
+    RUN_TEST(test_pet_keeps_an_armed_watchdog_mark);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);
     RUN_TEST(test_reset_cause_returns_what_reset_take_decodes);

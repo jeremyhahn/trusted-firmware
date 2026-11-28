@@ -314,6 +314,50 @@ static void test_requests_waiting_on_both_wires_take_turns(void)
     TEST_ASSERT_TRUE(answered(3u));
 }
 
+/* A TCP connect and drop while a UART frame is half read is not a new peer
+ * of the UART's: the frame completes and is answered on the UART (#599). */
+static void test_a_tcp_reconnect_leaves_a_uart_frame_in_progress_alone(void)
+{
+    uint8_t  uart[TFW_MAX_FRAME];
+    uint16_t ulen = tfw_frame_encode_request(uart, sizeof uart, 7u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, ulen);
+    tfw_mock_feed_rx(uart, 3u);
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(t.in_frame);
+
+    tfw_h5_wire_open();
+    tfw_transport_poll(&t);
+    tfw_h5_wire_drop();
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(t.in_frame);
+
+    tfw_mock_feed_rx(uart + 3u, (size_t)(ulen - 3u));
+    for (unsigned k = 0u; k < 64u; k++) { tfw_transport_poll(&t); }
+    TEST_ASSERT_TRUE(uart_answered(7u));
+    TEST_ASSERT_EQUAL_UINT(0u, sent_len);
+}
+
+/* A peer that sends a request and then FIN is answered on TCP first and
+ * closed on the next poll, after which the wire takes no more bytes (#599). */
+static void test_a_request_ahead_of_a_fin_is_answered_before_the_close(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_CAPS, 0, 0u);
+
+    TEST_ASSERT_NOT_EQUAL(0u, len);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(len, tfw_h5_wire_push(wire, len));
+    tfw_h5_wire_eof();
+    tfw_transport_poll(&t);
+    TEST_ASSERT_TRUE(answered(5u));
+
+    sent_len = 0u;
+    tfw_transport_poll(&t);
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_h5_wire_push(wire, len));
+    TEST_ASSERT_EQUAL_UINT(0u, sent_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -326,5 +370,7 @@ int main(void)
     RUN_TEST(test_a_stalled_tcp_frame_holds_until_the_idle_timeout);
     RUN_TEST(test_a_uart_frame_in_progress_holds_tcp_until_it_completes);
     RUN_TEST(test_requests_waiting_on_both_wires_take_turns);
+    RUN_TEST(test_a_tcp_reconnect_leaves_a_uart_frame_in_progress_alone);
+    RUN_TEST(test_a_request_ahead_of_a_fin_is_answered_before_the_close);
     return UNITY_END();
 }

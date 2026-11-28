@@ -144,6 +144,9 @@ def main(argv):
     for word in forwarded:
         name, eq, value = word.partition("=")
         if eq and name.rstrip(":+?").strip() == "BUILD_DIR":
+            if "$" in value:
+                p.error(f"the calling make's BUILD_DIR={value} holds a make reference: "
+                        f"it could expand to one directory for both copies")
             norm = os.path.normpath(value)
             if os.path.isabs(value) or norm == os.pardir or norm.startswith(os.pardir + os.sep):
                 p.error(f"the calling make's BUILD_DIR={value} is not inside the tree: "

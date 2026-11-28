@@ -294,7 +294,11 @@ class ReleaseGuardBranches(unittest.TestCase):
                 self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
-PRE_RO = (OPEN + " github.server_url == 'https://github.com' && ((github.event_name == 'push' && github.ref == 'refs/heads/main')"
+# v1.63: a push to main takes the main-only runner when both main labels are set.
+PRE_RO = (OPEN + " github.server_url == 'https://github.com' && github.event_name == 'push'"
+          " && github.ref == 'refs/heads/main' && vars.CI_MAIN_RUNNER_LABEL && vars.CI_MAIN_RUNNER_LABEL_DOCKER"
+          " && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"{0}\"]', vars.CI_MAIN_RUNNER_LABEL)) ||"
+          " github.server_url == 'https://github.com' && ((github.event_name == 'push' && github.ref == 'refs/heads/main')"
           " || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))"
           " && fromJSON(vars.CI_PREFLIGHT_RUNS_ON"
           " || '[\"self-hosted\",\"linux\",\"x64\",\"bigdisk\"]') || 'ubuntu-latest' }}")
@@ -362,14 +366,19 @@ class PreflightRunsOn(unittest.TestCase):
         self.assertEqual(len(bots), 1)
         self.assertTrue(bots[0].startswith("${{ github.server_url != 'https://github.com' && "), bots[0])
 
-    def test_header_names_v1_60(self):
+    def test_header_names_v1_63(self):
         with open(CI, encoding="utf-8") as f:
-            self.assertEqual(f.readline(), "# ci-template: v1.60 (customized)\n")
+            self.assertEqual(f.readline(),
+                             "# ci-template: v1.63 main-only runner label + v1.62 pool overflow"
+                             " + v1.61 main-push group on v1.60 (customized)\n")
 
     def test_main_group_is_per_event(self):
+        # v1.61: a push to main gets its own group per commit, so a later push
+        # never cancels an earlier main run; other main events stay per event.
         group = load(CI)["concurrency"]["group"]
+        self.assertIn("github.ref == 'refs/heads/main' && github.event_name == 'push' && format('main-push-{0}', github.sha) ||", group)
         self.assertIn("github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) ||", group)
-        self.assertNotIn("github.sha", group)
+        self.assertEqual(group.count("github.sha"), 1)
         self.assertEqual(load(CI)["concurrency"]["cancel-in-progress"], "true")
 
 

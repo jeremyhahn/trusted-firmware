@@ -332,6 +332,37 @@ static void test_off_leaves_a_receive_only_usart_alone(void)
     TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
 }
 
+/* The hand-over reads TE alone, the bit init sets last and off clears; UE is
+ * not consulted, so TE set with UE clear is still torn down to reset. */
+static void test_off_tears_down_a_usart_with_te_set_and_ue_clear(void)
+{
+    seed_neighbours();
+    tfw_boot_uart_init(115200u);
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_TE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TC;
+    TFW_H5_USART_ICR = 0u;
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_CR1);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_H5_USART_BRR);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, TFW_H5_USART_ICR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_MODER | (0x3u << 18u) | (0x3u << 20u),
+                            TFW_H5_GPIO_MODER(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AFRH, TFW_H5_GPIO_AFRH(VCP_BANK));
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_APB2ENR, TFW_H5_RCC_APB2ENR);
+    TEST_ASSERT_EQUAL_HEX32(NEIGHBOUR_AHB2ENR, TFW_H5_RCC_AHB2ENR);
+}
+
+/* Tx reads TE alone too: with TE set and UE clear the byte goes to TDR, and
+ * tx leaves CR1 alone. */
+static void test_tx_writes_tdr_with_te_set_and_ue_clear(void)
+{
+    TFW_H5_USART_CR1 = TFW_H5_USART_CR1_TE;
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_TXE;
+    tfw_boot_uart_tx(0xA5u);
+    TEST_ASSERT_EQUAL_HEX32(0xA5u, TFW_H5_USART_TDR);
+    TEST_ASSERT_EQUAL_HEX32(0x8u, TFW_H5_USART_CR1);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -355,5 +386,7 @@ int main(void)
     RUN_TEST(test_rx_with_only_the_idle_tx_flags_returns_0);
     RUN_TEST(test_off_clears_the_interrupt_enables_set_after_init);
     RUN_TEST(test_off_leaves_a_receive_only_usart_alone);
+    RUN_TEST(test_off_tears_down_a_usart_with_te_set_and_ue_clear);
+    RUN_TEST(test_tx_writes_tdr_with_te_set_and_ue_clear);
     return UNITY_END();
 }

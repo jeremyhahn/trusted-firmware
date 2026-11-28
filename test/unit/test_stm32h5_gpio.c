@@ -191,6 +191,26 @@ void test_pin_15_low_write_is_bsrr_bit_31(void)
     TEST_ASSERT_EQUAL_HEX32(0x80000000u, regfile_model_peek(GPIOI + 0x18u));
 }
 
+void test_a_high_write_replaces_a_stale_bsrr_word(void)
+{
+    tfw_pinref_t p = pin(8u, 9u);   /* PI9, LD1 */
+
+    regfile_model_poke(GPIOI + 0x18u, 0x1u << 8u);   /* LD2's last set */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, 1u));
+    TEST_ASSERT_EQUAL_HEX32(0x00000200u, regfile_model_peek(GPIOI + 0x18u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x02000000u, regfile_model_peek(GPIOI + 0x18u));
+}
+
+void test_a_low_write_in_the_uart_bank_is_its_reset_bit_alone(void)
+{
+    tfw_pinref_t p = pin(0u, 0u);   /* PA0, in the UART's bank */
+
+    regfile_model_poke(GPIOA + 0x18u, 0xFFFFFFFFu);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&p, 0u));
+    TEST_ASSERT_EQUAL_HEX32(0x00010000u, regfile_model_peek(GPIOA + 0x18u));
+}
+
 void test_any_nonzero_level_drives_high(void)
 {
     static const uint8_t levels[] = { 2u, 0x80u, 0xFFu };
@@ -290,6 +310,8 @@ int main(void)
     RUN_TEST(test_a_low_write_sets_bsrr_br);
     RUN_TEST(test_a_write_is_bsrr_alone);
     RUN_TEST(test_pin_15_low_write_is_bsrr_bit_31);
+    RUN_TEST(test_a_high_write_replaces_a_stale_bsrr_word);
+    RUN_TEST(test_a_low_write_in_the_uart_bank_is_its_reset_bit_alone);
     RUN_TEST(test_any_nonzero_level_drives_high);
     RUN_TEST(test_pin_15_mode_is_moder_bits_31_30_and_keeps_pin_14);
     RUN_TEST(test_a_read_is_the_pins_idr_bit);

@@ -61,6 +61,7 @@ struct model_write {
     uint32_t val;
     uint32_t acr_reads;      /* ACR reads since its LATENCY write */
     uint32_t sr_reads;       /* SR reads since the busy bits set */
+    uint32_t mark;           /* tfw_cm_reset_mark when it was seen */
 };
 
 static uint32_t          model_addr[MODEL_REGS];
@@ -79,6 +80,10 @@ static uint32_t rcc_reads;
 static uint8_t  rcc_waiting;
 static uint32_t sr_reads;
 static uint8_t  sr_waiting;
+static uint32_t sr_late_bits;    /* busy bits still set at read SR_POLLS */
+static uint32_t sr_late_polls;   /* the further reads they take to clear */
+static uint32_t kr_first_mark;   /* tfw_cm_reset_mark at the first KR call */
+static uint8_t  kr_called;
 
 static void model_set(uint32_t addr, uint32_t val);
 
@@ -94,6 +99,7 @@ static void model_wrote(uint32_t i)
     model_log[model_logged].val       = val;
     model_log[model_logged].acr_reads = acr_reads;
     model_log[model_logged].sr_reads  = sr_reads;
+    model_log[model_logged].mark      = tfw_cm_reset_mark;
     model_logged++;
 
     if (addr == ADDR_ACR) {
@@ -164,6 +170,11 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
     model_flush();
     r = model_slot(addr);
     model_access[r - model_val]++;
+    if (addr == ADDR_KR && !kr_called) {
+        /* Before the store: the mark as the first key finds it. */
+        kr_first_mark = tfw_cm_reset_mark;
+        kr_called = 1u;
+    }
     if (addr == ADDR_ACR && acr_waiting) {
         if (++acr_reads == ACR_POLLS) {
             model_set(addr, acr_pending);
@@ -175,7 +186,14 @@ volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
             rcc_waiting = 0u;
         }
     } else if (addr == ADDR_SR && sr_waiting) {
-        if (++sr_reads == SR_POLLS) {
+        ++sr_reads;
+        if (sr_reads == SR_POLLS) {
+            /* PVU and RVU clear apart: sr_late_bits lag the rest. */
+            model_set(addr, sr_late_bits);
+            if (sr_late_bits == 0u) {
+                sr_waiting = 0u;
+            }
+        } else if (sr_reads == SR_POLLS + sr_late_polls) {
             model_set(addr, 0u);
             sr_waiting = 0u;
         }
@@ -248,13 +266,14 @@ static void inherit_armed_watchdog(void)
 static volatile uint32_t *take_rsr;
 static uint8_t            take_requested;
 static uint32_t           take_calls;
+static tfw_reset_cause_t  take_result;
 
 tfw_reset_cause_t tfw_h5_reset_take(volatile uint32_t *rsr, uint8_t requested)
 {
     take_rsr       = rsr;
     take_requested = requested;
     take_calls++;
-    return TFW_RESET_WATCHDOG;
+    return take_result;
 }
 
 void setUp(void)
@@ -267,9 +286,14 @@ void setUp(void)
     acr_reads      = 0u;
     rcc_reads      = 0u;
     sr_reads       = 0u;
+    sr_late_bits   = 0u;
+    sr_late_polls  = 0u;
+    kr_first_mark  = 0u;
+    kr_called      = 0u;
     take_rsr       = 0;
     take_requested = 0xFFu;
     take_calls     = 0u;
+    take_result    = TFW_RESET_WATCHDOG;
     tfw_cm_reset_mark = 0u;
     model_set(ADDR_ACR, ACR_INIT);
     model_set(ADDR_RCC_CR, RCC_CR_INIT);
@@ -346,6 +370,24 @@ static void test_early_keeps_the_other_acr_and_rcc_cr_bits(void)
                             reg(ADDR_RCC_CR));
 }
 
+/* HSIDIV is two bits: an HSI / 8 start (both set) must end at HSI / 1. */
+static void test_early_clears_both_hsidiv_bits_from_hsi_over_8(void)
+{
+    uint32_t cr;
+
+    model_set(ADDR_RCC_CR, (RCC_CR_INIT & ~TFW_H5_RCC_CR_HSIDIV) | (0x3u << 3));
+
+    tfw_cm_soc_early();
+    model_flush();
+
+    cr = nth_write(ADDR_RCC_CR, 0u);
+    TEST_ASSERT_TRUE(cr < MODEL_LOG);
+    TEST_ASSERT_EQUAL_UINT32(1u, writes_to(ADDR_RCC_CR));
+    TEST_ASSERT_EQUAL_HEX32(0x50000003u | TFW_H5_RCC_CR_HSI48ON, model_log[cr].val);
+    TEST_ASSERT_EQUAL_HEX32(0x50000003u | TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSIDIVF,
+                            reg(ADDR_RCC_CR));
+}
+
 /* ---- tfw_cm_soc_watchdog_arm / _pet ---- */
 
 static void test_arm_marks_then_keys_enable_access_pr_rlr_wait_reload(void)
@@ -385,6 +427,136 @@ static void test_arm_times_four_seconds_of_the_32_khz_lsi(void)
     TEST_ASSERT_EQUAL_HEX32(3999u, reg(ADDR_RLR));
 }
 
+static void test_arm_reloads_only_once_rvu_clears_after_pvu(void)
+{
+    sr_late_bits  = 0x2u;   /* RVU */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 2u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+static void test_arm_reloads_only_once_pvu_clears_after_rvu(void)
+{
+    sr_late_bits  = 0x1u;   /* PVU */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 3u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+static void test_arm_reloads_only_once_wvu_clears_after_pvu_and_rvu(void)
+{
+    sr_late_bits  = 0x4u;   /* WVU */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 2u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+static void test_arm_reloads_only_once_ewu_clears_after_the_rest(void)
+{
+    sr_late_bits  = 0x8u;   /* EWU */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS + 3u, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(ADDR_SR));
+}
+
+/* IWDG_SR also carries status flags outside the four busy bits: ONF
+ * (bit 8, set while the watchdog runs) and EWIF (bit 14, the early-wakeup
+ * flag).  The arm waits only for the busy bits, so a set ONF or EWIF does
+ * not hold back the RELOAD key, and SR (never written) keeps the flag. */
+static void test_arm_reload_does_not_wait_for_onf(void)
+{
+    sr_late_bits  = 0x100u;   /* ONF */
+    sr_late_polls = 3u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(0x100u, reg(ADDR_SR));
+}
+
+static void test_arm_reload_does_not_wait_for_ewif(void)
+{
+    sr_late_bits  = 0x4000u;   /* EWIF */
+    sr_late_polls = 2u;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[4].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[4].val);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, model_log[4].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(SR_POLLS, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(0x4000u, reg(ADDR_SR));
+}
+
+/* The mark is in place before the watchdog can run, so a reset the new
+ * watchdog causes is read as one. */
+static void test_arm_sets_the_watchdog_mark_before_its_first_key(void)
+{
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_ENABLE, model_log[0].val);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, kr_first_mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[4].mark);
+}
+
+/* An earlier stage's watchdog and mark: the arm stores its own PR, RLR
+ * and mark over them, not ORed into what was there. */
+static void test_arm_over_an_inherited_watchdog_and_mark_writes_its_own(void)
+{
+    inherit_armed_watchdog();
+    tfw_cm_reset_mark = TFW_CM_MARK_PANIC;
+
+    tfw_cm_soc_watchdog_arm();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(5u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_PR, model_log[2].addr);
+    TEST_ASSERT_EQUAL_HEX32(3u, model_log[2].val);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_RLR, model_log[3].addr);
+    TEST_ASSERT_EQUAL_HEX32(3999u, model_log[3].val);
+    TEST_ASSERT_EQUAL_HEX32(3u, reg(ADDR_PR));
+    TEST_ASSERT_EQUAL_HEX32(3999u, reg(ADDR_RLR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, kr_first_mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+}
+
 static void test_pet_writes_reload_only(void)
 {
     inherit_armed_watchdog();
@@ -399,6 +571,67 @@ static void test_pet_writes_reload_only(void)
     TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_RLR));
     TEST_ASSERT_EQUAL_HEX32(INHERITED_PR, reg(ADDR_PR));
     TEST_ASSERT_EQUAL_HEX32(INHERITED_RLR, reg(ADDR_RLR));
+}
+
+static void test_early_leaves_the_cleared_reset_mark(void)
+{
+    /* hal_early.c clears the mark before early; early must not set one. */
+    tfw_cm_soc_early();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+}
+
+static void test_pet_keeps_an_armed_watchdog_mark(void)
+{
+    tfw_cm_reset_mark = TFW_CM_MARK_WATCHDOG;
+    tfw_cm_soc_watchdog_pet();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_log[0].mark);
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+}
+
+/* An image entered right after an earlier stage armed the watchdog can
+ * find PVU/RVU still set.  The pets do not wait on SR: the running
+ * watchdog is reloaded at once, and SR is never read.  The model clears
+ * SR on its SR_POLLS-th read, so a wait added in front ends, not hangs. */
+static void test_early_pets_without_reading_an_inherited_busy_sr(void)
+{
+    inherit_armed_watchdog();
+    model_set(ADDR_SR, TFW_H5_IWDG_SR_BUSY);
+    sr_waiting = 1u;
+
+    tfw_cm_soc_early();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_UINT32(0u, model_log[0].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(1u, writes_to(ADDR_KR));
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_SR_BUSY, reg(ADDR_SR));
+}
+
+static void test_pet_does_not_read_an_inherited_busy_sr(void)
+{
+    inherit_armed_watchdog();
+    model_set(ADDR_SR, TFW_H5_IWDG_SR_BUSY);
+    sr_waiting = 1u;
+
+    tfw_cm_soc_watchdog_pet();
+    model_flush();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, model_logged);
+    TEST_ASSERT_EQUAL_HEX32(ADDR_KR, model_log[0].addr);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_KEY_RELOAD, model_log[0].val);
+    TEST_ASSERT_EQUAL_UINT32(0u, model_log[0].sr_reads);
+    TEST_ASSERT_EQUAL_UINT32(0u, accesses(ADDR_SR));
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_IWDG_SR_BUSY, reg(ADDR_SR));
 }
 
 /* ---- tfw_cm_soc_reset_cause ---- */
@@ -423,6 +656,17 @@ static void test_reset_cause_any_other_mark_is_not_requested(void)
     TEST_ASSERT_EQUAL_PTR(tfw_cm_model_reg(ADDR_RCC_RSR), take_rsr);
 }
 
+/* The cause is reset_take's decode, whatever it is, not a fixed one. */
+static void test_reset_cause_returns_what_reset_take_decodes(void)
+{
+    take_result = TFW_RESET_BROWNOUT;
+    TEST_ASSERT_EQUAL(TFW_RESET_BROWNOUT, tfw_cm_soc_reset_cause(TFW_CM_MARK_WATCHDOG));
+    take_result = TFW_RESET_SOFTWARE;
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_cm_soc_reset_cause(TFW_CM_MARK_RESETREQ));
+    TEST_ASSERT_EQUAL_UINT8(1u, take_requested);
+    TEST_ASSERT_EQUAL_UINT32(2u, take_calls);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -430,10 +674,24 @@ int main(void)
     RUN_TEST(test_early_writes_the_wait_states_before_the_divider);
     RUN_TEST(test_early_polls_latency_and_hsidivf_until_they_show);
     RUN_TEST(test_early_keeps_the_other_acr_and_rcc_cr_bits);
+    RUN_TEST(test_early_clears_both_hsidiv_bits_from_hsi_over_8);
     RUN_TEST(test_arm_marks_then_keys_enable_access_pr_rlr_wait_reload);
     RUN_TEST(test_arm_times_four_seconds_of_the_32_khz_lsi);
+    RUN_TEST(test_arm_reloads_only_once_rvu_clears_after_pvu);
+    RUN_TEST(test_arm_reloads_only_once_pvu_clears_after_rvu);
+    RUN_TEST(test_arm_reloads_only_once_wvu_clears_after_pvu_and_rvu);
+    RUN_TEST(test_arm_reloads_only_once_ewu_clears_after_the_rest);
+    RUN_TEST(test_arm_reload_does_not_wait_for_onf);
+    RUN_TEST(test_arm_reload_does_not_wait_for_ewif);
+    RUN_TEST(test_arm_sets_the_watchdog_mark_before_its_first_key);
+    RUN_TEST(test_arm_over_an_inherited_watchdog_and_mark_writes_its_own);
     RUN_TEST(test_pet_writes_reload_only);
+    RUN_TEST(test_early_leaves_the_cleared_reset_mark);
+    RUN_TEST(test_pet_keeps_an_armed_watchdog_mark);
+    RUN_TEST(test_early_pets_without_reading_an_inherited_busy_sr);
+    RUN_TEST(test_pet_does_not_read_an_inherited_busy_sr);
     RUN_TEST(test_reset_cause_hands_rcc_rsr_and_resetreq_to_reset_take);
     RUN_TEST(test_reset_cause_any_other_mark_is_not_requested);
+    RUN_TEST(test_reset_cause_returns_what_reset_take_decodes);
     return UNITY_END();
 }

@@ -12,6 +12,8 @@
  *
  * The same header's ADC sample-time field (tfw_h5_adc_smpr) and PWM CCER off
  * branch (tfw_h5_pwm_ccer) are pinned here too, from the RM0481 bit layouts.
+ * So is where the PWM prescaler's (tfw_h5_pwm_psc) rounding to the nearest
+ * divider turns: a divider of n + 0.5 is a clock of 255000 * (n + 0.5) Hz.
  */
 
 #include <stdint.h>
@@ -79,6 +81,26 @@ static void test_a_pwm_channel_turned_off_clears_its_enable_and_polarity_only(vo
     TEST_ASSERT_EQUAL_HEX32(0x1101u, tfw_h5_pwm_ccer(0x1111u, 2u, 0u));
 }
 
+static void test_the_pwm_prescaler_rounds_a_half_divider_up(void)
+{
+    /* 255000 * 1.5 = 382500 Hz: 1.5 rounds up to 2, PSC 1. */
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_h5_pwm_psc(382500u));
+    /* 255000 * 2.5 = 637500 Hz: 2.5 rounds up to 3, PSC 2. */
+    TEST_ASSERT_EQUAL_UINT16(2u, tfw_h5_pwm_psc(637500u));
+    /* 255000 * 250.5 = 63877500 Hz: 250.5 rounds up to 251, PSC 250. */
+    TEST_ASSERT_EQUAL_UINT16(250u, tfw_h5_pwm_psc(63877500u));
+}
+
+static void test_the_pwm_prescaler_rounds_under_a_half_divider_down(void)
+{
+    /* One clock under 1.5: rounds down to 1, PSC 0. */
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_h5_pwm_psc(382499u));
+    /* One clock under 2.5: rounds down to 2, PSC 1. */
+    TEST_ASSERT_EQUAL_UINT16(1u, tfw_h5_pwm_psc(637499u));
+    /* One clock under 250.5: rounds down to 250, PSC 249. */
+    TEST_ASSERT_EQUAL_UINT16(249u, tfw_h5_pwm_psc(63877499u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -88,5 +110,7 @@ int main(void)
     RUN_TEST(test_one_megahertz_gives_one_spin_per_us_and_zero_us_none);
     RUN_TEST(test_an_adc_sample_time_keeps_three_bits_and_channel_19_tops_smpr2);
     RUN_TEST(test_a_pwm_channel_turned_off_clears_its_enable_and_polarity_only);
+    RUN_TEST(test_the_pwm_prescaler_rounds_a_half_divider_up);
+    RUN_TEST(test_the_pwm_prescaler_rounds_under_a_half_divider_down);
     return UNITY_END();
 }

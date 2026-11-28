@@ -193,6 +193,148 @@ static void test_the_ring_takes_no_more_than_it_has_room_for(void)
     TEST_ASSERT_EQUAL_UINT16(0, tfw_h5_wire_push(big, 1u));
 }
 
+static void test_bytes_read_from_a_full_ring_free_exactly_that_much_room(void)
+{
+    static uint8_t big[TFW_H5_WIRE_RX_RING + 8u];
+    uint8_t        b = 0u;
+
+    memset(big, 'z', sizeof big);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(TFW_H5_WIRE_RX_RING - 1u,
+                             tfw_h5_wire_push(big, (uint16_t)sizeof big));
+    TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 0u));
+    for (int i = 0; i < 4; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+    }
+    TEST_ASSERT_EQUAL_UINT16(5, tfw_h5_wire_push(big, 8u));
+    TEST_ASSERT_EQUAL_UINT16(0, tfw_h5_wire_push(big, 1u));
+}
+
+static void test_bytes_pushed_across_the_ring_end_are_read_in_order(void)
+{
+    static uint8_t fill[2000u];
+    uint8_t        seq[60];
+    uint8_t        b = 0u;
+
+    memset(fill, 'z', sizeof fill);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(2000, tfw_h5_wire_push(fill, (uint16_t)sizeof fill));
+    TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 0u));
+    for (int i = 1; i < 2000; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+    }
+    TEST_ASSERT_EQUAL(0u, tfw_link_rx(&b, 1u));
+
+    for (int i = 0; i < 60; i++) {
+        seq[i] = (uint8_t)(0x40 + i);
+    }
+    /* The head runs 2000..2047, then wraps to 0..11. */
+    TEST_ASSERT_EQUAL_UINT16(60, tfw_h5_wire_push(seq, (uint16_t)sizeof seq));
+    for (int i = 0; i < 60; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+        TEST_ASSERT_EQUAL_HEX8(seq[i], b);
+    }
+    TEST_ASSERT_EQUAL(0u, tfw_link_rx(&b, 1u));
+}
+
+static void test_a_uart_frame_holds_the_uart_while_a_tcp_byte_waits(void)
+{
+    uint8_t b = 0u;
+
+    tfw_h5_wire_open();
+    uart_feed("uv");
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('u', b);
+    TEST_ASSERT_EQUAL_UINT16(1, tcp_feed("t"));
+    /* Mid-frame on the UART: the frame's next byte comes from the UART. */
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 1u));
+    TEST_ASSERT_EQUAL_CHAR('v', b);
+    /* The UART is empty and the frame still held: the TCP byte waits. */
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_rx(&b, 1u));
+    /* Frame done: TCP is read and its reply goes back on TCP. */
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('t', b);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('r', 0u));
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(1, sent_len);
+    TEST_ASSERT_EQUAL_UINT(0, uart_out_len);
+}
+
+static void test_a_stall_across_the_millisecond_wrap_is_bounded_the_same(void)
+{
+    uint8_t b = 0u;
+
+    fake_ms = (tfw_ms_t)0u - (TFW_H5_WIRE_TX_STALL_MS / 2u);
+    tfw_h5_wire_open();
+    (void)tcp_feed("a");
+    (void)tfw_link_rx(&b, 0u);
+    send_room = 0u;                                 /* the peer reads nothing */
+    for (unsigned i = 0u; i < TFW_H5_WIRE_TX_BUF; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try((uint8_t)i, 0u));
+    }
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_tx_try(0xAA, 0u));   /* the stall starts */
+    fake_ms += 1u;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0, abort_calls);
+    /* Past the counter's wrap, 1 ms short of the bound. */
+    fake_ms += TFW_H5_WIRE_TX_STALL_MS - 2u;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0, abort_calls);
+    fake_ms += 1u;                                  /* the bound is reached */
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try(0xAA, 0u));
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+}
+
+/* An event's end on the UART leaves a part-built TCP reply batched: it goes
+ * out as one send when its own frame ends (#599). */
+static void test_an_event_end_leaves_a_part_built_tcp_reply_batched(void)
+{
+    uint8_t b = 0u;
+
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(1, tcp_feed("a"));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('R', 0u));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('E', 1u));
+    tfw_link_tx_done(1u);
+    TEST_ASSERT_EQUAL_UINT(1, uart_out_len);
+    TEST_ASSERT_EQUAL_HEX8('E', uart_out[0]);
+    TEST_ASSERT_EQUAL_UINT(0, send_calls);          /* still batched */
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('S', 0u));
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(1, send_calls);
+    TEST_ASSERT_EQUAL_UINT(2, sent_len);
+    TEST_ASSERT_EQUAL_MEMORY("RS", sent, 2);
+    TEST_ASSERT_EQUAL_UINT(1, uart_out_len);
+}
+
+/* With TCP current, between frames the UART gets the first look: a waiting
+ * UART byte is read before a waiting TCP byte, serial control commands are
+ * admitted again, and the TCP byte is read next (#599). */
+static void test_a_uart_byte_is_read_before_a_waiting_tcp_byte_between_frames(void)
+{
+    uint8_t b = 0u;
+
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(2, tcp_feed("ab"));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('a', b);
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_admits(TFW_CMD_RESET));
+    uart_feed("u");
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('u', b);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_admits(TFW_CMD_RESET));
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_tx_try('U', 0u));
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(1, uart_out_len);
+    TEST_ASSERT_EQUAL_HEX8('U', uart_out[0]);
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+    TEST_ASSERT_EQUAL_UINT8(1, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_CHAR('b', b);
+    TEST_ASSERT_EQUAL_UINT8(0, tfw_link_admits(TFW_CMD_RESET));
+}
+
 static void test_a_full_batch_flushes_and_a_full_tcp_buffer_waits(void)
 {
     uint8_t b;
@@ -555,6 +697,12 @@ int main(void)
     RUN_TEST(test_hold_keeps_the_frame_on_its_wire);
     RUN_TEST(test_the_window_reopens_only_as_bytes_are_read);
     RUN_TEST(test_the_ring_takes_no_more_than_it_has_room_for);
+    RUN_TEST(test_bytes_read_from_a_full_ring_free_exactly_that_much_room);
+    RUN_TEST(test_bytes_pushed_across_the_ring_end_are_read_in_order);
+    RUN_TEST(test_a_uart_frame_holds_the_uart_while_a_tcp_byte_waits);
+    RUN_TEST(test_a_stall_across_the_millisecond_wrap_is_bounded_the_same);
+    RUN_TEST(test_an_event_end_leaves_a_part_built_tcp_reply_batched);
+    RUN_TEST(test_a_uart_byte_is_read_before_a_waiting_tcp_byte_between_frames);
     RUN_TEST(test_a_full_batch_flushes_and_a_full_tcp_buffer_waits);
     RUN_TEST(test_a_peer_that_stops_reading_is_reset_and_serial_is_answered);
     RUN_TEST(test_a_slow_reader_is_not_reset);

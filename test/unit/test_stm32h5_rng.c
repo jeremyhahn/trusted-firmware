@@ -66,6 +66,7 @@ static uint32_t rng_sr_cell(void)
 #define SEIS TFW_H5_RNG_SR_SEIS
 #define SECS TFW_H5_RNG_SR_SECS
 #define OUT0 0xA5A5A5A5u
+#define CECS TFW_H5_RNG_SR_CECS
 
 static volatile uint32_t rcc_cr, rcc_ahb2enr;
 static const tfw_h5_rng_t rng = { regs, &rcc_cr, &rcc_ahb2enr };
@@ -274,6 +275,44 @@ test_a_word_not_ready_yet_is_waited_for_not_taken(void)
     TEST_ASSERT_EQUAL_UINT32(5u, sr_seq);
 }
 
+static void
+test_a_word_taken_while_only_a_seed_error_is_set_is_read_again(void)
+{
+    uint32_t out = OUT0;
+
+    /* SECS after the DR read, SEIS not latched yet: the word is dropped,
+     * the RNG recovered, and the next word taken. */
+    script(DRDY, SECS | DRDY, DRDY);
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    /* RNG_SR reads: init, DRDY, SECS after the read, the recovery's write,
+     * its poll, DRDY, and the one after the second DR read. */
+    TEST_ASSERT_EQUAL_UINT32(7u, sr_seq);
+    TEST_ASSERT_EQUAL_HEX32(0u, regs[TFW_H5_RNG_CR_IX] & TFW_H5_RNG_CR_CONDRST);
+}
+
+static void
+test_a_clock_error_still_set_at_the_recovery_poll_is_waited_out(void)
+{
+    uint32_t out = OUT0;
+
+    /* CEIS latched: recovery; its first poll still reads CECS (the clock
+     * error now), so it polls again before the word is taken. */
+    sr_script[0] = DRDY;
+    sr_script[1] = CEIS | DRDY;
+    sr_script[2] = CECS | CEIS | DRDY;
+    sr_script[3] = DRDY;
+    sr_script[4] = DRDY;
+    sr_script[5] = DRDY;
+    sr_len = 6u;
+    TEST_ASSERT_EQUAL_INT(0, run_read(0x5eed1234u, &out));
+    TEST_ASSERT_EQUAL_HEX32(0x5eed1234u, out);
+    TEST_ASSERT_EQUAL_UINT32(1u, sr_nwrites);
+    /* RNG_SR reads: init, CEIS, the write, two polls, DRDY, and the one
+     * after the DR read. */
+    TEST_ASSERT_EQUAL_UINT32(7u, sr_seq);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -288,5 +327,7 @@ int main(void)
     RUN_TEST(test_a_second_seed_error_after_a_read_is_reported_not_recovered_again);
     RUN_TEST(test_a_flag_still_latched_at_the_recovery_poll_is_cleared_again);
     RUN_TEST(test_a_word_not_ready_yet_is_waited_for_not_taken);
+    RUN_TEST(test_a_word_taken_while_only_a_seed_error_is_set_is_read_again);
+    RUN_TEST(test_a_clock_error_still_set_at_the_recovery_poll_is_waited_out);
     return UNITY_END();
 }

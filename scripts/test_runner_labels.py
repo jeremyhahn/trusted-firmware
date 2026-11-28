@@ -399,23 +399,35 @@ def _flow(lines, i, value):
     when it never closes. It closes at the bracket that brings it back to
     depth 0 outside quoted scalars and expressions, so a `]`, `}` or `}}`
     inside an open quoted label does not end it; a ` # comment` on a
-    following line is dropped only outside them too."""
+    following line is dropped only outside them too. The lines join with a
+    blank, each stripped, except across a line break inside a quoted scalar:
+    there the break and the blanks around it are kept, so a quoted label
+    folds as YAML folds it (`"qw\\` then `ne"` is `qwne`, see
+    _decode_quoted)."""
     if not value.startswith(("[", "{")):
         return value, i
-    scanner, parts = _Scanner(), []
+    scanner, joined = _Scanner(), ""
     for j in range(i, len(lines)):
-        text = value if j == i else lines[j].strip()
-        # Lines join with a blank, as the folded line break of a flow.
-        scanner.line()
+        # A line that starts inside a quoted scalar is kept raw, its line
+        # break and blanks included, for _decode_quoted to fold; any other
+        # line is stripped and joins with a blank, as the folded line break
+        # of a flow.
+        inside = scanner.quote is not None
+        text = value if j == i else lines[j]
+        if j > i:
+            joined += "\n" if inside else " "
+        if not inside:
+            text = text.lstrip()
+            scanner.line()
         end = len(text)
         for k, c, top in scanner.feed(text):
             if _is_comment(scanner, c, top):
                 end = k
                 break
             if top and c in "]}" and not scanner.nest:
-                parts.append(text[: k + 1])
-                return " ".join(parts), j
-        parts.append(text[:end].strip())
+                return joined + text[: k + 1], j
+        text = text[:end]
+        joined += text if scanner.quote is not None else text.rstrip()
     return None, len(lines)
 
 

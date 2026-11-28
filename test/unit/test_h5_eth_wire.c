@@ -193,6 +193,50 @@ static void test_the_ring_takes_no_more_than_it_has_room_for(void)
     TEST_ASSERT_EQUAL_UINT16(0, tfw_h5_wire_push(big, 1u));
 }
 
+static void test_bytes_read_from_a_full_ring_free_exactly_that_much_room(void)
+{
+    static uint8_t big[TFW_H5_WIRE_RX_RING + 8u];
+    uint8_t        b = 0u;
+
+    memset(big, 'z', sizeof big);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(TFW_H5_WIRE_RX_RING - 1u,
+                             tfw_h5_wire_push(big, (uint16_t)sizeof big));
+    TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 0u));
+    for (int i = 0; i < 4; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+    }
+    TEST_ASSERT_EQUAL_UINT16(5, tfw_h5_wire_push(big, 8u));
+    TEST_ASSERT_EQUAL_UINT16(0, tfw_h5_wire_push(big, 1u));
+}
+
+static void test_bytes_pushed_across_the_ring_end_are_read_in_order(void)
+{
+    static uint8_t fill[2000u];
+    uint8_t        seq[60];
+    uint8_t        b = 0u;
+
+    memset(fill, 'z', sizeof fill);
+    tfw_h5_wire_open();
+    TEST_ASSERT_EQUAL_UINT16(2000, tfw_h5_wire_push(fill, (uint16_t)sizeof fill));
+    TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 0u));
+    for (int i = 1; i < 2000; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+    }
+    TEST_ASSERT_EQUAL(0u, tfw_link_rx(&b, 1u));
+
+    for (int i = 0; i < 60; i++) {
+        seq[i] = (uint8_t)(0x40 + i);
+    }
+    /* The head runs 2000..2047, then wraps to 0..11. */
+    TEST_ASSERT_EQUAL_UINT16(60, tfw_h5_wire_push(seq, (uint16_t)sizeof seq));
+    for (int i = 0; i < 60; i++) {
+        TEST_ASSERT_EQUAL(1u, tfw_link_rx(&b, 1u));
+        TEST_ASSERT_EQUAL_HEX8(seq[i], b);
+    }
+    TEST_ASSERT_EQUAL(0u, tfw_link_rx(&b, 1u));
+}
+
 static void test_a_full_batch_flushes_and_a_full_tcp_buffer_waits(void)
 {
     uint8_t b;
@@ -555,6 +599,8 @@ int main(void)
     RUN_TEST(test_hold_keeps_the_frame_on_its_wire);
     RUN_TEST(test_the_window_reopens_only_as_bytes_are_read);
     RUN_TEST(test_the_ring_takes_no_more_than_it_has_room_for);
+    RUN_TEST(test_bytes_read_from_a_full_ring_free_exactly_that_much_room);
+    RUN_TEST(test_bytes_pushed_across_the_ring_end_are_read_in_order);
     RUN_TEST(test_a_full_batch_flushes_and_a_full_tcp_buffer_waits);
     RUN_TEST(test_a_peer_that_stops_reading_is_reset_and_serial_is_answered);
     RUN_TEST(test_a_slow_reader_is_not_reset);

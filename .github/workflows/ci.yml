@@ -155,7 +155,7 @@
 # customized: v1.56's "SPEC and ROADMAP agree" step is not adopted yet: docs/SPEC.md's maintenance row status `standing` fails scripts/spec-roadmap-check.py; it adopts after a docs PR makes the check pass on main.
 # customized: the Row job's if: adds the schedule clause every job that needs preflight carries here (a no-op on pull_request).
 # customized: the Signatures job stays in ci.yml (no signatures.yml in this repository yet).
-# customized: no publish-images job: .github/actionlint.yaml has no `release` label yet, and RELEASE_RUNNER is unset.
+# customized: no publish-images job yet: it waits on the release runner, RELEASE_RUNNER and an owner ruling (#615 slice 2).
 #
 # v1.49 (2026-11-20, Tenant Agent ruling 1047 (3) and (2), CI priority 1,
 # defect fix): the preflight job ran on ubuntu-latest on github.com, about

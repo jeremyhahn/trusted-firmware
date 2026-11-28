@@ -9,3 +9,13 @@ self-hosted-runner:
     - code-review
     - qwen
     - ci-gate
+    - bigdisk
+    - release
+
+# code-review.yml is the handbook's template and is not edited in this
+# repository; the ignore covers SC2015 in that one file only, so every other
+# workflow still gets the full shellcheck rule set.
+paths:
+  .github/workflows/code-review.yml:
+    ignore:
+      - 'SC2015:'

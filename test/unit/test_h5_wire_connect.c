@@ -704,6 +704,45 @@ static void test_a_close_with_no_memory_for_the_fin_resets(void)
     TEST_ASSERT_EQUAL_UINT(1, abort_calls);
 }
 
+/* hal_eth_wire_tcp.c:204-212 and 199-200: the link's abort resets the open
+ * connection once and unhooks it; with nothing open a second abort resets
+ * nothing, no window goes back and no byte goes out to the gone pcb, and the
+ * redial waits out the backoff the abort began. */
+static void test_an_abort_resets_the_connection_once_and_redials_after_the_wait(void)
+{
+    static const uint8_t bytes[2] = { 1u, 2u };
+
+    tfw_h5_wire_abort();
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+    TEST_ASSERT_EQUAL_UINT(0, close_calls);
+    TEST_ASSERT_NULL(recv_cb);
+    TEST_ASSERT_NULL(err_cb);
+
+    tfw_h5_wire_abort();                /* nothing open: no second RST */
+    TEST_ASSERT_EQUAL_UINT(1, abort_calls);
+    tfw_h5_wire_recved(5u);
+    TEST_ASSERT_EQUAL_UINT(0, recved_total);
+    TEST_ASSERT_EQUAL_UINT16(2u, tfw_h5_wire_send(bytes, 2u));     /* dropped */
+    TEST_ASSERT_EQUAL_UINT(0, sent_len);
+
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(0, connect_calls);
+    tfw_mock_advance(TFW_H5_WIRE_REDIAL_MS);
+    tfw_h5_wire_dial_poll();
+    TEST_ASSERT_EQUAL_UINT(1, connect_calls);
+    connect_answers(ERR_OK);
+}
+
+/* hal_eth_wire_tcp.c:122 and 199-200: Nagle is off on the connection, so a
+ * reply goes out at once, and the window reopens by exactly what was read. */
+static void test_the_connection_sends_at_once_and_reopens_the_window_it_read(void)
+{
+    TEST_ASSERT_TRUE(tcp_nagle_disabled(&conn));
+    tfw_h5_wire_recved(7u);
+    tfw_h5_wire_recved(1u);
+    TEST_ASSERT_EQUAL_UINT(8, recved_total);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -732,5 +771,7 @@ int main(void)
     RUN_TEST(test_a_request_split_across_a_pbuf_chain_is_answered);
     RUN_TEST(test_a_full_receive_window_lands_whole);
     RUN_TEST(test_a_close_with_no_memory_for_the_fin_resets);
+    RUN_TEST(test_an_abort_resets_the_connection_once_and_redials_after_the_wait);
+    RUN_TEST(test_the_connection_sends_at_once_and_reopens_the_window_it_read);
     return UNITY_END();
 }

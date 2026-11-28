@@ -180,6 +180,36 @@ static void test_irq_restore_issues_a_dsb_before_the_mask(void)
     TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs_at_restore);
 }
 
+/* tfw-boot calls in already masked: the restore keeps the mask on and still
+ * ends the quad-word's stores with the DSB ahead of it. */
+static void test_a_masked_callers_restore_still_issues_the_dsb(void)
+{
+    uint32_t m;
+
+    stub_primask = 1u;
+    m = tfw_h5_flash_irq_save();
+    TEST_ASSERT_EQUAL_HEX32(1u, m);
+    tfw_h5_flash_irq_restore(m);
+    TEST_ASSERT_EQUAL_HEX32(1u, stub_primask);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_restores);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_dsbs_at_restore);
+}
+
+/* The restore writes PRIMASK with the whole word the save read, not bit 0. */
+static void test_the_restore_hands_back_the_saved_word_unchanged(void)
+{
+    uint32_t m;
+
+    stub_primask = 0x80000001u;
+    m = tfw_h5_flash_irq_save();
+    TEST_ASSERT_EQUAL_HEX32(0x80000001u, m);
+    TEST_ASSERT_EQUAL_HEX32(1u, stub_primask);
+    tfw_h5_flash_irq_restore(m);
+    TEST_ASSERT_EQUAL_HEX32(0x80000001u, stub_primask);
+    TEST_ASSERT_EQUAL_UINT(1u, stub_restores);
+}
+
 /* RM0481 FLASH_NSSR: BSY is bit 0, WBNE bit 1, DBNE bit 3 (bit 2 is
  * reserved). The values are written here as literals, not through
  * soc_regs.h, so a moved bit fails. */
@@ -222,6 +252,8 @@ int main(void)
     RUN_TEST(test_irq_save_masks_and_returns_the_mask_it_found);
     RUN_TEST(test_irq_restore_restores_the_saved_mask);
     RUN_TEST(test_irq_restore_issues_a_dsb_before_the_mask);
+    RUN_TEST(test_a_masked_callers_restore_still_issues_the_dsb);
+    RUN_TEST(test_the_restore_hands_back_the_saved_word_unchanged);
     RUN_TEST(test_the_wait_holds_on_rm0481_bits_0_1_and_3);
     RUN_TEST(test_every_bit_but_0_1_and_3_leaves_the_wait_at_once);
     return UNITY_END();
